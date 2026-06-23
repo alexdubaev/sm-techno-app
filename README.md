@@ -96,3 +96,21 @@ restore_db.bat
 - [README_NEXT_STOCK_WEB.md](D:\codex\SEO_Gen\README_NEXT_STOCK_WEB.md) — описание текущего web-контура
 - [README_STOCK_WEB.md](D:\codex\SEO_Gen\README_STOCK_WEB.md) — legacy Streamlit-версия
 - [README_STOCK_APP.md](D:\codex\SEO_Gen\README_STOCK_APP.md) — legacy desktop-версия
+
+## Первый push в GitHub
+
+После создания пустого репозитория на GitHub привяжите его как `origin` и отправьте код:
+
+```powershell
+cd D:\codex\SEO_Gen
+git remote add origin https://github.com/ВАШ-ЛОГИН/ВАШ-РЕПО.git
+git push -u origin main
+```
+
+Если `origin` уже существует, обновите адрес:
+
+```powershell
+cd D:\codex\SEO_Gen
+git remote set-url origin https://github.com/ВАШ-ЛОГИН/ВАШ-РЕПО.git
+git push -u origin main
+```
