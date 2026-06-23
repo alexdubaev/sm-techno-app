@@ -434,7 +434,7 @@ def logout(
 def meta(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     catalog = SERVICE.get_stock_catalog()
     return {
-        "appTitle": "РЎРњ РўР•РҐРќРћ вЂ” Р»РѕРєР°Р»СЊРЅС‹Р№ РїСЂР°Р№СЃ Рё Р·Р°РєР°Р·С‹",
+        "appTitle": "СМ ТЕХНО — локальный прайс и заказы",
         "priceLoaded": catalog["summary"]["catalog_count"] > 0,
         "catalogCount": catalog["summary"]["catalog_count"],
         "databasePath": str(Path(SERVICE.db.db_path).resolve()),
