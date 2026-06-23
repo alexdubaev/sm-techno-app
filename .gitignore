@@ -16,12 +16,8 @@ transfer/
 sm-techno-web/.env.local
 sm-techno-web/node_modules/
 sm-techno-web/.next/
-seo_gen/
-stock_sync_desktop/
-stock_sync_web/
+sm-techno-web/.vscode/
+sm-techno-web/encoding-backup/
+sm-techno-web/Price/
 tmp/
 $out
-input_user.xlsx
-sample_input.csv
-SEO_TAB.xlsx
-seo_result_v2_offline.xlsx

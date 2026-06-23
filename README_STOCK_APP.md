@@ -1,74 +1,50 @@
 # Desktop app for 1C UNF stock and orders
 
-Это отдельное desktop-приложение рядом с текущим SEO-проектом. Оно не трогает `app.py`, а запускается отдельным файлом `desktop_stock_app.py`.
+Это legacy desktop-приложение СМ ТЕХНО. Оно оставлено в репозитории как старый контур и запускается отдельно через `desktop_stock_app.py`.
 
 ## Что умеет
 
 - хранить локальные остатки в `SQLite`
-- импортировать остатки из `Excel` или `CSV`
+- импортировать остатки из `Excel` и `CSV`
 - генерировать Excel-шаблон для загрузки
 - синхронизировать из `1С:УНФ`:
-  - `Контрагентов`
-  - `ДоговорыКонтрагентов`
-  - `Организации`
-  - `Номенклатуру`
+  - контрагентов
+  - договоры контрагентов
+  - организации
+  - номенклатуру
 - собирать локальный заказ и отправлять его в `1С` как `Document_ЗаказПокупателя`
-- после успешной отправки списывать остатки локально
+- после успешной отправки списывать локальные остатки
 
 ## Запуск
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python desktop_stock_app.py
+```powershell
+cd D:\codex\SEO_Gen
+.\.venv\Scripts\python.exe desktop_stock_app.py
 ```
 
-## Как подготовить 1С
+## Что нужно опубликовать в 1С
 
-В `1С` должны быть опубликованы через OData нужные сущности:
-
+Через OData должны быть доступны:
 - `Catalog_Контрагенты`
 - `Catalog_ДоговорыКонтрагентов`
 - `Catalog_Организации`
 - `Catalog_Номенклатура`
 - `Document_ЗаказПокупателя`
 
-В настройках приложения нужно заполнить:
+## Какие поля заполняются в настройках приложения
 
 - `URL базы 1С`
 - `Логин OData`
 - `Пароль OData`
-- GUID-поля, которые участвуют в создании `ЗаказаПокупателя`
+- GUID-поля, участвующие в создании `ЗаказаПокупателя`
 
-Часть GUID можно взять из уже существующего заказа в 1С через OData. Для твоей базы это обычно:
+Обычно часть GUID берется из существующего заказа в 1С через OData.
 
-- `ВидЗаказа`
-- `СостояниеЗаказа`
-- `СтруктурнаяЕдиницаПродажи_Key`
-- `СтруктурнаяЕдиницаРезерв_Key`
-- `ХозяйственнаяОперация_Key`
-- `СтавкаНДС_Key`
+## Основные файлы legacy-контура
 
-## Excel-шаблон
-
-Приложение генерирует шаблон с колонками:
-
-- `sku`
-- `name`
-- `onec_key`
-- `unit_key`
-- `unit_name`
-- `price`
-- `quantity`
-
-`quantity` считается текущим остатком, а не дельтой.
-
-## Файлы
-
-- `desktop_stock_app.py` - точка входа
-- `stock_sync_desktop/database.py` - SQLite и транзакции
-- `stock_sync_desktop/onec_api.py` - клиент OData
-- `stock_sync_desktop/excel_tools.py` - шаблон и импорт Excel
-- `stock_sync_desktop/service.py` - бизнес-логика
-- `stock_sync_desktop/ui.py` - интерфейс Tkinter
+- `desktop_stock_app.py` — точка входа
+- `stock_sync_desktop/database.py` — SQLite и транзакции
+- `stock_sync_desktop/onec_api.py` — клиент OData
+- `stock_sync_desktop/excel_tools.py` — импорт/экспорт Excel
+- `stock_sync_desktop/service.py` — бизнес-логика
+- `stock_sync_desktop/ui.py` — интерфейс Tkinter
