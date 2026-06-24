@@ -111,7 +111,7 @@ export default function OrderDetailsPage() {
         {error ? <Alert>{error}</Alert> : null}
 
         <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
-          <div className="grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+          <div className="grid gap-1.5 2xl:grid-cols-[minmax(0,1fr)_auto] 2xl:items-start">
             <div className="flex flex-wrap gap-1">
               <InlineMeta label="Контрагент" value={sanitizeMetaValue(order?.counterpartyName)} />
               <InlineMeta label="Договор" value={sanitizeMetaValue(order?.contractName, "Без договора")} />
@@ -123,7 +123,7 @@ export default function OrderDetailsPage() {
               <InlineMeta label="Склады" value={sanitizeMetaValue(order?.warehouseSummary, "Основной склад")} />
             </div>
 
-            <div className="flex flex-wrap gap-1 xl:justify-end">
+            <div className="flex flex-wrap gap-1 2xl:justify-end">
               <Link
                 href="/orders"
                 className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"

@@ -21,3 +21,4 @@ sm-techno-web/encoding-backup/
 sm-techno-web/Price/
 tmp/
 $out
+~$*.docx

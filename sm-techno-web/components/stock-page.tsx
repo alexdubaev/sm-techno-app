@@ -43,7 +43,6 @@ const STOCK_TABLE_COLUMNS: ResizableColumnConfig[] = [
   { key: "stock", width: 88, minWidth: 70, compactMinWidth: 60, maxWidth: 130 },
   { key: "price", width: 96, minWidth: 78, compactMinWidth: 70, maxWidth: 150 },
   { key: "amount", width: 110, minWidth: 88, compactMinWidth: 78, maxWidth: 170 },
-  { key: "action", width: 62, minWidth: 52, compactMinWidth: 46, maxWidth: 92 },
 ];
 
 const DEFAULT_STATE: StockPageViewState = {
@@ -91,7 +90,7 @@ export function StockPage() {
   const [isHydrated, setIsHydrated] = useState(false);
 
   const { containerRef, getWidth, onResizeStart, tableWidth } = useResizableColumns(
-    "sm-techno-stock-table-widths-v6",
+    "sm-techno-stock-table-widths-v7",
     STOCK_TABLE_COLUMNS,
     { allowTightFit: true },
   );
@@ -539,25 +538,6 @@ export function StockPage() {
     });
   };
 
-  const addOneToDraft = (item: StockItem) => {
-    const warehouse = pickPreferredWarehouse(item, activeWarehouseId);
-    if (!warehouse || getAvailableUnits(warehouse.quantity) <= 0) {
-      return;
-    }
-
-    const lineId = buildDraftLineKey(item.id, warehouse.warehouseId);
-    const existing = draftLines.find((line) => line.lineId === lineId);
-    const nextQuantity = Math.min(
-      getAvailableUnits(warehouse.quantity),
-      (existing?.quantity ?? 0) + 1,
-    );
-
-    selectItem(item);
-    setSelectedWarehouseId(warehouse.warehouseId);
-    setSelectedQuantityInput(formatQuantityInput(nextQuantity));
-    updateDraftLine(item, warehouse, nextQuantity);
-  };
-
   const removeDraftLine = (lineId: string) => {
     setAndPersistDraftLines((previous) => previous.filter((line) => line.lineId !== lineId));
   };
@@ -653,12 +633,6 @@ export function StockPage() {
               onResizeStart={onResizeStart}
               className="px-3 py-2 font-semibold"
             />
-            <ResizableTableHeader
-              columnKey="action"
-              label="Действие"
-              onResizeStart={onResizeStart}
-              className="px-3 py-2 text-right font-semibold"
-            />
           </tr>
         </thead>
         <tbody>
@@ -732,26 +706,6 @@ export function StockPage() {
                 <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] font-semibold tabular-nums text-[var(--text-primary)]">
                   {formatMoney(item.price * availableUnits)}
                 </td>
-                <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-right">
-                  <button
-                    type="button"
-                    aria-label={`Добавить ${item.name} в счет`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      addOneToDraft(item);
-                    }}
-                    disabled={availableUnits <= 0}
-                    className={[
-                      "inline-flex h-7 w-7 items-center justify-center rounded-[9px] border transition-all duration-200",
-                      isSelected
-                        ? "border-[var(--brand-dark)] bg-[var(--brand-dark)] text-white"
-                        : "border-[var(--border-color)] bg-white text-[var(--brand-dark)] hover:border-[var(--brand-dark)] hover:bg-[#F8FAFD]",
-                      availableUnits <= 0 ? "cursor-not-allowed opacity-40" : "active:scale-[0.97]",
-                    ].join(" ")}
-                  >
-                    <PlusIcon className="h-3.5 w-3.5 stroke-[2]" />
-                  </button>
-                </td>
               </tr>
             );
           })}
@@ -773,7 +727,7 @@ export function StockPage() {
             </p>
           </div>
 
-          <div className="inline-flex min-h-[34px] min-w-[196px] items-center gap-2 rounded-[14px] border border-[var(--border-color)] bg-white px-3 py-1.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+          <div className="inline-flex min-h-[34px] w-full items-center gap-2 rounded-[14px] border border-[var(--border-color)] bg-white px-3 py-1.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)] sm:w-auto sm:min-w-[196px]">
             <span
               className={`h-2 w-2 rounded-full ${
                 priceLoaded ? "bg-[var(--stock-ok)]" : "bg-[var(--stock-empty)]"
@@ -789,7 +743,7 @@ export function StockPage() {
           </div>
         </header>
 
-        <div className="grid gap-2.5 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+        <div className="grid gap-2.5 2xl:grid-cols-[minmax(0,1fr)_296px] 2xl:items-start">
           <div className="min-w-0 space-y-2.5">
             <section className="rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_168px_136px]">
@@ -921,7 +875,7 @@ export function StockPage() {
             ) : null}
           </div>
 
-          <aside className="flex min-h-0 flex-col gap-2.5 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:overflow-auto">
+          <aside className="flex min-h-0 flex-col gap-2.5 2xl:sticky 2xl:top-3 2xl:max-h-[calc(100dvh-1.5rem)] 2xl:overflow-auto">
             <section className="rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -1046,7 +1000,7 @@ export function StockPage() {
                       Добавить в счет
                     </button>
 
-                    <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                    <div className="mt-1.5 grid grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-1.5">
                       <button
                         type="button"
                         disabled={!selectedDraftLine}
@@ -1055,14 +1009,14 @@ export function StockPage() {
                             removeDraftLine(selectedLineKey);
                           }
                         }}
-                        className="flex h-[32px] items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-white px-2 text-[11px] font-medium text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex h-[32px] min-w-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-medium leading-none text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Убрать из счета
                       </button>
                       <button
                         type="button"
                         onClick={clearSelection}
-                        className="flex h-[32px] items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-white px-2 text-[11px] font-medium text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+                        className="flex h-[32px] min-w-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-medium leading-none text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
                       >
                         Снять выбор
                       </button>
@@ -1582,19 +1536,6 @@ function PackageIcon(props: SVGProps<SVGSVGElement>) {
       />
       <path
         d="M4.5 7.3 12 11l7.5-3.7M12 11v9.5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function PlusIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path
-        d="M12 5v14M5 12h14"
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"

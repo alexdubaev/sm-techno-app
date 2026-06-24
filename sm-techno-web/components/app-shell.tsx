@@ -38,15 +38,15 @@ export function AppShell({ children }: ShellProps) {
   return (
     <div className="min-h-screen bg-[var(--page-bg)] text-[var(--text-primary)]">
       <div className="mx-auto flex min-h-screen max-w-[1680px]">
-        <aside className="hidden w-[246px] shrink-0 border-r border-[var(--border-color)] bg-white/92 px-3 py-3 backdrop-blur-sm lg:flex lg:flex-col">
+        <aside className="hidden w-[220px] shrink-0 border-r border-[var(--border-color)] bg-white/92 px-2.5 py-3 backdrop-blur-sm xl:flex xl:flex-col 2xl:w-[246px] 2xl:px-3">
           <div className="mb-4 px-1.5">
-            <div className="relative h-[82px] w-[226px] overflow-hidden">
+            <div className="relative h-[76px] w-[198px] overflow-hidden 2xl:h-[82px] 2xl:w-[226px]">
               <Image
                 src="/logo.png"
                 alt="СМ Техно"
                 width={310}
                 height={120}
-                className="absolute left-1/2 top-[56%] h-auto w-[310px] max-w-none -translate-x-1/2 -translate-y-1/2"
+                className="absolute left-1/2 top-[56%] h-auto w-[270px] max-w-none -translate-x-1/2 -translate-y-1/2 2xl:w-[310px]"
                 priority
               />
             </div>
@@ -93,18 +93,7 @@ export function AppShell({ children }: ShellProps) {
             })}
           </nav>
 
-          <div className="mt-auto space-y-2">
-            <div className="rounded-[18px] border border-[var(--border-color)] bg-white/95 p-3.5 shadow-[0_12px_30px_rgba(7,22,46,0.06)]">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[12px] bg-[var(--panel-muted)] text-[var(--brand-dark)]">
-                  <HeadsetIcon className="h-4 w-4 stroke-[1.8]" />
-                </div>
-                <ChevronRightIcon className="mt-1 h-4 w-4 shrink-0 text-[var(--text-secondary)]" />
-              </div>
-              <p className="mt-3 text-[12px] font-semibold text-[var(--text-primary)]">Нужна помощь?</p>
-              <p className="mt-1 text-[12px] text-[var(--text-secondary)]">Поддержка 24/7</p>
-            </div>
-
+          <div className="mt-auto">
             <button
               type="button"
               onClick={() => void logout()}
@@ -115,19 +104,11 @@ export function AppShell({ children }: ShellProps) {
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 px-2.5 py-2.5 md:px-3 md:py-3 xl:px-4 xl:py-4">
+        <main className="min-w-0 flex-1 px-2 py-2 md:px-3 md:py-3 xl:px-3.5 xl:py-3.5 2xl:px-4 2xl:py-4">
           <div className="relative">{children}</div>
         </main>
       </div>
     </div>
-  );
-}
-
-function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 
@@ -185,10 +166,3 @@ function GearIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function HeadsetIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path d="M5 12a7 7 0 1 1 14 0v5a2 2 0 0 1-2 2h-1.5a1.5 1.5 0 0 1-1.5-1.5v-3A1.5 1.5 0 0 1 15.5 13H19M5 12v5a2 2 0 0 0 2 2h1.5A1.5 1.5 0 0 0 10 17.5v-3A1.5 1.5 0 0 0 8.5 13H5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}

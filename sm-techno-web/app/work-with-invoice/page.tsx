@@ -68,6 +68,7 @@ export default function WorkWithInvoicePage() {
   const [organizationKey, setOrganizationKey] = useState("");
   const [orderDate, setOrderDate] = useState(TODAY);
   const [comment, setComment] = useState("");
+  const [counterpartyInput, setCounterpartyInput] = useState("");
 
   const [isReferencesLoading, setIsReferencesLoading] = useState(true);
   const [isSyncingReferences, setIsSyncingReferences] = useState(false);
@@ -211,6 +212,12 @@ export default function WorkWithInvoicePage() {
     () => counterparties.find((item) => item.id === counterpartyId) ?? null,
     [counterparties, counterpartyId],
   );
+
+  useEffect(() => {
+    if (selectedCounterparty) {
+      setCounterpartyInput(selectedCounterparty.name);
+    }
+  }, [selectedCounterparty]);
 
   const vatPercent = useMemo(() => parseVatPercent(settings?.vat_percent), [settings?.vat_percent]);
   const pricesIncludeVat = settings
@@ -479,23 +486,60 @@ export default function WorkWithInvoicePage() {
         </header>
 
         <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
-          <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_124px]">
+          <div className="grid gap-1.5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_124px]">
             <FieldBlock label="Контрагент">
-              <select
-                value={counterpartyId ?? ""}
+              <input
+                list="counterparty-options"
+                value={counterpartyInput}
+                placeholder="Начните вводить контрагента"
+                autoComplete="off"
                 onChange={(event) => {
                   const value = event.target.value;
-                  setCounterpartyId(value ? Number(value) : null);
+                  setCounterpartyInput(value);
+
+                  const normalized = value.trim().toLocaleLowerCase("ru-RU");
+                  if (!normalized) {
+                    setCounterpartyId(null);
+                    return;
+                  }
+
+                  const matched = counterparties.find(
+                    (item) => item.name.trim().toLocaleLowerCase("ru-RU") === normalized,
+                  );
+                  setCounterpartyId(matched?.id ?? null);
+                }}
+                onBlur={() => {
+                  const normalized = counterpartyInput.trim().toLocaleLowerCase("ru-RU");
+                  if (!normalized) {
+                    setCounterpartyId(null);
+                    setCounterpartyInput("");
+                    return;
+                  }
+
+                  const matched = counterparties.find(
+                    (item) => item.name.trim().toLocaleLowerCase("ru-RU") === normalized,
+                  );
+
+                  if (matched) {
+                    setCounterpartyId(matched.id);
+                    setCounterpartyInput(matched.name);
+                    return;
+                  }
+
+                  if (selectedCounterparty) {
+                    setCounterpartyInput(selectedCounterparty.name);
+                    return;
+                  }
+
+                  setCounterpartyInput("");
                 }}
                 className={fieldClassName}
-              >
-                <option value="">Выберите контрагента</option>
+              />
+              <datalist id="counterparty-options">
                 {counterparties.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
+                  <option key={item.id} value={item.name} />
                 ))}
-              </select>
+              </datalist>
             </FieldBlock>
 
             <FieldBlock label="Договор">
@@ -568,7 +612,7 @@ export default function WorkWithInvoicePage() {
             </div>
           </div>
 
-          <div className="mt-1.5 grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="mt-1.5 grid gap-1.5 2xl:grid-cols-[minmax(0,1fr)_auto]">
             <FieldBlock label="Комментарий">
               <input
                 type="text"
@@ -617,7 +661,7 @@ export default function WorkWithInvoicePage() {
           ) : null}
         </section>
 
-        <div className="grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_200px] xl:items-start">
+        <div className="grid gap-1.5 2xl:grid-cols-[minmax(0,1fr)_200px] 2xl:items-start">
           <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-[12px] font-semibold text-[var(--text-primary)]">Табличная часть счета</h2>

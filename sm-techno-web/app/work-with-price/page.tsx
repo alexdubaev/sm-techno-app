@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode, type SVGProps } from "react";
+import { createPortal } from "react-dom";
 
 import { useAuth } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
@@ -59,6 +60,13 @@ type StockActionFormState = {
   toWarehouseId: string;
   quantity: string;
   comment: string;
+};
+
+type RowMenuState = {
+  itemId: number;
+  top: number;
+  right: number;
+  openUpward: boolean;
 };
 
 const EMPTY_FORM: ItemFormState = {
@@ -127,7 +135,7 @@ function WorkWithPriceAdminPage() {
   const [isBusy, setIsBusy] = useState(false);
   const [isCreateExpanded, setIsCreateExpanded] = useState(false);
   const [isWarehouseSettingsExpanded, setIsWarehouseSettingsExpanded] = useState(false);
-  const [activeRowMenuId, setActiveRowMenuId] = useState<number | null>(null);
+  const [activeRowMenu, setActiveRowMenu] = useState<RowMenuState | null>(null);
   const [stockAction, setStockAction] = useState<StockActionState | null>(null);
   const [stockActionForm, setStockActionForm] = useState<StockActionFormState>({
     warehouseId: "",
@@ -158,14 +166,16 @@ function WorkWithPriceAdminPage() {
   }, [searchInput]);
 
   useEffect(() => {
-    if (activeRowMenuId === null) {
+    if (activeRowMenu === null) {
       return;
     }
+
+    const closeMenu = () => setActiveRowMenu(null);
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) {
-        setActiveRowMenuId(null);
+        closeMenu();
         return;
       }
 
@@ -173,23 +183,33 @@ function WorkWithPriceAdminPage() {
         return;
       }
 
-      setActiveRowMenuId(null);
+      closeMenu();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setActiveRowMenuId(null);
+        closeMenu();
       }
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
 
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
     };
-  }, [activeRowMenuId]);
+  }, [activeRowMenu]);
+
+  useEffect(() => {
+    if (activeRowMenu && !items.some((item) => item.id === activeRowMenu.itemId)) {
+      setActiveRowMenu(null);
+    }
+  }, [activeRowMenu, items]);
 
   const loadCatalog = useCallback(async () => {
     setIsLoading(true);
@@ -444,6 +464,8 @@ function WorkWithPriceAdminPage() {
   }, [stockAction, stockActionForm.fromWarehouseId, stockActionForm.warehouseId, stockActionSourceWarehouses]);
 
   const pageCount = Math.max(1, Math.ceil(Math.max(total, 1) / pageSize));
+  const activeRowMenuItem =
+    activeRowMenu ? items.find((item) => item.id === activeRowMenu.itemId) ?? null : null;
   const selectedInList = selectedItem ? items.some((item) => item.id === selectedItem.id) : false;
 
   const createFormValidation = validateItemForm(createForm);
@@ -545,7 +567,7 @@ function WorkWithPriceAdminPage() {
         setSelectedItem(null);
       }
       setItemPendingDelete(null);
-      setActiveRowMenuId(null);
+      setActiveRowMenu(null);
       setMessage(`Позиция "${deletedName}" удалена. Удалено: ${result.deleted}, скрыто: ${result.hidden}.`);
       await loadCatalog();
     } catch (requestError: unknown) {
@@ -646,8 +668,29 @@ function WorkWithPriceAdminPage() {
   const handleSelectItem = (item: StockItem) => {
     setSelectedId(item.id);
     setSelectedItem(item);
-    setActiveRowMenuId(null);
+    setActiveRowMenu(null);
   };
+
+  const handleToggleRowMenu = useCallback((itemId: number, trigger: HTMLButtonElement) => {
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const estimatedHeight = 196;
+    const nextRight = Math.max(viewportPadding, window.innerWidth - rect.right);
+    const openUpward =
+      rect.bottom + 6 + estimatedHeight > window.innerHeight - viewportPadding &&
+      rect.top - 6 - estimatedHeight > viewportPadding;
+
+    setActiveRowMenu((current) =>
+      current?.itemId === itemId
+        ? null
+        : {
+            itemId,
+            top: openUpward ? rect.top - 6 : rect.bottom + 6,
+            right: nextRight,
+            openUpward,
+          },
+    );
+  }, []);
 
   const handleOpenStockAction = async (item: StockItem, mode: StockActionMode) => {
     handleSelectItem(item);
@@ -729,7 +772,7 @@ function WorkWithPriceAdminPage() {
 
       setSelectedItem(updatedItem);
       setStockAction(null);
-      setActiveRowMenuId(null);
+      setActiveRowMenu(null);
       await loadCatalog();
     } catch (requestError: unknown) {
       setError(
@@ -757,7 +800,7 @@ function WorkWithPriceAdminPage() {
             </p>
           </div>
 
-          <div className="inline-flex min-h-[32px] min-w-[220px] items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-2.5 py-1.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+          <div className="inline-flex min-h-[32px] w-full items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-2.5 py-1.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)] sm:w-auto sm:min-w-[220px]">
             <span className="h-2 w-2 rounded-full bg-[var(--stock-ok)]" />
             <div className="min-w-0 flex-1 text-[10px] font-semibold text-[var(--text-primary)]">
               {activeWarehouseName}
@@ -827,7 +870,7 @@ function WorkWithPriceAdminPage() {
           ) : null}
         </section>
 
-        <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_316px] xl:items-start">
+        <div className="grid gap-2 2xl:grid-cols-[minmax(0,1fr)_296px] 2xl:items-start">
           <div className="min-w-0 space-y-2">
             <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_160px_160px]">
@@ -997,52 +1040,18 @@ function WorkWithPriceAdminPage() {
                               {formatMoney(getIntegerQuantity(item.quantity) * item.price)}
                             </td>
                             <td className="relative border-t border-[var(--border-color)] px-3 py-1.5 text-right">
-                              <div className="relative inline-flex" onMouseLeave={() => setActiveRowMenuId((current) => (current === item.id ? null : current))}>
+                              <div className="relative inline-flex" data-row-actions-root="true">
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    setActiveRowMenuId((current) => (current === item.id ? null : item.id));
+                                    handleToggleRowMenu(item.id, event.currentTarget);
                                   }}
                                   className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--text-secondary)] transition hover:border-[var(--brand-yellow)] hover:text-[var(--brand-dark)]"
                                   title="Быстрые действия"
                                 >
                                   <MoreIcon className="h-3.5 w-3.5 stroke-[2]" />
                                 </button>
-
-                                {activeRowMenuId === item.id ? (
-                                  <div
-                                    className="absolute right-0 top-[calc(100%+6px)] z-20 min-w-[208px] rounded-[12px] border border-[var(--border-color)] bg-white p-1 shadow-[0_18px_36px_rgba(7,22,46,0.14)]"
-                                    onClick={(event) => event.stopPropagation()}
-                                  >
-                                    <ActionMenuButton
-                                      label="Изменить карточку"
-                                      onClick={() => handleSelectItem(item)}
-                                    />
-                                    <ActionMenuButton
-                                      label="Добавить остаток"
-                                      onClick={() => handleOpenStockAction(item, "add")}
-                                    />
-                                    <ActionMenuButton
-                                      label="Переместить между складами"
-                                      onClick={() => handleOpenStockAction(item, "move")}
-                                    />
-                                    <ActionMenuButton
-                                      label="Списать остаток"
-                                      destructive
-                                      onClick={() => handleOpenStockAction(item, "writeoff")}
-                                    />
-                                    <ActionMenuButton
-                                      label="Удалить товар"
-                                      destructive
-                                      onClick={() => {
-                                        handleSelectItem(item);
-                                        setItemPendingDelete(item);
-                                        setActiveRowMenuId(null);
-                                      }}
-                                    />
-                                  </div>
-                                ) : null}
                               </div>
                             </td>
                           </tr>
@@ -1094,7 +1103,53 @@ function WorkWithPriceAdminPage() {
             </section>
           </div>
 
-          <aside className="flex min-h-0 flex-col gap-2 xl:sticky xl:top-2 xl:max-h-[calc(100dvh-0.75rem)] xl:self-start xl:overflow-auto">
+          {activeRowMenu && activeRowMenuItem
+            ? createPortal(
+                <div
+                  data-row-actions-root="true"
+                  className="fixed z-30 min-w-[208px] rounded-[12px] border border-[var(--border-color)] bg-white p-1 shadow-[0_18px_36px_rgba(7,22,46,0.14)]"
+                  style={{
+                    top: activeRowMenu.top,
+                    right: activeRowMenu.right,
+                    transform: activeRowMenu.openUpward ? "translateY(-100%)" : undefined,
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <ActionMenuButton
+                    label="Изменить карточку"
+                    onClick={() => {
+                      handleSelectItem(activeRowMenuItem);
+                      setActiveRowMenu(null);
+                    }}
+                  />
+                  <ActionMenuButton
+                    label="Добавить остаток"
+                    onClick={() => void handleOpenStockAction(activeRowMenuItem, "add")}
+                  />
+                  <ActionMenuButton
+                    label="Переместить между складами"
+                    onClick={() => void handleOpenStockAction(activeRowMenuItem, "move")}
+                  />
+                  <ActionMenuButton
+                    label="Списать остаток"
+                    destructive
+                    onClick={() => void handleOpenStockAction(activeRowMenuItem, "writeoff")}
+                  />
+                  <ActionMenuButton
+                    label="Удалить товар"
+                    destructive
+                    onClick={() => {
+                      handleSelectItem(activeRowMenuItem);
+                      setItemPendingDelete(activeRowMenuItem);
+                      setActiveRowMenu(null);
+                    }}
+                  />
+                </div>,
+                document.body,
+              )
+            : null}
+
+          <aside className="flex min-h-0 flex-col gap-2 2xl:sticky 2xl:top-2 2xl:max-h-[calc(100dvh-0.75rem)] 2xl:self-start 2xl:overflow-auto">
             <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
                 <div>
