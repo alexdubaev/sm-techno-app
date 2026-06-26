@@ -5,10 +5,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from stock_sync_desktop.excel_tools import create_import_template, export_stock_snapshot, read_stock_import
+from stock_sync_desktop.excel_tools import (
+    create_import_template,
+    export_client_price,
+    export_stock_snapshot,
+    read_stock_import,
+)
 from stock_sync_desktop.onec_api import OneCClient, OneCClientError
 from stock_sync_desktop.service import DEFAULT_SETTINGS, DraftLine
 from stock_sync_web.database import WebDatabase
+
+CLIENT_PRICE_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templates" / "client_price_template.xlsx"
 
 
 class WebStockSyncService:
@@ -273,20 +280,41 @@ class WebStockSyncService:
         finally:
             temp_path.unlink(missing_ok=True)
 
-    def list_items(self) -> list[dict[str, Any]]:
-        return self.db.list_items()
-
-    def get_stock_catalog(
+    def export_client_price_bytes(
         self,
         *,
         search: str = "",
         category: str = "",
         warehouse_id: int | None = None,
         only_in_stock: bool = False,
-        page: int = 1,
-        page_size: int = 20,
-    ) -> dict[str, Any]:
-        rows = self.db.list_items(warehouse_id=warehouse_id)
+    ) -> bytes:
+        rows, _ = self._filter_catalog_rows(
+            search=search,
+            category=category,
+            warehouse_id=warehouse_id,
+            only_in_stock=only_in_stock,
+        )
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            temp_path = Path(tmp.name)
+        try:
+            export_client_price(temp_path, rows, template_path=CLIENT_PRICE_TEMPLATE_PATH)
+            return temp_path.read_bytes()
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def list_items(self) -> list[dict[str, Any]]:
+        return self.db.list_items()
+
+    def _filter_catalog_rows(
+        self,
+        *,
+        search: str = "",
+        category: str = "",
+        warehouse_id: int | None = None,
+        only_in_stock: bool = False,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        source_rows = self.db.list_items(warehouse_id=warehouse_id)
+        rows = list(source_rows)
         search_text = search.strip().lower()
         if search_text:
             rows = [
@@ -305,10 +333,28 @@ class WebStockSyncService:
         categories = sorted(
             {
                 str(row.get("category_name") or "").strip()
-                for row in self.db.list_items(warehouse_id=warehouse_id)
+                for row in source_rows
                 if str(row.get("category_name") or "").strip()
             },
             key=str.lower,
+        )
+        return rows, categories
+
+    def get_stock_catalog(
+        self,
+        *,
+        search: str = "",
+        category: str = "",
+        warehouse_id: int | None = None,
+        only_in_stock: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        rows, categories = self._filter_catalog_rows(
+            search=search,
+            category=category,
+            warehouse_id=warehouse_id,
+            only_in_stock=only_in_stock,
         )
         total = len(rows)
         total_quantity = round(sum(float(row.get("quantity") or 0) for row in rows), 2)

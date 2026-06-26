@@ -18,7 +18,7 @@
 ## Запуск
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 .\.venv\Scripts\python.exe desktop_stock_app.py
 ```
 

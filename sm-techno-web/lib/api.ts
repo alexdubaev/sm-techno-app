@@ -144,6 +144,61 @@ export function buildApiUrl(path: string) {
   return `${getApiBaseUrl()}${path}`;
 }
 
+function buildClientPriceFilename() {
+  const now = new Date();
+  const day = String(now.getDate()).padStart(2, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const year = String(now.getFullYear());
+  return `cmteh_stock_${day}.${month}.${year}.xlsx`;
+}
+
+function parseDownloadFilename(contentDisposition: string | null, fallbackFilename: string) {
+  if (!contentDisposition) {
+    return fallbackFilename;
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+  if (plainMatch?.[1]) {
+    return plainMatch[1];
+  }
+
+  return fallbackFilename;
+}
+
+async function downloadApiFile(path: string, fallbackMessage: string, fallbackFilename: string) {
+  const response = await fetch(buildApiUrl(path), {
+    cache: "no-store",
+    headers: createHeaders(),
+  });
+
+  if (!response.ok) {
+    await parseJsonResponse<never>(response, fallbackMessage);
+  }
+
+  const blob = await response.blob();
+  const filename = parseDownloadFilename(
+    response.headers.get("Content-Disposition"),
+    fallbackFilename,
+  );
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(objectUrl);
+}
+
 export async function loginAppUser(payload: LoginPayload): Promise<LoginResponse> {
   return requestJsonWithInit<LoginResponse>(
     "/api/auth/login",
@@ -196,6 +251,27 @@ export async function fetchStockCatalog(params: {
   query.set("page_size", String(params.pageSize));
 
   return requestJson<StockCatalogResponse>(`/api/stock/catalog?${query.toString()}`);
+}
+
+export async function downloadClientPriceFile(params: {
+  search: string;
+  category: string;
+  warehouseId?: number | null;
+  onlyInStock: boolean;
+}): Promise<void> {
+  const query = new URLSearchParams();
+
+  if (params.search.trim()) query.set("search", params.search.trim());
+  if (params.category.trim()) query.set("category", params.category.trim());
+  if (params.warehouseId) query.set("warehouse_id", String(params.warehouseId));
+  if (params.onlyInStock) query.set("only_in_stock", "true");
+
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  await downloadApiFile(
+    `/api/price/client-export${suffix}`,
+    "Не удалось выгрузить прайс для клиента.",
+    buildClientPriceFilename(),
+  );
 }
 
 export async function fetchStockItem(itemId: number): Promise<StockItem | null> {

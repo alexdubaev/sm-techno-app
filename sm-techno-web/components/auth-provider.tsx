@@ -44,28 +44,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const savedSession = loadAuthSessionFromStorage();
-    if (!savedSession) {
-      setIsBooting(false);
-      return;
-    }
+    let isActive = true;
 
-    setSession(savedSession);
-    void fetchCurrentUser()
-      .then((user) => {
+    async function bootstrapSession() {
+      const savedSession = loadAuthSessionFromStorage();
+      if (!savedSession) {
+        if (isActive) {
+          setIsBooting(false);
+        }
+        return;
+      }
+
+      if (isActive) {
+        setSession(savedSession);
+      }
+
+      try {
+        const user = await fetchCurrentUser();
+        if (!isActive) {
+          return;
+        }
+
         const nextSession: StoredAuthSession = {
           ...savedSession,
           user,
         };
         saveAuthSessionToStorage(nextSession);
         setSession(nextSession);
-      })
-      .catch(() => {
-        resetSession("Сессия завершилась. Войдите заново.");
-      })
-      .finally(() => {
-        setIsBooting(false);
-      });
+      } catch {
+        if (isActive) {
+          resetSession("Сессия завершилась. Войдите заново.");
+        }
+      } finally {
+        if (isActive) {
+          setIsBooting(false);
+        }
+      }
+    }
+
+    void bootstrapSession();
+    return () => {
+      isActive = false;
+    };
   }, [resetSession]);
 
   useEffect(() => {

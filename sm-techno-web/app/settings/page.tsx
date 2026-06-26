@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
@@ -37,11 +37,23 @@ const ROLE_LABELS: Record<AppUser["role"], string> = {
   user: "Пользователь",
 };
 
+function buildManageForm(user: AppUser | null) {
+  return {
+    fullName: user?.fullName ?? "",
+    appPassword: user?.appPassword ?? "",
+    role: user?.role ?? ("user" as AppUser["role"]),
+    onecUsername: user?.onecUsername ?? "",
+    onecPassword: user?.onecPassword ?? "",
+    isActive: user?.isActive ?? true,
+  };
+}
+
 export default function SettingsPage() {
   const { isAdmin, refreshUser, user } = useAuth();
   const [form, setForm] = useState<SystemSettings | null>(null);
   const [users, setUsers] = useState<AppUser[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const selectedUserIdRef = useRef<number | null>(null);
   const [isOneCSettingsExpanded, setIsOneCSettingsExpanded] = useState(false);
   const [isCreateUserExpanded, setIsCreateUserExpanded] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -52,14 +64,7 @@ export default function SettingsPage() {
     onecUsername: "",
     onecPassword: "",
   });
-  const [manageForm, setManageForm] = useState({
-    fullName: "",
-    appPassword: "",
-    role: "user" as AppUser["role"],
-    onecUsername: "",
-    onecPassword: "",
-    isActive: true,
-  });
+  const [manageForm, setManageForm] = useState(() => buildManageForm(null));
   const [showCreatePassword, setShowCreatePassword] = useState(false);
   const [showCreateOnecPassword, setShowCreateOnecPassword] = useState(false);
   const [showManagePassword, setShowManagePassword] = useState(false);
@@ -74,43 +79,79 @@ export default function SettingsPage() {
     [selectedUserId, users],
   );
 
-  useEffect(() => {
-    if (!isAdmin) {
-      return;
-    }
-    void loadPageData();
-  }, [isAdmin]);
+  const syncUsersSelection = useCallback(
+    (nextUsers: AppUser[], preferredUserId?: number | null) => {
+      const candidateId = preferredUserId ?? selectedUserIdRef.current ?? nextUsers[0]?.id ?? null;
+      const nextSelectedUser =
+        nextUsers.find((item) => item.id === candidateId) ?? nextUsers[0] ?? null;
+      const nextSelectedUserId = nextSelectedUser?.id ?? null;
 
-  useEffect(() => {
-    if (!selectedUser) {
-      return;
-    }
+      setUsers(nextUsers);
+      selectedUserIdRef.current = nextSelectedUserId;
+      setSelectedUserId(nextSelectedUserId);
+      setManageForm(buildManageForm(nextSelectedUser));
+    },
+    [],
+  );
 
-    setManageForm({
-      fullName: selectedUser.fullName,
-      appPassword: selectedUser.appPassword ?? "",
-      role: selectedUser.role,
-      onecUsername: selectedUser.onecUsername,
-      onecPassword: selectedUser.onecPassword ?? "",
-      isActive: selectedUser.isActive,
-    });
-  }, [selectedUser]);
+  const handleSelectUser = useCallback(
+    (nextUserId: number) => {
+      const nextSelectedUser = users.find((item) => item.id === nextUserId) ?? null;
+      const nextSelectedUserId = nextSelectedUser?.id ?? null;
+      selectedUserIdRef.current = nextSelectedUserId;
+      setSelectedUserId(nextSelectedUserId);
+      setManageForm(buildManageForm(nextSelectedUser));
+    },
+    [users],
+  );
 
-  async function loadPageData() {
+  const loadPageData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
       const [settings, loadedUsers] = await Promise.all([fetchSystemSettings(), fetchUsers()]);
       setForm(settings);
-      setUsers(loadedUsers);
-      setSelectedUserId((current) => current ?? loadedUsers[0]?.id ?? null);
+      syncUsersSelection(loadedUsers);
     } catch (requestError: unknown) {
       setError(getErrorMessage(requestError, "Не удалось загрузить настройки и пользователей."));
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [syncUsersSelection]);
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+
+    let isActive = true;
+
+    async function loadInitialPageData() {
+      try {
+        const [settings, loadedUsers] = await Promise.all([fetchSystemSettings(), fetchUsers()]);
+        if (!isActive) {
+          return;
+        }
+
+        setForm(settings);
+        syncUsersSelection(loadedUsers);
+      } catch (requestError: unknown) {
+        if (isActive) {
+          setError(getErrorMessage(requestError, "Не удалось загрузить настройки и пользователей."));
+        }
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadInitialPageData();
+    return () => {
+      isActive = false;
+    };
+  }, [isAdmin, syncUsersSelection]);
 
   async function handleSaveSettings() {
     if (!form) {
@@ -153,8 +194,7 @@ export default function SettingsPage() {
         onecPassword: createForm.onecPassword,
       });
       const loadedUsers = await fetchUsers();
-      setUsers(loadedUsers);
-      setSelectedUserId(created.id);
+      syncUsersSelection(loadedUsers, created.id);
       setCreateForm({
         username: "",
         fullName: "",
@@ -183,8 +223,7 @@ export default function SettingsPage() {
     try {
       const updated = await updateAppUser(selectedUser.id, manageForm);
       const loadedUsers = await fetchUsers();
-      setUsers(loadedUsers);
-      setSelectedUserId(updated.id);
+      syncUsersSelection(loadedUsers, updated.id);
       if (updated.id === user.id) {
         await refreshUser();
       }
@@ -216,13 +255,7 @@ export default function SettingsPage() {
       await deleteAppUser(selectedUser.id);
       const deletedUsername = selectedUser.username;
       const loadedUsers = await fetchUsers();
-      setUsers(loadedUsers);
-      setSelectedUserId((current) => {
-        if (current !== selectedUser.id) {
-          return current ?? loadedUsers[0]?.id ?? null;
-        }
-        return loadedUsers[0]?.id ?? null;
-      });
+      syncUsersSelection(loadedUsers);
       setMessage(`Пользователь "${deletedUsername}" удален.`);
     } catch (requestError: unknown) {
       setError(getErrorMessage(requestError, "Не удалось удалить пользователя."));
@@ -423,7 +456,7 @@ export default function SettingsPage() {
                       return (
                         <tr
                           key={item.id}
-                          onClick={() => setSelectedUserId(item.id)}
+                          onClick={() => handleSelectUser(item.id)}
                           className={[
                             "cursor-pointer border-t border-[var(--border-color)] transition-colors",
                             isSelected ? "bg-[#FFF8D9]" : "hover:bg-[#F8FAFD]",

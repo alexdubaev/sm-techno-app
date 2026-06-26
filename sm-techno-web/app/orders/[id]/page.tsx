@@ -111,7 +111,7 @@ export default function OrderDetailsPage() {
         {error ? <Alert>{error}</Alert> : null}
 
         <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
-          <div className="grid gap-1.5 2xl:grid-cols-[minmax(0,1fr)_auto] 2xl:items-start">
+          <div className="grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
             <div className="flex flex-wrap gap-1">
               <InlineMeta label="Контрагент" value={sanitizeMetaValue(order?.counterpartyName)} />
               <InlineMeta label="Договор" value={sanitizeMetaValue(order?.contractName, "Без договора")} />

@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _build_client_price_filename() -> str:
+    return f'cmteh_stock_{datetime.now().strftime("%d.%m.%Y")}.xlsx'
 
 
 def _serialize_item(row: dict[str, Any]) -> dict[str, Any]:
@@ -817,6 +822,28 @@ def price_snapshot(current_user: dict[str, Any] = Depends(_get_current_user)) ->
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="stock_snapshot.xlsx"'},
+    )
+
+
+@app.get("/api/price/client-export")
+def price_client_export(
+    search: str = Query(default=""),
+    category: str = Query(default=""),
+    warehouse_id: int | None = Query(default=None),
+    only_in_stock: bool = Query(default=False),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> StreamingResponse:
+    filename = _build_client_price_filename()
+    content = SERVICE.export_client_price_bytes(
+        search=search,
+        category=category,
+        warehouse_id=warehouse_id,
+        only_in_stock=only_in_stock,
+    )
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

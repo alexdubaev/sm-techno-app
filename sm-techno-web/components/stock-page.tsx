@@ -12,6 +12,7 @@ import {
   type ResizableColumnConfig,
 } from "@/components/resizable-table";
 import {
+  downloadClientPriceFile,
   fetchMeta,
   fetchStockCatalog,
   fetchStockItem,
@@ -57,6 +58,11 @@ const DEFAULT_STATE: StockPageViewState = {
   selectedQuantityInput: "1",
 };
 
+const CLIENT_PRICE_LABEL = "\u041f\u0440\u0430\u0439\u0441 \u0434\u043b\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430";
+const CLIENT_PRICE_LOADING_LABEL = "\u0413\u043e\u0442\u043e\u0432\u0438\u043c \u0444\u0430\u0439\u043b...";
+const CLIENT_PRICE_EXPORT_ERROR =
+  "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u0440\u0430\u0439\u0441 \u0434\u043b\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430.";
+
 export function StockPage() {
   const router = useRouter();
   const [meta, setMeta] = useState<AppMeta | null>(null);
@@ -86,6 +92,7 @@ export function StockPage() {
   );
   const [draftLines, setDraftLines] = useState<DraftLine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExportingClientPrice, setIsExportingClientPrice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
 
@@ -469,6 +476,27 @@ export function StockPage() {
     );
   }, [activeWarehouseId, warehouses]);
 
+  const handleClientPriceExport = async () => {
+    if (!priceLoaded || isExportingClientPrice) {
+      return;
+    }
+
+    setError(null);
+    setIsExportingClientPrice(true);
+    try {
+      await downloadClientPriceFile({
+        search,
+        category,
+        warehouseId: activeWarehouseId,
+        onlyInStock,
+      });
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : CLIENT_PRICE_EXPORT_ERROR);
+    } finally {
+      setIsExportingClientPrice(false);
+    }
+  };
+
   const setAndPersistDraftLines = (
     updater: DraftLine[] | ((previous: DraftLine[]) => DraftLine[]),
   ) => {
@@ -743,10 +771,10 @@ export function StockPage() {
           </div>
         </header>
 
-        <div className="grid gap-2.5 2xl:grid-cols-[minmax(0,1fr)_296px] 2xl:items-start">
+        <div className="grid gap-2.5 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
           <div className="min-w-0 space-y-2.5">
             <section className="rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-              <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_168px_136px]">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(164px,210px)] lg:grid-cols-[minmax(0,1fr)_164px_132px_188px]">
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
                     <SearchIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -755,7 +783,7 @@ export function StockPage() {
                     value={searchInput}
                     onChange={(event) => setSearchInput(event.target.value)}
                     placeholder="Поиск по артикулу или названию"
-                    className="h-[38px] w-full rounded-[12px] border border-[var(--border-color)] bg-white pl-[38px] pr-3.5 text-[12px] text-[var(--text-primary)] outline-none transition-all duration-200 placeholder:text-[#94A3B8] focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
+                    className="h-[36px] w-full rounded-[12px] border border-[var(--border-color)] bg-white pl-[38px] pr-3.5 text-[11px] text-[var(--text-primary)] outline-none transition-all duration-200 placeholder:text-[#94A3B8] focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
                   />
                 </div>
 
@@ -765,7 +793,7 @@ export function StockPage() {
                     setCategory(event.target.value);
                     setPage(1);
                   }}
-                  className="h-[38px] rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-medium text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
+                  className="h-[36px] rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[10.5px] font-medium text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
                 >
                   <option value="">Все категории</option>
                   {categories.map((entry) => (
@@ -775,7 +803,7 @@ export function StockPage() {
                   ))}
                 </select>
 
-                <label className="flex h-[38px] items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-medium text-[var(--text-primary)] transition-all duration-200 focus-within:border-[var(--brand-yellow)] focus-within:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]">
+                <label className="flex h-[36px] items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-medium text-[var(--text-primary)] transition-all duration-200 focus-within:border-[var(--brand-yellow)] focus-within:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]">
                   <input
                     type="checkbox"
                     checked={onlyInStock}
@@ -783,10 +811,22 @@ export function StockPage() {
                       setOnlyInStock(event.target.checked);
                       setPage(1);
                     }}
-                    className="h-4 w-4 rounded border-[var(--border-color)] accent-[var(--brand-yellow)]"
+                    className="h-3.5 w-3.5 rounded border-[var(--border-color)] accent-[var(--brand-yellow)]"
                   />
                   Только в наличии
                 </label>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleClientPriceExport();
+                  }}
+                  disabled={!priceLoaded || isExportingClientPrice}
+                  className="inline-flex h-[36px] items-center justify-center gap-2 rounded-[12px] bg-[var(--brand-yellow)] px-3 text-[11px] font-semibold text-[var(--brand-dark)] transition-all duration-200 hover:bg-[var(--brand-yellow-hover)] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#F3F4F6] disabled:text-[var(--text-secondary)]"
+                >
+                  <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />
+                  {isExportingClientPrice ? CLIENT_PRICE_LOADING_LABEL : CLIENT_PRICE_LABEL}
+                </button>
               </div>
             </section>
 
@@ -875,7 +915,7 @@ export function StockPage() {
             ) : null}
           </div>
 
-          <aside className="flex min-h-0 flex-col gap-2.5 2xl:sticky 2xl:top-3 2xl:max-h-[calc(100dvh-1.5rem)] 2xl:overflow-auto">
+          <aside className="flex min-h-0 flex-col gap-2.5 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:overflow-auto">
             <section className="rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">

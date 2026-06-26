@@ -14,25 +14,27 @@
 - авторизация пользователей приложения
 - работа с локальными складами
 - отправка заказов в 1С через backend
+- выгрузка клиентского прайса в Excel
+- installable PWA-обвязка для запуска как отдельного приложения
 
 ## Запуск backend
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 .\.venv\Scripts\python.exe -m uvicorn stock_sync_api:app --host 127.0.0.1 --port 8000
 ```
 
 ## Запуск frontend
 
 ```powershell
-cd D:\codex\SEO_Gen\sm-techno-web
+cd D:\codex\sm-techno-app\sm-techno-web
 npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
 ## Production-like локальная проверка
 
 ```powershell
-cd D:\codex\SEO_Gen\sm-techno-web
+cd D:\codex\sm-techno-app\sm-techno-web
 npm run build
 npm run start -- --hostname 127.0.0.1 --port 3000
 ```
@@ -50,7 +52,7 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 Если не нужен раздельный запуск, используйте:
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 start_all.bat
 ```
 

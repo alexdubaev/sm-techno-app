@@ -1,11 +1,14 @@
 ﻿from __future__ import annotations
 
+import re
+from copy import copy
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl import load_workbook
+from openpyxl.styles import Border, Font, Side
 
 
 TEMPLATE_COLUMNS = [
@@ -66,6 +69,13 @@ COLUMN_ALIASES = {
     "quantity": {"quantity", "остаток", "количество", "stock"},
 }
 
+CLIENT_PRICE_GRID_BORDER = Border(
+    left=Side(style="thin", color="D7DFEA"),
+    right=Side(style="thin", color="D7DFEA"),
+    top=Side(style="thin", color="D7DFEA"),
+    bottom=Side(style="thin", color="D7DFEA"),
+)
+
 
 def create_import_template(path: str | Path) -> Path:
     target = Path(path)
@@ -120,6 +130,128 @@ def export_stock_snapshot(path: str | Path, rows: list[dict[str, Any]]) -> Path:
     ordered = ordered.rename(columns=DISPLAY_COLUMNS)
     ordered.to_excel(target, index=False)
     return target
+
+
+def export_client_price(
+    path: str | Path,
+    rows: list[dict[str, Any]],
+    *,
+    template_path: str | Path | None = None,
+) -> Path:
+    target = Path(path)
+    if template_path is None:
+        frame = pd.DataFrame(
+            [
+                {
+                    "sku": row.get("sku") or "",
+                    "brand": row.get("category_name") or "",
+                    "name": row.get("print_name") or row.get("name") or "",
+                    "quantity": int(round(float(row.get("quantity") or 0))),
+                    "price": round(float(row.get("price") or 0), 2),
+                    "weight": "",
+                }
+                for row in rows
+            ]
+        )
+        if frame.empty:
+            frame = pd.DataFrame(
+                columns=["sku", "brand", "name", "quantity", "price", "weight"]
+            )
+        ordered = frame[["sku", "brand", "name", "quantity", "price", "weight"]]
+        ordered = ordered.rename(
+            columns={
+                "sku": "Артикул",
+                "brand": "Бренд",
+                "name": "Наименование",
+                "quantity": "Наличие, шт.",
+                "price": "Цена, ₽",
+                "weight": "Вес, кг",
+            }
+        )
+        ordered.to_excel(target, index=False)
+        return target
+
+    workbook = load_workbook(template_path)
+    sheet = workbook.active
+    existing_max_row = sheet.max_row
+    data_start_row = 2
+    last_data_row = max(data_start_row, len(rows) + 1)
+
+    for row_idx in range(data_start_row, existing_max_row + 1):
+        for column_idx in range(1, 7):
+            sheet.cell(row=row_idx, column=column_idx).value = None
+
+    style_source_cells = [sheet.cell(row=2, column=column_idx) for column_idx in range(1, 7)]
+    style_source_height = sheet.row_dimensions[2].height
+
+    for row_idx, row in enumerate(rows, start=data_start_row):
+        if row_idx > existing_max_row:
+            _apply_client_template_row_style(
+                sheet,
+                row_idx=row_idx,
+                source_cells=style_source_cells,
+                row_height=style_source_height,
+            )
+
+        sheet.cell(row=row_idx, column=1, value=row.get("sku") or "")
+        sheet.cell(row=row_idx, column=2, value=row.get("category_name") or "")
+        sheet.cell(row=row_idx, column=3, value=row.get("print_name") or row.get("name") or "")
+        stock_cell = sheet.cell(
+            row=row_idx,
+            column=4,
+            value=int(round(float(row.get("quantity") or 0))),
+        )
+        price_cell = sheet.cell(
+            row=row_idx,
+            column=5,
+            value=round(float(row.get("price") or 0), 2),
+        )
+        weight_cell = sheet.cell(row=row_idx, column=6, value=None)
+        stock_cell.number_format = '#,##0'
+        price_cell.number_format = '#,##0.00'
+        for styled_cell in (
+            sheet.cell(row=row_idx, column=1),
+            sheet.cell(row=row_idx, column=2),
+            sheet.cell(row=row_idx, column=3),
+            stock_cell,
+            price_cell,
+            weight_cell,
+        ):
+            styled_cell.border = copy(CLIENT_PRICE_GRID_BORDER)
+
+    _refresh_client_template_formulas(sheet, last_data_row=last_data_row)
+    workbook.save(target)
+    return target
+
+
+def _apply_client_template_row_style(
+    sheet,
+    *,
+    row_idx: int,
+    source_cells: list[Any],
+    row_height: float | None,
+) -> None:
+    for column_idx, source_cell in enumerate(source_cells, start=1):
+        target_cell = sheet.cell(row=row_idx, column=column_idx)
+        target_cell._style = copy(source_cell._style)
+        target_cell.font = copy(source_cell.font)
+        target_cell.fill = copy(source_cell.fill)
+        target_cell.border = copy(source_cell.border)
+        target_cell.alignment = copy(source_cell.alignment)
+        target_cell.protection = copy(source_cell.protection)
+        target_cell.number_format = source_cell.number_format
+
+    if row_height is not None:
+        sheet.row_dimensions[row_idx].height = row_height
+
+
+def _refresh_client_template_formulas(sheet, *, last_data_row: int) -> None:
+    data_range = f"$A$1:$F${max(1, last_data_row)}"
+    pattern = re.compile(r"\$A\$1:\$F\$\d+")
+    for row in sheet.iter_rows(min_row=10, max_row=sheet.max_row, min_col=8, max_col=14):
+        for cell in row:
+            if isinstance(cell.value, str) and cell.value.startswith("="):
+                cell.value = pattern.sub(data_range, cell.value)
 
 
 def _normalize_header(value: Any) -> str:

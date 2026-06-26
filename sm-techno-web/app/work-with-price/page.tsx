@@ -817,7 +817,7 @@ function WorkWithPriceAdminPage() {
         </header>
 
         <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-          <div className="grid gap-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
             <ActionLink
               href={buildApiUrl("/api/price/template")}
               icon={<DownloadIcon className="h-3.5 w-3.5 stroke-[2]" />}
@@ -870,10 +870,10 @@ function WorkWithPriceAdminPage() {
           ) : null}
         </section>
 
-        <div className="grid gap-2 2xl:grid-cols-[minmax(0,1fr)_296px] 2xl:items-start">
+        <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
           <div className="min-w-0 space-y-2">
             <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-              <div className="grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_160px_160px]">
+              <div className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_minmax(180px,220px)] xl:grid-cols-[minmax(0,1fr)_170px_170px]">
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
                     <SearchIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -1149,7 +1149,7 @@ function WorkWithPriceAdminPage() {
               )
             : null}
 
-          <aside className="flex min-h-0 flex-col gap-2 2xl:sticky 2xl:top-2 2xl:max-h-[calc(100dvh-0.75rem)] 2xl:self-start 2xl:overflow-auto">
+          <aside className="flex min-h-0 flex-col gap-2 xl:sticky xl:top-2 xl:max-h-[calc(100dvh-0.75rem)] xl:self-start xl:overflow-auto">
             <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -2292,7 +2292,7 @@ function ConfirmDeleteDialog({
       <div className="w-full max-w-[420px] rounded-[18px] border border-[var(--border-color)] bg-white p-5 shadow-[0_22px_48px_rgba(7,22,46,0.16)]">
         <h3 className="text-[16px] font-[650] text-[var(--text-primary)]">Удалить товар?</h3>
         <p className="mt-2 text-[12px] leading-5 text-[var(--text-secondary)]">
-          Товар "{itemName}" будет удален из локального прайса вместе с остатками по всем складам.
+          Товар &quot;{itemName}&quot; будет удален из локального прайса вместе с остатками по всем складам.
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button

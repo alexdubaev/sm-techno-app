@@ -20,12 +20,19 @@
 - `desktop_stock_app.py` — старая desktop-точка входа
 - `stock_sync_desktop/` — legacy desktop-логика
 
+## Что обновлено в текущем web-контуре
+
+- адаптирован интерфейс для более узких экранов и app-mode запуска;
+- добавлена installable/PWA-обвязка: `manifest.webmanifest`, иконки и metadata;
+- добавлена выгрузка клиентского прайса в Excel через готовый шаблон;
+- сохранены существующие API-контракты по остаткам, складам, заказам и импорту.
+
 ## Быстрый запуск
 
 ### Вариант 1. Через общий launcher
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 start_all.bat
 ```
 
@@ -40,21 +47,21 @@ start_all.bat
 #### Backend
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 .\.venv\Scripts\python.exe -m uvicorn stock_sync_api:app --host 127.0.0.1 --port 8000
 ```
 
 #### Frontend
 
 ```powershell
-cd D:\codex\SEO_Gen\sm-techno-web
+cd D:\codex\sm-techno-app\sm-techno-web
 npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
 ## Проверка production-like frontend
 
 ```powershell
-cd D:\codex\SEO_Gen\sm-techno-web
+cd D:\codex\sm-techno-app\sm-techno-web
 npm run build
 npm run start -- --hostname 127.0.0.1 --port 3000
 ```
@@ -76,33 +83,33 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 ### Backup
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 backup_db.bat
 ```
 
 ### Restore
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 restore_db.bat
 ```
 
 Подробные инструкции:
-- [README_HOME_OFFICE_SYNC.md](D:\codex\SEO_Gen\README_HOME_OFFICE_SYNC.md)
-- [README_TAILSCALE_SETUP.md](D:\codex\SEO_Gen\README_TAILSCALE_SETUP.md)
+- [README_HOME_OFFICE_SYNC.md](D:\codex\sm-techno-app\README_HOME_OFFICE_SYNC.md)
+- [README_TAILSCALE_SETUP.md](D:\codex\sm-techno-app\README_TAILSCALE_SETUP.md)
 
 ## Полезные документы
 
-- [README_NEXT_STOCK_WEB.md](D:\codex\SEO_Gen\README_NEXT_STOCK_WEB.md) — описание текущего web-контура
-- [README_STOCK_WEB.md](D:\codex\SEO_Gen\README_STOCK_WEB.md) — legacy Streamlit-версия
-- [README_STOCK_APP.md](D:\codex\SEO_Gen\README_STOCK_APP.md) — legacy desktop-версия
+- [README_NEXT_STOCK_WEB.md](D:\codex\sm-techno-app\README_NEXT_STOCK_WEB.md) — описание текущего web-контура
+- [README_STOCK_WEB.md](D:\codex\sm-techno-app\README_STOCK_WEB.md) — legacy Streamlit-версия
+- [README_STOCK_APP.md](D:\codex\sm-techno-app\README_STOCK_APP.md) — legacy desktop-версия
 
 ## Первый push в GitHub
 
 После создания пустого репозитория на GitHub привяжите его как `origin` и отправьте код:
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 git remote add origin https://github.com/ВАШ-ЛОГИН/ВАШ-РЕПО.git
 git push -u origin main
 ```
@@ -110,7 +117,7 @@ git push -u origin main
 Если `origin` уже существует, обновите адрес:
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 git remote set-url origin https://github.com/ВАШ-ЛОГИН/ВАШ-РЕПО.git
 git push -u origin main
 ```

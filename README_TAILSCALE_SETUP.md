@@ -53,6 +53,6 @@
 На компьютере-сервере запустите:
 
 ```powershell
-cd D:\codex\SEO_Gen
+cd D:\codex\sm-techno-app
 stop_all.bat
 ```

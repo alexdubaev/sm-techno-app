@@ -486,7 +486,7 @@ export default function WorkWithInvoicePage() {
         </header>
 
         <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
-          <div className="grid gap-1.5 md:grid-cols-2 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_124px]">
+          <div className="grid gap-1.5 md:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_124px]">
             <FieldBlock label="Контрагент">
               <input
                 list="counterparty-options"
@@ -612,7 +612,7 @@ export default function WorkWithInvoicePage() {
             </div>
           </div>
 
-          <div className="mt-1.5 grid gap-1.5 2xl:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="mt-1.5 grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_auto]">
             <FieldBlock label="Комментарий">
               <input
                 type="text"
@@ -661,7 +661,7 @@ export default function WorkWithInvoicePage() {
           ) : null}
         </section>
 
-        <div className="grid gap-1.5 2xl:grid-cols-[minmax(0,1fr)_200px] 2xl:items-start">
+        <div className="grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_200px] xl:items-start">
           <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-[12px] font-semibold text-[var(--text-primary)]">Табличная часть счета</h2>

@@ -37,8 +37,8 @@ export function AppShell({ children }: ShellProps) {
 
   return (
     <div className="min-h-screen bg-[var(--page-bg)] text-[var(--text-primary)]">
-      <div className="mx-auto flex min-h-screen max-w-[1680px]">
-        <aside className="hidden w-[220px] shrink-0 border-r border-[var(--border-color)] bg-white/92 px-2.5 py-3 backdrop-blur-sm xl:flex xl:flex-col 2xl:w-[246px] 2xl:px-3">
+      <div className="mx-auto min-h-screen max-w-[1680px] 2xl:flex">
+        <aside className="hidden w-[246px] shrink-0 border-r border-[var(--border-color)] bg-white/92 px-3 py-3 backdrop-blur-sm 2xl:flex 2xl:flex-col">
           <div className="mb-4 px-1.5">
             <div className="relative h-[76px] w-[198px] overflow-hidden 2xl:h-[82px] 2xl:w-[226px]">
               <Image
@@ -104,9 +104,66 @@ export function AppShell({ children }: ShellProps) {
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 px-2 py-2 md:px-3 md:py-3 xl:px-3.5 xl:py-3.5 2xl:px-4 2xl:py-4">
+        <div className="min-w-0 flex-1">
+          <div className="border-b border-[var(--border-color)] bg-white/92 px-2 py-2 backdrop-blur-sm 2xl:hidden">
+            <div className="flex items-center justify-between gap-3">
+              <div className="relative h-[50px] w-[146px] overflow-hidden">
+                <Image
+                  src="/logo.png"
+                  alt="СМ Техно"
+                  width={240}
+                  height={92}
+                  className="absolute left-1/2 top-[56%] h-auto w-[192px] max-w-none -translate-x-1/2 -translate-y-1/2"
+                  priority
+                />
+              </div>
+              <div className="min-w-0 text-right">
+                <div className="truncate text-[11px] font-semibold text-[var(--text-primary)]">{displayName}</div>
+                <div className="text-[9px] text-[var(--text-secondary)]">{roleLabel}</div>
+              </div>
+            </div>
+
+            <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+              {visibleNavItems.map(({ href, label, Icon }) => {
+                const isActive = pathname === href;
+
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    aria-current={isActive ? "page" : undefined}
+                    className={[
+                      "inline-flex shrink-0 items-center gap-2 rounded-[12px] border px-3 py-2 text-[11px] font-medium transition-all duration-200",
+                      isActive
+                        ? "border-[var(--brand-dark)] bg-[var(--brand-dark)] text-white shadow-[0_10px_20px_rgba(7,22,46,0.14)]"
+                        : "border-[var(--border-color)] bg-white text-[var(--text-primary)] hover:bg-[#F7F9FC]",
+                    ].join(" ")}
+                  >
+                    <Icon
+                      className={[
+                        "h-[16px] w-[16px] shrink-0 stroke-[1.8]",
+                        isActive ? "text-white" : "text-[var(--text-secondary)]",
+                      ].join(" ")}
+                    />
+                    <span className="whitespace-nowrap">{label}</span>
+                  </Link>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className="inline-flex shrink-0 items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 py-2 text-[11px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+              >
+                Выйти
+              </button>
+            </div>
+          </div>
+
+          <main className="min-w-0 px-2 py-2 md:px-3 md:py-3 xl:px-3.5 xl:py-3.5 2xl:px-4 2xl:py-4">
           <div className="relative">{children}</div>
-        </main>
+          </main>
+        </div>
       </div>
     </div>
   );
