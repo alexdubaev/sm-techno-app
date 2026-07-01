@@ -293,6 +293,7 @@ class WebStockSyncService:
             category=category,
             warehouse_id=warehouse_id,
             only_in_stock=only_in_stock,
+            split_by_warehouse=True,
         )
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             temp_path = Path(tmp.name)
@@ -312,8 +313,12 @@ class WebStockSyncService:
         category: str = "",
         warehouse_id: int | None = None,
         only_in_stock: bool = False,
+        split_by_warehouse: bool = True,
     ) -> tuple[list[dict[str, Any]], list[str]]:
-        source_rows = self.db.list_items(warehouse_id=warehouse_id)
+        source_rows = self.db.list_items(
+            warehouse_id=warehouse_id,
+            split_by_warehouse=split_by_warehouse,
+        )
         rows = list(source_rows)
         search_text = search.strip().lower()
         if search_text:
@@ -328,7 +333,11 @@ class WebStockSyncService:
         if category.strip():
             rows = [row for row in rows if (row.get("category_name") or "") == category]
         if only_in_stock:
-            rows = [row for row in rows if float(row.get("quantity") or 0) > 0]
+            rows = [
+                row
+                for row in rows
+                if float(row.get("row_quantity", row.get("quantity") or 0) or 0) > 0
+            ]
 
         categories = sorted(
             {
@@ -355,9 +364,13 @@ class WebStockSyncService:
             category=category,
             warehouse_id=warehouse_id,
             only_in_stock=only_in_stock,
+            split_by_warehouse=True,
         )
         total = len(rows)
-        total_quantity = round(sum(float(row.get("quantity") or 0) for row in rows), 2)
+        total_quantity = round(
+            sum(float(row.get("row_quantity", row.get("quantity") or 0) or 0) for row in rows),
+            2,
+        )
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
         start = (page - 1) * page_size
@@ -371,7 +384,7 @@ class WebStockSyncService:
             "page_size": page_size,
             "categories": categories,
             "summary": {
-                "catalog_count": len(self.db.list_items()),
+                "catalog_count": len(self.db.list_items(split_by_warehouse=True)),
                 "filtered_count": total,
                 "filtered_quantity": total_quantity,
             },

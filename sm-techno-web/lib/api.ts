@@ -274,6 +274,22 @@ export async function downloadClientPriceFile(params: {
   );
 }
 
+export async function downloadPriceTemplateFile(): Promise<void> {
+  await downloadApiFile(
+    "/api/price/template",
+    "Не удалось скачать шаблон прайса.",
+    "stock_template.xlsx",
+  );
+}
+
+export async function downloadStockSnapshotFile(): Promise<void> {
+  await downloadApiFile(
+    "/api/price/snapshot",
+    "Не удалось выгрузить текущий срез.",
+    "stock_snapshot.xlsx",
+  );
+}
+
 export async function fetchStockItem(itemId: number): Promise<StockItem | null> {
   const result = await requestJson<{ item: StockItem | null }>(`/api/stock/items/${itemId}`);
   return result.item;

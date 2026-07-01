@@ -31,6 +31,10 @@ export type StockItem = {
   warehouseCount: number;
   topWarehouseName: string;
   warehouseSummary: string;
+  catalogRowKey: string;
+  rowWarehouseId: number | null;
+  rowWarehouseName: string;
+  rowQuantity: number;
   warehouses: WarehouseBalance[];
 };
 

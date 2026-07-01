@@ -32,10 +32,16 @@ def _build_client_price_filename() -> str:
     return f'cmteh_stock_{datetime.now().strftime("%d.%m.%Y")}.xlsx'
 
 
+def _build_catalog_row_key(item_id: int, row_warehouse_id: int | None) -> str:
+    return f"{item_id}:{row_warehouse_id if row_warehouse_id is not None else 'no-warehouse'}"
+
+
 def _serialize_item(row: dict[str, Any]) -> dict[str, Any]:
     quantity = float(row.get("quantity") or 0)
     price = float(row.get("price") or 0)
     warehouses_raw = row.get("warehouses") or []
+    raw_row_warehouse_id = row.get("row_warehouse_id")
+    row_warehouse_id = int(raw_row_warehouse_id) if raw_row_warehouse_id is not None else None
     return {
         "id": int(row["id"]),
         "sku": row.get("sku") or "",
@@ -53,6 +59,10 @@ def _serialize_item(row: dict[str, Any]) -> dict[str, Any]:
         "warehouseCount": int(row.get("warehouse_count") or 0),
         "topWarehouseName": row.get("top_warehouse_name") or "",
         "warehouseSummary": row.get("warehouse_summary") or "",
+        "catalogRowKey": _build_catalog_row_key(int(row["id"]), row_warehouse_id),
+        "rowWarehouseId": row_warehouse_id,
+        "rowWarehouseName": row.get("row_warehouse_name") or "",
+        "rowQuantity": float(row.get("row_quantity") or 0),
         "warehouses": [_serialize_warehouse_balance(item) for item in warehouses_raw if isinstance(item, dict)],
     }
 

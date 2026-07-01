@@ -54,6 +54,7 @@ const DEFAULT_STATE: StockPageViewState = {
   page: 1,
   pageSize: 20,
   selectedItemId: null,
+  selectedCatalogRowKey: null,
   selectionCleared: false,
   selectedQuantityInput: "1",
 };
@@ -83,6 +84,9 @@ export function StockPage() {
   );
   const [selectedItemId, setSelectedItemId] = useState<number | null>(
     DEFAULT_STATE.selectedItemId,
+  );
+  const [selectedCatalogRowKey, setSelectedCatalogRowKey] = useState<string | null>(
+    DEFAULT_STATE.selectedCatalogRowKey,
   );
   const [selectionCleared, setSelectionCleared] = useState(DEFAULT_STATE.selectionCleared);
   const [selectedItem, setSelectedItem] = useState<StockItem | null>(null);
@@ -138,6 +142,12 @@ export function StockPage() {
       ) {
         setSelectedItemId(savedState.selectedItemId ?? null);
       }
+      if (
+        savedState.selectedCatalogRowKey === null ||
+        typeof savedState.selectedCatalogRowKey === "string"
+      ) {
+        setSelectedCatalogRowKey(savedState.selectedCatalogRowKey ?? null);
+      }
       if (typeof savedState.selectionCleared === "boolean") {
         setSelectionCleared(savedState.selectionCleared);
       }
@@ -170,6 +180,7 @@ export function StockPage() {
       page,
       pageSize,
       selectedItemId,
+      selectedCatalogRowKey,
       selectionCleared,
       selectedQuantityInput,
     });
@@ -182,6 +193,7 @@ export function StockPage() {
     pageSize,
     searchInput,
     selectedItemId,
+    selectedCatalogRowKey,
     selectedQuantityInput,
     selectionCleared,
   ]);
@@ -255,6 +267,7 @@ export function StockPage() {
               setSelectedItem(persisted);
               if (!persisted) {
                 setSelectedItemId(null);
+                setSelectedCatalogRowKey(null);
               }
             }
           } else {
@@ -271,14 +284,20 @@ export function StockPage() {
 
           const firstItem = response.items[0];
           setSelectedItemId(firstItem.id);
+          setSelectedCatalogRowKey(getCatalogRowKey(firstItem));
           setSelectedItem(firstItem);
+          setSelectedWarehouseId(firstItem.rowWarehouseId ?? activeWarehouseId);
           return;
         }
 
-        const matched = response.items.find((item) => item.id === selectedItemId);
+        const matched =
+          response.items.find((item) => getCatalogRowKey(item) === selectedCatalogRowKey) ??
+          response.items.find((item) => item.id === selectedItemId);
         if (matched) {
+          setSelectedItemId(matched.id);
+          setSelectedCatalogRowKey(getCatalogRowKey(matched));
           setSelectedItem(matched);
-          void fetchStockItem(selectedItemId).then((detailedItem) => {
+          void fetchStockItem(matched.id).then((detailedItem) => {
             if (!cancelled && detailedItem) {
               setSelectedItem(detailedItem);
             }
@@ -291,6 +310,7 @@ export function StockPage() {
           setSelectedItem(persisted);
           if (!persisted) {
             setSelectedItemId(null);
+            setSelectedCatalogRowKey(null);
           }
         }
       })
@@ -315,6 +335,7 @@ export function StockPage() {
     page,
     pageSize,
     search,
+    selectedCatalogRowKey,
     selectedItemId,
     selectionCleared,
   ]);
@@ -512,7 +533,9 @@ export function StockPage() {
 
   const selectItem = (item: StockItem) => {
     setSelectedItemId(item.id);
+    setSelectedCatalogRowKey(getCatalogRowKey(item));
     setSelectedItem(item);
+    setSelectedWarehouseId(item.rowWarehouseId ?? activeWarehouseId);
     setSelectionCleared(false);
 
     void fetchStockItem(item.id).then((detailedItem) => {
@@ -524,6 +547,7 @@ export function StockPage() {
 
   const clearSelection = () => {
     setSelectedItemId(null);
+    setSelectedCatalogRowKey(null);
     setSelectedItem(null);
     setSelectedWarehouseId(null);
     setSelectedQuantityInput("1");
@@ -665,17 +689,21 @@ export function StockPage() {
         </thead>
         <tbody>
           {catalog.map((item) => {
-            const isSelected = selectedItemId === item.id;
-            const itemLineCount = draftLines.filter((line) => line.itemId === item.id).length;
-            const itemDraftQuantity = draftLines
-              .filter((line) => line.itemId === item.id)
-              .reduce((sum, line) => sum + line.quantity, 0);
-            const availableUnits = getAvailableUnits(item.quantity);
+            const rowKey = getCatalogRowKey(item);
+            const isSelected = selectedCatalogRowKey === rowKey;
+            const rowWarehouseId = item.rowWarehouseId;
+            const rowLines =
+              rowWarehouseId !== null
+                ? draftLines.filter((line) => line.lineId === buildDraftLineKey(item.id, rowWarehouseId))
+                : draftLines.filter((line) => line.itemId === item.id);
+            const itemLineCount = rowLines.length;
+            const itemDraftQuantity = rowLines.reduce((sum, line) => sum + line.quantity, 0);
+            const availableUnits = getCatalogRowAvailableUnits(item);
             const hasStock = availableUnits > 0;
 
             return (
               <tr
-                key={item.id}
+                key={rowKey}
                 aria-selected={isSelected}
                 onClick={() => selectItem(item)}
                 className={[
@@ -1263,6 +1291,14 @@ function buildDraftLineKey(itemId: number, warehouseId: number) {
   return `${itemId}:${warehouseId}`;
 }
 
+function getCatalogRowKey(item: StockItem) {
+  return item.catalogRowKey || `${item.id}:${item.rowWarehouseId ?? "no-warehouse"}`;
+}
+
+function getCatalogRowAvailableUnits(item: StockItem) {
+  return getAvailableUnits(item.rowQuantity || item.quantity);
+}
+
 function getWarehouseOptions(item: StockItem | null, activeWarehouseId: number | null) {
   if (!item) {
     return [];
@@ -1330,6 +1366,11 @@ function formatWarehouseLabel(
   activeWarehouseName: string,
   activeWarehouseId: number | null,
 ) {
+  const rowWarehouseName = item.rowWarehouseName?.trim() || "";
+  if (rowWarehouseName) {
+    return rowWarehouseName;
+  }
+
   if (activeWarehouseId !== null) {
     return activeWarehouseName;
   }

@@ -14,12 +14,13 @@ import {
 } from "@/components/resizable-table";
 import {
   addItemStock,
-  buildApiUrl,
   clearCatalog,
   createWarehouse,
   createLocalItem,
   deleteWarehouse,
   deleteItem,
+  downloadPriceTemplateFile,
+  downloadStockSnapshotFile,
   fetchStockCatalog,
   fetchStockItem,
   fetchWarehouses,
@@ -63,7 +64,7 @@ type StockActionFormState = {
 };
 
 type RowMenuState = {
-  itemId: number;
+  rowKey: string;
   top: number;
   right: number;
   openUpward: boolean;
@@ -116,6 +117,8 @@ function WorkWithPriceAdminPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
+  const [selectedRowWarehouseId, setSelectedRowWarehouseId] = useState<number | null>(null);
   const [selectedItem, setSelectedItem] = useState<StockItem | null>(null);
   const [activeWarehouseId, setActiveWarehouseId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -206,7 +209,7 @@ function WorkWithPriceAdminPage() {
   }, [activeRowMenu]);
 
   useEffect(() => {
-    if (activeRowMenu && !items.some((item) => item.id === activeRowMenu.itemId)) {
+    if (activeRowMenu && !items.some((item) => getCatalogRowKey(item) === activeRowMenu.rowKey)) {
       setActiveRowMenu(null);
     }
   }, [activeRowMenu, items]);
@@ -244,12 +247,19 @@ function WorkWithPriceAdminPage() {
 
     if (selectedId === null) {
       setSelectedId(filtered[0].id);
+      setSelectedRowKey(getCatalogRowKey(filtered[0]));
+      setSelectedRowWarehouseId(filtered[0].rowWarehouseId ?? null);
       setSelectedItem(filtered[0]);
       return;
     }
 
-    const matched = filtered.find((item) => item.id === selectedId);
+    const matched =
+      filtered.find((item) => getCatalogRowKey(item) === selectedRowKey) ??
+      filtered.find((item) => item.id === selectedId);
     if (matched) {
+      setSelectedId(matched.id);
+      setSelectedRowKey(getCatalogRowKey(matched));
+      setSelectedRowWarehouseId(matched.rowWarehouseId ?? null);
       setSelectedItem((current) => {
         if (!current || current.id !== matched.id) {
           return matched;
@@ -265,7 +275,16 @@ function WorkWithPriceAdminPage() {
 
     const persisted = await fetchStockItem(selectedId);
     setSelectedItem(persisted);
-  }, [activeWarehouseId, search, category, onlyUnlinked, page, pageSize, selectedId]);
+  }, [
+    activeWarehouseId,
+    search,
+    category,
+    onlyUnlinked,
+    page,
+    pageSize,
+    selectedId,
+    selectedRowKey,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -361,7 +380,9 @@ function WorkWithPriceAdminPage() {
       (warehouse) => getIntegerQuantity(warehouse.quantity) > 0,
     );
     const preferredWarehouseId =
-      activeWarehouseId !== null
+      selectedRowWarehouseId !== null
+        ? selectedRowWarehouseId
+        : activeWarehouseId !== null
         ? activeWarehouseId
         : positiveWarehouses[0]?.warehouseId ?? warehouses[0]?.id ?? null;
     const destinationWarehouseId =
@@ -390,7 +411,7 @@ function WorkWithPriceAdminPage() {
       quantity: "1",
       comment: "",
     }));
-  }, [stockAction, selectedItem, activeWarehouseId, warehouses]);
+  }, [stockAction, selectedItem, activeWarehouseId, selectedRowWarehouseId, warehouses]);
 
   useEffect(() => {
     if (isCreateExpanded) {
@@ -400,7 +421,10 @@ function WorkWithPriceAdminPage() {
   }, [activeWarehouseId, warehouses, isCreateExpanded]);
 
   const summary = useMemo(() => {
-    const totalQuantity = items.reduce((sum, item) => sum + getIntegerQuantity(item.quantity), 0);
+    const totalQuantity = items.reduce(
+      (sum, item) => sum + getIntegerQuantity(item.rowQuantity || item.quantity),
+      0,
+    );
     const unlinkedCount = items.filter((item) => !item.isLinkedToOneC).length;
     return {
       totalItems: total,
@@ -465,21 +489,17 @@ function WorkWithPriceAdminPage() {
 
   const pageCount = Math.max(1, Math.ceil(Math.max(total, 1) / pageSize));
   const activeRowMenuItem =
-    activeRowMenu ? items.find((item) => item.id === activeRowMenu.itemId) ?? null : null;
-  const selectedInList = selectedItem ? items.some((item) => item.id === selectedItem.id) : false;
+    activeRowMenu ? items.find((item) => getCatalogRowKey(item) === activeRowMenu.rowKey) ?? null : null;
+  const selectedInList =
+    selectedRowKey !== null ? items.some((item) => getCatalogRowKey(item) === selectedRowKey) : false;
 
   const createFormValidation = validateItemForm(createForm);
   const editFormValidation = validateItemForm(editForm);
 
   const applyItemToLocalState = (item: StockItem) => {
-    setItems((current) => {
-      const exists = current.some((entry) => entry.id === item.id);
-      const next = exists
-        ? current.map((entry) => (entry.id === item.id ? item : entry))
-        : [item, ...current];
-      return next.sort((left, right) => left.name.localeCompare(right.name, "ru"));
-    });
     setSelectedId(item.id);
+    setSelectedRowKey(null);
+    setSelectedRowWarehouseId(null);
     setSelectedItem(item);
   };
 
@@ -618,6 +638,34 @@ function WorkWithPriceAdminPage() {
     }
   };
 
+  const handleDownloadTemplate = async () => {
+    setIsBusy(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      await downloadPriceTemplateFile();
+    } catch (requestError: unknown) {
+      setError(requestError instanceof Error ? requestError.message : "Не удалось скачать шаблон прайса.");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleDownloadSnapshot = async () => {
+    setIsBusy(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      await downloadStockSnapshotFile();
+    } catch (requestError: unknown) {
+      setError(requestError instanceof Error ? requestError.message : "Не удалось выгрузить текущий срез.");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
   const handleCreateWarehouse = async () => {
     const trimmedName = warehouseNameInput.trim();
     if (!trimmedName) {
@@ -667,11 +715,13 @@ function WorkWithPriceAdminPage() {
 
   const handleSelectItem = (item: StockItem) => {
     setSelectedId(item.id);
+    setSelectedRowKey(getCatalogRowKey(item));
+    setSelectedRowWarehouseId(item.rowWarehouseId ?? null);
     setSelectedItem(item);
     setActiveRowMenu(null);
   };
 
-  const handleToggleRowMenu = useCallback((itemId: number, trigger: HTMLButtonElement) => {
+  const handleToggleRowMenu = useCallback((rowKey: string, trigger: HTMLButtonElement) => {
     const rect = trigger.getBoundingClientRect();
     const viewportPadding = 12;
     const estimatedHeight = 196;
@@ -681,10 +731,10 @@ function WorkWithPriceAdminPage() {
       rect.top - 6 - estimatedHeight > viewportPadding;
 
     setActiveRowMenu((current) =>
-      current?.itemId === itemId
+      current?.rowKey === rowKey
         ? null
         : {
-            itemId,
+            rowKey,
             top: openUpward ? rect.top - 6 : rect.bottom + 6,
             right: nextRight,
             openUpward,
@@ -818,13 +868,15 @@ function WorkWithPriceAdminPage() {
 
         <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
-            <ActionLink
-              href={buildApiUrl("/api/price/template")}
+            <ActionButton
+              onClick={handleDownloadTemplate}
+              disabled={isBusy}
               icon={<DownloadIcon className="h-3.5 w-3.5 stroke-[2]" />}
               label="Скачать шаблон"
             />
-            <ActionLink
-              href={buildApiUrl("/api/price/snapshot")}
+            <ActionButton
+              onClick={handleDownloadSnapshot}
+              disabled={isBusy}
               icon={<CloudArrowDownIcon className="h-3.5 w-3.5 stroke-[2]" />}
               label="Выгрузить текущий срез"
             />
@@ -980,12 +1032,14 @@ function WorkWithPriceAdminPage() {
                     </thead>
                     <tbody>
                       {items.map((item) => {
-                        const isSelected = selectedId === item.id;
-                        const hasStock = getIntegerQuantity(item.quantity) > 0;
+                        const rowKey = getCatalogRowKey(item);
+                        const rowQuantity = getCatalogRowQuantity(item);
+                        const isSelected = selectedRowKey === rowKey;
+                        const hasStock = getIntegerQuantity(rowQuantity) > 0;
 
                         return (
                           <tr
-                            key={item.id}
+                            key={rowKey}
                             onClick={() => handleSelectItem(item)}
                             className={[
                               "cursor-pointer transition-colors duration-200",
@@ -1030,14 +1084,14 @@ function WorkWithPriceAdminPage() {
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] font-semibold tabular-nums">
                               <span className={hasStock ? "text-[var(--stock-ok)]" : "text-[var(--stock-empty)]"}>
-                                {formatStockUnits(item.quantity)}
+                                {formatStockUnits(rowQuantity)}
                               </span>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] font-semibold tabular-nums text-[var(--text-primary)]">
                               {formatMoney(item.price)}
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] font-semibold tabular-nums text-[var(--text-primary)]">
-                              {formatMoney(getIntegerQuantity(item.quantity) * item.price)}
+                              {formatMoney(getIntegerQuantity(rowQuantity) * item.price)}
                             </td>
                             <td className="relative border-t border-[var(--border-color)] px-3 py-1.5 text-right">
                               <div className="relative inline-flex" data-row-actions-root="true">
@@ -1045,7 +1099,7 @@ function WorkWithPriceAdminPage() {
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleToggleRowMenu(item.id, event.currentTarget);
+                                    handleToggleRowMenu(rowKey, event.currentTarget);
                                   }}
                                   className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--text-secondary)] transition hover:border-[var(--brand-yellow)] hover:text-[var(--brand-dark)]"
                                   title="Быстрые действия"
@@ -1702,11 +1756,24 @@ function getWarehouseRowsTotal(rows: WarehouseFormState[]) {
   );
 }
 
+function getCatalogRowKey(item: StockItem) {
+  return item.catalogRowKey || `${item.id}:${item.rowWarehouseId ?? "no-warehouse"}`;
+}
+
+function getCatalogRowQuantity(item: StockItem) {
+  return item.rowQuantity || item.quantity;
+}
+
 function formatWarehouseLabel(
   item: StockItem,
   activeWarehouseName: string,
   activeWarehouseId: number | null,
 ) {
+  const rowWarehouseName = item.rowWarehouseName?.trim() || "";
+  if (rowWarehouseName) {
+    return rowWarehouseName;
+  }
+
   if (activeWarehouseId !== null) {
     return activeWarehouseName;
   }
@@ -1782,23 +1849,27 @@ function formatStockUnits(value: number) {
   return `${new Intl.NumberFormat("ru-RU").format(getIntegerQuantity(value))} шт.`;
 }
 
-function ActionLink({
-  href,
+function ActionButton({
+  onClick,
+  disabled = false,
   icon,
   label,
 }: {
-  href: string;
+  onClick: () => void;
+  disabled?: boolean;
   icon: ReactNode;
   label: string;
 }) {
   return (
-    <a
-      href={href}
-      className="flex h-[38px] items-center justify-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition-all duration-200 hover:bg-[#F8FAFD] active:scale-[0.985]"
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex h-[38px] items-center justify-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition-all duration-200 hover:bg-[#F8FAFD] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
     >
       <span className="text-[var(--text-secondary)]">{icon}</span>
       {label}
-    </a>
+    </button>
   );
 }
 

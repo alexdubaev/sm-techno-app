@@ -179,22 +179,36 @@ class Database:
             WHERE is_local IS NULL OR is_local NOT IN (0, 1)
             """
         )
-        conn.execute(
-            """
-            UPDATE items
-            SET is_local = 1
-            WHERE id IN (
-                SELECT sb.item_id
-                FROM stock_balances sb
-                WHERE COALESCE(sb.quantity, 0) <> 0
+        local_backfill_key = "migration.items_is_local_backfilled"
+        local_backfill_done = conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (local_backfill_key,),
+        ).fetchone()
+        if not local_backfill_done:
+            conn.execute(
+                """
+                UPDATE items
+                SET is_local = 1
+                WHERE id IN (
+                    SELECT sb.item_id
+                    FROM stock_balances sb
+                    WHERE COALESCE(sb.quantity, 0) <> 0
+                )
+                OR id IN (
+                    SELECT DISTINCT ol.item_id
+                    FROM order_lines ol
+                )
+                OR COALESCE(onec_key, '') = ''
+                """
             )
-            OR id IN (
-                SELECT DISTINCT ol.item_id
-                FROM order_lines ol
+            conn.execute(
+                """
+                INSERT INTO app_settings(key, value)
+                VALUES(?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (local_backfill_key, utc_now()),
             )
-            OR COALESCE(onec_key, '') = ''
-            """
-        )
         conn.execute(
             """
             UPDATE items
@@ -620,6 +634,7 @@ class Database:
         sku: str | None,
         name: str | None,
         local_only: bool = False,
+        match_by_name: bool = True,
     ) -> sqlite3.Row | None:
         local_clause = " AND is_local = 1" if local_only else ""
         if onec_key:
@@ -636,7 +651,7 @@ class Database:
             ).fetchone()
             if row:
                 return row
-        if name:
+        if match_by_name and name:
             return conn.execute(
                 f"SELECT * FROM items WHERE name = ?{local_clause} ORDER BY id LIMIT 1",
                 (name,),
@@ -656,6 +671,7 @@ class Database:
                     onec_key=onec_key,
                     sku=row.get("sku"),
                     name=row.get("name"),
+                    match_by_name=False,
                 )
                 if existing:
                     item_id = existing["id"]
@@ -779,8 +795,85 @@ class Database:
                     updated += 1
         return updated
 
-    def list_items(self, *, warehouse_id: int | None = None) -> list[dict[str, Any]]:
+    def list_items(
+        self,
+        *,
+        warehouse_id: int | None = None,
+        split_by_warehouse: bool = False,
+    ) -> list[dict[str, Any]]:
         with self.connect() as conn:
+            if split_by_warehouse:
+                params: list[Any] = []
+                row_balance_filter = ""
+                item_filter = ""
+                if warehouse_id is not None:
+                    row_balance_filter = " AND iwb.warehouse_id = ?"
+                    item_filter = " AND row_balances.item_id IS NOT NULL"
+                    params.append(warehouse_id)
+
+                rows = conn.execute(
+                    f"""
+                    SELECT
+                        i.id,
+                        i.onec_key,
+                        i.sku,
+                        i.name,
+                        i.print_name,
+                        i.category_name,
+                        i.group_name,
+                        i.unit_key,
+                        i.unit_name,
+                        i.price,
+                        COALESCE(agg.quantity, 0) AS quantity,
+                        COALESCE(agg.warehouse_count, 0) AS warehouse_count,
+                        COALESCE(agg.top_warehouse_name, '') AS top_warehouse_name,
+                        COALESCE(agg.warehouse_summary, '') AS warehouse_summary,
+                        row_balances.warehouse_id AS row_warehouse_id,
+                        COALESCE(row_balances.warehouse_name, '') AS row_warehouse_name,
+                        COALESCE(row_balances.quantity, 0) AS row_quantity
+                    FROM items i
+                    LEFT JOIN (
+                        SELECT
+                            iwb.item_id,
+                            iwb.warehouse_id,
+                            w.name AS warehouse_name,
+                            iwb.quantity
+                        FROM item_warehouse_balances iwb
+                        JOIN warehouses w ON w.id = iwb.warehouse_id
+                        WHERE w.is_active = 1
+                          AND iwb.quantity > 0
+                          {row_balance_filter}
+                    ) row_balances ON row_balances.item_id = i.id
+                    LEFT JOIN (
+                        SELECT
+                            iwb.item_id,
+                            SUM(iwb.quantity) AS quantity,
+                            COUNT(*) AS warehouse_count,
+                            GROUP_CONCAT(w.name, ', ') AS warehouse_summary,
+                            (
+                                SELECT w2.name
+                                FROM item_warehouse_balances iwb2
+                                JOIN warehouses w2 ON w2.id = iwb2.warehouse_id
+                                WHERE iwb2.item_id = iwb.item_id
+                                  AND w2.is_active = 1
+                                  AND iwb2.quantity > 0
+                                ORDER BY iwb2.quantity DESC, w2.name COLLATE NOCASE
+                                LIMIT 1
+                            ) AS top_warehouse_name
+                        FROM item_warehouse_balances iwb
+                        JOIN warehouses w ON w.id = iwb.warehouse_id
+                        WHERE w.is_active = 1
+                          AND iwb.quantity > 0
+                        GROUP BY iwb.item_id
+                    ) agg ON agg.item_id = i.id
+                    WHERE i.is_local = 1
+                      {item_filter}
+                    ORDER BY i.name COLLATE NOCASE, row_balances.warehouse_name COLLATE NOCASE
+                    """,
+                    params,
+                ).fetchall()
+                return self._rows_to_dicts(rows)
+
             params: list[Any] = []
             warehouse_filter = ""
             top_warehouse_filter = ""

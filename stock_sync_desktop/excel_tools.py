@@ -146,18 +146,18 @@ def export_client_price(
                     "sku": row.get("sku") or "",
                     "brand": row.get("category_name") or "",
                     "name": row.get("print_name") or row.get("name") or "",
-                    "quantity": int(round(float(row.get("quantity") or 0))),
+                    "quantity": int(round(_resolve_client_price_quantity(row))),
                     "price": round(float(row.get("price") or 0), 2),
-                    "weight": "",
+                    "warehouse": _resolve_client_price_warehouse(row),
                 }
                 for row in rows
             ]
         )
         if frame.empty:
             frame = pd.DataFrame(
-                columns=["sku", "brand", "name", "quantity", "price", "weight"]
+                columns=["sku", "brand", "name", "quantity", "price", "warehouse"]
             )
-        ordered = frame[["sku", "brand", "name", "quantity", "price", "weight"]]
+        ordered = frame[["sku", "brand", "name", "quantity", "price", "warehouse"]]
         ordered = ordered.rename(
             columns={
                 "sku": "Артикул",
@@ -165,7 +165,7 @@ def export_client_price(
                 "name": "Наименование",
                 "quantity": "Наличие, шт.",
                 "price": "Цена, ₽",
-                "weight": "Вес, кг",
+                "warehouse": "Склад",
             }
         )
         ordered.to_excel(target, index=False)
@@ -173,6 +173,7 @@ def export_client_price(
 
     workbook = load_workbook(template_path)
     sheet = workbook.active
+    sheet.cell(row=1, column=6, value="Склад")
     existing_max_row = sheet.max_row
     data_start_row = 2
     last_data_row = max(data_start_row, len(rows) + 1)
@@ -199,14 +200,18 @@ def export_client_price(
         stock_cell = sheet.cell(
             row=row_idx,
             column=4,
-            value=int(round(float(row.get("quantity") or 0))),
+            value=int(round(_resolve_client_price_quantity(row))),
         )
         price_cell = sheet.cell(
             row=row_idx,
             column=5,
             value=round(float(row.get("price") or 0), 2),
         )
-        weight_cell = sheet.cell(row=row_idx, column=6, value=None)
+        warehouse_cell = sheet.cell(
+            row=row_idx,
+            column=6,
+            value=_resolve_client_price_warehouse(row),
+        )
         stock_cell.number_format = '#,##0'
         price_cell.number_format = '#,##0.00'
         for styled_cell in (
@@ -215,7 +220,7 @@ def export_client_price(
             sheet.cell(row=row_idx, column=3),
             stock_cell,
             price_cell,
-            weight_cell,
+            warehouse_cell,
         ):
             styled_cell.border = copy(CLIENT_PRICE_GRID_BORDER)
 
@@ -252,6 +257,20 @@ def _refresh_client_template_formulas(sheet, *, last_data_row: int) -> None:
         for cell in row:
             if isinstance(cell.value, str) and cell.value.startswith("="):
                 cell.value = pattern.sub(data_range, cell.value)
+
+
+def _resolve_client_price_quantity(row: dict[str, Any]) -> float:
+    return float(row.get("row_quantity", row.get("quantity") or 0) or 0)
+
+
+def _resolve_client_price_warehouse(row: dict[str, Any]) -> str:
+    return str(
+        row.get("row_warehouse_name")
+        or row.get("warehouse_name")
+        or row.get("warehouse_summary")
+        or row.get("top_warehouse_name")
+        or ""
+    )
 
 
 def _normalize_header(value: Any) -> str:

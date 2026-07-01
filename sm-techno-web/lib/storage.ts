@@ -18,6 +18,7 @@ export type StockPageViewState = {
   page: number;
   pageSize: number;
   selectedItemId: number | null;
+  selectedCatalogRowKey: string | null;
   selectionCleared: boolean;
   selectedQuantityInput: string;
 };
