@@ -78,7 +78,7 @@ export default function OrdersPage() {
               Заказы
             </h1>
             <p className="mt-0.5 max-w-[64ch] text-[10px] leading-[14px] text-[var(--text-secondary)]">
-              Здесь хранится вся история отправок в 1С: номера, даты, статусы и суммы по каждому заказу.
+              Здесь хранится вся история заказов: отправка в 1С, ошибки и локальные списания со склада.
             </p>
           </div>
 
@@ -241,6 +241,11 @@ function StatusBadge({ status }: { status: string }) {
           label: "Отправлен",
           className: "border-[#D8F0DE] bg-[#ECFDF3] text-[var(--stock-ok)]",
         }
+      : status === "written_off_locally"
+        ? {
+            label: "Списан локально",
+            className: "border-[#F5E1B8] bg-[#FFF6E5] text-[var(--brand-dark)]",
+          }
       : status === "error"
         ? {
             label: "Ошибка",

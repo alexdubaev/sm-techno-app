@@ -963,6 +963,25 @@ def get_order_details(
     return _serialize_order_details(bundle)
 
 
+@app.post("/api/orders/{order_id}/writeoff")
+def writeoff_order(
+    order_id: int,
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        bundle = SERVICE.writeoff_order_for_user(
+            order_id=order_id,
+            user_id=int(current_user["id"]),
+            is_admin=str(current_user.get("role") or "") == "admin",
+        )
+    except ValueError as exc:
+        message = str(exc)
+        normalized_message = message.lower()
+        status_code = 404 if "не найден" in normalized_message or "not found" in normalized_message else 400
+        raise HTTPException(status_code=status_code, detail=message) from exc
+    return _serialize_order_details(bundle)
+
+
 @app.post("/api/orders/send")
 def create_and_send_order(
     payload: dict[str, Any],

@@ -1796,6 +1796,97 @@ class Database:
                 (onec_ref_key, onec_number, onec_date, now, order_id),
             )
 
+    def writeoff_order_locally(self, order_id: int) -> None:
+        now = utc_now()
+        with self.transaction() as conn:
+            order = conn.execute(
+                """
+                SELECT id, local_number, status
+                FROM orders
+                WHERE id = ?
+                """,
+                (order_id,),
+            ).fetchone()
+            if order is None:
+                raise ValueError(f"Order {order_id} not found")
+
+            status = str(order["status"] or "").strip()
+            if status == "written_off_locally":
+                raise ValueError("Заказ уже списан локально.")
+            if status == "posted_to_1c":
+                raise ValueError("Заказ уже отправлен в 1С и повторно списывать его нельзя.")
+            if status not in {"posting_to_1c", "error"}:
+                raise ValueError("Заказ нельзя списать в текущем статусе.")
+
+            lines = conn.execute(
+                """
+                SELECT
+                    item_id,
+                    warehouse_id,
+                    COALESCE(warehouse_name_snapshot, ?) AS warehouse_name_snapshot,
+                    SUM(quantity) AS quantity
+                FROM order_lines
+                WHERE order_id = ?
+                GROUP BY item_id, warehouse_id, warehouse_name_snapshot
+                """,
+                (DEFAULT_WAREHOUSE_NAME, order_id),
+            ).fetchall()
+
+            for line in lines:
+                current_qty = self._get_warehouse_quantity(
+                    conn,
+                    item_id=int(line["item_id"]),
+                    warehouse_id=int(line["warehouse_id"]),
+                )
+                if current_qty < float(line["quantity"]):
+                    raise ValueError(
+                        "Недостаточно остатка для списания заказа. "
+                        f"Item ID: {line['item_id']}, склад: {line['warehouse_name_snapshot']}, "
+                        f"доступно {current_qty}, требуется {line['quantity']}."
+                    )
+
+            for line in lines:
+                item_id = int(line["item_id"])
+                warehouse_id = int(line["warehouse_id"])
+                quantity = float(line["quantity"])
+                current_qty = self._get_warehouse_quantity(
+                    conn,
+                    item_id=item_id,
+                    warehouse_id=warehouse_id,
+                )
+                self._set_warehouse_quantity(
+                    conn,
+                    item_id=item_id,
+                    warehouse_id=warehouse_id,
+                    quantity=current_qty - quantity,
+                )
+                conn.execute(
+                    """
+                    INSERT INTO stock_movements(
+                        item_id, order_id, warehouse_id, movement_type, quantity, comment, created_at
+                    )
+                    VALUES(?, ?, ?, 'writeoff', ?, ?, ?)
+                    """,
+                    (
+                        item_id,
+                        order_id,
+                        warehouse_id,
+                        quantity,
+                        f"Ручное списание заказа {order['local_number']}. Склад: {line['warehouse_name_snapshot']}",
+                        now,
+                    ),
+                )
+
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'written_off_locally',
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (now, order_id),
+            )
+
     def mark_order_error(self, order_id: int, error_message: str) -> None:
         with self.transaction() as conn:
             conn.execute(
@@ -1835,6 +1926,46 @@ class Database:
                     item_id,
                 ),
             )
+
+    def find_linked_item_by_category_name(
+        self,
+        category_name: str,
+        *,
+        exclude_item_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        normalized_category_name = category_name.strip()
+        if not normalized_category_name:
+            return None
+
+        query = """
+            SELECT
+                id,
+                onec_key,
+                sku,
+                name,
+                print_name,
+                category_name,
+                group_name,
+                unit_key,
+                unit_name
+            FROM items
+            WHERE category_name = ?
+              AND COALESCE(NULLIF(onec_key, ''), '') <> ''
+        """
+        params: list[Any] = [normalized_category_name]
+        if exclude_item_id is not None:
+            query += " AND id <> ?"
+            params.append(int(exclude_item_id))
+        query += """
+            ORDER BY
+                CASE WHEN COALESCE(NULLIF(unit_key, ''), '') <> '' THEN 0 ELSE 1 END,
+                id
+            LIMIT 1
+        """
+
+        with self.connect() as conn:
+            row = conn.execute(query, params).fetchone()
+        return dict(row) if row is not None else None
 
     def delete_local_items(self, item_ids: list[int]) -> dict[str, int]:
         normalized_ids = sorted({int(item_id) for item_id in item_ids if item_id})

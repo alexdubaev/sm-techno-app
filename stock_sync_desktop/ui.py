@@ -703,6 +703,7 @@ class StockSyncDesktopApp:
         history_scroll.grid(row=1, column=1, sticky="ns")
         self.orders_tree.configure(yscrollcommand=history_scroll.set)
         self.orders_tree.tag_configure("posted", foreground=self.colors["success"])
+        self.orders_tree.tag_configure("written_off", foreground=self.colors["warning"])
         self.orders_tree.tag_configure("error", foreground=self.colors["danger"])
 
     def _build_metric_card(
@@ -1127,12 +1128,20 @@ class StockSyncDesktopApp:
         rows = []
         for row in orders:
             status = row.get("status") or ""
+            status_label = status
             tags: tuple[str, ...] = ()
             if status == "posted_to_1c":
+                status_label = "Отправлен"
                 tags = ("posted",)
+            elif status == "written_off_locally":
+                status_label = "Списан локально"
+                tags = ("written_off",)
             elif status == "error":
+                status_label = "Ошибка"
                 tags = ("error",)
-            rows.append((str(row["id"]), (row.get("local_number") or "", row.get("counterparty_name") or "", status, row.get("onec_number") or "", row.get("onec_date") or "", self._format_money(row.get("total_amount")), row.get("error_message") or ""), tags))
+            elif status == "posting_to_1c":
+                status_label = "В обработке"
+            rows.append((str(row["id"]), (row.get("local_number") or "", row.get("counterparty_name") or "", status_label, row.get("onec_number") or "", row.get("onec_date") or "", self._format_money(row.get("total_amount")), row.get("error_message") or ""), tags))
         self._replace_tree_rows(self.orders_tree, rows)
     def on_counterparty_changed(self, _event: tk.Event | None = None) -> None:
         self.refresh_order_form_options()

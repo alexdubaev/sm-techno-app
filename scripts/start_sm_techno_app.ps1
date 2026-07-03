@@ -1,4 +1,5 @@
 param(
+    [switch]$OpenBrowser,
     [switch]$SkipBrowser,
     [switch]$ShowServerWindows
 )
@@ -13,11 +14,12 @@ $powershellPath = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powersh
 $frontendUrl = "http://127.0.0.1:3000"
 $backendUrl = "http://127.0.0.1:8000"
 $backendHealthUrl = "$backendUrl/api/health"
+$edgeAppProxyPath = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge_proxy.exe"
+$edgeAppId = "dpngjijhjgjcjelhmhoihafabpbjgfen"
+$edgeAppUrl = "$frontendUrl/"
 $browserProfileDir = Join-Path $env:LOCALAPPDATA "SMTechnoBrowserApp"
 $startedBackend = $false
 $startedFrontend = $false
-$browserStartedInAppMode = $false
-
 if (-not (Test-Path $pythonPath)) {
     throw "Python not found: $pythonPath"
 }
@@ -127,108 +129,87 @@ function Get-TailscaleIpv4 {
 
 function Get-AppBrowserProcesses {
     return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -match "^(msedge|chrome)\.exe$" -and
+        $_.Name -match "^(msedge|chrome|msedge_proxy)\.exe$" -and
         $_.CommandLine -and
         (
+            $_.CommandLine.Contains("--app-id=$edgeAppId") -or
+            $_.CommandLine.Contains("--app-url=$edgeAppUrl") -or
             $_.CommandLine.Contains("--app=$frontendUrl") -or
             $_.CommandLine.Contains($browserProfileDir)
         )
     })
 }
 
-function Wait-ForBrowserAppExit {
-    param([int]$MaxSeconds = 86400)
-
-    $deadline = (Get-Date).AddSeconds($MaxSeconds)
-    while ((Get-Date) -lt $deadline) {
-        $browserProcesses = Get-AppBrowserProcesses
-        if ($browserProcesses.Count -eq 0) {
-            return $true
-        }
-
-        Start-Sleep -Seconds 1
-    }
-
-    return $false
-}
-
-function Stop-ListeningProcesses {
-    param([int[]]$Ports)
-
-    foreach ($port in $Ports) {
-        $connections = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
-        if ($connections.Count -eq 0) {
-            continue
-        }
-
-        $processIds = $connections | Select-Object -ExpandProperty OwningProcess -Unique
-        foreach ($processId in $processIds) {
-            try {
-                Stop-Process -Id $processId -Force -ErrorAction Stop
-            } catch {
-                Write-Warning "Failed to stop PID $processId on port $port."
-            }
-        }
-    }
-}
-
 $windowStyle = if ($ShowServerWindows) { "Normal" } else { "Hidden" }
+
+if ($SkipBrowser) {
+    $OpenBrowser = $false
+}
 
 Write-Host "=========================================="
 Write-Host "  SM Techno - start backend and frontend"
 Write-Host "=========================================="
 Write-Host ""
 
-try {
-    if (-not (Test-PortListening -Port 8000)) {
-        Write-Host "Starting backend on $backendUrl"
-        Start-Process -FilePath $powershellPath `
+if (-not (Test-PortListening -Port 8000)) {
+    Write-Host "Starting backend on $backendUrl"
+    Start-Process -FilePath $powershellPath `
+        -ArgumentList @(
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            (Join-Path $rootPath "scripts\run_backend_service.ps1")
+        ) `
+        -WorkingDirectory $rootPath `
+        -WindowStyle $windowStyle | Out-Null
+    $startedBackend = $true
+} else {
+    Write-Host "Backend already running on port 8000"
+}
+
+if (-not (Test-PortListening -Port 3000)) {
+    Write-Host "Starting frontend on $frontendUrl"
+    Start-Process -FilePath $powershellPath `
+        -ArgumentList @(
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            (Join-Path $rootPath "scripts\run_frontend_service.ps1")
+        ) `
+        -WorkingDirectory $frontendPath `
+        -WindowStyle $windowStyle | Out-Null
+    $startedFrontend = $true
+} else {
+    Write-Host "Frontend already running on port 3000"
+}
+
+if (-not (Wait-ForUrl -Url $backendHealthUrl -MaxSeconds 20)) {
+    Write-Warning "Backend did not answer in time: $backendHealthUrl"
+}
+
+if (-not (Wait-ForUrl -Url $frontendUrl -MaxSeconds 45)) {
+    throw "Frontend did not answer in time: $frontendUrl"
+}
+
+if ($OpenBrowser) {
+    if (Test-Path $edgeAppProxyPath) {
+        Write-Host "Opening installed Edge app window"
+        Start-Process -FilePath $edgeAppProxyPath `
             -ArgumentList @(
-                "-NoLogo",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                (Join-Path $rootPath "scripts\run_backend_service.ps1")
-            ) `
-            -WorkingDirectory $rootPath `
-            -WindowStyle $windowStyle | Out-Null
-        $startedBackend = $true
+                "--profile-directory=Default",
+                "--app-id=$edgeAppId",
+                "--app-url=$edgeAppUrl",
+                "--app-launch-source=4"
+            ) | Out-Null
     } else {
-        Write-Host "Backend already running on port 8000"
-    }
-
-    if (-not (Test-PortListening -Port 3000)) {
-        Write-Host "Starting frontend on $frontendUrl"
-        Start-Process -FilePath $powershellPath `
-            -ArgumentList @(
-                "-NoLogo",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                (Join-Path $rootPath "scripts\run_frontend_service.ps1")
-            ) `
-            -WorkingDirectory $frontendPath `
-            -WindowStyle $windowStyle | Out-Null
-        $startedFrontend = $true
-    } else {
-        Write-Host "Frontend already running on port 3000"
-    }
-
-    if (-not (Wait-ForUrl -Url $backendHealthUrl -MaxSeconds 20)) {
-        Write-Warning "Backend did not answer in time: $backendHealthUrl"
-    }
-
-    if (-not (Wait-ForUrl -Url $frontendUrl -MaxSeconds 45)) {
-        throw "Frontend did not answer in time: $frontendUrl"
-    }
-
-    if (-not $SkipBrowser) {
         $browserPath = Get-BrowserPath
 
         if ($browserPath) {
-            Write-Host "Opening app window in browser app mode"
+            Write-Warning "Edge app shortcut was not found. Opening browser app mode instead."
             Start-Process -FilePath $browserPath `
                 -ArgumentList @(
                     "--app=$frontendUrl",
@@ -238,43 +219,24 @@ try {
                     "--no-first-run",
                     "--no-default-browser-check"
                 ) | Out-Null
-            $browserStartedInAppMode = $true
         } else {
             Write-Warning "Edge/Chrome not found. Opening default browser instead."
-            Write-Warning "Automatic stop on close is unavailable in this fallback mode."
             Start-Process $frontendUrl | Out-Null
         }
     }
-
-    Write-Host ""
-    Write-Host "Done."
-    Write-Host "Backend:  $backendUrl"
-    Write-Host "Frontend: $frontendUrl"
-
-    $tailscaleIp = Get-TailscaleIpv4
-    if ($tailscaleIp) {
-        Write-Host "Tailscale access: http://$tailscaleIp`:3000"
-        Write-Host "Tailscale API:    http://$tailscaleIp`:8000"
-    }
-
-    if ($browserStartedInAppMode) {
-        Write-Host "Auto-stop is active and will stop started services when the app window closes."
-        Start-Sleep -Seconds 2
-        [void](Wait-ForBrowserAppExit)
-    }
 }
-finally {
-    if ($browserStartedInAppMode) {
-        $portsToStop = @()
-        if ($startedFrontend) {
-            $portsToStop += 3000
-        }
-        if ($startedBackend) {
-            $portsToStop += 8000
-        }
 
-        if ($portsToStop.Count -gt 0) {
-            Stop-ListeningProcesses -Ports $portsToStop
-        }
-    }
+Write-Host ""
+Write-Host "Done."
+Write-Host "Backend:  $backendUrl"
+Write-Host "Frontend: $frontendUrl"
+
+$tailscaleIp = Get-TailscaleIpv4
+if ($tailscaleIp) {
+    Write-Host "Tailscale access: http://$tailscaleIp`:3000"
+    Write-Host "Tailscale API:    http://$tailscaleIp`:8000"
+}
+
+if (-not $OpenBrowser) {
+    Write-Host "App window auto-start is disabled. Open the client app manually if needed."
 }

@@ -309,7 +309,10 @@ class StockSyncService:
             )
         cache_key = category_name.lower()
         if cache_key not in category_cache:
-            category_cache[cache_key] = client.find_item_category_by_name(category_name)
+            category = client.find_item_category_by_name(category_name)
+            if category is None:
+                category = self._resolve_category_from_linked_item(line, client)
+            category_cache[cache_key] = category
         category = category_cache[cache_key]
         if category is None:
             raise ValueError(
@@ -317,6 +320,43 @@ class StockSyncService:
                 "Проверь точное название категории в УНФ."
             )
         return category
+
+    def _resolve_category_from_linked_item(
+        self,
+        line: dict[str, Any],
+        client: OneCClient,
+    ) -> dict[str, Any] | None:
+        category_name = (line.get("category_name") or "").strip()
+        if not category_name:
+            return None
+
+        exclude_item_id = int(line["item_id"]) if line.get("item_id") is not None else None
+        reference_item = self.db.find_linked_item_by_category_name(
+            category_name,
+            exclude_item_id=exclude_item_id,
+        )
+        if not reference_item:
+            return None
+
+        reference = None
+        reference_sku = str(reference_item.get("sku") or "").strip()
+        if reference_sku:
+            reference = client.find_item_by_sku(reference_sku)
+        if reference is None:
+            reference_name = str(reference_item.get("name") or "").strip()
+            if reference_name:
+                reference = client.find_item_by_name(reference_name)
+        if reference is None:
+            return None
+
+        category_key = str(reference.get("КатегорияНоменклатуры_Key") or "").strip()
+        if not self._is_guid(category_key):
+            return None
+        return {
+            "Ref_Key": category_key,
+            "ЕдиницаИзмерения_Key": str(reference.get("ЕдиницаИзмерения_Key") or "").strip(),
+            "ТипНоменклатурыПоУмолчанию": str(reference.get("ТипНоменклатурыПоУмолчанию") or "").strip(),
+        }
 
     def _resolve_group_for_item(
         self,

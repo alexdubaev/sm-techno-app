@@ -530,6 +530,16 @@ export async function fetchOrderDetails(orderId: number): Promise<OrderDetails> 
   return requestJson<OrderDetails>(`/api/orders/${orderId}`);
 }
 
+export async function writeoffOrder(orderId: number): Promise<OrderDetails> {
+  return requestJsonWithInit<OrderDetails>(
+    `/api/orders/${orderId}/writeoff`,
+    {
+      method: "POST",
+    },
+    "Не удалось списать заказ со склада.",
+  );
+}
+
 export async function importPriceFile(file: File): Promise<{ created: number; updated: number }> {
   const body = new FormData();
   body.append("file", file);

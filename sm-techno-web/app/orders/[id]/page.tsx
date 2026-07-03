@@ -12,8 +12,10 @@ import {
   useResizableColumns,
   type ResizableColumnConfig,
 } from "@/components/resizable-table";
-import { fetchOrderDetails } from "@/lib/api";
+import { fetchOrderDetails, writeoffOrder } from "@/lib/api";
 import type { OrderDetails } from "@/lib/types";
+
+type PrintOrientation = "portrait" | "landscape";
 
 const ORDER_DETAILS_TABLE_COLUMNS: ResizableColumnConfig[] = [
   { key: "index", width: 34, minWidth: 30, maxWidth: 60 },
@@ -32,7 +34,10 @@ export default function OrderDetailsPage() {
 
   const [details, setDetails] = useState<OrderDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSubmittingWriteoff, setIsSubmittingWriteoff] = useState(false);
+  const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("landscape");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const invalidOrderId = !Number.isFinite(orderId) || orderId <= 0;
   const { containerRef, getWidth, onResizeStart, tableWidth } = useResizableColumns(
     "sm-techno-order-details-table-widths-v2",
@@ -77,13 +82,60 @@ export default function OrderDetailsPage() {
   const order = invalidOrderId ? null : details?.order ?? null;
   const createdByLabel = sanitizeMetaValue(order?.createdByName);
   const commentLabel = sanitizeMetaValue(order?.comment, "Комментарий не указан");
+  const canPrint = !!order && !isLoading;
+  const canWriteoff =
+    !!order &&
+    order.status !== "posted_to_1c" &&
+    order.status !== "written_off_locally" &&
+    !isLoading &&
+    !isSubmittingWriteoff;
+
+  const handleWriteoff = useCallback(async () => {
+    if (!order || isSubmittingWriteoff) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Списать заказ ${order.localNumber} со складов без отправки в 1С? Повторно списать этот заказ будет нельзя.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsSubmittingWriteoff(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const data = await writeoffOrder(order.id);
+      setDetails(data);
+      setNotice("Заказ успешно списан со складов.");
+    } catch (requestError: unknown) {
+      setError(
+        requestError instanceof Error && requestError.message.trim()
+          ? requestError.message.trim()
+          : "Не удалось списать заказ со склада.",
+      );
+    } finally {
+      setIsSubmittingWriteoff(false);
+    }
+  }, [isSubmittingWriteoff, order]);
+
+  const handlePrint = useCallback(() => {
+    if (!order) {
+      return;
+    }
+    window.print();
+  }, [order]);
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+      <>
+      <PrintStyles orientation={printOrientation} />
+      <div className="order-print-screen flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
         <header className="flex flex-wrap items-start justify-between gap-1.5">
           <div>
-            <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+            <div className="print-hidden flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
               <Link href="/orders" className="transition-colors hover:text-[var(--text-primary)]">
                 История заказов
               </Link>
@@ -109,6 +161,7 @@ export default function OrderDetailsPage() {
         {invalidOrderId ? <Alert>Некорректный номер заказа.</Alert> : null}
 
         {error ? <Alert>{error}</Alert> : null}
+        {notice ? <SuccessAlert>{notice}</SuccessAlert> : null}
 
         <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
           <div className="grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
@@ -123,7 +176,40 @@ export default function OrderDetailsPage() {
               <InlineMeta label="Склады" value={sanitizeMetaValue(order?.warehouseSummary, "Основной склад")} />
             </div>
 
-            <div className="flex flex-wrap gap-1 2xl:justify-end">
+            <div className="print-hidden flex flex-wrap gap-1 2xl:justify-end">
+              {order ? (
+                <div className="inline-flex flex-wrap items-center gap-1 rounded-[9px] border border-[var(--border-color)] bg-white px-1.5 py-1">
+                  <span className="px-1 text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
+                    Печать
+                  </span>
+                  <select
+                    value={printOrientation}
+                    onChange={(event) => setPrintOrientation(event.target.value as PrintOrientation)}
+                    className="h-7 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-medium text-[var(--text-primary)]"
+                  >
+                    <option value="portrait">Книжная</option>
+                    <option value="landscape">Альбомная</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handlePrint}
+                    disabled={!canPrint}
+                    className="inline-flex h-7 items-center justify-center rounded-[8px] border border-[var(--border-color)] bg-[#F8FAFD] px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Печать
+                  </button>
+                </div>
+              ) : null}
+              {canWriteoff ? (
+                <button
+                  type="button"
+                  onClick={() => void handleWriteoff()}
+                  disabled={isSubmittingWriteoff}
+                  className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[#F5E1B8] bg-[#FFF6E5] px-2.5 text-[10px] font-semibold text-[var(--brand-dark)] transition hover:bg-[#FFEECC] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isSubmittingWriteoff ? "Списание..." : "Списать со склада"}
+                </button>
+              ) : null}
               <Link
                 href="/orders"
                 className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
@@ -160,7 +246,7 @@ export default function OrderDetailsPage() {
                 В этом заказе пока нет строк.
               </div>
             ) : (
-              <div ref={containerRef} className="max-h-[calc(100dvh-8.5rem)] overflow-auto">
+              <div ref={containerRef} className="order-print-table-scroll max-h-[calc(100dvh-8.5rem)] overflow-auto">
                 <table
                   className="min-w-full table-fixed border-collapse"
                   style={{ width: tableWidth }}
@@ -231,13 +317,326 @@ export default function OrderDetailsPage() {
           </div>
         </section>
       </div>
+      <OrderPrintDocument
+        details={details}
+        totals={totals}
+        orientation={printOrientation}
+      />
+      </>
     </AppShell>
+  );
+}
+
+function PrintStyles({ orientation }: { orientation: PrintOrientation }) {
+  return (
+    <style jsx global>{`
+      .order-print-only {
+        display: none;
+      }
+
+      @media print {
+        @page {
+          size: A4 ${orientation};
+          margin: 10mm;
+        }
+
+        html,
+        body {
+          background: #ffffff !important;
+        }
+
+        body::before,
+        body::after {
+          display: none !important;
+        }
+
+        .app-shell-sidebar,
+        .app-shell-mobile-header,
+        .order-print-screen {
+          display: none !important;
+        }
+
+        .app-shell-main {
+          padding: 0 !important;
+        }
+
+        .app-shell-content {
+          position: static !important;
+        }
+
+        .order-print-only {
+          display: block !important;
+          color: #0b1736;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .order-print-sheet {
+          width: 100%;
+        }
+
+        .order-print-meta-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 6px 12px;
+          margin-bottom: 10px;
+        }
+
+        .order-print-meta-item {
+          border: 1px solid #d8e0ea;
+          border-radius: 8px;
+          padding: 6px 8px;
+          background: #ffffff;
+        }
+
+        .order-print-meta-label {
+          font-size: 9px;
+          line-height: 1.2;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          color: #5c6a82;
+        }
+
+        .order-print-meta-value {
+          margin-top: 2px;
+          font-size: 10px;
+          line-height: 1.35;
+          font-weight: 600;
+          word-break: break-word;
+        }
+
+        .order-print-table-wrapper {
+          overflow: visible !important;
+          border: 1px solid #d8e0ea;
+          border-radius: 0;
+          background: #ffffff;
+        }
+
+        .order-print-table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+
+        .order-print-table thead {
+          display: table-header-group;
+        }
+
+        .order-print-table th,
+        .order-print-table td {
+          border: 1px solid #d8e0ea;
+          padding: 4px 6px;
+          vertical-align: top;
+          font-size: 10px;
+          line-height: 1.25;
+          word-break: break-word;
+        }
+
+        .order-print-table th {
+          background: #f5f7fa !important;
+          font-weight: 700;
+          text-align: left;
+        }
+
+        .order-print-table tr {
+          break-inside: avoid;
+        }
+
+        .order-print-number {
+          text-align: right;
+          white-space: nowrap;
+          word-break: normal;
+        }
+
+        .order-print-secondary {
+          display: block;
+          margin-top: 2px;
+          font-size: 9px;
+          color: #5c6a82;
+        }
+
+        .order-print-totals {
+          display: flex;
+          justify-content: flex-end;
+          gap: 16px;
+          margin-top: 8px;
+          font-size: 11px;
+          font-weight: 600;
+        }
+
+        .order-print-portrait .order-print-table th:nth-child(1),
+        .order-print-portrait .order-print-table td:nth-child(1) {
+          width: 4%;
+        }
+
+        .order-print-portrait .order-print-table th:nth-child(2),
+        .order-print-portrait .order-print-table td:nth-child(2) {
+          width: 12%;
+        }
+
+        .order-print-portrait .order-print-table th:nth-child(3),
+        .order-print-portrait .order-print-table td:nth-child(3) {
+          width: 34%;
+        }
+
+        .order-print-portrait .order-print-table th:nth-child(4),
+        .order-print-portrait .order-print-table td:nth-child(4) {
+          width: 16%;
+        }
+
+        .order-print-portrait .order-print-table th:nth-child(5),
+        .order-print-portrait .order-print-table td:nth-child(5) {
+          width: 11%;
+        }
+
+        .order-print-portrait .order-print-table th:nth-child(6),
+        .order-print-portrait .order-print-table td:nth-child(6) {
+          width: 8%;
+        }
+
+        .order-print-portrait .order-print-table th:nth-child(7),
+        .order-print-portrait .order-print-table td:nth-child(7) {
+          width: 7%;
+        }
+
+        .order-print-portrait .order-print-table th:nth-child(8),
+        .order-print-portrait .order-print-table td:nth-child(8) {
+          width: 8%;
+        }
+
+        .order-print-landscape .order-print-table th:nth-child(1),
+        .order-print-landscape .order-print-table td:nth-child(1) {
+          width: 4%;
+        }
+
+        .order-print-landscape .order-print-table th:nth-child(2),
+        .order-print-landscape .order-print-table td:nth-child(2) {
+          width: 12%;
+        }
+
+        .order-print-landscape .order-print-table th:nth-child(3),
+        .order-print-landscape .order-print-table td:nth-child(3) {
+          width: 40%;
+        }
+
+        .order-print-landscape .order-print-table th:nth-child(4),
+        .order-print-landscape .order-print-table td:nth-child(4) {
+          width: 15%;
+        }
+
+        .order-print-landscape .order-print-table th:nth-child(5),
+        .order-print-landscape .order-print-table td:nth-child(5) {
+          width: 12%;
+        }
+
+        .order-print-landscape .order-print-table th:nth-child(6),
+        .order-print-landscape .order-print-table td:nth-child(6) {
+          width: 5%;
+        }
+
+        .order-print-landscape .order-print-table th:nth-child(7),
+        .order-print-landscape .order-print-table td:nth-child(7) {
+          width: 6%;
+        }
+
+        .order-print-landscape .order-print-table th:nth-child(8),
+        .order-print-landscape .order-print-table td:nth-child(8) {
+          width: 6%;
+        }
+      }
+    `}</style>
+  );
+}
+
+function OrderPrintDocument({
+  details,
+  totals,
+  orientation,
+}: {
+  details: OrderDetails | null;
+  totals: { positions: number; quantity: number; amount: number };
+  orientation: PrintOrientation;
+}) {
+  const order = details?.order ?? null;
+  const lines = details?.lines ?? [];
+
+  if (!order) {
+    return null;
+  }
+
+  return (
+    <div className={`order-print-only order-print-sheet order-print-${orientation}`}>
+      <div className="order-print-meta-grid">
+        <PrintMetaItem label="Контрагент" value={sanitizeMetaValue(order.counterpartyName)} />
+        <PrintMetaItem label="Дата" value={formatShortDate(order.orderDate)} />
+      </div>
+
+      <div className="order-print-table-wrapper">
+        <table className="order-print-table">
+          <thead>
+            <tr>
+              <th>№</th>
+              <th>Артикул</th>
+              <th>Наименование</th>
+              <th>Склад</th>
+              <th>Категория</th>
+              <th className="order-print-number">Кол-во</th>
+              <th className="order-print-number">Цена</th>
+              <th className="order-print-number">Сумма</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.length === 0 ? (
+              <tr>
+                <td colSpan={8}>В этом заказе пока нет строк.</td>
+              </tr>
+            ) : (
+              lines.map((line, index) => (
+                <tr key={line.id}>
+                  <td>{index + 1}</td>
+                  <td>
+                    {line.sku || "—"}
+                    <span className="order-print-secondary">{line.unitName || "шт."}</span>
+                  </td>
+                  <td>
+                    {line.printName || line.name}
+                    {line.groupName ? (
+                      <span className="order-print-secondary">Группа: {line.groupName}</span>
+                    ) : null}
+                  </td>
+                  <td>{line.warehouseName || "Основной склад"}</td>
+                  <td>{line.categoryName || "—"}</td>
+                  <td className="order-print-number">{formatQuantity(line.quantity)}</td>
+                  <td className="order-print-number">{formatMoney(line.price)}</td>
+                  <td className="order-print-number">{formatMoney(line.amount)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="order-print-totals">
+        <span>Позиций: {String(totals.positions)}</span>
+        <span>Количество: {formatQuantity(totals.quantity)}</span>
+        <span>Сумма: {formatMoney(totals.amount)}</span>
+      </div>
+    </div>
   );
 }
 
 function Alert({ children }: { children: string }) {
   return (
     <div className="rounded-[12px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[var(--stock-empty)]">
+      {children}
+    </div>
+  );
+}
+
+function SuccessAlert({ children }: { children: string }) {
+  return (
+    <div className="rounded-[12px] border border-[#D8F0DE] bg-[#ECFDF3] px-3 py-2 text-[11px] text-[var(--stock-ok)]">
       {children}
     </div>
   );
@@ -286,6 +685,15 @@ function InlineNotice({
   );
 }
 
+function PrintMetaItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="order-print-meta-item">
+      <div className="order-print-meta-label">{label}</div>
+      <div className="order-print-meta-value">{value || "—"}</div>
+    </div>
+  );
+}
+
 function MetricChip({
   label,
   value,
@@ -302,19 +710,21 @@ function MetricChip({
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const view =
+  const label = formatOrderStatusLabel(status);
+  const className =
     status === "posted_to_1c"
       ? {
-          label: "Отправлен",
           className: "border-[#D8F0DE] bg-[#ECFDF3] text-[var(--stock-ok)]",
         }
-      : status === "error"
+      : status === "written_off_locally"
         ? {
-            label: "Ошибка",
+            className: "border-[#F5E1B8] bg-[#FFF6E5] text-[var(--brand-dark)]",
+          }
+        : status === "error"
+        ? {
             className: "border-[#F9D4D4] bg-[#FEF2F2] text-[var(--stock-empty)]",
           }
         : {
-            label: "В обработке",
             className: "border-[var(--border-color)] bg-white text-[var(--text-secondary)]",
           };
 
@@ -322,12 +732,25 @@ function StatusBadge({ status }: { status: string }) {
     <span
       className={[
         "inline-flex items-center rounded-full border px-2 py-[3px] text-[9px] font-semibold uppercase tracking-[0.05em]",
-        view.className,
+        className.className,
       ].join(" ")}
     >
-      {view.label}
+      {label}
     </span>
   );
+}
+
+function formatOrderStatusLabel(status: string) {
+  if (status === "posted_to_1c") {
+    return "Отправлен";
+  }
+  if (status === "written_off_locally") {
+    return "Списан локально";
+  }
+  if (status === "error") {
+    return "Ошибка";
+  }
+  return "В обработке";
 }
 
 function formatMoney(value: number) {

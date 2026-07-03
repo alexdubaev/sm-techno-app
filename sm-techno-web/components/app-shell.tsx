@@ -38,7 +38,7 @@ export function AppShell({ children }: ShellProps) {
   return (
     <div className="min-h-screen bg-[var(--page-bg)] text-[var(--text-primary)]">
       <div className="mx-auto min-h-screen max-w-[1680px] 2xl:flex">
-        <aside className="hidden w-[246px] shrink-0 border-r border-[var(--border-color)] bg-white/92 px-3 py-3 backdrop-blur-sm 2xl:flex 2xl:flex-col">
+        <aside className="app-shell-sidebar hidden w-[246px] shrink-0 border-r border-[var(--border-color)] bg-white/92 px-3 py-3 backdrop-blur-sm 2xl:flex 2xl:flex-col">
           <div className="mb-4 px-1.5">
             <div className="relative h-[76px] w-[198px] overflow-hidden 2xl:h-[82px] 2xl:w-[226px]">
               <Image
@@ -105,7 +105,7 @@ export function AppShell({ children }: ShellProps) {
         </aside>
 
         <div className="min-w-0 flex-1">
-          <div className="border-b border-[var(--border-color)] bg-white/92 px-2 py-2 backdrop-blur-sm 2xl:hidden">
+          <div className="app-shell-mobile-header border-b border-[var(--border-color)] bg-white/92 px-2 py-2 backdrop-blur-sm 2xl:hidden">
             <div className="flex items-center justify-between gap-3">
               <div className="relative h-[50px] w-[146px] overflow-hidden">
                 <Image
@@ -160,8 +160,8 @@ export function AppShell({ children }: ShellProps) {
             </div>
           </div>
 
-          <main className="min-w-0 px-2 py-2 md:px-3 md:py-3 xl:px-3.5 xl:py-3.5 2xl:px-4 2xl:py-4">
-          <div className="relative">{children}</div>
+          <main className="app-shell-main min-w-0 px-2 py-2 md:px-3 md:py-3 xl:px-3.5 xl:py-3.5 2xl:px-4 2xl:py-4">
+          <div className="app-shell-content relative">{children}</div>
           </main>
         </div>
       </div>

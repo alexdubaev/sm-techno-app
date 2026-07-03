@@ -3,6 +3,8 @@ param()
 $ErrorActionPreference = "Stop"
 
 $frontendUrl = "http://127.0.0.1:3000"
+$edgeAppId = "dpngjijhjgjcjelhmhoihafabpbjgfen"
+$edgeAppUrl = "$frontendUrl/"
 $browserProfileDir = Join-Path $env:LOCALAPPDATA "SMTechnoBrowserApp"
 
 Write-Host "========================================="
@@ -31,9 +33,11 @@ foreach ($port in $ports) {
 }
 
 $browserProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-    $_.Name -match "^(msedge|chrome)\.exe$" -and
+    $_.Name -match "^(msedge|chrome|msedge_proxy)\.exe$" -and
     $_.CommandLine -and
     (
+        $_.CommandLine.Contains("--app-id=$edgeAppId") -or
+        $_.CommandLine.Contains("--app-url=$edgeAppUrl") -or
         $_.CommandLine.Contains("--app=$frontendUrl") -or
         $_.CommandLine.Contains($browserProfileDir)
     )
