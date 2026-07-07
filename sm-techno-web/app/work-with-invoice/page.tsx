@@ -330,6 +330,9 @@ export default function WorkWithInvoicePage() {
                 available: nextWarehouse.quantity,
                 availableOnWarehouse: nextWarehouse.quantity,
                 warehouseName: nextWarehouse.warehouseName,
+                rack: nextWarehouse.rack,
+                cell: nextWarehouse.cell,
+                locationLabel: nextWarehouse.locationLabel,
               }
             : line,
         );
@@ -342,6 +345,9 @@ export default function WorkWithInvoicePage() {
           lineId: nextLineId,
           warehouseId: nextWarehouseId,
           warehouseName: nextWarehouse.warehouseName,
+          rack: nextWarehouse.rack,
+          cell: nextWarehouse.cell,
+          locationLabel: nextWarehouse.locationLabel,
           available: nextWarehouse.quantity,
           availableOnWarehouse: nextWarehouse.quantity,
           quantity: safeQuantity,
@@ -711,6 +717,11 @@ export default function WorkWithInvoicePage() {
                         const inputWithinStock = inputIsValid && parsedInput <= availableUnits;
                         const itemDetails = itemDetailsById[line.itemId];
                         const warehouseOptions = itemDetails?.warehouses ?? [];
+                        const currentWarehouse = warehouseOptions.find(
+                          (warehouse) => warehouse.warehouseId === line.warehouseId,
+                        );
+                        const lineLocationLabel =
+                          line.locationLabel?.trim() || currentWarehouse?.locationLabel || "";
 
                         return (
                           <tr
@@ -755,6 +766,11 @@ export default function WorkWithInvoicePage() {
                                   {line.warehouseName}
                                 </div>
                               )}
+                              {lineLocationLabel ? (
+                                <div className="mt-1 truncate text-[9px] text-[var(--text-secondary)]">
+                                  {lineLocationLabel}
+                                </div>
+                              ) : null}
                             </td>
                             <td className="px-3 py-1.5 text-right">
                               <div
@@ -971,6 +987,9 @@ function sanitizeDraftLines(lines: DraftLine[]) {
         lineId: line.lineId || buildDraftLineKey(line.itemId, line.warehouseId),
         quantity: safeQuantity,
         available: availableOnWarehouse,
+        rack: line.rack ?? "",
+        cell: line.cell ?? "",
+        locationLabel: line.locationLabel ?? "",
         availableOnWarehouse,
       };
     })

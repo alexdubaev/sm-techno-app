@@ -406,18 +406,39 @@ class WebDatabase(Database):
                     or line.get("warehouse_name")
                     or (warehouse_row["name"] if warehouse_row else "Основной склад")
                 )
+                location_row = conn.execute(
+                    """
+                    SELECT rack, cell
+                    FROM item_warehouse_balances
+                    WHERE item_id = ? AND warehouse_id = ?
+                    """,
+                    (line["item_id"], warehouse_id),
+                ).fetchone()
+                rack_snapshot = (
+                    self._clean_optional_text(location_row["rack"])
+                    if location_row is not None
+                    else None
+                )
+                cell_snapshot = (
+                    self._clean_optional_text(location_row["cell"])
+                    if location_row is not None
+                    else None
+                )
                 conn.execute(
                     """
                     INSERT INTO order_lines(
-                        order_id, item_id, warehouse_id, warehouse_name_snapshot, quantity, price, amount
+                        order_id, item_id, warehouse_id, warehouse_name_snapshot,
+                        rack_snapshot, cell_snapshot, quantity, price, amount
                     )
-                    VALUES(?, ?, ?, ?, ?, ?, ?)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         order_id,
                         line["item_id"],
                         warehouse_id,
                         warehouse_name,
+                        rack_snapshot,
+                        cell_snapshot,
                         line["quantity"],
                         line["price"],
                         line["amount"],

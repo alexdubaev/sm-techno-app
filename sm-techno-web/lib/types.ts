@@ -2,6 +2,9 @@ export type WarehouseBalance = {
   warehouseId: number;
   warehouseName: string;
   quantity: number;
+  rack: string;
+  cell: string;
+  locationLabel: string;
   updatedAt?: string;
 };
 
@@ -35,6 +38,9 @@ export type StockItem = {
   rowWarehouseId: number | null;
   rowWarehouseName: string;
   rowQuantity: number;
+  rowRack: string;
+  rowCell: string;
+  rowLocationLabel: string;
   warehouses: WarehouseBalance[];
 };
 
@@ -82,6 +88,9 @@ export type DraftLine = {
   available: number;
   warehouseId: number;
   warehouseName: string;
+  rack: string;
+  cell: string;
+  locationLabel: string;
   availableOnWarehouse: number;
 };
 
@@ -142,6 +151,9 @@ export type OrderDetailLine = {
   unitName: string;
   warehouseId: number | null;
   warehouseName: string;
+  rack: string;
+  cell: string;
+  locationLabel: string;
   availableQuantity: number;
 };
 

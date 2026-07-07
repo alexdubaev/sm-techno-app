@@ -294,7 +294,12 @@ export default function OrderDetailsPage() {
                           ) : null}
                         </td>
                         <td className="px-3 py-1.5 text-[var(--text-secondary)]">
-                          {line.warehouseName || "Основной склад"}
+                          <div>{line.warehouseName || "Основной склад"}</div>
+                          {line.locationLabel ? (
+                            <div className="mt-0.5 truncate text-[9px] text-[var(--text-secondary)]">
+                              {line.locationLabel}
+                            </div>
+                          ) : null}
                         </td>
                         <td className="px-3 py-1.5 text-[var(--text-secondary)]">
                           {line.categoryName || "—"}
@@ -605,7 +610,12 @@ function OrderPrintDocument({
                       <span className="order-print-secondary">Группа: {line.groupName}</span>
                     ) : null}
                   </td>
-                  <td>{line.warehouseName || "Основной склад"}</td>
+                  <td>
+                    {line.warehouseName || "Основной склад"}
+                    {line.locationLabel ? (
+                      <span className="order-print-secondary">{line.locationLabel}</span>
+                    ) : null}
+                  </td>
                   <td>{line.categoryName || "—"}</td>
                   <td className="order-print-number">{formatQuantity(line.quantity)}</td>
                   <td className="order-print-number">{formatMoney(line.price)}</td>

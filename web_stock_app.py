@@ -685,8 +685,13 @@ def render_price_page(service: WebStockSyncService, user: dict[str, Any]) -> Non
                 else:
                     temp_path = save_upload_to_temp(uploaded)
                     try:
-                        created, updated = service.import_stock_excel(temp_path)
-                        st.success(f"Импорт завершен. Создано: {created}, обновлено: {updated}.")
+                        result = service.import_stock_excel(temp_path)
+                        st.success(
+                            "Импорт завершен. "
+                            f"Создано: {result['created']}, обновлено: {result['updated']}, "
+                            f"адресов: {result['locationUpdated']}, "
+                            f"пропущено адресов: {result['locationSkipped']}."
+                        )
                     except Exception as exc:
                         st.error(str(exc))
                     finally:

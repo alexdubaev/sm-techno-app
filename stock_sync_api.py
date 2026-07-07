@@ -63,6 +63,9 @@ def _serialize_item(row: dict[str, Any]) -> dict[str, Any]:
         "rowWarehouseId": row_warehouse_id,
         "rowWarehouseName": row.get("row_warehouse_name") or "",
         "rowQuantity": float(row.get("row_quantity") or 0),
+        "rowRack": row.get("row_rack") or "",
+        "rowCell": row.get("row_cell") or "",
+        "rowLocationLabel": row.get("row_location_label") or "",
         "warehouses": [_serialize_warehouse_balance(item) for item in warehouses_raw if isinstance(item, dict)],
     }
 
@@ -111,6 +114,8 @@ def _parse_local_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
                     "warehouse_id": warehouse_id,
                     "warehouse_name": warehouse_name,
                     "quantity": warehouse_quantity,
+                    "rack": str(raw_item.get("rack") or raw_item.get("rowRack") or "").strip(),
+                    "cell": str(raw_item.get("cell") or raw_item.get("rowCell") or "").strip(),
                 }
             )
 
@@ -188,6 +193,9 @@ def _serialize_warehouse_balance(row: dict[str, Any]) -> dict[str, Any]:
         "warehouseId": int(row["warehouse_id"]),
         "warehouseName": row.get("warehouse_name") or "",
         "quantity": float(row.get("quantity") or 0),
+        "rack": row.get("rack") or "",
+        "cell": row.get("cell") or "",
+        "locationLabel": row.get("location_label") or "",
         "updatedAt": row.get("updated_at") or "",
     }
 
@@ -258,6 +266,9 @@ def _serialize_order_line(row: dict[str, Any]) -> dict[str, Any]:
         "unitName": row.get("unit_name") or "",
         "warehouseId": int(row["warehouse_id"]) if row.get("warehouse_id") is not None else None,
         "warehouseName": row.get("warehouse_name") or "",
+        "rack": row.get("rack") or "",
+        "cell": row.get("cell") or "",
+        "locationLabel": row.get("location_label") or "",
         "availableQuantity": float(row.get("available_quantity") or 0),
     }
 
@@ -867,10 +878,13 @@ async def price_import(
         temp_path = Path(tmp.name)
         tmp.write(await file.read())
     try:
-        created, updated = SERVICE.import_stock_excel(temp_path)
+        try:
+            result = SERVICE.import_stock_excel(temp_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         temp_path.unlink(missing_ok=True)
-    return {"created": created, "updated": updated}
+    return result
 
 
 @app.post("/api/stock/items/{item_id}/quantity")

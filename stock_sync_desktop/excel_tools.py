@@ -19,6 +19,8 @@ TEMPLATE_COLUMNS = [
     "group_name",
     "price",
     "warehouse_name",
+    "rack",
+    "cell",
     "quantity",
     "onec_key",
 ]
@@ -31,6 +33,8 @@ DISPLAY_COLUMNS = {
     "group_name": "Группа",
     "price": "Цена",
     "warehouse_name": "Склад",
+    "rack": "Стеллаж",
+    "cell": "Ячейка",
     "quantity": "Остаток",
     "onec_key": "Ключ номенклатуры 1С",
     "unit_key": "Ключ единицы измерения 1С",
@@ -49,6 +53,8 @@ COLUMN_ALIASES = {
     "category_name": {"category_name", "категория", "категорияноменклатуры", "category"},
     "group_name": {"group_name", "группа", "входитвгруппу", "группаноменклатуры", "group"},
     "warehouse_name": {"warehouse_name", "склад", "warehouse", "storage"},
+    "rack": {"rack", "shelf", "стеллаж", "стелаж"},
+    "cell": {"cell", "ячейка", "ячейкахранения"},
     "onec_key": {
         "onec_key",
         "1c_key",
@@ -92,6 +98,8 @@ def create_import_template(path: str | Path) -> Path:
             "CAT",
             1500,
             "Основной склад",
+            "Стеллаж 1",
+            "A1",
             10,
             "",
         ]
@@ -111,10 +119,12 @@ def create_import_template(path: str | Path) -> Path:
         "5. Группа: папка номенклатуры в 1С. Если такой группы нет, приложение попробует создать ее автоматически.",
         "6. Цена: цена за единицу товара.",
         "7. Склад: одна строка = один товар на одном складе. Если один товар лежит на трех складах, у него должно быть три строки.",
-        "8. Остаток: остаток именно на указанном складе.",
-        "9. Ключ номенклатуры 1С: Ref_Key товара из 1С, если товар уже связан с базой. Если не знаешь ключ, оставь ячейку пустой.",
-        "10. Если колонки 'Склад' нет, приложение автоматически загрузит остаток в 'Основной склад'.",
-        "11. При повторном импорте остаток по паре товар + склад считается итоговым значением, а не добавкой.",
+        "8. Стеллаж и Ячейка: место хранения товара на указанном складе. Можно оставить пустыми.",
+        "9. Остаток: остаток именно на указанном складе.",
+        "10. Ключ номенклатуры 1С: Ref_Key товара из 1С, если товар уже связан с базой. Если не знаешь ключ, оставь ячейку пустой.",
+        "11. Если колонки 'Склад' нет, приложение автоматически загрузит остаток в 'Основной склад'.",
+        "12. При повторном импорте остаток по паре товар + склад считается итоговым значением, а не добавкой.",
+        "13. Для загрузки только стеллажей и ячеек можно использовать лист 'Сопоставление' с колонками: Артикул, Стеллаж, Ячейка.",
     ]
     for index, value in enumerate(rows, start=2):
         instructions[f"A{index}"] = value
@@ -273,16 +283,41 @@ def _resolve_client_price_warehouse(row: dict[str, Any]) -> str:
     )
 
 
+def _is_storage_mapping_file(file_path: Path, sheet_names: list[str]) -> bool:
+    target_name = file_path.name.lower()
+    normalized_sheet_names = {name.casefold() for name in sheet_names}
+    return "сопоставление" in normalized_sheet_names and (
+        "стелаж" in target_name or "стеллаж" in target_name
+    )
+
+
+def _select_excel_sheet(file_path: Path) -> tuple[str | int, bool]:
+    if file_path.suffix.lower() == ".csv":
+        return 0, False
+
+    with pd.ExcelFile(file_path) as excel_file:
+        sheet_names = [str(name) for name in excel_file.sheet_names]
+    if _is_storage_mapping_file(file_path, sheet_names):
+        mapping_sheet = next(
+            (name for name in sheet_names if name.casefold() == "сопоставление"),
+            "Сопоставление",
+        )
+        return mapping_sheet, True
+    return 0, False
+
+
 def _normalize_header(value: Any) -> str:
     return str(value or "").strip().lower().replace(" ", "").replace("-", "").replace(".", "")
 
 
-def read_stock_import(path: str | Path) -> list[dict[str, Any]]:
+def read_stock_import_bundle(path: str | Path) -> dict[str, list[dict[str, Any]]]:
     file_path = Path(path)
     if file_path.suffix.lower() == ".csv":
         frame = pd.read_csv(file_path)
+        is_storage_mapping = False
     else:
-        frame = pd.read_excel(file_path, sheet_name=0)
+        sheet_name, is_storage_mapping = _select_excel_sheet(file_path)
+        frame = pd.read_excel(file_path, sheet_name=sheet_name)
 
     normalized_map: dict[str, str] = {}
     for original in frame.columns:
@@ -293,36 +328,78 @@ def read_stock_import(path: str | Path) -> list[dict[str, Any]]:
                 break
 
     frame = frame.rename(columns=normalized_map)
+    if is_storage_mapping or (
+        "sku" in frame.columns
+        and ("rack" in frame.columns or "cell" in frame.columns)
+        and "name" not in frame.columns
+    ):
+        location_rows = _read_storage_location_rows(frame)
+        if not location_rows:
+            raise ValueError("Импортируемая таблица пустая или не содержит валидных строк.")
+        return {"stock_rows": [], "location_rows": location_rows}
+
     missing = [column for column in ("name", "quantity") if column not in frame.columns]
     if missing:
         raise ValueError(
             "В таблице не хватает обязательных колонок: " + ", ".join(missing)
         )
 
+    has_rack_column = "rack" in frame.columns
+    has_cell_column = "cell" in frame.columns
     cleaned_rows: list[dict[str, Any]] = []
     for _, row in frame.iterrows():
         name = str(row.get("name") or "").strip()
         if not name:
             continue
 
-        cleaned_rows.append(
-            {
-                "sku": _clean_string(row.get("sku")),
-                "name": name,
-                "print_name": _clean_string(row.get("print_name")) or name,
-                "category_name": _clean_string(row.get("category_name")),
-                "group_name": _clean_string(row.get("group_name")),
-                "price": _to_float(row.get("price")),
-                "warehouse_name": _clean_string(row.get("warehouse_name")) or "Основной склад",
-                "quantity": _to_float(row.get("quantity")),
-                "onec_key": _clean_string(row.get("onec_key")),
-                "unit_key": _clean_string(row.get("unit_key")),
-                "unit_name": _clean_string(row.get("unit_name")),
-            }
-        )
+        cleaned_row = {
+            "sku": _clean_string(row.get("sku")),
+            "name": name,
+            "print_name": _clean_string(row.get("print_name")) or name,
+            "category_name": _clean_string(row.get("category_name")),
+            "group_name": _clean_string(row.get("group_name")),
+            "price": _to_float(row.get("price")),
+            "warehouse_name": _clean_string(row.get("warehouse_name")) or "Основной склад",
+            "quantity": _to_float(row.get("quantity")),
+            "onec_key": _clean_string(row.get("onec_key")),
+            "unit_key": _clean_string(row.get("unit_key")),
+            "unit_name": _clean_string(row.get("unit_name")),
+        }
+        if has_rack_column:
+            cleaned_row["rack"] = _clean_string(row.get("rack"))
+        if has_cell_column:
+            cleaned_row["cell"] = _clean_string(row.get("cell"))
+        cleaned_rows.append(cleaned_row)
 
     if not cleaned_rows:
         raise ValueError("Импортируемая таблица пустая или не содержит валидных строк.")
+    return {"stock_rows": cleaned_rows, "location_rows": []}
+
+
+def read_stock_import(path: str | Path) -> list[dict[str, Any]]:
+    return read_stock_import_bundle(path)["stock_rows"]
+
+
+def _read_storage_location_rows(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    if "sku" not in frame.columns:
+        raise ValueError("В таблице сопоставления не хватает колонки: Артикул")
+    if "rack" not in frame.columns and "cell" not in frame.columns:
+        raise ValueError("В таблице сопоставления не хватает колонок: Стеллаж, Ячейка")
+
+    cleaned_rows: list[dict[str, Any]] = []
+    for _, row in frame.iterrows():
+        sku = _clean_string(row.get("sku"))
+        if not sku:
+            continue
+        cleaned_rows.append(
+            {
+                "sku": sku,
+                "warehouse_name": _clean_string(row.get("warehouse_name")) or "Санкт-Петербург",
+                "rack": _clean_string(row.get("rack")),
+                "cell": _clean_string(row.get("cell")),
+                "quantity": _to_float(row.get("quantity")),
+            }
+        )
     return cleaned_rows
 
 

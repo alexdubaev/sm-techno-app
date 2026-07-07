@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS item_warehouse_balances (
     item_id INTEGER NOT NULL,
     warehouse_id INTEGER NOT NULL,
     quantity REAL NOT NULL DEFAULT 0,
+    rack TEXT,
+    cell TEXT,
     updated_at TEXT NOT NULL,
     UNIQUE(item_id, warehouse_id),
     FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE,
@@ -119,6 +121,8 @@ CREATE TABLE IF NOT EXISTS order_lines (
     item_id INTEGER NOT NULL,
     warehouse_id INTEGER,
     warehouse_name_snapshot TEXT,
+    rack_snapshot TEXT,
+    cell_snapshot TEXT,
     quantity REAL NOT NULL,
     price REAL NOT NULL,
     amount REAL NOT NULL,
@@ -171,6 +175,10 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN category_name TEXT")
         if "group_name" not in item_columns:
             conn.execute("ALTER TABLE items ADD COLUMN group_name TEXT")
+        if "unit_key" not in item_columns:
+            conn.execute("ALTER TABLE items ADD COLUMN unit_key TEXT")
+        if "unit_name" not in item_columns:
+            conn.execute("ALTER TABLE items ADD COLUMN unit_name TEXT")
 
         conn.execute(
             """
@@ -258,6 +266,19 @@ class Database:
             conn.execute("ALTER TABLE order_lines ADD COLUMN warehouse_id INTEGER")
         if "warehouse_name_snapshot" not in order_line_columns:
             conn.execute("ALTER TABLE order_lines ADD COLUMN warehouse_name_snapshot TEXT")
+        if "rack_snapshot" not in order_line_columns:
+            conn.execute("ALTER TABLE order_lines ADD COLUMN rack_snapshot TEXT")
+        if "cell_snapshot" not in order_line_columns:
+            conn.execute("ALTER TABLE order_lines ADD COLUMN cell_snapshot TEXT")
+
+        balance_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(item_warehouse_balances)").fetchall()
+        }
+        if "rack" not in balance_columns:
+            conn.execute("ALTER TABLE item_warehouse_balances ADD COLUMN rack TEXT")
+        if "cell" not in balance_columns:
+            conn.execute("ALTER TABLE item_warehouse_balances ADD COLUMN cell TEXT")
 
         stock_movement_columns = {
             row["name"]
@@ -421,16 +442,41 @@ class Database:
                 warehouse_id=warehouse_id,
                 warehouse_name=str(warehouse_name or "").strip(),
             )
+            rack_provided = "rack" in raw_row or "rowRack" in raw_row
+            cell_provided = "cell" in raw_row or "rowCell" in raw_row
+            rack = self._clean_optional_text(raw_row.get("rack", raw_row.get("rowRack")))
+            cell = self._clean_optional_text(raw_row.get("cell", raw_row.get("rowCell")))
 
             existing = prepared.get(resolved_id)
             if existing:
+                current_location = self._location_tuple(existing.get("rack"), existing.get("cell"))
+                next_location = self._location_tuple(rack, cell)
+                if (
+                    (rack_provided or cell_provided)
+                    and current_location != ("", "")
+                    and next_location != ("", "")
+                    and current_location != next_location
+                ):
+                    raise ValueError(
+                        "Один артикул на одном складе не может иметь разные места хранения."
+                    )
                 existing["quantity"] += quantity
+                if rack_provided:
+                    existing["rack"] = rack
+                    existing["rack_provided"] = True
+                if cell_provided:
+                    existing["cell"] = cell
+                    existing["cell_provided"] = True
                 continue
 
             prepared[resolved_id] = {
                 "warehouse_id": resolved_id,
                 "warehouse_name": resolved_name,
                 "quantity": quantity,
+                "rack": rack,
+                "cell": cell,
+                "rack_provided": rack_provided,
+                "cell_provided": cell_provided,
             }
 
         if not prepared:
@@ -439,6 +485,10 @@ class Database:
                 "warehouse_id": default_warehouse_id,
                 "warehouse_name": DEFAULT_WAREHOUSE_NAME,
                 "quantity": 0.0,
+                "rack": None,
+                "cell": None,
+                "rack_provided": False,
+                "cell_provided": False,
             }
 
         keep_ids = sorted(prepared)
@@ -447,13 +497,24 @@ class Database:
         for prepared_row in prepared.values():
             conn.execute(
                 """
-                INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, updated_at)
-                VALUES(?, ?, ?, ?)
+                INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, rack, cell, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?)
                 ON CONFLICT(item_id, warehouse_id) DO UPDATE SET
                     quantity = excluded.quantity,
+                    rack = CASE WHEN ? THEN excluded.rack ELSE rack END,
+                    cell = CASE WHEN ? THEN excluded.cell ELSE cell END,
                     updated_at = excluded.updated_at
                 """,
-                (item_id, prepared_row["warehouse_id"], prepared_row["quantity"], now),
+                (
+                    item_id,
+                    prepared_row["warehouse_id"],
+                    prepared_row["quantity"],
+                    prepared_row.get("rack"),
+                    prepared_row.get("cell"),
+                    now,
+                    1 if prepared_row.get("rack_provided") else 0,
+                    1 if prepared_row.get("cell_provided") else 0,
+                ),
             )
 
         placeholders = ",".join("?" for _ in keep_ids)
@@ -480,6 +541,8 @@ class Database:
                 w.id AS warehouse_id,
                 w.name AS warehouse_name,
                 iwb.quantity,
+                iwb.rack,
+                iwb.cell,
                 iwb.updated_at
             FROM item_warehouse_balances iwb
             JOIN warehouses w ON w.id = iwb.warehouse_id
@@ -490,7 +553,10 @@ class Database:
             query += " AND w.is_active = 1"
         query += " ORDER BY iwb.quantity DESC, w.name COLLATE NOCASE"
         rows = conn.execute(query, params).fetchall()
-        return self._rows_to_dicts(rows)
+        return [
+            self._attach_location_label(row)
+            for row in self._rows_to_dicts(rows)
+        ]
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -530,6 +596,70 @@ class Database:
         if text == "00000000-0000-0000-0000-000000000000":
             return None
         return text.lower()
+
+    @staticmethod
+    def _clean_optional_text(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @classmethod
+    def _build_location_label(cls, rack: Any, cell: Any) -> str:
+        parts = [
+            part
+            for part in (
+                cls._clean_optional_text(rack),
+                cls._clean_optional_text(cell),
+            )
+            if part
+        ]
+        return " · ".join(parts)
+
+    @classmethod
+    def _location_tuple(cls, rack: Any, cell: Any) -> tuple[str, str]:
+        return (
+            (cls._clean_optional_text(rack) or "").casefold(),
+            (cls._clean_optional_text(cell) or "").casefold(),
+        )
+
+    @classmethod
+    def _attach_location_label(
+        cls,
+        row: dict[str, Any],
+        *,
+        rack_key: str = "rack",
+        cell_key: str = "cell",
+        label_key: str = "location_label",
+    ) -> dict[str, Any]:
+        row[label_key] = cls._build_location_label(row.get(rack_key), row.get(cell_key))
+        return row
+
+    @classmethod
+    def _validate_unique_storage_locations(
+        cls,
+        rows: list[dict[str, Any]],
+        *,
+        default_warehouse_name: str = DEFAULT_WAREHOUSE_NAME,
+    ) -> None:
+        seen: dict[tuple[str, str], tuple[str, str]] = {}
+        for row in rows:
+            sku = str(row.get("sku") or "").strip()
+            if not sku:
+                continue
+            location = cls._location_tuple(row.get("rack"), row.get("cell"))
+            if location == ("", ""):
+                continue
+
+            warehouse_name = str(row.get("warehouse_name") or default_warehouse_name).strip()
+            key = (sku.casefold(), warehouse_name.casefold())
+            existing = seen.get(key)
+            if existing is not None and existing != location:
+                raise ValueError(
+                    "Один артикул на одном складе не может иметь разные места хранения. "
+                    f"Артикул: {sku}, склад: {warehouse_name}."
+                )
+            seen[key] = location
 
     def get_settings(self) -> dict[str, str]:
         with self.connect() as conn:
@@ -659,6 +789,7 @@ class Database:
         return None
 
     def import_stock_rows(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
+        self._validate_unique_storage_locations(rows)
         created = 0
         updated = 0
         now = utc_now()
@@ -737,17 +868,94 @@ class Database:
                     conn,
                     warehouse_name=str(row.get("warehouse_name") or "").strip(),
                 )
+                rack_provided = "rack" in row
+                cell_provided = "cell" in row
+                rack = self._clean_optional_text(row.get("rack"))
+                cell = self._clean_optional_text(row.get("cell"))
                 conn.execute(
                     """
-                    INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, updated_at)
-                    VALUES(?, ?, ?, ?)
+                    INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, rack, cell, updated_at)
+                    VALUES(?, ?, ?, ?, ?, ?)
                     ON CONFLICT(item_id, warehouse_id) DO UPDATE SET
                         quantity = excluded.quantity,
+                        rack = CASE WHEN ? THEN excluded.rack ELSE rack END,
+                        cell = CASE WHEN ? THEN excluded.cell ELSE cell END,
                         updated_at = excluded.updated_at
                     """,
-                    (item_id, warehouse_id, row["quantity"], now),
+                    (
+                        item_id,
+                        warehouse_id,
+                        row["quantity"],
+                        rack,
+                        cell,
+                        now,
+                        1 if rack_provided else 0,
+                        1 if cell_provided else 0,
+                    ),
                 )
         return created, updated
+
+    def import_storage_location_rows(self, rows: list[dict[str, Any]]) -> dict[str, int]:
+        self._validate_unique_storage_locations(
+            rows,
+            default_warehouse_name="Санкт-Петербург",
+        )
+        updated = 0
+        skipped = 0
+        now = utc_now()
+        with self.transaction() as conn:
+            for row in rows:
+                sku = str(row.get("sku") or "").strip()
+                if not sku:
+                    skipped += 1
+                    continue
+
+                existing_item = self._find_existing_item(
+                    conn,
+                    onec_key=None,
+                    sku=sku,
+                    name=None,
+                    match_by_name=False,
+                )
+                if existing_item is None:
+                    skipped += 1
+                    continue
+
+                warehouse_id, _warehouse_name = self._resolve_warehouse(
+                    conn,
+                    warehouse_name=str(row.get("warehouse_name") or "Санкт-Петербург").strip(),
+                )
+                rack = self._clean_optional_text(row.get("rack"))
+                cell = self._clean_optional_text(row.get("cell"))
+                current_balance = conn.execute(
+                    """
+                    SELECT quantity
+                    FROM item_warehouse_balances
+                    WHERE item_id = ? AND warehouse_id = ?
+                    """,
+                    (existing_item["id"], warehouse_id),
+                ).fetchone()
+                if current_balance is None:
+                    conn.execute(
+                        """
+                        INSERT INTO item_warehouse_balances(
+                            item_id, warehouse_id, quantity, rack, cell, updated_at
+                        )
+                        VALUES(?, ?, 0, ?, ?, ?)
+                        """,
+                        (existing_item["id"], warehouse_id, rack, cell, now),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE item_warehouse_balances
+                        SET rack = ?, cell = ?, updated_at = ?
+                        WHERE item_id = ? AND warehouse_id = ?
+                        """,
+                        (rack, cell, now, existing_item["id"], warehouse_id),
+                    )
+                updated += 1
+        return {"updated": updated, "skipped": skipped}
 
     def upsert_items(self, records: list[dict[str, Any]]) -> int:
         if not records:
@@ -830,14 +1038,18 @@ class Database:
                         COALESCE(agg.warehouse_summary, '') AS warehouse_summary,
                         row_balances.warehouse_id AS row_warehouse_id,
                         COALESCE(row_balances.warehouse_name, '') AS row_warehouse_name,
-                        COALESCE(row_balances.quantity, 0) AS row_quantity
+                        COALESCE(row_balances.quantity, 0) AS row_quantity,
+                        row_balances.rack AS row_rack,
+                        row_balances.cell AS row_cell
                     FROM items i
                     LEFT JOIN (
                         SELECT
                             iwb.item_id,
                             iwb.warehouse_id,
                             w.name AS warehouse_name,
-                            iwb.quantity
+                            iwb.quantity,
+                            iwb.rack,
+                            iwb.cell
                         FROM item_warehouse_balances iwb
                         JOIN warehouses w ON w.id = iwb.warehouse_id
                         WHERE w.is_active = 1
@@ -872,7 +1084,15 @@ class Database:
                     """,
                     params,
                 ).fetchall()
-                return self._rows_to_dicts(rows)
+                return [
+                    self._attach_location_label(
+                        row,
+                        rack_key="row_rack",
+                        cell_key="row_cell",
+                        label_key="row_location_label",
+                    )
+                    for row in self._rows_to_dicts(rows)
+                ]
 
             params: list[Any] = []
             warehouse_filter = ""
@@ -1070,6 +1290,8 @@ class Database:
                     i.price,
                     w.id AS warehouse_id,
                     w.name AS warehouse_name,
+                    iwb.rack,
+                    iwb.cell,
                     COALESCE(iwb.quantity, 0) AS quantity
                 FROM items i
                 JOIN item_warehouse_balances iwb ON iwb.item_id = i.id
@@ -1634,18 +1856,39 @@ class Database:
                     or line.get("warehouse_name")
                     or (warehouse_row["name"] if warehouse_row else DEFAULT_WAREHOUSE_NAME)
                 )
+                location_row = conn.execute(
+                    """
+                    SELECT rack, cell
+                    FROM item_warehouse_balances
+                    WHERE item_id = ? AND warehouse_id = ?
+                    """,
+                    (line["item_id"], warehouse_id),
+                ).fetchone()
+                rack_snapshot = (
+                    self._clean_optional_text(location_row["rack"])
+                    if location_row is not None
+                    else None
+                )
+                cell_snapshot = (
+                    self._clean_optional_text(location_row["cell"])
+                    if location_row is not None
+                    else None
+                )
                 conn.execute(
                     """
                     INSERT INTO order_lines(
-                        order_id, item_id, warehouse_id, warehouse_name_snapshot, quantity, price, amount
+                        order_id, item_id, warehouse_id, warehouse_name_snapshot,
+                        rack_snapshot, cell_snapshot, quantity, price, amount
                     )
-                    VALUES(?, ?, ?, ?, ?, ?, ?)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         order_id,
                         line["item_id"],
                         warehouse_id,
                         warehouse_name,
+                        rack_snapshot,
+                        cell_snapshot,
                         line["quantity"],
                         line["price"],
                         line["amount"],
@@ -1696,6 +1939,8 @@ class Database:
                     i.unit_name,
                     ol.warehouse_id,
                     COALESCE(ol.warehouse_name_snapshot, w.name, ?) AS warehouse_name,
+                    COALESCE(NULLIF(ol.rack_snapshot, ''), iwb.rack) AS rack,
+                    COALESCE(NULLIF(ol.cell_snapshot, ''), iwb.cell) AS cell,
                     COALESCE(iwb.quantity, 0) AS available_quantity
                 FROM order_lines ol
                 JOIN items i ON i.id = ol.item_id
@@ -1710,7 +1955,10 @@ class Database:
             ).fetchall()
         return {
             "order": dict(order),
-            "lines": self._rows_to_dicts(lines),
+            "lines": [
+                self._attach_location_label(row)
+                for row in self._rows_to_dicts(lines)
+            ],
         }
 
     def finalize_order_sync(

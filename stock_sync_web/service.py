@@ -9,7 +9,7 @@ from stock_sync_desktop.excel_tools import (
     create_import_template,
     export_client_price,
     export_stock_snapshot,
-    read_stock_import,
+    read_stock_import_bundle,
 )
 from stock_sync_desktop.onec_api import OneCClient, OneCClientError
 from stock_sync_desktop.service import DEFAULT_SETTINGS, DraftLine
@@ -259,8 +259,21 @@ class WebStockSyncService:
         )
         return self.db.upsert_items(client.list_items())
 
-    def import_stock_excel(self, path: str | Path) -> tuple[int, int]:
-        return self.db.import_stock_rows(read_stock_import(path))
+    def import_stock_excel(self, path: str | Path) -> dict[str, int]:
+        import_bundle = read_stock_import_bundle(path)
+        created = 0
+        updated = 0
+        if import_bundle["stock_rows"]:
+            created, updated = self.db.import_stock_rows(import_bundle["stock_rows"])
+        location_result = {"updated": 0, "skipped": 0}
+        if import_bundle["location_rows"]:
+            location_result = self.db.import_storage_location_rows(import_bundle["location_rows"])
+        return {
+            "created": created,
+            "updated": updated,
+            "locationUpdated": location_result["updated"],
+            "locationSkipped": location_result["skipped"],
+        }
 
     def create_template_bytes(self) -> bytes:
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:

@@ -587,6 +587,9 @@ export function StockPage() {
         available: item.quantity,
         warehouseId: warehouse.warehouseId,
         warehouseName: warehouse.warehouseName,
+        rack: warehouse.rack,
+        cell: warehouse.cell,
+        locationLabel: warehouse.locationLabel,
         availableOnWarehouse: warehouse.quantity,
       };
 
@@ -700,6 +703,7 @@ export function StockPage() {
           {catalog.map((item) => {
             const rowKey = getCatalogRowKey(item);
             const isSelected = selectedCatalogRowKey === rowKey;
+            const rowLocationLabel = item.rowLocationLabel?.trim() || "";
             const rowWarehouseId = item.rowWarehouseId;
             const rowLines =
               rowWarehouseId !== null
@@ -751,10 +755,21 @@ export function StockPage() {
                 </td>
                 <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] text-[var(--text-secondary)]">
                   <span
-                    className="line-clamp-2"
-                    title={item.warehouseSummary || formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
+                    className="block"
+                    title={
+                      rowLocationLabel
+                        ? `${formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)} · ${rowLocationLabel}`
+                        : item.warehouseSummary || formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)
+                    }
                   >
-                    {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
+                    <span className="line-clamp-1">
+                      {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
+                    </span>
+                    {rowLocationLabel ? (
+                      <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
+                        {rowLocationLabel}
+                      </span>
+                    ) : null}
                   </span>
                 </td>
                 <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] text-[var(--text-secondary)]">
@@ -1005,6 +1020,11 @@ export function StockPage() {
                           </option>
                         ))}
                       </select>
+                      {selectedWarehouseBalance?.locationLabel ? (
+                        <p className="mt-1 truncate text-[10px] text-[var(--text-secondary)]">
+                          {selectedWarehouseBalance.locationLabel}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -1151,8 +1171,15 @@ export function StockPage() {
                                   : "border-[var(--border-color)] bg-white hover:bg-[#F8FAFD]",
                               ].join(" ")}
                             >
-                              <span className="truncate text-[var(--text-primary)]">
-                                {warehouse.warehouseName}
+                              <span className="min-w-0">
+                                <span className="block truncate text-[var(--text-primary)]">
+                                  {warehouse.warehouseName}
+                                </span>
+                                {warehouse.locationLabel ? (
+                                  <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
+                                    {warehouse.locationLabel}
+                                  </span>
+                                ) : null}
                               </span>
                               <span className="font-semibold text-[var(--stock-ok)] tabular-nums">
                                 {formatStockUnits(warehouse.quantity)}
@@ -1206,6 +1233,11 @@ export function StockPage() {
                           <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">
                             {line.sku || "-"} · {line.warehouseName}
                           </p>
+                          {line.locationLabel ? (
+                            <p className="mt-0.5 truncate text-[10px] text-[var(--text-secondary)]">
+                              {line.locationLabel}
+                            </p>
+                          ) : null}
                         </div>
                         <button
                           type="button"
@@ -1290,6 +1322,9 @@ function sanitizeDraftLines(lines: DraftLine[]) {
         ...line,
         lineId: line.lineId || buildDraftLineKey(line.itemId, line.warehouseId),
         quantity: safeQuantity,
+        rack: line.rack ?? "",
+        cell: line.cell ?? "",
+        locationLabel: line.locationLabel ?? "",
         availableOnWarehouse,
       };
     })

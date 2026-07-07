@@ -46,6 +46,8 @@ type WarehouseFormState = {
   warehouseId: number | null;
   warehouseName: string;
   quantity: string;
+  rack: string;
+  cell: string;
 };
 
 type StockActionMode = "add" | "move" | "writeoff";
@@ -343,6 +345,8 @@ function WorkWithPriceAdminPage() {
                 warehouse.warehouseName,
                 formatIntegerInput(warehouse.quantity),
                 warehouse.warehouseId,
+                warehouse.rack,
+                warehouse.cell,
               ),
             )
           : [createWarehouseFormState("Основной склад", "0")],
@@ -629,7 +633,9 @@ function WorkWithPriceAdminPage() {
     try {
       const result = await importPriceFile(importFile);
       setImportFile(null);
-      setMessage(`Импорт завершен. Создано: ${result.created}, обновлено: ${result.updated}.`);
+      setMessage(
+        `Импорт завершен. Создано: ${result.created}, обновлено: ${result.updated}, адресов: ${result.locationUpdated}, пропущено адресов: ${result.locationSkipped}.`,
+      );
       await loadCatalog();
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : "Не удалось импортировать прайс.");
@@ -1034,6 +1040,7 @@ function WorkWithPriceAdminPage() {
                       {items.map((item) => {
                         const rowKey = getCatalogRowKey(item);
                         const rowQuantity = getCatalogRowQuantity(item);
+                        const rowLocationLabel = formatRowLocationLabel(item);
                         const isSelected = selectedRowKey === rowKey;
                         const hasStock = getIntegerQuantity(rowQuantity) > 0;
 
@@ -1070,10 +1077,21 @@ function WorkWithPriceAdminPage() {
                                   event.stopPropagation();
                                   handleSelectItem(item);
                                 }}
-                                className="line-clamp-2 text-left transition hover:text-[var(--brand-dark)]"
-                                title={item.warehouseSummary || formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
+                                className="block max-w-full text-left transition hover:text-[var(--brand-dark)]"
+                                title={
+                                  rowLocationLabel
+                                    ? `${formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)} · ${rowLocationLabel}`
+                                    : item.warehouseSummary || formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)
+                                }
                               >
-                                {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
+                                <span className="line-clamp-1">
+                                  {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
+                                </span>
+                                {rowLocationLabel ? (
+                                  <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
+                                    {rowLocationLabel}
+                                  </span>
+                                ) : null}
                               </button>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-secondary)]">
@@ -1303,8 +1321,15 @@ function WorkWithPriceAdminPage() {
                               key={warehouse.warehouseId}
                               className="flex items-center justify-between gap-2 rounded-[8px] border border-[var(--border-color)] bg-white px-2.5 py-1.5 text-[10px]"
                             >
-                              <span className="truncate text-[var(--text-primary)]">
-                                {warehouse.warehouseName}
+                              <span className="min-w-0">
+                                <span className="block truncate text-[var(--text-primary)]">
+                                  {warehouse.warehouseName}
+                                </span>
+                                {warehouse.locationLabel ? (
+                                  <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
+                                    {warehouse.locationLabel}
+                                  </span>
+                                ) : null}
                               </span>
                               <span className="font-semibold text-[var(--stock-ok)] tabular-nums">
                                 {formatStockUnits(warehouse.quantity)}
@@ -1635,6 +1660,8 @@ function toPayload(form: ItemFormState):
     warehouseId: row.warehouseId,
     warehouseName: row.warehouseName.trim(),
     quantity: parseWarehouseQuantity(row.quantity),
+    rack: row.rack.trim(),
+    cell: row.cell.trim(),
   }));
 
   return {
@@ -1702,7 +1729,9 @@ function normalizeWarehouseRows(rows: WarehouseFormState[]) {
       (row) =>
         row.warehouseId !== null ||
         row.warehouseName.length > 0 ||
-        row.quantity.trim().length > 0,
+        row.quantity.trim().length > 0 ||
+        row.rack.trim().length > 0 ||
+        row.cell.trim().length > 0,
     );
 }
 
@@ -1732,12 +1761,16 @@ function createWarehouseFormState(
   warehouseName = "",
   quantity = "0",
   warehouseId: number | null = null,
+  rack = "",
+  cell = "",
 ): WarehouseFormState {
   return {
     key: `warehouse-${Math.random().toString(36).slice(2, 10)}`,
     warehouseId,
     warehouseName,
     quantity,
+    rack,
+    cell,
   };
 }
 
@@ -1785,6 +1818,10 @@ function formatWarehouseLabel(
   }
 
   return `${primaryName} +${item.warehouseCount - 1}`;
+}
+
+function formatRowLocationLabel(item: StockItem) {
+  return item.rowLocationLabel?.trim() || "";
 }
 
 function getDrawerTitle(mode: StockActionMode) {
@@ -2018,7 +2055,7 @@ function WarehouseFormEditor({
         {safeRows.map((row, index) => (
           <div
             key={row.key}
-            className="grid grid-cols-[minmax(0,1fr)_92px_32px] items-end gap-1.5 rounded-[9px] border border-[var(--border-color)] bg-white px-1.5 py-1.5"
+            className="grid grid-cols-[minmax(0,1.45fr)_76px_76px_82px_32px] items-end gap-1.5 rounded-[9px] border border-[var(--border-color)] bg-white px-1.5 py-1.5"
           >
             <label className="block min-w-0">
               <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
@@ -2035,6 +2072,40 @@ function WarehouseFormEditor({
                   }))
                 }
                 placeholder="Например, Основной склад"
+                className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
+                Стеллаж
+              </span>
+              <input
+                value={row.rack}
+                disabled={disabled}
+                onChange={(event) =>
+                  replaceRow(row.key, (current) => ({
+                    ...current,
+                    rack: event.target.value,
+                  }))
+                }
+                className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
+                Ячейка
+              </span>
+              <input
+                value={row.cell}
+                disabled={disabled}
+                onChange={(event) =>
+                  replaceRow(row.key, (current) => ({
+                    ...current,
+                    cell: event.target.value,
+                  }))
+                }
                 className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
               />
             </label>
@@ -2205,7 +2276,16 @@ function StockActionDrawer({
                     key={warehouse.warehouseId}
                     className="flex items-center justify-between gap-2 rounded-[10px] border border-[var(--border-color)] bg-white px-3 py-2 text-[11px]"
                   >
-                    <span className="truncate text-[var(--text-primary)]">{warehouse.warehouseName}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[var(--text-primary)]">
+                        {warehouse.warehouseName}
+                      </span>
+                      {warehouse.locationLabel ? (
+                        <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
+                          {warehouse.locationLabel}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="font-semibold text-[var(--stock-ok)] tabular-nums">
                       {formatStockUnits(warehouse.quantity)}
                     </span>

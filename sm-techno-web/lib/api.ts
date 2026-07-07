@@ -50,6 +50,8 @@ type LocalItemPayload = {
     warehouseId?: number | null;
     warehouseName: string;
     quantity: number;
+    rack?: string;
+    cell?: string;
   }>;
 };
 
@@ -540,7 +542,12 @@ export async function writeoffOrder(orderId: number): Promise<OrderDetails> {
   );
 }
 
-export async function importPriceFile(file: File): Promise<{ created: number; updated: number }> {
+export async function importPriceFile(file: File): Promise<{
+  created: number;
+  updated: number;
+  locationUpdated: number;
+  locationSkipped: number;
+}> {
   const body = new FormData();
   body.append("file", file);
 
@@ -550,7 +557,12 @@ export async function importPriceFile(file: File): Promise<{ created: number; up
     headers: createHeaders(),
   });
 
-  return parseJsonResponse<{ created: number; updated: number }>(
+  return parseJsonResponse<{
+    created: number;
+    updated: number;
+    locationUpdated: number;
+    locationSkipped: number;
+  }>(
     response,
     "Не удалось импортировать прайс.",
   );
