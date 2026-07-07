@@ -438,6 +438,20 @@ def _read_storage_location_layout(path: str | Path) -> list[dict[str, Any]]:
                 cell = _normalize_cell_label(text)
                 continue
 
+            third_text = _clean_string(raw_row[2] if len(raw_row) > 2 else None)
+            fourth_text = _clean_string(raw_row[3] if len(raw_row) > 3 else None)
+            if _is_headerless_storage_location_row(text, second_text, third_text, fourth_text):
+                rows.append(
+                    {
+                        "sku": text,
+                        "warehouse_name": "Санкт-Петербург",
+                        "rack": fourth_text or rack,
+                        "cell": _normalize_cell_label(third_text) if third_text else cell,
+                        "quantity": _to_float(second_value),
+                    }
+                )
+                continue
+
             if second_text is None:
                 continue
 
@@ -454,6 +468,24 @@ def _read_storage_location_layout(path: str | Path) -> list[dict[str, Any]]:
         workbook.close()
 
     return rows
+
+
+def _is_headerless_storage_location_row(
+    sku: str,
+    quantity: str | None,
+    cell: str | None,
+    rack: str | None,
+) -> bool:
+    if not quantity or (not cell and not rack):
+        return False
+    normalized_sku = _normalize_header(sku)
+    if normalized_sku in COLUMN_ALIASES["sku"]:
+        return False
+    normalized_cell = _normalize_header(cell)
+    normalized_rack = _normalize_header(rack)
+    if normalized_cell in COLUMN_ALIASES["cell"] or normalized_rack in COLUMN_ALIASES["rack"]:
+        return False
+    return True
 
 
 def _is_rack_marker(value: str) -> bool:

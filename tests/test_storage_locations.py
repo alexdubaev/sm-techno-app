@@ -182,6 +182,44 @@ class StorageLocationsTest(unittest.TestCase):
         self.assertEqual(balance["rack"], "Стелаж 1")
         self.assertEqual(balance["cell"], "A1")
 
+    def test_headerless_storage_location_sheet_updates_locations(self) -> None:
+        db = WebDatabase(db_path=self.temp_path / "stock.db")
+        service = WebStockSyncService(db=db)
+        warehouse = db.create_warehouse(name="Санкт-Петербург")
+        db.create_local_item(
+            sku="SKU-SIMPLE",
+            name="Simple layout item",
+            print_name="Simple layout item",
+            category_name="CAT",
+            group_name="CAT",
+            price=100,
+            warehouses=[
+                {
+                    "warehouse_id": warehouse["id"],
+                    "warehouse_name": warehouse["name"],
+                    "quantity": 10,
+                }
+            ],
+        )
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Лист1"
+        sheet.append(["SKU-SIMPLE", 4, "A1", "Стелаж 1"])
+        file_path = self.temp_path / "Санкт-Петербург стелажи для загрузки.xlsx"
+        workbook.save(file_path)
+
+        result = service.import_stock_excel(file_path)
+        item = db.get_item_by_id(1)
+        balance = item["warehouses"][0]
+
+        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["updated"], 0)
+        self.assertEqual(result["locationUpdated"], 1)
+        self.assertEqual(result["locationSkipped"], 0)
+        self.assertEqual(float(balance["quantity"]), 10.0)
+        self.assertEqual(balance["rack"], "Стелаж 1")
+        self.assertEqual(balance["cell"], "A1")
+
     def test_order_line_keeps_location_snapshot_for_printing(self) -> None:
         db = WebDatabase(db_path=self.temp_path / "stock.db")
         warehouse = db.create_warehouse(name="Санкт-Петербург")
