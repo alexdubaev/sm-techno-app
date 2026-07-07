@@ -141,6 +141,47 @@ class StorageLocationsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "разные места хранения"):
             service.import_stock_excel(file_path)
 
+    def test_raw_storage_layout_sheet_updates_locations(self) -> None:
+        db = WebDatabase(db_path=self.temp_path / "stock.db")
+        service = WebStockSyncService(db=db)
+        warehouse = db.create_warehouse(name="Санкт-Петербург")
+        db.create_local_item(
+            sku="SKU-RAW",
+            name="Raw layout item",
+            print_name="Raw layout item",
+            category_name="CAT",
+            group_name="CAT",
+            price=100,
+            warehouses=[
+                {
+                    "warehouse_id": warehouse["id"],
+                    "warehouse_name": warehouse["name"],
+                    "quantity": 10,
+                }
+            ],
+        )
+        file_path = self._write_workbook(
+            "Санкт-Петербург стелажи для загрузки.xlsx",
+            "Лист1",
+            ["Стелаж 1", None],
+            [
+                ["А1", None],
+                ["SKU-RAW", 4],
+            ],
+        )
+
+        result = service.import_stock_excel(file_path)
+        item = db.get_item_by_id(1)
+        balance = item["warehouses"][0]
+
+        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["updated"], 0)
+        self.assertEqual(result["locationUpdated"], 1)
+        self.assertEqual(result["locationSkipped"], 0)
+        self.assertEqual(float(balance["quantity"]), 10.0)
+        self.assertEqual(balance["rack"], "Стелаж 1")
+        self.assertEqual(balance["cell"], "A1")
+
     def test_order_line_keeps_location_snapshot_for_printing(self) -> None:
         db = WebDatabase(db_path=self.temp_path / "stock.db")
         warehouse = db.create_warehouse(name="Санкт-Петербург")

@@ -283,11 +283,18 @@ def _resolve_client_price_warehouse(row: dict[str, Any]) -> str:
     )
 
 
-def _is_storage_mapping_file(file_path: Path, sheet_names: list[str]) -> bool:
+def _is_storage_location_file(file_path: Path) -> bool:
     target_name = file_path.name.lower()
+    return "стелаж" in target_name or "стеллаж" in target_name
+
+
+def _find_storage_mapping_sheet(sheet_names: list[str]) -> str | None:
     normalized_sheet_names = {name.casefold() for name in sheet_names}
-    return "сопоставление" in normalized_sheet_names and (
-        "стелаж" in target_name or "стеллаж" in target_name
+    if "сопоставление" not in normalized_sheet_names:
+        return None
+    return next(
+        (name for name in sheet_names if name.casefold() == "сопоставление"),
+        "Сопоставление",
     )
 
 
@@ -297,12 +304,11 @@ def _select_excel_sheet(file_path: Path) -> tuple[str | int, bool]:
 
     with pd.ExcelFile(file_path) as excel_file:
         sheet_names = [str(name) for name in excel_file.sheet_names]
-    if _is_storage_mapping_file(file_path, sheet_names):
-        mapping_sheet = next(
-            (name for name in sheet_names if name.casefold() == "сопоставление"),
-            "Сопоставление",
-        )
-        return mapping_sheet, True
+    if _is_storage_location_file(file_path):
+        mapping_sheet = _find_storage_mapping_sheet(sheet_names)
+        if mapping_sheet:
+            return mapping_sheet, True
+        return 0, True
     return 0, False
 
 
@@ -317,6 +323,10 @@ def read_stock_import_bundle(path: str | Path) -> dict[str, list[dict[str, Any]]
         is_storage_mapping = False
     else:
         sheet_name, is_storage_mapping = _select_excel_sheet(file_path)
+        if is_storage_mapping and sheet_name == 0:
+            location_rows = _read_storage_location_layout(file_path)
+            if location_rows:
+                return {"stock_rows": [], "location_rows": location_rows}
         frame = pd.read_excel(file_path, sheet_name=sheet_name)
 
     normalized_map: dict[str, str] = {}
@@ -401,6 +411,77 @@ def _read_storage_location_rows(frame: pd.DataFrame) -> list[dict[str, Any]]:
             }
         )
     return cleaned_rows
+
+
+def _read_storage_location_layout(path: str | Path) -> list[dict[str, Any]]:
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    sheet = workbook.active
+    rack: str | None = None
+    cell: str | None = None
+    rows: list[dict[str, Any]] = []
+
+    try:
+        for raw_row in sheet.iter_rows(values_only=True):
+            first_value = raw_row[0] if len(raw_row) > 0 else None
+            second_value = raw_row[1] if len(raw_row) > 1 else None
+            text = _clean_string(first_value)
+            if not text:
+                continue
+
+            second_text = _clean_string(second_value)
+            if _is_rack_marker(text) and second_text is None:
+                rack = text
+                cell = None
+                continue
+
+            if _is_cell_marker(text) and second_text is None:
+                cell = _normalize_cell_label(text)
+                continue
+
+            if second_text is None:
+                continue
+
+            rows.append(
+                {
+                    "sku": text,
+                    "warehouse_name": "Санкт-Петербург",
+                    "rack": rack,
+                    "cell": cell,
+                    "quantity": _to_float(second_value),
+                }
+            )
+    finally:
+        workbook.close()
+
+    return rows
+
+
+def _is_rack_marker(value: str) -> bool:
+    normalized = value.strip().casefold()
+    return normalized.startswith("стелаж") or normalized.startswith("стеллаж")
+
+
+def _is_cell_marker(value: str) -> bool:
+    normalized = _normalize_cell_label(value)
+    return bool(re.fullmatch(r"[A-ZА-Я]\d+", normalized, flags=re.IGNORECASE))
+
+
+def _normalize_cell_label(value: str) -> str:
+    return (
+        value.strip()
+        .upper()
+        .replace("А", "A")
+        .replace("В", "B")
+        .replace("С", "C")
+        .replace("Е", "E")
+        .replace("Н", "H")
+        .replace("К", "K")
+        .replace("М", "M")
+        .replace("О", "O")
+        .replace("Р", "P")
+        .replace("Т", "T")
+        .replace("Х", "X")
+    )
 
 
 def _clean_string(value: Any) -> str | None:
