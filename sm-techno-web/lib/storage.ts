@@ -1,6 +1,7 @@
 ﻿import type { AppUser, DraftLine } from "@/lib/types";
 
 export const DRAFT_STORAGE_KEY = "sm-techno-current-invoice";
+export const STOCK_DRAFT_STORAGE_KEY = "sm-techno-stock-invoice-draft";
 export const STOCK_PAGE_STATE_KEY = "sm-techno-stock-page-state";
 export const INVOICE_FORM_STATE_KEY = "sm-techno-invoice-form-state";
 export const AUTH_SESSION_STORAGE_KEY = "sm-techno-auth-session";
@@ -120,6 +121,40 @@ export function saveDraftLinesToStorage(lines: DraftLine[]) {
   }
 
   window.localStorage.setItem(getScopedStorageKey(DRAFT_STORAGE_KEY), JSON.stringify(lines));
+}
+
+export function loadStockDraftLinesFromStorage(): DraftLine[] | null {
+  if (!canUseStorage()) {
+    return null;
+  }
+
+  const saved = window.localStorage.getItem(getScopedStorageKey(STOCK_DRAFT_STORAGE_KEY));
+  if (!saved) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(saved) as DraftLine[];
+  } catch {
+    window.localStorage.removeItem(getScopedStorageKey(STOCK_DRAFT_STORAGE_KEY));
+    return null;
+  }
+}
+
+export function saveStockDraftLinesToStorage(lines: DraftLine[]) {
+  if (!canUseStorage()) {
+    return;
+  }
+
+  window.localStorage.setItem(getScopedStorageKey(STOCK_DRAFT_STORAGE_KEY), JSON.stringify(lines));
+}
+
+export function clearStockDraftLinesFromStorage() {
+  if (!canUseStorage()) {
+    return;
+  }
+
+  window.localStorage.removeItem(getScopedStorageKey(STOCK_DRAFT_STORAGE_KEY));
 }
 
 export function loadStockPageStateFromStorage(): Partial<StockPageViewState> | null {

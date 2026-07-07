@@ -602,12 +602,8 @@ class WebStockSyncService:
         current_onec_key = (line.get("onec_key") or "").strip()
         current_unit_key = (line.get("unit_key") or "").strip()
         unit_name = (line.get("unit_name") or "").strip() or None
-        if self.is_guid(current_onec_key):
-            unit_key, unit_name = self._resolve_unit_for_item(line, client, category_cache=category_cache, unit_cache=unit_cache)
-            return current_onec_key, unit_key, unit_name
-        existing = client.find_item_by_sku((line.get("sku") or "").strip()) if (line.get("sku") or "").strip() else None
-        if existing is None:
-            existing = client.find_item_by_name(line["name"])
+        sku = (line.get("sku") or "").strip()
+        existing = client.find_item_by_sku(sku) if sku else None
         if existing is not None:
             resolved_key = existing.get("Ref_Key") or existing.get("onec_key")
             resolved_unit_key = existing.get("ЕдиницаИзмерения_Key") or current_unit_key
@@ -615,10 +611,13 @@ class WebStockSyncService:
             if not self.is_guid(resolved_unit_key):
                 resolved_unit_key, resolved_unit_name = self._resolve_unit_for_item(line, client, category_cache=category_cache, unit_cache=unit_cache)
             return resolved_key, resolved_unit_key, resolved_unit_name
+        if not sku and self.is_guid(current_onec_key):
+            unit_key, unit_name = self._resolve_unit_for_item(line, client, category_cache=category_cache, unit_cache=unit_cache)
+            return current_onec_key, unit_key, unit_name
         category = self._resolve_category_for_item(line, client, category_cache)
         group_key = self._resolve_group_for_item(line, client, group_cache)
         resolved_unit_key, resolved_unit_name = self._resolve_unit_for_item(line, client, category_cache=category_cache, unit_cache=unit_cache, category=category)
-        payload: dict[str, Any] = {"Description": line["name"], "НаименованиеПолное": (line.get("print_name") or line["name"]).strip(), "Артикул": (line.get("sku") or "").strip(), "ТипНоменклатуры": category.get("ТипНоменклатурыПоУмолчанию") or "Запас", "КатегорияНоменклатуры_Key": category["Ref_Key"], "ЕдиницаИзмерения_Key": resolved_unit_key, "ЕдиницаДляОтчетов_Key": resolved_unit_key, "ЕдиницаДляЦенников_Key": resolved_unit_key, "IsFolder": False}
+        payload: dict[str, Any] = {"Description": line["name"], "НаименованиеПолное": (line.get("print_name") or line["name"]).strip(), "Артикул": sku, "ТипНоменклатуры": category.get("ТипНоменклатурыПоУмолчанию") or "Запас", "КатегорияНоменклатуры_Key": category["Ref_Key"], "ЕдиницаИзмерения_Key": resolved_unit_key, "ЕдиницаДляОтчетов_Key": resolved_unit_key, "ЕдиницаДляЦенников_Key": resolved_unit_key, "IsFolder": False}
         if group_key:
             payload["Parent_Key"] = group_key
         created_item = client.create_item(payload)

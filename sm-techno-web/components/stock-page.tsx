@@ -20,9 +20,11 @@ import {
   fetchWarehouses,
 } from "@/lib/api";
 import {
-  loadDraftLinesFromStorage,
+  clearStockDraftLinesFromStorage,
+  loadStockDraftLinesFromStorage,
   loadStockPageStateFromStorage,
   saveDraftLinesToStorage,
+  saveStockDraftLinesToStorage,
   saveStockPageStateToStorage,
   type StockPageViewState,
 } from "@/lib/storage";
@@ -107,7 +109,7 @@ export function StockPage() {
   );
 
   useEffect(() => {
-    const savedDraft = loadDraftLinesFromStorage();
+    const savedDraft = loadStockDraftLinesFromStorage();
     if (savedDraft) {
       setDraftLines(sanitizeDraftLines(savedDraft));
     }
@@ -164,7 +166,7 @@ export function StockPage() {
       return;
     }
 
-    saveDraftLinesToStorage(draftLines);
+    saveStockDraftLinesToStorage(draftLines);
   }, [draftLines, isHydrated]);
 
   useEffect(() => {
@@ -526,9 +528,16 @@ export function StockPage() {
         typeof updater === "function"
           ? (updater as (previous: DraftLine[]) => DraftLine[])(previous)
           : updater;
-      saveDraftLinesToStorage(next);
+      saveStockDraftLinesToStorage(next);
       return next;
     });
+  };
+
+  const handleOpenInvoice = () => {
+    saveDraftLinesToStorage(draftLines);
+    clearStockDraftLinesFromStorage();
+    setDraftLines([]);
+    router.push("/work-with-invoice");
   };
 
   const selectItem = (item: StockItem) => {
@@ -1243,7 +1252,7 @@ export function StockPage() {
 
               <button
                 type="button"
-                onClick={() => router.push("/work-with-invoice")}
+                onClick={handleOpenInvoice}
                 className="mt-2 flex h-[36px] w-full items-center justify-center gap-1.5 rounded-[12px] bg-[var(--brand-yellow)] px-3 text-[12px] font-semibold text-[var(--brand-dark)] transition-all duration-200 hover:bg-[var(--brand-yellow-hover)] active:scale-[0.985]"
               >
                 <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />

@@ -82,6 +82,10 @@ class OneCClient:
         return value.replace("'", "''")
 
     @staticmethod
+    def _normalize_sku_for_lookup(value: str | None) -> str:
+        return str(value or "").strip().replace("-", "").lower()
+
+    @staticmethod
     def _build_query(params: list[tuple[str, str | int]]) -> str:
         parts: list[str] = []
         for key, value in params:
@@ -283,21 +287,37 @@ class OneCClient:
         sku = sku.strip()
         if not sku:
             return None
-        sku_lower = sku.lower()
+        normalized_sku = self._normalize_sku_for_lookup(sku)
+        canonical_match: dict[str, Any] | None = None
+        normalized_match: dict[str, Any] | None = None
         for row in self.list_items():
-            candidate = str(row.get("sku") or "").strip().lower()
-            if candidate == sku_lower:
-                return {
-                    "Ref_Key": row["onec_key"],
-                    "Description": row.get("name"),
-                    "Артикул": row.get("sku"),
-                    "НаименованиеПолное": row.get("print_name"),
-                    "ЕдиницаИзмерения_Key": row.get("unit_key"),
-                    "КатегорияНоменклатуры_Key": row.get("category_key"),
-                    "Parent_Key": row.get("group_key"),
-                    "IsFolder": False,
-                }
+            candidate_raw = str(row.get("sku") or "").strip()
+            candidate_normalized = self._normalize_sku_for_lookup(candidate_raw)
+            if not normalized_sku or candidate_normalized != normalized_sku:
+                continue
+            if candidate_raw.lower() == normalized_sku:
+                canonical_match = row
+                break
+            if normalized_match is None:
+                normalized_match = row
+        if canonical_match is not None:
+            return self._format_item_lookup_row(canonical_match)
+        if normalized_match is not None:
+            return self._format_item_lookup_row(normalized_match)
         return None
+
+    @staticmethod
+    def _format_item_lookup_row(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "Ref_Key": row["onec_key"],
+            "Description": row.get("name"),
+            "Артикул": row.get("sku"),
+            "НаименованиеПолное": row.get("print_name"),
+            "ЕдиницаИзмерения_Key": row.get("unit_key"),
+            "КатегорияНоменклатуры_Key": row.get("category_key"),
+            "Parent_Key": row.get("group_key"),
+            "IsFolder": False,
+        }
 
     def find_item_by_name(self, name: str) -> dict[str, Any] | None:
         name = name.strip()

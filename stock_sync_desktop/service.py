@@ -234,21 +234,10 @@ class StockSyncService:
         current_unit_key = (line.get("unit_key") or "").strip()
         unit_name = (line.get("unit_name") or "").strip() or None
 
-        if self._is_guid(current_onec_key):
-            resolved_unit_key, resolved_unit_name = self._resolve_unit_for_item(
-                line,
-                client,
-                category_cache=category_cache,
-                unit_cache=unit_cache,
-            )
-            return current_onec_key, resolved_unit_key, resolved_unit_name
-
         existing = None
         sku = (line.get("sku") or "").strip()
         if sku:
             existing = client.find_item_by_sku(sku)
-        if existing is None:
-            existing = client.find_item_by_name(line["name"])
 
         if existing is not None:
             onec_key = existing.get("Ref_Key") or existing.get("onec_key")
@@ -262,6 +251,15 @@ class StockSyncService:
                     unit_cache=unit_cache,
                 )
             return onec_key, resolved_unit_key, resolved_unit_name
+
+        if not sku and self._is_guid(current_onec_key):
+            resolved_unit_key, resolved_unit_name = self._resolve_unit_for_item(
+                line,
+                client,
+                category_cache=category_cache,
+                unit_cache=unit_cache,
+            )
+            return current_onec_key, resolved_unit_key, resolved_unit_name
 
         category = self._resolve_category_for_item(line, client, category_cache)
         group_key = self._resolve_group_for_item(line, client, group_cache)
