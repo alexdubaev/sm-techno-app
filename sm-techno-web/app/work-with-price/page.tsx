@@ -2028,8 +2028,8 @@ function WarehouseFormEditor({
 
   return (
     <div className="rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] p-2">
-      <div className="flex items-center justify-between gap-2">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
           <div className="text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
             Остатки по складам
           </div>
@@ -2045,7 +2045,7 @@ function WarehouseFormEditor({
           type="button"
           disabled={disabled}
           onClick={() => onChange([...safeRows, createWarehouseFormState()])}
-          className="inline-flex h-[28px] items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-[28px] shrink-0 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-60"
         >
           + Склад
         </button>
@@ -2055,88 +2055,92 @@ function WarehouseFormEditor({
         {safeRows.map((row, index) => (
           <div
             key={row.key}
-            className="grid grid-cols-[minmax(0,1.45fr)_76px_76px_82px_32px] items-end gap-1.5 rounded-[9px] border border-[var(--border-color)] bg-white px-1.5 py-1.5"
+            className="grid gap-1.5 rounded-[9px] border border-[var(--border-color)] bg-white px-1.5 py-1.5"
           >
-            <label className="block min-w-0">
-              <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
-                Склад {safeRows.length > 1 ? index + 1 : ""}
-              </span>
-              <input
-                value={row.warehouseName}
-                disabled={disabled}
-                onChange={(event) =>
-                  replaceRow(row.key, (current) => ({
-                    ...current,
-                    warehouseName: event.target.value,
-                    warehouseId: current.warehouseId,
-                  }))
-                }
-                placeholder="Например, Основной склад"
-                className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
-              />
-            </label>
+            <div className="grid grid-cols-[minmax(0,1fr)_32px] items-end gap-1.5">
+              <label className="block min-w-0">
+                <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
+                  Склад {safeRows.length > 1 ? index + 1 : ""}
+                </span>
+                <input
+                  value={row.warehouseName}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    replaceRow(row.key, (current) => ({
+                      ...current,
+                      warehouseName: event.target.value,
+                      warehouseId: current.warehouseId,
+                    }))
+                  }
+                  placeholder="Например, Основной склад"
+                  className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
+                />
+              </label>
 
-            <label className="block">
-              <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
-                Стеллаж
-              </span>
-              <input
-                value={row.rack}
+              <button
+                type="button"
                 disabled={disabled}
-                onChange={(event) =>
-                  replaceRow(row.key, (current) => ({
-                    ...current,
-                    rack: event.target.value,
-                  }))
-                }
-                className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
-              />
-            </label>
+                onClick={() => handleRemove(row.key)}
+                className="flex h-[28px] w-8 items-center justify-center rounded-[8px] border border-[#FECACA] bg-[#FEF2F2] text-[11px] font-semibold text-[var(--stock-empty)] transition hover:bg-[#FEE2E2] disabled:cursor-not-allowed disabled:opacity-60"
+                title="Удалить складскую строку"
+              >
+                ×
+              </button>
+            </div>
 
-            <label className="block">
-              <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
-                Ячейка
-              </span>
-              <input
-                value={row.cell}
-                disabled={disabled}
-                onChange={(event) =>
-                  replaceRow(row.key, (current) => ({
-                    ...current,
-                    cell: event.target.value,
-                  }))
-                }
-                className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
-              />
-            </label>
+            <div className="grid grid-cols-3 gap-1.5">
+              <label className="block min-w-0">
+                <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
+                  Стеллаж
+                </span>
+                <input
+                  value={row.rack}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    replaceRow(row.key, (current) => ({
+                      ...current,
+                      rack: event.target.value,
+                    }))
+                  }
+                  className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
+                />
+              </label>
 
-            <label className="block">
-              <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
-                Остаток
-              </span>
-              <input
-                value={row.quantity}
-                inputMode="numeric"
-                disabled={disabled}
-                onChange={(event) =>
-                  replaceRow(row.key, (current) => ({
-                    ...current,
-                    quantity: sanitizeIntegerInput(event.target.value),
-                  }))
-                }
-                className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
-              />
-            </label>
+              <label className="block min-w-0">
+                <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
+                  Ячейка
+                </span>
+                <input
+                  value={row.cell}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    replaceRow(row.key, (current) => ({
+                      ...current,
+                      cell: event.target.value,
+                    }))
+                  }
+                  className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
+                />
+              </label>
 
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => handleRemove(row.key)}
-              className="flex h-[28px] w-8 items-center justify-center rounded-[8px] border border-[#FECACA] bg-[#FEF2F2] text-[11px] font-semibold text-[var(--stock-empty)] transition hover:bg-[#FEE2E2] disabled:cursor-not-allowed disabled:opacity-60"
-              title="Удалить складскую строку"
-            >
-              ×
-            </button>
+              <label className="block min-w-0">
+                <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
+                  Остаток
+                </span>
+                <input
+                  value={row.quantity}
+                  inputMode="numeric"
+                  disabled={disabled}
+                  onChange={(event) =>
+                    replaceRow(row.key, (current) => ({
+                      ...current,
+                      quantity: sanitizeIntegerInput(event.target.value),
+                    }))
+                  }
+                  className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
+                />
+              </label>
+            </div>
           </div>
         ))}
       </div>
