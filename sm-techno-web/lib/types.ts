@@ -94,6 +94,20 @@ export type DraftLine = {
   availableOnWarehouse: number;
 };
 
+export type CommercialOfferDraftLine = {
+  lineId: string;
+  itemId: number;
+  article: string;
+  name: string;
+  brand: string;
+  qty: number;
+  priceVat: number;
+  deliveryTime: string;
+  note: string;
+  warehouseId: number | null;
+  warehouseName: string;
+};
+
 export type Counterparty = {
   id: number;
   onecKey: string;
@@ -101,6 +115,22 @@ export type Counterparty = {
   fullName: string;
   inn: string;
   kpp: string;
+};
+
+export type CrmClient = {
+  source: "onec" | "local";
+  id: number;
+  counterpartyId: number | null;
+  crmClientId: number | null;
+  name: string;
+  fullName: string;
+  inn: string;
+  kpp: string;
+  contactPerson: string;
+  email: string;
+  phone: string;
+  notes: string;
+  isLinkedToOneC: boolean;
 };
 
 export type Contract = {
@@ -118,6 +148,50 @@ export type Organization = {
   name: string;
   inn: string;
   kpp: string;
+};
+
+export type CommercialOffer = {
+  id: number;
+  number: string;
+  clientSource: "onec" | "local";
+  counterpartyId: number | null;
+  crmClientId: number | null;
+  clientName: string;
+  offerDate: string;
+  status: string;
+  sentAt: string;
+  sentTo: string;
+  sourceFilename: string;
+  notes: string;
+  lineCount: number;
+  totalAmount: number;
+  createdByName: string;
+  createdByUsername: string;
+  createdAt: string;
+  updatedAt: string;
+  hasSourceFile: boolean;
+};
+
+export type CommercialOfferLine = {
+  id: number;
+  offerId: number;
+  rowNo: number;
+  itemId: number | null;
+  article: string;
+  name: string;
+  brand: string;
+  qty: number;
+  priceVat: number;
+  amountVat: number;
+  deliveryTime: string;
+  note: string;
+  warehouseId: number | null;
+  warehouseName: string;
+};
+
+export type CommercialOfferDetails = {
+  offer: CommercialOffer;
+  lines: CommercialOfferLine[];
 };
 
 export type OrderHistoryItem = {

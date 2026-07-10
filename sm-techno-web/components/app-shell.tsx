@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode, SVGProps } from "react";
+import { useState, type ReactNode, type SVGProps } from "react";
 
 import { useAuth } from "@/components/auth-provider";
 
@@ -15,25 +15,106 @@ type NavItem = {
   href: string;
   label: string;
   adminOnly?: boolean;
+  isActive?: (pathname: string) => boolean;
   Icon: (props: SVGProps<SVGSVGElement>) => ReactNode;
 };
 
-const navItems: NavItem[] = [
-  { href: "/", label: "Остатки", Icon: BoxIcon },
-  { href: "/work-with-price", label: "Работа с прайсом", Icon: PriceTagIcon, adminOnly: true },
-  { href: "/work-with-invoice", label: "Работа со счетом", Icon: DocumentIcon },
-  { href: "/orders", label: "Заказы", Icon: ClipboardIcon },
-  { href: "/references", label: "Справочники", Icon: BookIcon },
-  { href: "/settings", label: "Настройки", Icon: GearIcon, adminOnly: true },
+type NavGroup = {
+  label: string;
+  items: NavItem[];
+};
+
+type MenuState = {
+  expandedGroupLabel: string;
+  selectedGroupLabel: string;
+};
+
+let menuStateSnapshot: MenuState = {
+  expandedGroupLabel: "",
+  selectedGroupLabel: "",
+};
+
+const navGroups: NavGroup[] = [
+  {
+    label: "Прайсы",
+    items: [
+      { href: "/", label: "Остатки", Icon: BoxIcon },
+      { href: "/work-with-price", label: "Работа с прайсом", Icon: PriceTagIcon, adminOnly: true },
+      { href: "/work-with-invoice", label: "Работа со счетом", Icon: DocumentIcon },
+      { href: "/orders", label: "Заказы", Icon: ClipboardIcon },
+    ],
+  },
+  {
+    label: "Коммерческие предложения",
+    items: [
+      { href: "/commercial-offers/new", label: "Создать КП", Icon: DocumentIcon },
+      {
+        href: "/commercial-offers",
+        label: "Журнал КП",
+        Icon: ClipboardIcon,
+        isActive: (path) => path === "/commercial-offers" || /^\/commercial-offers\/\d+/.test(path),
+      },
+      { href: "/clients", label: "Клиенты", Icon: UsersIcon },
+    ],
+  },
+  {
+    label: "Администрирование",
+    items: [
+      { href: "/references", label: "Справочники", Icon: BookIcon },
+      { href: "/settings", label: "Настройки", Icon: GearIcon, adminOnly: true },
+    ],
+  },
 ];
 
 export function AppShell({ children }: ShellProps) {
   const pathname = usePathname();
   const { user, isAdmin, logout } = useAuth();
 
-  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
+  const visibleNavGroups = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.adminOnly || isAdmin),
+    }))
+    .filter((group) => group.items.length > 0);
+  const routeGroupLabel =
+    visibleNavGroups.find((group) => isNavGroupActive(group, pathname))?.label ?? "";
+  const [menuState, setMenuState] = useState<MenuState>(() => ({
+    expandedGroupLabel: menuStateSnapshot.expandedGroupLabel,
+    selectedGroupLabel: menuStateSnapshot.selectedGroupLabel || routeGroupLabel,
+  }));
+  const selectedGroupIsVisible = visibleNavGroups.some(
+    (group) => group.label === menuState.selectedGroupLabel,
+  );
+  const activeGroupLabel = selectedGroupIsVisible
+    ? menuState.selectedGroupLabel
+    : routeGroupLabel;
   const displayName = user.fullName.trim() || user.username;
   const roleLabel = isAdmin ? "Администратор" : "Пользователь";
+
+  const updateMenuState = (updater: (current: MenuState) => MenuState) => {
+    setMenuState((current) => {
+      const next = updater(current);
+      menuStateSnapshot = next;
+      return next;
+    });
+  };
+
+  const handleGroupClick = (groupLabel: string) => {
+    updateMenuState((current) => {
+      const next = {
+        expandedGroupLabel: current.expandedGroupLabel === groupLabel ? "" : groupLabel,
+        selectedGroupLabel: groupLabel,
+      };
+      return next;
+    });
+  };
+
+  const handleItemClick = (groupLabel: string) => {
+    updateMenuState(() => ({
+      expandedGroupLabel: groupLabel,
+      selectedGroupLabel: groupLabel,
+    }));
+  };
 
   return (
     <div className="min-h-screen bg-[var(--page-bg)] text-[var(--text-primary)]">
@@ -58,37 +139,33 @@ export function AppShell({ children }: ShellProps) {
           </div>
 
           <nav className="space-y-2">
-            {visibleNavItems.map(({ href, label, Icon }) => {
-              const isActive = pathname === href;
+            {visibleNavGroups.map((group, groupIndex) => {
+              const groupActive = activeGroupLabel === group.label;
+              const groupExpanded = menuState.expandedGroupLabel === group.label;
 
               return (
-                <Link
-                  key={href}
-                  href={href}
-                  aria-current={isActive ? "page" : undefined}
-                  className={[
-                    "group flex items-center gap-3 rounded-[16px] px-3 py-2 text-[13px] font-medium transition-all duration-200",
-                    isActive
-                      ? "bg-[var(--brand-dark)] text-white shadow-[0_18px_32px_rgba(7,22,46,0.16)]"
-                      : "text-[var(--text-primary)] hover:bg-[#F7F9FC]",
-                  ].join(" ")}
-                >
-                  <span
-                    className={[
-                      "h-8 w-[3px] rounded-full transition-colors",
-                      isActive ? "bg-[var(--brand-yellow)]" : "bg-transparent",
-                    ].join(" ")}
+                <div key={group.label}>
+                  <NavGroupButton
+                    active={groupActive}
+                    controlsId={`desktop-nav-group-${groupIndex}`}
+                    expanded={groupExpanded}
+                    label={group.label}
+                    onClick={() => handleGroupClick(group.label)}
+                    variant="desktop"
                   />
-                  <Icon
-                    className={[
-                      "h-[18px] w-[18px] shrink-0 stroke-[1.8]",
-                      isActive ? "text-white" : "text-[var(--text-secondary)]",
-                    ].join(" ")}
-                  />
-                  <span className={isActive ? "leading-5 text-white" : "leading-5 text-[var(--text-primary)]"}>
-                    {label}
-                  </span>
-                </Link>
+                  {groupExpanded ? (
+                    <div id={`desktop-nav-group-${groupIndex}`} className="mt-1.5 space-y-1.5">
+                      {group.items.map((item) => (
+                        <SidebarLink
+                          key={item.href}
+                          item={item}
+                          onClick={() => handleItemClick(group.label)}
+                          pathname={pathname}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
           </nav>
@@ -124,29 +201,32 @@ export function AppShell({ children }: ShellProps) {
             </div>
 
             <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
-              {visibleNavItems.map(({ href, label, Icon }) => {
-                const isActive = pathname === href;
+              {visibleNavGroups.map((group, groupIndex) => {
+                const groupActive = activeGroupLabel === group.label;
+                const groupExpanded = menuState.expandedGroupLabel === group.label;
 
                 return (
-                  <Link
-                    key={href}
-                    href={href}
-                    aria-current={isActive ? "page" : undefined}
-                    className={[
-                      "inline-flex shrink-0 items-center gap-2 rounded-[12px] border px-3 py-2 text-[11px] font-medium transition-all duration-200",
-                      isActive
-                        ? "border-[var(--brand-dark)] bg-[var(--brand-dark)] text-white shadow-[0_10px_20px_rgba(7,22,46,0.14)]"
-                        : "border-[var(--border-color)] bg-white text-[var(--text-primary)] hover:bg-[#F7F9FC]",
-                    ].join(" ")}
-                  >
-                    <Icon
-                      className={[
-                        "h-[16px] w-[16px] shrink-0 stroke-[1.8]",
-                        isActive ? "text-white" : "text-[var(--text-secondary)]",
-                      ].join(" ")}
+                  <div key={group.label} className="contents">
+                    <NavGroupButton
+                      active={groupActive}
+                      controlsId={`mobile-nav-group-${groupIndex}`}
+                      expanded={groupExpanded}
+                      label={group.label}
+                      onClick={() => handleGroupClick(group.label)}
+                      variant="mobile"
                     />
-                    <span className="whitespace-nowrap">{label}</span>
-                  </Link>
+                    {groupExpanded
+                      ? group.items.map((item) => (
+                          <MobileNavLink
+                            key={item.href}
+                            groupLabel={group.label}
+                            item={item}
+                            onClick={() => handleItemClick(group.label)}
+                            pathname={pathname}
+                          />
+                        ))
+                      : null}
+                  </div>
                 );
               })}
 
@@ -161,11 +241,139 @@ export function AppShell({ children }: ShellProps) {
           </div>
 
           <main className="app-shell-main min-w-0 px-2 py-2 md:px-3 md:py-3 xl:px-3.5 xl:py-3.5 2xl:px-4 2xl:py-4">
-          <div className="app-shell-content relative">{children}</div>
+            <div className="app-shell-content relative">{children}</div>
           </main>
         </div>
       </div>
     </div>
+  );
+}
+
+function isNavGroupActive(group: NavGroup, pathname: string) {
+  return group.items.some((item) => isNavItemActive(item, pathname));
+}
+
+function normalizePathname(value: string) {
+  const withoutQuery = value.split("?")[0]?.split("#")[0] ?? "/";
+  const normalized = withoutQuery.replace(/\/+$/, "");
+  return normalized || "/";
+}
+
+function isNavItemActive(item: NavItem, pathname: string) {
+  const normalizedPathname = normalizePathname(pathname);
+  if (item.isActive) {
+    return item.isActive(normalizedPathname);
+  }
+
+  const normalizedHref = normalizePathname(item.href);
+  if (normalizedHref === "/") {
+    return normalizedPathname === "/";
+  }
+
+  return normalizedPathname === normalizedHref || normalizedPathname.startsWith(`${normalizedHref}/`);
+}
+
+function NavGroupButton({
+  active,
+  controlsId,
+  expanded,
+  label,
+  onClick,
+  variant,
+}: {
+  active: boolean;
+  controlsId: string;
+  expanded: boolean;
+  label: string;
+  onClick: () => void;
+  variant: "desktop" | "mobile";
+}) {
+  const desktop = variant === "desktop";
+  const toneClass = active
+    ? "bg-[var(--brand-dark)] text-white shadow-[0_12px_24px_rgba(7,22,46,0.14)]"
+    : expanded
+      ? "bg-[#F8FAFD] text-[var(--text-primary)]"
+      : "bg-transparent text-[var(--text-primary)] hover:bg-[#F8FAFD]";
+  const borderClass = desktop
+    ? ""
+    : active
+      ? "border border-[var(--brand-dark)]"
+      : "border border-[var(--border-color)]";
+
+  return (
+    <button
+      type="button"
+      aria-controls={controlsId}
+      aria-expanded={expanded}
+      onClick={onClick}
+      className={`inline-flex items-center justify-between gap-2 rounded-[12px] font-[700] transition ${toneClass} ${borderClass} ${
+        desktop
+          ? "min-h-[34px] w-full px-3 py-1.5 text-left text-[13px] leading-[16px]"
+          : "h-[34px] shrink-0 px-2.5 text-[11px]"
+      }`}
+    >
+      <span className="min-w-0 text-left">{label}</span>
+      <ChevronIcon className={`h-3 w-3 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+    </button>
+  );
+}
+
+function SidebarLink({
+  item,
+  onClick,
+  pathname,
+}: {
+  item: NavItem;
+  onClick: () => void;
+  pathname: string;
+}) {
+  const active = isNavItemActive(item, pathname);
+  const Icon = item.Icon;
+
+  return (
+    <Link
+      href={item.href}
+      onClick={onClick}
+      className={`flex h-[38px] items-center gap-2 rounded-[13px] border px-3 text-[12px] font-semibold transition ${
+        active
+          ? "border-[var(--brand-dark)] bg-white text-[var(--brand-dark)] shadow-[inset_0_0_0_1px_rgba(7,22,46,0.08)]"
+          : "border-transparent text-[var(--text-primary)] hover:bg-[#F8FAFD]"
+      }`}
+    >
+      <Icon className="h-[17px] w-[17px] shrink-0" />
+      <span className="truncate">{item.label}</span>
+    </Link>
+  );
+}
+
+function MobileNavLink({
+  groupLabel,
+  item,
+  onClick,
+  pathname,
+}: {
+  groupLabel: string;
+  item: NavItem;
+  onClick: () => void;
+  pathname: string;
+}) {
+  const active = isNavItemActive(item, pathname);
+  const Icon = item.Icon;
+
+  return (
+    <Link
+      href={item.href}
+      onClick={onClick}
+      title={`${groupLabel}: ${item.label}`}
+      className={`inline-flex h-[34px] shrink-0 items-center gap-1.5 rounded-[12px] border px-2.5 text-[10px] font-semibold transition ${
+        active
+          ? "border-[var(--brand-dark)] bg-white text-[var(--brand-dark)]"
+          : "border-[var(--border-color)] bg-white text-[var(--text-primary)] hover:bg-[#F8FAFD]"
+      }`}
+    >
+      <Icon className="h-[14px] w-[14px] shrink-0" />
+      {item.label}
+    </Link>
   );
 }
 
@@ -219,6 +427,25 @@ function GearIcon(props: SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" {...props}>
       <path d="m14.5 3 .7 1.8a7.7 7.7 0 0 1 1.8.8L18.8 5l2.2 2.2-.6 1.8c.3.6.6 1.2.8 1.8l1.8.7v3.1l-1.8.7a7.7 7.7 0 0 1-.8 1.8l.6 1.8-2.2 2.2-1.8-.6a7.7 7.7 0 0 1-1.8.8l-.7 1.8h-3.1l-.7-1.8a7.7 7.7 0 0 1-1.8-.8l-1.8.6L5 18.8l.6-1.8a7.7 7.7 0 0 1-.8-1.8L3 14.5v-3.1l1.8-.7c.2-.6.5-1.2.8-1.8L5 7.2 7.2 5l1.8.6c.6-.3 1.2-.6 1.8-.8L11.5 3h3Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function UsersIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" {...props}>
+      <path d="M9.5 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.5 20a6 6 0 0 1 12 0" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M16 11a3 3 0 1 0-.7-5.9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M17.5 19.5a5 5 0 0 0-3.1-4.6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" {...props}>
+      <path d="m6 9 6 6 6-6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

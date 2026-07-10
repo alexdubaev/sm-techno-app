@@ -4,8 +4,9 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -232,6 +233,74 @@ def _serialize_organization(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _serialize_client(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source": row.get("source") or "local",
+        "id": int(row["id"]),
+        "counterpartyId": int(row["counterparty_id"]) if row.get("counterparty_id") else None,
+        "crmClientId": int(row["crm_client_id"]) if row.get("crm_client_id") else None,
+        "name": row.get("name") or "",
+        "fullName": row.get("full_name") or "",
+        "inn": row.get("inn") or "",
+        "kpp": row.get("kpp") or "",
+        "contactPerson": row.get("contact_person") or "",
+        "email": row.get("email") or "",
+        "phone": row.get("phone") or "",
+        "notes": row.get("notes") or "",
+        "isLinkedToOneC": bool(row.get("is_linked_to_onec")),
+    }
+
+
+def _serialize_commercial_offer(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "number": row.get("number") or "",
+        "clientSource": row.get("client_source") or "local",
+        "counterpartyId": int(row["counterparty_id"]) if row.get("counterparty_id") else None,
+        "crmClientId": int(row["crm_client_id"]) if row.get("crm_client_id") else None,
+        "clientName": row.get("client_name_snapshot") or "",
+        "offerDate": row.get("offer_date") or "",
+        "status": row.get("status") or "",
+        "sentAt": row.get("sent_at") or "",
+        "sentTo": row.get("sent_to") or "",
+        "sourceFilename": row.get("source_filename") or "",
+        "notes": row.get("notes") or "",
+        "lineCount": int(row.get("line_count") or 0),
+        "totalAmount": float(row.get("total_amount") or 0),
+        "createdByName": row.get("created_by_name") or "",
+        "createdByUsername": row.get("created_by_username") or "",
+        "createdAt": row.get("created_at") or "",
+        "updatedAt": row.get("updated_at") or "",
+        "hasSourceFile": bool(row.get("source_path")),
+    }
+
+
+def _serialize_commercial_offer_line(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "offerId": int(row["offer_id"]),
+        "rowNo": int(row["row_no"]),
+        "itemId": int(row["item_id"]) if row.get("item_id") else None,
+        "article": row.get("article") or "",
+        "name": row.get("name") or "",
+        "brand": row.get("brand") or "",
+        "qty": float(row.get("qty") or 0),
+        "priceVat": float(row.get("price_vat") or 0),
+        "amountVat": float(row.get("amount_vat") or 0),
+        "deliveryTime": row.get("delivery_time") or "",
+        "note": row.get("note") or "",
+        "warehouseId": int(row["warehouse_id"]) if row.get("warehouse_id") else None,
+        "warehouseName": row.get("warehouse_name_snapshot") or "",
+    }
+
+
+def _serialize_commercial_offer_details(bundle: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "offer": _serialize_commercial_offer(bundle["offer"]),
+        "lines": [_serialize_commercial_offer_line(row) for row in bundle["lines"]],
+    }
+
+
 def _serialize_order(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
@@ -416,6 +485,21 @@ def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "onec_username": onec_username,
         "onec_password": onec_password,
         "draft_lines": draft_lines,
+    }
+
+
+def _parse_optional_client_id(raw_value: Any) -> int | None:
+    if raw_value in (None, "", 0, "0"):
+        return None
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Некорректный клиент.")
+
+
+def _download_headers(filename: str) -> dict[str, str]:
+    return {
+        "Content-Disposition": f"attachment; filename=\"download.xlsx\"; filename*=UTF-8''{quote(filename)}"
     }
 
 
@@ -699,6 +783,163 @@ def list_organizations(current_user: dict[str, Any] = Depends(_get_current_user)
     return {
         "items": [_serialize_organization(row) for row in SERVICE.list_organizations()]
     }
+
+
+@app.get("/api/clients")
+def list_clients(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    return {"items": [_serialize_client(row) for row in SERVICE.list_clients()]}
+
+
+@app.post("/api/clients")
+def create_client(
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        client = SERVICE.create_client(
+            name=str(payload.get("name") or "").strip(),
+            contact_person=str(payload.get("contactPerson") or payload.get("contact_person") or "").strip(),
+            email=str(payload.get("email") or "").strip(),
+            phone=str(payload.get("phone") or "").strip(),
+            notes=str(payload.get("notes") or "").strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"client": _serialize_client(client)}
+
+
+@app.get("/api/commercial-offers")
+def list_commercial_offers(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    return {
+        "items": [
+            _serialize_commercial_offer(row)
+            for row in SERVICE.list_commercial_offers_for_user(
+                user_id=int(current_user["id"]),
+                is_admin=str(current_user.get("role") or "") == "admin",
+            )
+        ]
+    }
+
+
+@app.post("/api/commercial-offers/from-excel")
+async def create_commercial_offer_from_excel(
+    client_source: str = Form("manual", alias="clientSource"),
+    client_id: str | None = Form(None, alias="clientId"),
+    client_name: str = Form("", alias="clientName"),
+    notes: str = Form(""),
+    file: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    suffix = Path(file.filename or "commercial_offer.xlsx").suffix or ".xlsx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        temp_path = Path(tmp.name)
+        tmp.write(await file.read())
+    try:
+        try:
+            bundle = SERVICE.create_commercial_offer_from_excel(
+                source_path=temp_path,
+                original_filename=file.filename or "commercial_offer.xlsx",
+                client_source=client_source,
+                client_id=_parse_optional_client_id(client_id),
+                client_name=client_name,
+                notes=notes,
+                created_by_user_id=int(current_user["id"]),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return _serialize_commercial_offer_details(bundle)
+
+
+@app.post("/api/commercial-offers/from-draft")
+def create_commercial_offer_from_draft(
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        bundle = SERVICE.create_commercial_offer_from_draft(
+            client_source=str(payload.get("clientSource") or "manual"),
+            client_id=_parse_optional_client_id(payload.get("clientId")),
+            client_name=str(payload.get("clientName") or "").strip(),
+            notes=str(payload.get("notes") or "").strip(),
+            lines=payload.get("lines") if isinstance(payload.get("lines"), list) else [],
+            created_by_user_id=int(current_user["id"]),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _serialize_commercial_offer_details(bundle)
+
+
+@app.get("/api/commercial-offers/{offer_id}")
+def get_commercial_offer(
+    offer_id: int,
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        bundle = SERVICE.get_commercial_offer_for_user(
+            offer_id=offer_id,
+            user_id=int(current_user["id"]),
+            is_admin=str(current_user.get("role") or "") == "admin",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _serialize_commercial_offer_details(bundle)
+
+
+@app.post("/api/commercial-offers/{offer_id}/mark-sent")
+def mark_commercial_offer_sent(
+    offer_id: int,
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        bundle = SERVICE.mark_commercial_offer_sent_for_user(
+            offer_id=offer_id,
+            user_id=int(current_user["id"]),
+            is_admin=str(current_user.get("role") or "") == "admin",
+            sent_to=str(payload.get("sentTo") or payload.get("sent_to") or "").strip(),
+            notes=str(payload.get("notes") or "").strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _serialize_commercial_offer_details(bundle)
+
+
+@app.delete("/api/commercial-offers/{offer_id}")
+def delete_commercial_offer(
+    offer_id: int,
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, bool]:
+    if str(current_user.get("role") or "") != "admin":
+        raise HTTPException(status_code=403, detail="Доступно только администратору.")
+    try:
+        SERVICE.delete_commercial_offer_for_admin(offer_id=offer_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True}
+
+
+@app.get("/api/commercial-offers/{offer_id}/download/{kind}")
+def download_commercial_offer_file(
+    offer_id: int,
+    kind: str,
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> StreamingResponse:
+    try:
+        path, filename = SERVICE.resolve_commercial_offer_file_for_user(
+            offer_id=offer_id,
+            user_id=int(current_user["id"]),
+            is_admin=str(current_user.get("role") or "") == "admin",
+            kind=kind,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StreamingResponse(
+        iter([path.read_bytes()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=_download_headers(filename),
+    )
 
 
 @app.get("/api/warehouses")

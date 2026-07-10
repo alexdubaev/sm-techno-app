@@ -21,8 +21,10 @@ import {
 } from "@/lib/api";
 import {
   clearStockDraftLinesFromStorage,
+  loadCommercialOfferDraftLinesFromStorage,
   loadStockDraftLinesFromStorage,
   loadStockPageStateFromStorage,
+  saveCommercialOfferDraftLinesToStorage,
   saveDraftLinesToStorage,
   saveStockDraftLinesToStorage,
   saveStockPageStateToStorage,
@@ -30,6 +32,7 @@ import {
 } from "@/lib/storage";
 import type {
   AppMeta,
+  CommercialOfferDraftLine,
   DraftLine,
   StockItem,
   SystemSettings,
@@ -100,6 +103,7 @@ export function StockPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isExportingClientPrice, setIsExportingClientPrice] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [commercialOfferNotice, setCommercialOfferNotice] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
 
   const { containerRef, getWidth, onResizeStart, tableWidth } = useResizableColumns(
@@ -602,6 +606,40 @@ export function StockPage() {
     });
   };
 
+  const addSelectedItemToCommercialOfferDraft = () => {
+    if (!selectedItem || !selectedWarehouseBalance || !canAddSelectedItem) {
+      return;
+    }
+
+    const safeQuantity = clampQuantity(selectedQuantityParsed, selectedWarehouseBalance.quantity);
+    if (safeQuantity <= 0) {
+      return;
+    }
+
+    const lineId = buildDraftLineKey(selectedItem.id, selectedWarehouseBalance.warehouseId);
+    const nextLine: CommercialOfferDraftLine = {
+      lineId,
+      itemId: selectedItem.id,
+      article: selectedItem.sku,
+      name: selectedItem.name,
+      brand: selectedItem.categoryName || selectedItem.groupName || "",
+      qty: safeQuantity,
+      priceVat: selectedItem.price,
+      deliveryTime: "",
+      note: "",
+      warehouseId: selectedWarehouseBalance.warehouseId,
+      warehouseName: selectedWarehouseBalance.warehouseName,
+    };
+    const savedLines = loadCommercialOfferDraftLinesFromStorage() ?? [];
+    const nextLines = savedLines.some((line) => line.lineId === lineId)
+      ? savedLines.map((line) => (line.lineId === lineId ? nextLine : line))
+      : [...savedLines, nextLine];
+
+    saveCommercialOfferDraftLinesToStorage(nextLines);
+    setError(null);
+    setCommercialOfferNotice(`Позиция "${selectedItem.name}" добавлена в черновик КП.`);
+  };
+
   const removeDraftLine = (lineId: string) => {
     setAndPersistDraftLines((previous) => previous.filter((line) => line.lineId !== lineId));
   };
@@ -965,6 +1003,11 @@ export function StockPage() {
                 {error}
               </div>
             ) : null}
+            {commercialOfferNotice ? (
+              <div className="rounded-[14px] border border-[#BFE8D2] bg-[#F0FDF4] px-3 py-2 text-[11px] text-[#166534]">
+                {commercialOfferNotice}
+              </div>
+            ) : null}
           </div>
 
           <aside className="flex min-h-0 flex-col gap-2.5 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:overflow-auto">
@@ -1095,6 +1138,16 @@ export function StockPage() {
                     >
                       <CartIcon className="h-3.5 w-3.5 stroke-[2]" />
                       Добавить в счет
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!canAddSelectedItem || !selectedWarehouseBalance}
+                      onClick={addSelectedItemToCommercialOfferDraft}
+                      className="mt-1.5 flex h-[34px] w-full items-center justify-center gap-1.5 rounded-[12px] bg-[var(--brand-yellow)] px-3 text-[12px] font-semibold text-[var(--brand-dark)] transition-all duration-200 hover:bg-[var(--brand-yellow-hover)] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#F3F4F6] disabled:text-[var(--text-secondary)]"
+                    >
+                      <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />
+                      Добавить в КП
                     </button>
 
                     <div className="mt-1.5 grid grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-1.5">

@@ -1,8 +1,12 @@
 ﻿import type {
   AppMeta,
   AppUser,
+  CommercialOffer,
+  CommercialOfferDetails,
+  CommercialOfferDraftLine,
   Contract,
   Counterparty,
+  CrmClient,
   OrderDetails,
   OrderHistoryItem,
   Organization,
@@ -98,6 +102,22 @@ export type AppUserUpdatePayload = {
   isActive: boolean;
   onecUsername: string;
   onecPassword: string;
+};
+
+export type CreateClientPayload = {
+  name: string;
+  contactPerson?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+};
+
+export type CreateCommercialOfferPayload = {
+  clientSource: "onec" | "local" | "manual";
+  clientId?: number | null;
+  clientName: string;
+  notes?: string;
+  lines: CommercialOfferDraftLine[];
 };
 
 async function parseJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
@@ -466,6 +486,114 @@ export async function fetchContracts(counterpartyId?: number | null): Promise<Co
 export async function fetchOrganizations(): Promise<Organization[]> {
   const result = await requestJson<{ items: Organization[] }>("/api/references/organizations");
   return result.items;
+}
+
+export async function fetchClients(): Promise<CrmClient[]> {
+  const result = await requestJson<{ items: CrmClient[] }>("/api/clients");
+  return result.items;
+}
+
+export async function createClient(payload: CreateClientPayload): Promise<CrmClient> {
+  const result = await requestJsonWithInit<{ client: CrmClient }>(
+    "/api/clients",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить клиента.",
+  );
+  return result.client;
+}
+
+export async function fetchCommercialOffers(): Promise<CommercialOffer[]> {
+  const result = await requestJson<{ items: CommercialOffer[] }>("/api/commercial-offers");
+  return result.items;
+}
+
+export async function fetchCommercialOfferDetails(offerId: number): Promise<CommercialOfferDetails> {
+  return requestJson<CommercialOfferDetails>(`/api/commercial-offers/${offerId}`);
+}
+
+export async function createCommercialOfferFromDraft(
+  payload: CreateCommercialOfferPayload,
+): Promise<CommercialOfferDetails> {
+  return requestJsonWithInit<CommercialOfferDetails>(
+    "/api/commercial-offers/from-draft",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сформировать КП из черновика.",
+  );
+}
+
+export async function createCommercialOfferFromExcel(payload: {
+  clientSource: "onec" | "local" | "manual";
+  clientId?: number | null;
+  clientName: string;
+  notes?: string;
+  file: File;
+}): Promise<CommercialOfferDetails> {
+  const body = new FormData();
+  body.append("clientSource", payload.clientSource);
+  if (payload.clientId) {
+    body.append("clientId", String(payload.clientId));
+  }
+  body.append("clientName", payload.clientName);
+  body.append("notes", payload.notes ?? "");
+  body.append("file", payload.file);
+
+  const response = await fetch(buildApiUrl("/api/commercial-offers/from-excel"), {
+    method: "POST",
+    body,
+    headers: createHeaders(),
+  });
+
+  return parseJsonResponse<CommercialOfferDetails>(response, "Не удалось сформировать КП из Excel.");
+}
+
+export async function markCommercialOfferSent(
+  offerId: number,
+  payload: { sentTo: string; notes: string },
+): Promise<CommercialOfferDetails> {
+  return requestJsonWithInit<CommercialOfferDetails>(
+    `/api/commercial-offers/${offerId}/mark-sent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось отметить КП отправленным.",
+  );
+}
+
+export async function deleteCommercialOffer(offerId: number): Promise<{ ok: boolean }> {
+  return requestJsonWithInit<{ ok: boolean }>(
+    `/api/commercial-offers/${offerId}`,
+    {
+      method: "DELETE",
+    },
+    "Не удалось удалить КП.",
+  );
+}
+
+export async function downloadCommercialOfferFile(
+  offerId: number,
+  kind: "source" | "output",
+): Promise<void> {
+  await downloadApiFile(
+    `/api/commercial-offers/${offerId}/download/${kind}`,
+    "Не удалось скачать файл КП.",
+    kind === "source" ? "source.xlsx" : "commercial_offer.xlsx",
+  );
 }
 
 export async function fetchWarehouses(): Promise<Warehouse[]> {

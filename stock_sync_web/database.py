@@ -34,6 +34,63 @@ CREATE TABLE IF NOT EXISTS app_sessions (
     last_seen_at TEXT NOT NULL,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS crm_clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    contact_person TEXT,
+    email TEXT,
+    phone TEXT,
+    notes TEXT,
+    linked_counterparty_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(linked_counterparty_id) REFERENCES counterparties(id)
+);
+
+CREATE TABLE IF NOT EXISTS commercial_offers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    number TEXT NOT NULL,
+    client_source TEXT NOT NULL DEFAULT 'local',
+    counterparty_id INTEGER,
+    crm_client_id INTEGER,
+    client_name_snapshot TEXT NOT NULL,
+    offer_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Создано',
+    sent_at TEXT,
+    sent_to TEXT,
+    source_filename TEXT,
+    source_path TEXT,
+    output_path TEXT NOT NULL,
+    notes TEXT,
+    line_count INTEGER NOT NULL DEFAULT 0,
+    total_amount REAL NOT NULL DEFAULT 0,
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(counterparty_id) REFERENCES counterparties(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS commercial_offer_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    offer_id INTEGER NOT NULL,
+    row_no INTEGER NOT NULL,
+    item_id INTEGER,
+    article TEXT,
+    name TEXT,
+    brand TEXT,
+    qty REAL,
+    price_vat REAL,
+    amount_vat REAL,
+    delivery_time TEXT,
+    note TEXT,
+    warehouse_id INTEGER,
+    warehouse_name_snapshot TEXT,
+    FOREIGN KEY(offer_id) REFERENCES commercial_offers(id),
+    FOREIGN KEY(item_id) REFERENCES items(id),
+    FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+);
 """
 
 
@@ -64,6 +121,11 @@ class WebDatabase(Database):
             conn.execute("ALTER TABLE users ADD COLUMN onec_password TEXT")
         if "is_active" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_name ON crm_clients(name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_created ON commercial_offers(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_owner ON commercial_offers(created_by_user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offer_lines_offer ON commercial_offer_lines(offer_id)")
 
     @staticmethod
     def _normalize_role(role: str | None) -> str:
@@ -348,6 +410,294 @@ class WebDatabase(Database):
             for normalized in (self._normalize_user_row(dict(row)) for row in rows)
             if normalized is not None
         ]
+
+    def list_crm_clients(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, name, contact_person, email, phone, notes, linked_counterparty_id, created_at, updated_at
+                FROM crm_clients
+                ORDER BY name COLLATE NOCASE
+                """
+            ).fetchall()
+        return self._rows_to_dicts(rows)
+
+    def get_crm_client(self, client_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, name, contact_person, email, phone, notes, linked_counterparty_id, created_at, updated_at
+                FROM crm_clients
+                WHERE id = ?
+                """,
+                (client_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_or_create_crm_client(
+        self,
+        *,
+        name: str,
+        contact_person: str = "",
+        email: str = "",
+        phone: str = "",
+        notes: str = "",
+    ) -> dict[str, Any]:
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("Укажите клиента.")
+
+        with self.transaction() as conn:
+            existing = conn.execute(
+                """
+                SELECT id, name, contact_person, email, phone, notes, linked_counterparty_id, created_at, updated_at
+                FROM crm_clients
+                WHERE lower(name) = lower(?)
+                """,
+                (clean_name,),
+            ).fetchone()
+            if existing:
+                return dict(existing)
+
+            now = utc_now()
+            cursor = conn.execute(
+                """
+                INSERT INTO crm_clients(name, contact_person, email, phone, notes, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    clean_name,
+                    contact_person.strip() or None,
+                    email.strip() or None,
+                    phone.strip() or None,
+                    notes.strip() or None,
+                    now,
+                    now,
+                ),
+            )
+            client_id = int(cursor.lastrowid)
+            row = conn.execute(
+                """
+                SELECT id, name, contact_person, email, phone, notes, linked_counterparty_id, created_at, updated_at
+                FROM crm_clients
+                WHERE id = ?
+                """,
+                (client_id,),
+            ).fetchone()
+        return dict(row)
+
+    def create_commercial_offer(
+        self,
+        *,
+        number: str,
+        client_source: str,
+        counterparty_id: int | None,
+        crm_client_id: int | None,
+        client_name: str,
+        offer_date: str,
+        source_filename: str | None,
+        source_path: str | None,
+        output_path: str,
+        notes: str,
+        lines: list[dict[str, Any]],
+        created_by_user_id: int | None,
+    ) -> int:
+        if not lines:
+            raise ValueError("Нельзя создать КП без позиций.")
+
+        now = utc_now()
+        total_amount = round(sum(float(line.get("amount_vat") or 0) for line in lines), 2)
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO commercial_offers(
+                    number, client_source, counterparty_id, crm_client_id, client_name_snapshot,
+                    offer_date, status, source_filename, source_path, output_path, notes,
+                    line_count, total_amount, created_by_user_id, created_at, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, 'Создано', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    number,
+                    client_source,
+                    counterparty_id,
+                    crm_client_id,
+                    client_name,
+                    offer_date,
+                    source_filename,
+                    source_path,
+                    output_path,
+                    notes.strip() or None,
+                    len(lines),
+                    total_amount,
+                    created_by_user_id,
+                    now,
+                    now,
+                ),
+            )
+            offer_id = int(cursor.lastrowid)
+            for line in lines:
+                conn.execute(
+                    """
+                    INSERT INTO commercial_offer_lines(
+                        offer_id, row_no, item_id, article, name, brand, qty, price_vat,
+                        amount_vat, delivery_time, note, warehouse_id, warehouse_name_snapshot
+                    )
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        offer_id,
+                        line["row_no"],
+                        line.get("item_id"),
+                        line.get("article"),
+                        line.get("name"),
+                        line.get("brand"),
+                        line.get("qty"),
+                        line.get("price_vat"),
+                        line.get("amount_vat"),
+                        line.get("delivery_time"),
+                        line.get("note"),
+                        line.get("warehouse_id"),
+                        line.get("warehouse_name"),
+                    ),
+                )
+        return offer_id
+
+    def list_commercial_offers(self, *, user_id: int | None = None, include_all: bool = False) -> list[dict[str, Any]]:
+        query = """
+            SELECT
+                co.id,
+                co.number,
+                co.client_source,
+                co.counterparty_id,
+                co.crm_client_id,
+                co.client_name_snapshot,
+                co.offer_date,
+                co.status,
+                co.sent_at,
+                co.sent_to,
+                co.source_filename,
+                co.source_path,
+                co.output_path,
+                co.notes,
+                co.line_count,
+                co.total_amount,
+                co.created_by_user_id,
+                co.created_at,
+                co.updated_at,
+                u.username AS created_by_username,
+                COALESCE(NULLIF(u.full_name, ''), u.username) AS created_by_name
+            FROM commercial_offers co
+            LEFT JOIN users u ON u.id = co.created_by_user_id
+        """
+        params: list[Any] = []
+        if not include_all and user_id is not None:
+            query += " WHERE co.created_by_user_id = ?"
+            params.append(user_id)
+        query += " ORDER BY co.created_at DESC"
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return self._rows_to_dicts(rows)
+
+    def get_commercial_offer_bundle(self, offer_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            offer = conn.execute(
+                """
+                SELECT
+                    co.id,
+                    co.number,
+                    co.client_source,
+                    co.counterparty_id,
+                    co.crm_client_id,
+                    co.client_name_snapshot,
+                    co.offer_date,
+                    co.status,
+                    co.sent_at,
+                    co.sent_to,
+                    co.source_filename,
+                    co.source_path,
+                    co.output_path,
+                    co.notes,
+                    co.line_count,
+                    co.total_amount,
+                    co.created_by_user_id,
+                    co.created_at,
+                    co.updated_at,
+                    u.username AS created_by_username,
+                    COALESCE(NULLIF(u.full_name, ''), u.username) AS created_by_name
+                FROM commercial_offers co
+                LEFT JOIN users u ON u.id = co.created_by_user_id
+                WHERE co.id = ?
+                """,
+                (offer_id,),
+            ).fetchone()
+            if not offer:
+                raise ValueError("КП не найдено.")
+            lines = conn.execute(
+                """
+                SELECT
+                    id, offer_id, row_no, item_id, article, name, brand, qty,
+                    price_vat, amount_vat, delivery_time, note, warehouse_id, warehouse_name_snapshot
+                FROM commercial_offer_lines
+                WHERE offer_id = ?
+                ORDER BY row_no
+                """,
+                (offer_id,),
+            ).fetchall()
+        return {
+            "offer": dict(offer),
+            "lines": self._rows_to_dicts(lines),
+        }
+
+    def mark_commercial_offer_sent(self, offer_id: int, *, sent_to: str, notes: str) -> None:
+        now = utc_now()
+        with self.transaction() as conn:
+            existing = conn.execute("SELECT id FROM commercial_offers WHERE id = ?", (offer_id,)).fetchone()
+            if not existing:
+                raise ValueError("КП не найдено.")
+            if notes.strip():
+                conn.execute(
+                    """
+                    UPDATE commercial_offers
+                    SET status = 'Отправлено',
+                        sent_at = ?,
+                        sent_to = ?,
+                        notes = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, sent_to.strip() or None, notes.strip(), now, offer_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE commercial_offers
+                    SET status = 'Отправлено',
+                        sent_at = ?,
+                        sent_to = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, sent_to.strip() or None, now, offer_id),
+                )
+
+    def delete_commercial_offer(self, offer_id: int) -> dict[str, Any]:
+        with self.transaction() as conn:
+            offer = conn.execute(
+                """
+                SELECT id, source_path, output_path
+                FROM commercial_offers
+                WHERE id = ?
+                """,
+                (offer_id,),
+            ).fetchone()
+            if not offer:
+                raise ValueError("КП не найдено.")
+
+            conn.execute("DELETE FROM commercial_offer_lines WHERE offer_id = ?", (offer_id,))
+            conn.execute("DELETE FROM commercial_offers WHERE id = ?", (offer_id,))
+
+        return dict(offer)
 
     def create_order(
         self,

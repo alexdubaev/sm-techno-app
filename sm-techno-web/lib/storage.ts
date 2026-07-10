@@ -1,7 +1,8 @@
-﻿import type { AppUser, DraftLine } from "@/lib/types";
+﻿import type { AppUser, CommercialOfferDraftLine, DraftLine } from "@/lib/types";
 
 export const DRAFT_STORAGE_KEY = "sm-techno-current-invoice";
 export const STOCK_DRAFT_STORAGE_KEY = "sm-techno-stock-invoice-draft";
+export const COMMERCIAL_OFFER_DRAFT_STORAGE_KEY = "sm-techno-commercial-offer-draft";
 export const STOCK_PAGE_STATE_KEY = "sm-techno-stock-page-state";
 export const INVOICE_FORM_STATE_KEY = "sm-techno-invoice-form-state";
 export const AUTH_SESSION_STORAGE_KEY = "sm-techno-auth-session";
@@ -155,6 +156,40 @@ export function clearStockDraftLinesFromStorage() {
   }
 
   window.localStorage.removeItem(getScopedStorageKey(STOCK_DRAFT_STORAGE_KEY));
+}
+
+export function loadCommercialOfferDraftLinesFromStorage(): CommercialOfferDraftLine[] | null {
+  if (!canUseStorage()) {
+    return null;
+  }
+
+  const saved = window.localStorage.getItem(getScopedStorageKey(COMMERCIAL_OFFER_DRAFT_STORAGE_KEY));
+  if (!saved) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(saved) as CommercialOfferDraftLine[];
+  } catch {
+    window.localStorage.removeItem(getScopedStorageKey(COMMERCIAL_OFFER_DRAFT_STORAGE_KEY));
+    return null;
+  }
+}
+
+export function saveCommercialOfferDraftLinesToStorage(lines: CommercialOfferDraftLine[]) {
+  if (!canUseStorage()) {
+    return;
+  }
+
+  window.localStorage.setItem(getScopedStorageKey(COMMERCIAL_OFFER_DRAFT_STORAGE_KEY), JSON.stringify(lines));
+}
+
+export function clearCommercialOfferDraftLinesFromStorage() {
+  if (!canUseStorage()) {
+    return;
+  }
+
+  window.localStorage.removeItem(getScopedStorageKey(COMMERCIAL_OFFER_DRAFT_STORAGE_KEY));
 }
 
 export function loadStockPageStateFromStorage(): Partial<StockPageViewState> | null {

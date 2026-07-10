@@ -1,10 +1,18 @@
 ﻿from __future__ import annotations
 
 import tempfile
-from datetime import datetime
+import re
+import shutil
+import uuid
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from stock_sync_web.commercial_offers import (
+    CommercialOfferLineInput,
+    generate_commercial_offer_workbook,
+    read_source_offer_lines,
+)
 from stock_sync_desktop.excel_tools import (
     create_import_template,
     export_client_price,
@@ -16,11 +24,26 @@ from stock_sync_desktop.service import DEFAULT_SETTINGS, DraftLine
 from stock_sync_web.database import WebDatabase
 
 CLIENT_PRICE_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templates" / "client_price_template.xlsx"
+ROOT_DIR = Path(__file__).resolve().parent.parent
+COMMERCIAL_OFFER_TEMPLATE_PATH = ROOT_DIR / "assets" / "templates" / "commercial_offer_template.xlsx"
+COMMERCIAL_OFFER_STORAGE_DIR = ROOT_DIR / "storage" / "commercial_offers"
 
 
 class WebStockSyncService:
-    def __init__(self, db: WebDatabase | None = None) -> None:
+    def __init__(
+        self,
+        db: WebDatabase | None = None,
+        *,
+        commercial_offer_template_path: Path | str = COMMERCIAL_OFFER_TEMPLATE_PATH,
+        commercial_offer_storage_dir: Path | str = COMMERCIAL_OFFER_STORAGE_DIR,
+    ) -> None:
         self.db = db or WebDatabase()
+        self.commercial_offer_template_path = Path(commercial_offer_template_path)
+        self.commercial_offer_storage_dir = Path(commercial_offer_storage_dir)
+        self.commercial_offer_uploads_dir = self.commercial_offer_storage_dir / "uploads"
+        self.commercial_offer_exports_dir = self.commercial_offer_storage_dir / "exports"
+        self.commercial_offer_uploads_dir.mkdir(parents=True, exist_ok=True)
+        self.commercial_offer_exports_dir.mkdir(parents=True, exist_ok=True)
 
     def bootstrap(self) -> bool:
         return self.db.ensure_default_admin()
@@ -471,6 +494,228 @@ class WebStockSyncService:
     def list_organizations(self) -> list[dict[str, Any]]:
         return self.db.list_organizations()
 
+    def list_clients(self) -> list[dict[str, Any]]:
+        onec_clients = [
+            {
+                "source": "onec",
+                "id": int(row["id"]),
+                "counterparty_id": int(row["id"]),
+                "crm_client_id": None,
+                "name": row.get("name") or "",
+                "full_name": row.get("full_name") or "",
+                "inn": row.get("inn") or "",
+                "kpp": row.get("kpp") or "",
+                "contact_person": "",
+                "email": "",
+                "phone": "",
+                "notes": "",
+                "is_linked_to_onec": True,
+            }
+            for row in self.db.list_counterparties()
+        ]
+        local_clients = [
+            {
+                "source": "local",
+                "id": int(row["id"]),
+                "counterparty_id": row.get("linked_counterparty_id"),
+                "crm_client_id": int(row["id"]),
+                "name": row.get("name") or "",
+                "full_name": row.get("name") or "",
+                "inn": "",
+                "kpp": "",
+                "contact_person": row.get("contact_person") or "",
+                "email": row.get("email") or "",
+                "phone": row.get("phone") or "",
+                "notes": row.get("notes") or "",
+                "is_linked_to_onec": bool(row.get("linked_counterparty_id")),
+            }
+            for row in self.db.list_crm_clients()
+        ]
+        return sorted(onec_clients + local_clients, key=lambda row: str(row["name"]).lower())
+
+    def create_client(
+        self,
+        *,
+        name: str,
+        contact_person: str = "",
+        email: str = "",
+        phone: str = "",
+        notes: str = "",
+    ) -> dict[str, Any]:
+        row = self.db.get_or_create_crm_client(
+            name=name,
+            contact_person=contact_person,
+            email=email,
+            phone=phone,
+            notes=notes,
+        )
+        return {
+            "source": "local",
+            "id": int(row["id"]),
+            "counterparty_id": row.get("linked_counterparty_id"),
+            "crm_client_id": int(row["id"]),
+            "name": row.get("name") or "",
+            "full_name": row.get("name") or "",
+            "inn": "",
+            "kpp": "",
+            "contact_person": row.get("contact_person") or "",
+            "email": row.get("email") or "",
+            "phone": row.get("phone") or "",
+            "notes": row.get("notes") or "",
+            "is_linked_to_onec": bool(row.get("linked_counterparty_id")),
+        }
+
+    def create_commercial_offer_from_excel(
+        self,
+        *,
+        source_path: Path,
+        original_filename: str,
+        client_source: str,
+        client_id: int | None,
+        client_name: str,
+        notes: str,
+        created_by_user_id: int | None,
+    ) -> dict[str, Any]:
+        if not original_filename.lower().endswith(".xlsx"):
+            raise ValueError("Загрузите файл Excel в формате .xlsx.")
+        lines = read_source_offer_lines(source_path)
+        offer_number = Path(original_filename).stem.strip()
+        if not offer_number:
+            raise ValueError("Не удалось определить номер КП из имени файла.")
+        client = self._resolve_commercial_offer_client(
+            client_source=client_source,
+            client_id=client_id,
+            client_name=client_name,
+        )
+        file_id = uuid.uuid4().hex[:12]
+        safe_source_name = self._safe_filename(original_filename)
+        stored_source = self.commercial_offer_uploads_dir / f"{file_id}_{safe_source_name}"
+        output_path = self.commercial_offer_exports_dir / f"{file_id}_{self._safe_filename('КП_' + offer_number + '.xlsx')}"
+        shutil.copyfile(source_path, stored_source)
+
+        offer_date = date.today()
+        generate_commercial_offer_workbook(
+            template_path=self.commercial_offer_template_path,
+            output_path=output_path,
+            lines=lines,
+            offer_number=offer_number,
+            client_name=client["client_name"],
+            offer_date=offer_date,
+        )
+        offer_id = self.db.create_commercial_offer(
+            number=offer_number,
+            client_source=client["client_source"],
+            counterparty_id=client["counterparty_id"],
+            crm_client_id=client["crm_client_id"],
+            client_name=client["client_name"],
+            offer_date=offer_date.isoformat(),
+            source_filename=original_filename,
+            source_path=self._store_path(stored_source),
+            output_path=self._store_path(output_path),
+            notes=notes,
+            lines=[self._line_to_db(line) for line in lines],
+            created_by_user_id=created_by_user_id,
+        )
+        return self.db.get_commercial_offer_bundle(offer_id)
+
+    def create_commercial_offer_from_draft(
+        self,
+        *,
+        client_source: str,
+        client_id: int | None,
+        client_name: str,
+        notes: str,
+        lines: list[dict[str, Any]],
+        created_by_user_id: int | None,
+    ) -> dict[str, Any]:
+        parsed_lines = self._parse_draft_offer_lines(lines)
+        client = self._resolve_commercial_offer_client(
+            client_source=client_source,
+            client_id=client_id,
+            client_name=client_name,
+        )
+        now = datetime.now()
+        offer_number = f"КП-{now:%Y%m%d-%H%M%S}"
+        file_id = uuid.uuid4().hex[:12]
+        output_path = self.commercial_offer_exports_dir / f"{file_id}_{self._safe_filename(offer_number + '.xlsx')}"
+        offer_date = date.today()
+        generate_commercial_offer_workbook(
+            template_path=self.commercial_offer_template_path,
+            output_path=output_path,
+            lines=parsed_lines,
+            offer_number=offer_number,
+            client_name=client["client_name"],
+            offer_date=offer_date,
+        )
+        offer_id = self.db.create_commercial_offer(
+            number=offer_number,
+            client_source=client["client_source"],
+            counterparty_id=client["counterparty_id"],
+            crm_client_id=client["crm_client_id"],
+            client_name=client["client_name"],
+            offer_date=offer_date.isoformat(),
+            source_filename=None,
+            source_path=None,
+            output_path=self._store_path(output_path),
+            notes=notes,
+            lines=[self._line_to_db(line) for line in parsed_lines],
+            created_by_user_id=created_by_user_id,
+        )
+        return self.db.get_commercial_offer_bundle(offer_id)
+
+    def list_commercial_offers_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
+        return self.db.list_commercial_offers(user_id=user_id, include_all=is_admin)
+
+    def get_commercial_offer_for_user(self, *, offer_id: int, user_id: int, is_admin: bool) -> dict[str, Any]:
+        bundle = self.db.get_commercial_offer_bundle(offer_id)
+        owner_id = bundle["offer"].get("created_by_user_id")
+        if not is_admin and int(owner_id or 0) != int(user_id):
+            raise ValueError("КП не найдено.")
+        return bundle
+
+    def mark_commercial_offer_sent_for_user(
+        self,
+        *,
+        offer_id: int,
+        user_id: int,
+        is_admin: bool,
+        sent_to: str,
+        notes: str,
+    ) -> dict[str, Any]:
+        self.get_commercial_offer_for_user(offer_id=offer_id, user_id=user_id, is_admin=is_admin)
+        self.db.mark_commercial_offer_sent(offer_id, sent_to=sent_to, notes=notes)
+        return self.db.get_commercial_offer_bundle(offer_id)
+
+    def delete_commercial_offer_for_admin(self, *, offer_id: int) -> None:
+        offer = self.db.delete_commercial_offer(offer_id)
+        self._delete_stored_offer_file(offer.get("source_path"))
+        self._delete_stored_offer_file(offer.get("output_path"))
+
+    def resolve_commercial_offer_file_for_user(
+        self,
+        *,
+        offer_id: int,
+        user_id: int,
+        is_admin: bool,
+        kind: str,
+    ) -> tuple[Path, str]:
+        bundle = self.get_commercial_offer_for_user(offer_id=offer_id, user_id=user_id, is_admin=is_admin)
+        offer = bundle["offer"]
+        if kind == "output":
+            path = self._resolve_stored_path(str(offer.get("output_path") or ""))
+            filename = f"КП_{offer.get('number') or offer_id}.xlsx"
+        elif kind == "source":
+            source_path = offer.get("source_path")
+            if not source_path:
+                raise ValueError("У этого КП нет исходного Excel-файла.")
+            path = self._resolve_stored_path(str(source_path))
+            filename = offer.get("source_filename") or "source.xlsx"
+        else:
+            raise ValueError("Неизвестный тип файла.")
+        if not path.exists():
+            raise ValueError("Файл не найден на диске.")
+        return path, filename
+
     def list_orders_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
         return self.db.list_orders(user_id=user_id, include_all=is_admin)
 
@@ -488,6 +733,144 @@ class WebStockSyncService:
             raise ValueError("Заказ не найден.")
         self.db.writeoff_order_locally(order_id)
         return self.db.get_order_bundle(order_id)
+
+    def _resolve_commercial_offer_client(
+        self,
+        *,
+        client_source: str,
+        client_id: int | None,
+        client_name: str,
+    ) -> dict[str, Any]:
+        normalized_source = str(client_source or "").strip().lower()
+        if normalized_source == "onec" and client_id:
+            target = next(
+                (row for row in self.db.list_counterparties() if int(row["id"]) == int(client_id)),
+                None,
+            )
+            if not target:
+                raise ValueError("Контрагент 1С не найден.")
+            return {
+                "client_source": "onec",
+                "counterparty_id": int(target["id"]),
+                "crm_client_id": None,
+                "client_name": target.get("name") or client_name.strip(),
+            }
+
+        if normalized_source == "local" and client_id:
+            target = self.db.get_crm_client(int(client_id))
+            if not target:
+                raise ValueError("Локальный клиент не найден.")
+            return {
+                "client_source": "local",
+                "counterparty_id": target.get("linked_counterparty_id"),
+                "crm_client_id": int(target["id"]),
+                "client_name": target.get("name") or client_name.strip(),
+            }
+
+        target = self.db.get_or_create_crm_client(name=client_name)
+        return {
+            "client_source": "local",
+            "counterparty_id": target.get("linked_counterparty_id"),
+            "crm_client_id": int(target["id"]),
+            "client_name": target.get("name") or client_name.strip(),
+        }
+
+    def _parse_draft_offer_lines(self, lines: list[dict[str, Any]]) -> list[CommercialOfferLineInput]:
+        parsed: list[CommercialOfferLineInput] = []
+        for raw_line in lines:
+            if not isinstance(raw_line, dict):
+                continue
+            name = str(raw_line.get("name") or "").strip()
+            article = str(raw_line.get("article") or raw_line.get("sku") or "").strip()
+            if not name and not article:
+                continue
+            try:
+                qty = float(raw_line.get("qty", raw_line.get("quantity", 0)) or 0)
+                price = float(raw_line.get("priceVat", raw_line.get("price_vat", raw_line.get("price", 0))) or 0)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Количество и цена в КП должны быть числами.") from exc
+            if qty <= 0:
+                raise ValueError("Количество в строках КП должно быть больше нуля.")
+            if price < 0:
+                raise ValueError("Цена в строках КП не может быть отрицательной.")
+
+            item_id_raw = raw_line.get("itemId", raw_line.get("item_id"))
+            warehouse_id_raw = raw_line.get("warehouseId", raw_line.get("warehouse_id"))
+            item_id = int(item_id_raw) if item_id_raw not in (None, "", 0, "0") else None
+            warehouse_id = int(warehouse_id_raw) if warehouse_id_raw not in (None, "", 0, "0") else None
+            parsed.append(
+                CommercialOfferLineInput(
+                    row_no=len(parsed) + 1,
+                    article=article or None,
+                    name=name or None,
+                    brand=str(raw_line.get("brand") or raw_line.get("categoryName") or "").strip() or None,
+                    qty=qty,
+                    price_vat=price,
+                    amount_vat=qty * price,
+                    delivery_time=str(raw_line.get("deliveryTime") or raw_line.get("delivery_time") or "").strip() or None,
+                    note=str(raw_line.get("note") or "").strip() or None,
+                    item_id=item_id,
+                    warehouse_id=warehouse_id,
+                    warehouse_name=str(raw_line.get("warehouseName") or raw_line.get("warehouse_name") or "").strip(),
+                )
+            )
+        if not parsed:
+            raise ValueError("Добавьте хотя бы одну позицию в КП.")
+        return parsed
+
+    @staticmethod
+    def _line_to_db(line: CommercialOfferLineInput) -> dict[str, Any]:
+        amount = line.amount_vat
+        if amount is None and line.qty is not None and line.price_vat is not None:
+            amount = line.qty * line.price_vat
+        return {
+            "row_no": line.row_no,
+            "item_id": line.item_id,
+            "article": line.article,
+            "name": line.name,
+            "brand": line.brand,
+            "qty": line.qty,
+            "price_vat": line.price_vat,
+            "amount_vat": amount,
+            "delivery_time": line.delivery_time,
+            "note": line.note,
+            "warehouse_id": line.warehouse_id,
+            "warehouse_name": line.warehouse_name,
+        }
+
+    @staticmethod
+    def _safe_filename(filename: str) -> str:
+        cleaned = str(filename or "").replace("/", "_").replace("\\", "_").strip()
+        cleaned = re.sub(r"[\x00-\x1f<>:\"|?*]+", "_", cleaned)
+        return cleaned or "commercial_offer.xlsx"
+
+    @staticmethod
+    def _store_path(path: Path) -> str:
+        resolved = path.resolve()
+        try:
+            return str(resolved.relative_to(ROOT_DIR.resolve()))
+        except ValueError:
+            return str(resolved)
+
+    @staticmethod
+    def _resolve_stored_path(value: str) -> Path:
+        path = Path(value)
+        if path.is_absolute():
+            return path
+        return ROOT_DIR / path
+
+    def _delete_stored_offer_file(self, value: Any) -> None:
+        if not value:
+            return
+
+        path = self._resolve_stored_path(str(value)).resolve()
+        storage_root = self.commercial_offer_storage_dir.resolve()
+        try:
+            path.relative_to(storage_root)
+        except ValueError:
+            return
+
+        path.unlink(missing_ok=True)
 
     def set_stock_quantity(self, item_id: int, quantity: float) -> None:
         self.db.set_stock_quantity(item_id, quantity)
