@@ -239,14 +239,28 @@ def _serialize_client(row: dict[str, Any]) -> dict[str, Any]:
         "id": int(row["id"]),
         "counterpartyId": int(row["counterparty_id"]) if row.get("counterparty_id") else None,
         "crmClientId": int(row["crm_client_id"]) if row.get("crm_client_id") else None,
+        "legalType": row.get("legal_type") or "legal_entity",
         "name": row.get("name") or "",
+        "documentName": row.get("document_name") or row.get("name") or "",
         "fullName": row.get("full_name") or "",
         "inn": row.get("inn") or "",
         "kpp": row.get("kpp") or "",
+        "isBuyer": bool(row.get("is_buyer")),
+        "isSupplier": bool(row.get("is_supplier")),
+        "isInactive": bool(row.get("is_inactive")),
+        "bankNameOrBik": row.get("bank_name_or_bik") or "",
+        "bankAccount": row.get("bank_account") or "",
         "contactPerson": row.get("contact_person") or "",
         "email": row.get("email") or "",
+        "emailNote": row.get("email_note") or "",
         "phone": row.get("phone") or "",
+        "phoneNote": row.get("phone_note") or "",
+        "legalAddress": row.get("legal_address") or "",
+        "actualAddress": row.get("actual_address") or "",
         "notes": row.get("notes") or "",
+        "syncStatus": row.get("sync_status") or ("synced" if row.get("is_linked_to_onec") else "local"),
+        "syncError": row.get("sync_error") or "",
+        "onecSyncedAt": row.get("onec_synced_at") or "",
         "isLinkedToOneC": bool(row.get("is_linked_to_onec")),
     }
 
@@ -796,16 +810,31 @@ def create_client(
     current_user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
     try:
-        client = SERVICE.create_client(
-            name=str(payload.get("name") or "").strip(),
-            contact_person=str(payload.get("contactPerson") or payload.get("contact_person") or "").strip(),
-            email=str(payload.get("email") or "").strip(),
-            phone=str(payload.get("phone") or "").strip(),
-            notes=str(payload.get("notes") or "").strip(),
+        client, sync = SERVICE.create_client(
+            actor_user_id=int(current_user["id"]) if current_user.get("id") is not None else None,
+            payload=payload,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"client": _serialize_client(client)}
+    return {"client": _serialize_client(client), "sync": sync}
+
+
+@app.post("/api/clients/{client_id}/send-to-onec")
+def send_client_to_onec(
+    client_id: int,
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        client, sync = SERVICE.send_client_to_onec(
+            client_id,
+            actor_user_id=int(current_user["id"]) if current_user.get("id") is not None else None,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "не найден" in message.lower():
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=400, detail=message) from exc
+    return {"client": _serialize_client(client), "sync": sync}
 
 
 @app.get("/api/commercial-offers")

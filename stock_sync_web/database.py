@@ -38,11 +38,28 @@ CREATE TABLE IF NOT EXISTS app_sessions (
 CREATE TABLE IF NOT EXISTS crm_clients (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    legal_type TEXT NOT NULL DEFAULT 'legal_entity',
+    document_name TEXT,
+    full_name TEXT,
+    inn TEXT,
+    kpp TEXT,
+    is_buyer INTEGER NOT NULL DEFAULT 1,
+    is_supplier INTEGER NOT NULL DEFAULT 0,
+    is_inactive INTEGER NOT NULL DEFAULT 0,
+    bank_name_or_bik TEXT,
+    bank_account TEXT,
     contact_person TEXT,
     email TEXT,
+    email_note TEXT,
     phone TEXT,
+    phone_note TEXT,
+    legal_address TEXT,
+    actual_address TEXT,
     notes TEXT,
     linked_counterparty_id INTEGER,
+    sync_status TEXT NOT NULL DEFAULT 'local',
+    sync_error TEXT,
+    onec_synced_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY(linked_counterparty_id) REFERENCES counterparties(id)
@@ -122,7 +139,65 @@ class WebDatabase(Database):
         if "is_active" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
 
+        client_columns = {row["name"] for row in conn.execute("PRAGMA table_info(crm_clients)").fetchall()}
+        client_migrations = {
+            "legal_type": "ALTER TABLE crm_clients ADD COLUMN legal_type TEXT NOT NULL DEFAULT 'legal_entity'",
+            "document_name": "ALTER TABLE crm_clients ADD COLUMN document_name TEXT",
+            "full_name": "ALTER TABLE crm_clients ADD COLUMN full_name TEXT",
+            "inn": "ALTER TABLE crm_clients ADD COLUMN inn TEXT",
+            "kpp": "ALTER TABLE crm_clients ADD COLUMN kpp TEXT",
+            "is_buyer": "ALTER TABLE crm_clients ADD COLUMN is_buyer INTEGER NOT NULL DEFAULT 1",
+            "is_supplier": "ALTER TABLE crm_clients ADD COLUMN is_supplier INTEGER NOT NULL DEFAULT 0",
+            "is_inactive": "ALTER TABLE crm_clients ADD COLUMN is_inactive INTEGER NOT NULL DEFAULT 0",
+            "bank_name_or_bik": "ALTER TABLE crm_clients ADD COLUMN bank_name_or_bik TEXT",
+            "bank_account": "ALTER TABLE crm_clients ADD COLUMN bank_account TEXT",
+            "email_note": "ALTER TABLE crm_clients ADD COLUMN email_note TEXT",
+            "phone_note": "ALTER TABLE crm_clients ADD COLUMN phone_note TEXT",
+            "legal_address": "ALTER TABLE crm_clients ADD COLUMN legal_address TEXT",
+            "actual_address": "ALTER TABLE crm_clients ADD COLUMN actual_address TEXT",
+            "sync_status": "ALTER TABLE crm_clients ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'local'",
+            "sync_error": "ALTER TABLE crm_clients ADD COLUMN sync_error TEXT",
+            "onec_synced_at": "ALTER TABLE crm_clients ADD COLUMN onec_synced_at TEXT",
+        }
+        for column_name, ddl in client_migrations.items():
+            if column_name not in client_columns:
+                conn.execute(ddl)
+
+        conn.execute(
+            """
+            UPDATE crm_clients
+            SET legal_type = 'legal_entity'
+            WHERE COALESCE(legal_type, '') = ''
+            """
+        )
+        conn.execute(
+            """
+            UPDATE crm_clients
+            SET document_name = name
+            WHERE COALESCE(document_name, '') = ''
+            """
+        )
+        conn.execute(
+            """
+            UPDATE crm_clients
+            SET full_name = name
+            WHERE COALESCE(full_name, '') = ''
+            """
+        )
+        conn.execute(
+            """
+            UPDATE crm_clients
+            SET sync_status = CASE
+                WHEN linked_counterparty_id IS NOT NULL THEN 'synced'
+                ELSE 'local'
+            END
+            WHERE COALESCE(sync_status, '') = ''
+            """
+        )
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_name ON crm_clients(name)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_inn ON crm_clients(inn)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_sync_status ON crm_clients(sync_status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_created ON commercial_offers(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_owner ON commercial_offers(created_by_user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offer_lines_offer ON commercial_offer_lines(offer_id)")
@@ -411,28 +486,225 @@ class WebDatabase(Database):
             if normalized is not None
         ]
 
+    @staticmethod
+    def _crm_client_select() -> str:
+        return """
+            SELECT
+                id,
+                name,
+                legal_type,
+                document_name,
+                full_name,
+                inn,
+                kpp,
+                is_buyer,
+                is_supplier,
+                is_inactive,
+                bank_name_or_bik,
+                bank_account,
+                contact_person,
+                email,
+                email_note,
+                phone,
+                phone_note,
+                legal_address,
+                actual_address,
+                notes,
+                linked_counterparty_id,
+                sync_status,
+                sync_error,
+                onec_synced_at,
+                created_at,
+                updated_at
+            FROM crm_clients
+        """
+
     def list_crm_clients(self) -> list[dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
-                """
-                SELECT id, name, contact_person, email, phone, notes, linked_counterparty_id, created_at, updated_at
-                FROM crm_clients
-                ORDER BY name COLLATE NOCASE
-                """
+                self._crm_client_select() + " ORDER BY name COLLATE NOCASE"
             ).fetchall()
         return self._rows_to_dicts(rows)
 
     def get_crm_client(self, client_id: int) -> dict[str, Any] | None:
         with self.connect() as conn:
             row = conn.execute(
-                """
-                SELECT id, name, contact_person, email, phone, notes, linked_counterparty_id, created_at, updated_at
-                FROM crm_clients
-                WHERE id = ?
-                """,
+                self._crm_client_select() + " WHERE id = ?",
                 (client_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def get_counterparty_by_onec_key(self, onec_key: str) -> dict[str, Any] | None:
+        normalized_key = onec_key.strip()
+        if not normalized_key:
+            return None
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, onec_key, name, full_name, inn, kpp
+                FROM counterparties
+                WHERE onec_key = ?
+                """,
+                (normalized_key,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_counterparty_by_inn(self, inn: str) -> dict[str, Any] | None:
+        normalized_inn = inn.strip()
+        if not normalized_inn:
+            return None
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, onec_key, name, full_name, inn, kpp
+                FROM counterparties
+                WHERE inn = ?
+                ORDER BY id
+                LIMIT 1
+                """,
+                (normalized_inn,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_crm_client_by_inn(self, inn: str, *, exclude_client_id: int | None = None) -> dict[str, Any] | None:
+        normalized_inn = inn.strip()
+        if not normalized_inn:
+            return None
+        query = self._crm_client_select() + " WHERE inn = ?"
+        params: list[Any] = [normalized_inn]
+        if exclude_client_id is not None:
+            query += " AND id <> ?"
+            params.append(exclude_client_id)
+        query += " ORDER BY id LIMIT 1"
+        with self.connect() as conn:
+            row = conn.execute(query, params).fetchone()
+        return dict(row) if row else None
+
+    def create_crm_client_card(self, values: dict[str, Any]) -> dict[str, Any]:
+        document_name = str(values.get("document_name") or "").strip()
+        if not document_name:
+            raise ValueError("Укажите наименование для документов.")
+
+        now = utc_now()
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO crm_clients(
+                    name,
+                    legal_type,
+                    document_name,
+                    full_name,
+                    inn,
+                    kpp,
+                    is_buyer,
+                    is_supplier,
+                    is_inactive,
+                    bank_name_or_bik,
+                    bank_account,
+                    contact_person,
+                    email,
+                    email_note,
+                    phone,
+                    phone_note,
+                    legal_address,
+                    actual_address,
+                    notes,
+                    sync_status,
+                    created_at,
+                    updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)
+                """,
+                (
+                    document_name,
+                    values.get("legal_type") or "legal_entity",
+                    document_name,
+                    values.get("full_name") or document_name,
+                    values.get("inn") or None,
+                    values.get("kpp") or None,
+                    1 if values.get("is_buyer") else 0,
+                    1 if values.get("is_supplier") else 0,
+                    1 if values.get("is_inactive") else 0,
+                    values.get("bank_name_or_bik") or None,
+                    values.get("bank_account") or None,
+                    values.get("contact_person") or None,
+                    values.get("email") or None,
+                    values.get("email_note") or None,
+                    values.get("phone") or None,
+                    values.get("phone_note") or None,
+                    values.get("legal_address") or None,
+                    values.get("actual_address") or None,
+                    values.get("notes") or None,
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                self._crm_client_select() + " WHERE id = ?",
+                (int(cursor.lastrowid),),
+            ).fetchone()
+        return dict(row)
+
+    def update_crm_client_sync_state(
+        self,
+        client_id: int,
+        *,
+        sync_status: str,
+        sync_error: str = "",
+        linked_counterparty_id: int | None = None,
+        synced: bool = False,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.transaction() as conn:
+            existing = conn.execute("SELECT id FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+            if existing is None:
+                raise ValueError("Клиент не найден.")
+
+            if linked_counterparty_id is not None:
+                conn.execute(
+                    """
+                    UPDATE crm_clients
+                    SET linked_counterparty_id = ?,
+                        sync_status = ?,
+                        sync_error = ?,
+                        onec_synced_at = CASE WHEN ? THEN ? ELSE onec_synced_at END,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        linked_counterparty_id,
+                        sync_status,
+                        sync_error.strip() or None,
+                        1 if synced else 0,
+                        now,
+                        now,
+                        client_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE crm_clients
+                    SET sync_status = ?,
+                        sync_error = ?,
+                        onec_synced_at = CASE WHEN ? THEN ? ELSE onec_synced_at END,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        sync_status,
+                        sync_error.strip() or None,
+                        1 if synced else 0,
+                        now,
+                        now,
+                        client_id,
+                    ),
+                )
+            row = conn.execute(
+                self._crm_client_select() + " WHERE id = ?",
+                (client_id,),
+            ).fetchone()
+        return dict(row)
 
     def get_or_create_crm_client(
         self,
@@ -449,11 +721,7 @@ class WebDatabase(Database):
 
         with self.transaction() as conn:
             existing = conn.execute(
-                """
-                SELECT id, name, contact_person, email, phone, notes, linked_counterparty_id, created_at, updated_at
-                FROM crm_clients
-                WHERE lower(name) = lower(?)
-                """,
+                self._crm_client_select() + " WHERE lower(name) = lower(?)",
                 (clean_name,),
             ).fetchone()
             if existing:
@@ -462,10 +730,15 @@ class WebDatabase(Database):
             now = utc_now()
             cursor = conn.execute(
                 """
-                INSERT INTO crm_clients(name, contact_person, email, phone, notes, created_at, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO crm_clients(
+                    name, legal_type, document_name, full_name,
+                    contact_person, email, phone, notes, created_at, updated_at
+                )
+                VALUES(?, 'legal_entity', ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    clean_name,
+                    clean_name,
                     clean_name,
                     contact_person.strip() or None,
                     email.strip() or None,
@@ -477,11 +750,7 @@ class WebDatabase(Database):
             )
             client_id = int(cursor.lastrowid)
             row = conn.execute(
-                """
-                SELECT id, name, contact_person, email, phone, notes, linked_counterparty_id, created_at, updated_at
-                FROM crm_clients
-                WHERE id = ?
-                """,
+                self._crm_client_select() + " WHERE id = ?",
                 (client_id,),
             ).fetchone()
         return dict(row)

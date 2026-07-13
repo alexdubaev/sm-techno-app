@@ -54,6 +54,11 @@ const navGroups: NavGroup[] = [
         Icon: ClipboardIcon,
         isActive: (path) => path === "/commercial-offers" || /^\/commercial-offers\/\d+/.test(path),
       },
+    ],
+  },
+  {
+    label: "Клиенты",
+    items: [
       { href: "/clients", label: "Клиенты", Icon: UsersIcon },
     ],
   },

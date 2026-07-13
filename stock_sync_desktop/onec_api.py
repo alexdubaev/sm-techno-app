@@ -2,14 +2,23 @@
 
 import base64
 import json
+import re
+import xml.etree.ElementTree as ET
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
+from xml.sax.saxutils import quoteattr
 
 
 class OneCClientError(RuntimeError):
     """Raised when 1C OData returns an error."""
+
+
+class OneCCounterpartySyncError(OneCClientError):
+    def __init__(self, message: str, created_counterparty: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.created_counterparty = created_counterparty or {}
 
 
 class OneCClient:
@@ -22,6 +31,12 @@ class OneCClient:
         self._categories_cache: list[dict[str, Any]] | None = None
         self._units_cache: list[dict[str, Any]] | None = None
         self._vat_rates_cache: list[dict[str, Any]] | None = None
+        self._metadata_root_cache: ET.Element | None = None
+        self._entity_type_cache: dict[str, str] = {}
+        self._entity_properties_cache: dict[str, set[str]] = {}
+        self._entity_property_types_cache: dict[str, dict[str, str]] = {}
+        self._contact_kind_cache: dict[str, dict[str, Any] | None] = {}
+        self._rub_currency_key_cache: str | None = None
         if not self.base_url or not self.username:
             raise OneCClientError("Не заполнены URL базы 1С или логин.")
 
@@ -38,7 +53,14 @@ class OneCClient:
         raw = f"{self.username}:{self.password}".encode("utf-8")
         return "Basic " + base64.b64encode(raw).decode("ascii")
 
-    def _request(self, method: str, endpoint_or_url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _request_raw(
+        self,
+        method: str,
+        endpoint_or_url: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        accept: str = "application/json",
+    ) -> str:
         url = endpoint_or_url
         if not endpoint_or_url.lower().startswith("http"):
             url = f"{self.base_url}/{endpoint_or_url.lstrip('/')}"
@@ -47,7 +69,7 @@ class OneCClient:
         body = None
         headers = {
             "Authorization": self._authorization_header(),
-            "Accept": "application/json",
+            "Accept": accept,
         }
         if payload is not None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -56,13 +78,15 @@ class OneCClient:
         request = Request(url=url, data=body, headers=headers, method=method.upper())
         try:
             with urlopen(request, timeout=60) as response:
-                raw = response.read().decode("utf-8")
+                return response.read().decode("utf-8")
         except HTTPError as exc:
             message = exc.read().decode("utf-8", errors="replace")
             raise OneCClientError(f"1С вернула HTTP {exc.code}: {message}") from exc
         except URLError as exc:
             raise OneCClientError(f"Не удалось подключиться к 1С: {exc}") from exc
 
+    def _request(self, method: str, endpoint_or_url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        raw = self._request_raw(method, endpoint_or_url, payload)
         if not raw:
             return {}
         try:
@@ -151,6 +175,370 @@ class OneCClient:
         rows = payload.get("value", [])
         return rows[0] if rows else None
 
+    def _metadata_root(self) -> ET.Element:
+        if self._metadata_root_cache is not None:
+            return self._metadata_root_cache
+        raw_metadata = self._request_raw("GET", "$metadata", accept="application/xml")
+        try:
+            self._metadata_root_cache = ET.fromstring(raw_metadata)
+        except ET.ParseError as exc:
+            raise OneCClientError("1С вернула некорректный OData metadata XML.") from exc
+        return self._metadata_root_cache
+
+    def _entity_type_name(self, entity_set_name: str) -> str:
+        cached = self._entity_type_cache.get(entity_set_name)
+        if cached is not None:
+            return cached
+
+        root = self._metadata_root()
+        entity_type_name = ""
+        for element in root.iter():
+            if not element.tag.endswith("EntitySet"):
+                continue
+            if element.attrib.get("Name") != entity_set_name:
+                continue
+            entity_type_name = element.attrib.get("EntityType", "").split(".")[-1]
+            break
+        if not entity_type_name:
+            raise OneCClientError(f"В OData metadata не найден набор {entity_set_name}.")
+        self._entity_type_cache[entity_set_name] = entity_type_name
+        return entity_type_name
+
+    def _list_entity_property_types(self, entity_set_name: str) -> dict[str, str]:
+        cached = self._entity_property_types_cache.get(entity_set_name)
+        if cached is not None:
+            return cached
+
+        root = self._metadata_root()
+        entity_type_name = self._entity_type_name(entity_set_name)
+        property_types: dict[str, str] = {}
+        for element in root.iter():
+            if not element.tag.endswith("EntityType") or element.attrib.get("Name") != entity_type_name:
+                continue
+            for child in element:
+                if child.tag.endswith("Property"):
+                    name = child.attrib.get("Name", "").strip()
+                    if name:
+                        property_types[name] = child.attrib.get("Type", "")
+            break
+        if not property_types:
+            raise OneCClientError(f"В OData metadata не найдены поля для {entity_set_name}.")
+
+        self._entity_property_types_cache[entity_set_name] = property_types
+        return property_types
+
+    def _list_entity_properties(self, entity_set_name: str) -> set[str]:
+        cached = self._entity_properties_cache.get(entity_set_name)
+        if cached is not None:
+            return cached
+        properties = set(self._list_entity_property_types(entity_set_name))
+        self._entity_properties_cache[entity_set_name] = properties
+        return properties
+
+    def _list_collection_row_properties(self, entity_set_name: str, property_name: str) -> set[str]:
+        property_type = self._list_entity_property_types(entity_set_name).get(property_name, "")
+        if not property_type.startswith("Collection(") or not property_type.endswith(")"):
+            return set()
+        row_type_name = property_type[len("Collection(") : -1].split(".")[-1]
+        if not row_type_name:
+            return set()
+
+        row_properties: set[str] = set()
+        for element in self._metadata_root().iter():
+            if not element.tag.endswith("ComplexType") or element.attrib.get("Name") != row_type_name:
+                continue
+            for child in element:
+                if child.tag.endswith("Property"):
+                    name = child.attrib.get("Name", "").strip()
+                    if name:
+                        row_properties.add(name)
+            break
+        return row_properties
+
+    @staticmethod
+    def _first_available_property(properties: set[str], candidates: list[str]) -> str | None:
+        for candidate in candidates:
+            if candidate in properties:
+                return candidate
+        return None
+
+    @staticmethod
+    def _xml_contact_info(contact_type: str, presentation: str) -> str:
+        root_attrs = (
+            ' xmlns="http://www.v8.1c.ru/ssl/contactinfo"'
+            ' xmlns:xs="http://www.w3.org/2001/XMLSchema"'
+            ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+            f" Представление={quoteattr(presentation)}"
+        )
+        if contact_type == "Телефон":
+            digits = re.sub(r"\D+", "", presentation)
+            number = digits or presentation
+            inner = f'<Состав xsi:type="НомерТелефона" Номер={quoteattr(number)} Добавочный=""/>'
+        elif contact_type == "АдресЭлектроннойПочты":
+            inner = f'<Состав xsi:type="ЭлектроннаяПочта" Значение={quoteattr(presentation)}/>'
+        elif contact_type == "Адрес":
+            inner = f'<Состав xsi:type="Адрес" Страна="Россия"/>'
+        else:
+            inner = f'<Состав xsi:type="Другое" Значение={quoteattr(presentation)}/>'
+        return f"<КонтактнаяИнформация{root_attrs}>{inner}</КонтактнаяИнформация>"
+
+    @staticmethod
+    def _json_contact_info(contact_type: str, presentation: str) -> str:
+        payload: dict[str, Any] = {
+            "version": 4,
+            "value": presentation,
+            "type": contact_type,
+        }
+        if contact_type == "Адрес":
+            payload["country"] = "Россия"
+        return json.dumps(payload, ensure_ascii=False)
+
+    @staticmethod
+    def _phone_digits(value: str) -> str:
+        return re.sub(r"\D+", "", value)
+
+    def _find_contact_kind(self, predefined_name: str) -> dict[str, Any] | None:
+        if predefined_name in self._contact_kind_cache:
+            return self._contact_kind_cache[predefined_name]
+        escaped_name = self._escape_odata_string(predefined_name)
+        row = self._fetch_first(
+            "Catalog_ВидыКонтактнойИнформации",
+            select_fields=["Ref_Key", "Description", "Тип", "PredefinedDataName", "ИмяПредопределенногоВида"],
+            filter_expr=f"PredefinedDataName eq '{escaped_name}'",
+        )
+        if not row:
+            row = self._fetch_first(
+                "Catalog_ВидыКонтактнойИнформации",
+                select_fields=["Ref_Key", "Description", "Тип", "PredefinedDataName", "ИмяПредопределенногоВида"],
+                filter_expr=f"ИмяПредопределенногоВида eq '{escaped_name}'",
+            )
+        self._contact_kind_cache[predefined_name] = row
+        return row
+
+    def _build_contact_info_rows(self, ref_key: str, card: dict[str, Any]) -> list[dict[str, Any]]:
+        contact_values = [
+            ("ТелефонКонтрагента", card.get("phone") or ""),
+            ("EmailКонтрагента", card.get("email") or ""),
+            ("ЮрАдресКонтрагента", card.get("legal_address") or ""),
+            ("ФактАдресКонтрагента", card.get("actual_address") or ""),
+        ]
+        contact_values = [(predefined, str(value).strip()) for predefined, value in contact_values if str(value or "").strip()]
+        if not contact_values:
+            return []
+
+        row_properties = self._list_collection_row_properties("Catalog_Контрагенты", "КонтактнаяИнформация")
+        if not row_properties:
+            raise OneCClientError("В OData metadata Контрагенты.КонтактнаяИнформация не описана как табличная часть.")
+
+        rows: list[dict[str, Any]] = []
+        for line_number, (predefined_name, value) in enumerate(contact_values, start=1):
+            kind = self._find_contact_kind(predefined_name)
+            if not kind or not kind.get("Ref_Key"):
+                raise OneCClientError(f"В 1С не найден вид контактной информации {predefined_name}.")
+            contact_type = str(kind.get("Тип") or "")
+            if not contact_type:
+                if predefined_name == "ТелефонКонтрагента":
+                    contact_type = "Телефон"
+                elif predefined_name == "EmailКонтрагента":
+                    contact_type = "АдресЭлектроннойПочты"
+                else:
+                    contact_type = "Адрес"
+
+            row: dict[str, Any] = {}
+
+            def put(field: str, field_value: Any) -> None:
+                if field in row_properties:
+                    row[field] = field_value
+
+            put("Ref_Key", ref_key)
+            put("LineNumber", str(line_number))
+            put("Тип", contact_type)
+            put("Вид_Key", kind["Ref_Key"])
+            put("Представление", value)
+            put("ЗначенияПолей", self._xml_contact_info(contact_type, value))
+            put("Значение", self._json_contact_info(contact_type, value))
+
+            if contact_type == "Телефон":
+                digits = self._phone_digits(value)
+                put("НомерТелефона", digits or value)
+                put("НомерТелефонаБезКодов", digits[-7:] if len(digits) > 7 else digits)
+                put("ОбратныйНомерТелефона", (digits or value)[::-1])
+            elif contact_type == "АдресЭлектроннойПочты":
+                put("АдресЭП", value)
+                put("ДоменноеИмяСервера", value.split("@", 1)[1] if "@" in value else "")
+            elif contact_type == "Адрес":
+                put("Страна", "Россия")
+
+            rows.append(row)
+        return rows
+
+    def _build_counterparty_payload(
+        self,
+        card: dict[str, Any],
+        *,
+        include_extra_fields: bool,
+        ref_key: str = "",
+    ) -> dict[str, Any]:
+        properties = self._list_entity_properties("Catalog_Контрагенты")
+        missing: list[str] = []
+        payload: dict[str, Any] = {}
+
+        def add(label: str, candidates: list[str], value: Any, *, required: bool) -> None:
+            if value in (None, "") and not required:
+                return
+            field = self._first_available_property(properties, candidates)
+            if field:
+                payload[field] = value
+                return
+            if required:
+                missing.append(label)
+
+        legal_type = str(card.get("legal_type") or "legal_entity")
+        legal_type_value = (
+            "ИндивидуальныйПредприниматель"
+            if legal_type == "individual_entrepreneur"
+            else "ЮридическоеЛицо"
+        )
+
+        if not include_extra_fields:
+            add("Наименование для документов", ["Description"], card.get("document_name"), required=True)
+            add(
+                "Наименование в программе",
+                ["НаименованиеПолное", "ПолноеНаименование"],
+                card.get("full_name") or card.get("document_name"),
+                required=True,
+            )
+            add("Вид", ["ЮрФизЛицо", "ЮридическоеФизическоеЛицо", "ВидКонтрагента"], legal_type_value, required=True)
+            add("ИНН", ["ИНН"], card.get("inn"), required=True)
+            add("КПП", ["КПП"], card.get("kpp"), required=legal_type == "legal_entity")
+            if card.get("is_buyer"):
+                add("Покупатель", ["Покупатель", "Клиент"], True, required=True)
+            if card.get("is_supplier"):
+                add("Поставщик", ["Поставщик"], True, required=True)
+            add("Недействителен", ["Недействителен", "ПометкаУдаления"], bool(card.get("is_inactive")), required=False)
+        else:
+            add("Банк", ["БИК", "Банк", "БанкНаименование", "ОсновнойБанк"], card.get("bank_name_or_bik"), required=False)
+            add("Номер счета", ["НомерСчета", "РасчетныйСчет", "ОсновнойБанковскийСчет"], card.get("bank_account"), required=False)
+            add("Телефон", ["Телефон", "ОсновнойТелефон"], card.get("phone"), required=False)
+            add("E-mail", ["Email", "E-mail", "ЭлектроннаяПочта", "АдресЭлектроннойПочты"], card.get("email"), required=False)
+            add("Юридический адрес", ["ЮридическийАдрес", "АдресЮридический"], card.get("legal_address"), required=False)
+            add("Фактический адрес", ["ФактическийАдрес", "АдресФактический"], card.get("actual_address"), required=False)
+            add("Заметки", ["Комментарий", "Заметки", "ДополнительнаяИнформация"], card.get("notes"), required=False)
+            if card.get("phone") and "НомерТелефонаДляПоиска" in properties:
+                payload["НомерТелефонаДляПоиска"] = str(card.get("phone") or "").strip()
+            if card.get("email") and "АдресЭПДляПоиска" in properties:
+                payload["АдресЭПДляПоиска"] = str(card.get("email") or "").strip()
+            if any(card.get(key) for key in ("phone", "email", "legal_address", "actual_address")):
+                if "КонтактнаяИнформация" not in properties:
+                    raise OneCClientError("В OData metadata Контрагенты не найдено поле КонтактнаяИнформация.")
+                contact_rows = self._build_contact_info_rows(ref_key, card)
+                if contact_rows:
+                    payload["КонтактнаяИнформация"] = contact_rows
+
+        if missing:
+            raise OneCClientError(
+                "В опубликованном OData справочнике Контрагенты не найдены поля: "
+                + ", ".join(missing)
+                + "."
+            )
+        return payload
+
+    def _find_bank_by_name_or_bik(self, bank_name_or_bik: str) -> dict[str, Any] | None:
+        value = bank_name_or_bik.strip()
+        if not value:
+            return None
+        escaped = self._escape_odata_string(value)
+        if re.fullmatch(r"\d{9}", value):
+            row = self._fetch_first(
+                "Catalog_КлассификаторБанков",
+                select_fields=["Ref_Key", "Description", "Code"],
+                filter_expr=f"Code eq '{escaped}'",
+            )
+            if row:
+                return row
+        return self._fetch_first(
+            "Catalog_КлассификаторБанков",
+            select_fields=["Ref_Key", "Description", "Code"],
+            filter_expr=f"substringof('{escaped}',Description)",
+        )
+
+    def _find_rub_currency_key(self) -> str:
+        if self._rub_currency_key_cache is not None:
+            return self._rub_currency_key_cache
+        try:
+            row = self._fetch_first(
+                "Catalog_Валюты",
+                select_fields=["Ref_Key", "Code", "Description"],
+                filter_expr="Code eq '643'",
+            )
+        except OneCClientError:
+            row = None
+        self._rub_currency_key_cache = str(row.get("Ref_Key") or "") if row else ""
+        return self._rub_currency_key_cache
+
+    def _ensure_counterparty_bank_account(self, ref_key: str, card: dict[str, Any]) -> str:
+        account_number = str(card.get("bank_account") or "").strip()
+        if not account_number:
+            return ""
+        bank_name_or_bik = str(card.get("bank_name_or_bik") or "").strip()
+        if not bank_name_or_bik:
+            raise OneCClientError("Для банковского счета укажите БИК или название банка.")
+
+        bank = self._find_bank_by_name_or_bik(bank_name_or_bik)
+        if not bank or not bank.get("Ref_Key"):
+            raise OneCClientError(f"В 1С не найден банк по значению '{bank_name_or_bik}'.")
+
+        account_properties = self._list_entity_properties("Catalog_БанковскиеСчета")
+        required = {"Owner", "Owner_Type", "НомерСчета", "Банк_Key"}
+        missing = sorted(required - account_properties)
+        if missing:
+            raise OneCClientError(
+                "В OData metadata справочника БанковскиеСчета не найдены поля: " + ", ".join(missing) + "."
+            )
+
+        escaped_owner = self._escape_odata_string(ref_key)
+        escaped_account = self._escape_odata_string(account_number)
+        existing = self._fetch_first(
+            "Catalog_БанковскиеСчета",
+            select_fields=["Ref_Key", "Description", "Owner", "НомерСчета"],
+            filter_expr=f"Owner eq '{escaped_owner}' and НомерСчета eq '{escaped_account}'",
+        )
+        if existing and existing.get("Ref_Key"):
+            return str(existing["Ref_Key"])
+
+        bank_description = str(bank.get("Description") or bank_name_or_bik).strip()
+        payload: dict[str, Any] = {
+            "Owner": ref_key,
+            "Owner_Type": "StandardODATA.Catalog_Контрагенты",
+            "Description": f"{account_number}, {bank_description}" if bank_description else account_number,
+            "НомерСчета": account_number,
+            "Банк_Key": bank["Ref_Key"],
+        }
+        if "ВидСчета" in account_properties:
+            payload["ВидСчета"] = "Расчетный"
+        if "ВалютаДенежныхСредств_Key" in account_properties:
+            rub_key = self._find_rub_currency_key()
+            if rub_key:
+                payload["ВалютаДенежныхСредств_Key"] = rub_key
+
+        created = self._request("POST", "Catalog_БанковскиеСчета?$format=json", payload)
+        created_ref = str(created.get("Ref_Key") or "").strip()
+        if not created_ref:
+            raise OneCClientError("1С не вернула Ref_Key созданного банковского счета.")
+        return created_ref
+
+    def _build_counterparty_update_payload(self, ref_key: str, card: dict[str, Any]) -> dict[str, Any]:
+        core_payload = self._build_counterparty_payload(card, include_extra_fields=False)
+        extra_payload = self._build_counterparty_payload(card, include_extra_fields=True, ref_key=ref_key)
+        payload = {**core_payload, **extra_payload}
+        bank_account_ref = self._ensure_counterparty_bank_account(ref_key, card)
+        if bank_account_ref:
+            properties = self._list_entity_properties("Catalog_Контрагенты")
+            if "БанковскийСчетПоУмолчанию_Key" not in properties:
+                raise OneCClientError("В OData metadata Контрагенты не найдено поле БанковскийСчетПоУмолчанию_Key.")
+            payload["БанковскийСчетПоУмолчанию_Key"] = bank_account_ref
+        return payload
+
     def list_counterparties(self) -> list[dict[str, Any]]:
         result = []
         for row in self._collect_all("Catalog_Контрагенты"):
@@ -164,6 +552,55 @@ class OneCClient:
                 }
             )
         return result
+
+    def find_counterparty_by_inn(self, inn: str) -> dict[str, Any] | None:
+        normalized_inn = inn.strip()
+        if not normalized_inn:
+            return None
+        escaped_inn = self._escape_odata_string(normalized_inn)
+        return self._fetch_first(
+            "Catalog_Контрагенты",
+            select_fields=["Ref_Key", "Description", "НаименованиеПолное", "ИНН", "КПП"],
+            filter_expr=f"ИНН eq '{escaped_inn}'",
+        )
+
+    def update_counterparty(self, ref_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+        endpoint = f"Catalog_Контрагенты(guid'{ref_key}')?$format=json"
+        return self._request("PATCH", endpoint, payload)
+
+    def create_counterparty(self, card: dict[str, Any]) -> dict[str, Any]:
+        core_payload = self._build_counterparty_payload(card, include_extra_fields=False)
+        created = self._request("POST", "Catalog_Контрагенты?$format=json", core_payload)
+        ref_key = str(created.get("Ref_Key") or "").strip()
+        if not ref_key:
+            raise OneCClientError("1С не вернула Ref_Key созданного контрагента.")
+
+        try:
+            extra_payload = self._build_counterparty_payload(card, include_extra_fields=True, ref_key=ref_key)
+            bank_account_ref = self._ensure_counterparty_bank_account(ref_key, card)
+            if bank_account_ref:
+                properties = self._list_entity_properties("Catalog_Контрагенты")
+                if "БанковскийСчетПоУмолчанию_Key" not in properties:
+                    raise OneCClientError("В OData metadata Контрагенты не найдено поле БанковскийСчетПоУмолчанию_Key.")
+                extra_payload["БанковскийСчетПоУмолчанию_Key"] = bank_account_ref
+            if extra_payload:
+                self.update_counterparty(ref_key, extra_payload)
+        except OneCClientError as exc:
+            raise OneCCounterpartySyncError(str(exc), created) from exc
+
+        return created
+
+    def update_counterparty_from_card(self, ref_key: str, card: dict[str, Any]) -> dict[str, Any]:
+        payload = self._build_counterparty_update_payload(ref_key, card)
+        if payload:
+            self.update_counterparty(ref_key, payload)
+        return {
+            "Ref_Key": ref_key,
+            "Description": card.get("document_name") or card.get("name"),
+            "НаименованиеПолное": card.get("full_name") or card.get("document_name") or card.get("name"),
+            "ИНН": card.get("inn"),
+            "КПП": card.get("kpp"),
+        }
 
     def list_contracts(self) -> list[dict[str, Any]]:
         result = []

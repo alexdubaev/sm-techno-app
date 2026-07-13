@@ -105,11 +105,35 @@ export type AppUserUpdatePayload = {
 };
 
 export type CreateClientPayload = {
-  name: string;
+  legalType: "legal_entity" | "individual_entrepreneur";
+  documentName: string;
+  fullName: string;
+  inn: string;
+  kpp: string;
+  isBuyer: boolean;
+  isSupplier: boolean;
+  isInactive: boolean;
+  bankNameOrBik: string;
+  bankAccount: string;
   contactPerson?: string;
   email?: string;
+  emailNote?: string;
   phone?: string;
+  phoneNote?: string;
+  legalAddress?: string;
+  actualAddress?: string;
   notes?: string;
+};
+
+export type ClientSyncResult = {
+  status: "local" | "synced" | "sync_error";
+  message: string;
+  onecRefKey?: string;
+};
+
+export type CreateClientResponse = {
+  client: CrmClient;
+  sync: ClientSyncResult;
 };
 
 export type CreateCommercialOfferPayload = {
@@ -493,8 +517,8 @@ export async function fetchClients(): Promise<CrmClient[]> {
   return result.items;
 }
 
-export async function createClient(payload: CreateClientPayload): Promise<CrmClient> {
-  const result = await requestJsonWithInit<{ client: CrmClient }>(
+export async function createClient(payload: CreateClientPayload): Promise<CreateClientResponse> {
+  return requestJsonWithInit<CreateClientResponse>(
     "/api/clients",
     {
       method: "POST",
@@ -505,7 +529,16 @@ export async function createClient(payload: CreateClientPayload): Promise<CrmCli
     },
     "Не удалось сохранить клиента.",
   );
-  return result.client;
+}
+
+export async function sendClientToOneC(clientId: number): Promise<CreateClientResponse> {
+  return requestJsonWithInit<CreateClientResponse>(
+    `/api/clients/${clientId}/send-to-onec`,
+    {
+      method: "POST",
+    },
+    "Не удалось отправить клиента в 1С.",
+  );
 }
 
 export async function fetchCommercialOffers(): Promise<CommercialOffer[]> {

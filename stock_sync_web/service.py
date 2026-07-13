@@ -19,7 +19,7 @@ from stock_sync_desktop.excel_tools import (
     export_stock_snapshot,
     read_stock_import_bundle,
 )
-from stock_sync_desktop.onec_api import OneCClient, OneCClientError
+from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounterpartySyncError
 from stock_sync_desktop.service import DEFAULT_SETTINGS, DraftLine
 from stock_sync_web.database import WebDatabase
 
@@ -501,14 +501,28 @@ class WebStockSyncService:
                 "id": int(row["id"]),
                 "counterparty_id": int(row["id"]),
                 "crm_client_id": None,
+                "legal_type": "legal_entity",
                 "name": row.get("name") or "",
-                "full_name": row.get("full_name") or "",
+                "document_name": row.get("name") or "",
+                "full_name": row.get("full_name") or row.get("name") or "",
                 "inn": row.get("inn") or "",
                 "kpp": row.get("kpp") or "",
+                "is_buyer": True,
+                "is_supplier": False,
+                "is_inactive": False,
+                "bank_name_or_bik": "",
+                "bank_account": "",
                 "contact_person": "",
                 "email": "",
+                "email_note": "",
                 "phone": "",
+                "phone_note": "",
+                "legal_address": "",
+                "actual_address": "",
                 "notes": "",
+                "sync_status": "synced",
+                "sync_error": "",
+                "onec_synced_at": "",
                 "is_linked_to_onec": True,
             }
             for row in self.db.list_counterparties()
@@ -519,14 +533,28 @@ class WebStockSyncService:
                 "id": int(row["id"]),
                 "counterparty_id": row.get("linked_counterparty_id"),
                 "crm_client_id": int(row["id"]),
+                "legal_type": row.get("legal_type") or "legal_entity",
                 "name": row.get("name") or "",
-                "full_name": row.get("name") or "",
-                "inn": "",
-                "kpp": "",
+                "document_name": row.get("document_name") or row.get("name") or "",
+                "full_name": row.get("full_name") or row.get("name") or "",
+                "inn": row.get("inn") or "",
+                "kpp": row.get("kpp") or "",
+                "is_buyer": bool(row.get("is_buyer")),
+                "is_supplier": bool(row.get("is_supplier")),
+                "is_inactive": bool(row.get("is_inactive")),
+                "bank_name_or_bik": row.get("bank_name_or_bik") or "",
+                "bank_account": row.get("bank_account") or "",
                 "contact_person": row.get("contact_person") or "",
                 "email": row.get("email") or "",
+                "email_note": row.get("email_note") or "",
                 "phone": row.get("phone") or "",
+                "phone_note": row.get("phone_note") or "",
+                "legal_address": row.get("legal_address") or "",
+                "actual_address": row.get("actual_address") or "",
                 "notes": row.get("notes") or "",
+                "sync_status": row.get("sync_status") or "local",
+                "sync_error": row.get("sync_error") or "",
+                "onec_synced_at": row.get("onec_synced_at") or "",
                 "is_linked_to_onec": bool(row.get("linked_counterparty_id")),
             }
             for row in self.db.list_crm_clients()
@@ -536,32 +564,291 @@ class WebStockSyncService:
     def create_client(
         self,
         *,
-        name: str,
+        actor_user_id: int | None = None,
+        payload: dict[str, Any] | None = None,
+        name: str = "",
         contact_person: str = "",
         email: str = "",
         phone: str = "",
         notes: str = "",
-    ) -> dict[str, Any]:
-        row = self.db.get_or_create_crm_client(
-            name=name,
-            contact_person=contact_person,
-            email=email,
-            phone=phone,
-            notes=notes,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        raw_payload = payload or {
+            "name": name,
+            "contactPerson": contact_person,
+            "email": email,
+            "phone": phone,
+            "notes": notes,
+        }
+        card = self._normalize_client_card_payload(raw_payload)
+        self._ensure_no_client_inn_duplicate(card["inn"])
+
+        onec_client: OneCClient | None = None
+        remote_check_error = ""
+        try:
+            onec_client = self.build_user_client(user_id=actor_user_id)
+            existing_counterparty = onec_client.find_counterparty_by_inn(card["inn"])
+        except Exception as exc:
+            existing_counterparty = None
+            remote_check_error = str(exc)
+
+        if existing_counterparty:
+            raise ValueError(
+                f"В 1С уже есть контрагент с ИНН {card['inn']}: "
+                f"{existing_counterparty.get('Description') or existing_counterparty.get('НаименованиеПолное') or existing_counterparty.get('Ref_Key')}."
+            )
+
+        row = self.db.create_crm_client_card(card)
+        if remote_check_error or onec_client is None:
+            message = remote_check_error or "Не удалось подготовить подключение к 1С."
+            row = self.db.update_crm_client_sync_state(
+                int(row["id"]),
+                sync_status="sync_error",
+                sync_error=message,
+            )
+            return self._format_local_client(row), {
+                "status": "sync_error",
+                "message": message,
+                "onecRefKey": "",
+            }
+
+        return self._send_crm_client_to_onec(
+            int(row["id"]),
+            actor_user_id=actor_user_id,
+            onec_client=onec_client,
+            remote_duplicate_checked=True,
         )
+
+    def send_client_to_onec(
+        self,
+        client_id: int,
+        *,
+        actor_user_id: int | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        return self._send_crm_client_to_onec(client_id, actor_user_id=actor_user_id)
+
+    @staticmethod
+    def _payload_value(payload: dict[str, Any], *keys: str, default: Any = "") -> Any:
+        for key in keys:
+            if key in payload:
+                return payload[key]
+        return default
+
+    @classmethod
+    def _normalize_client_card_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        legal_type = str(cls._payload_value(payload, "legalType", "legal_type", default="legal_entity") or "").strip()
+        if legal_type not in {"legal_entity", "individual_entrepreneur"}:
+            raise ValueError("Выберите вид контрагента: юридическое лицо или ИП.")
+
+        document_name = str(cls._payload_value(payload, "documentName", "document_name", "name") or "").strip()
+        if not document_name:
+            raise ValueError("Укажите наименование для документов.")
+        full_name = str(cls._payload_value(payload, "fullName", "full_name", default=document_name) or "").strip()
+        if not full_name:
+            full_name = document_name
+
+        is_buyer = bool(cls._payload_value(payload, "isBuyer", "is_buyer", default=True))
+        is_supplier = bool(cls._payload_value(payload, "isSupplier", "is_supplier", default=False))
+        if not is_buyer and not is_supplier:
+            raise ValueError("Выберите хотя бы одну роль контрагента: покупатель или поставщик.")
+
+        inn = cls._digits_only(str(cls._payload_value(payload, "inn") or ""))
+        kpp = cls._digits_only(str(cls._payload_value(payload, "kpp") or ""))
+        if legal_type == "legal_entity":
+            if len(inn) != 10:
+                raise ValueError("Для юридического лица ИНН должен содержать 10 цифр.")
+            if len(kpp) != 9:
+                raise ValueError("Для юридического лица КПП должен содержать 9 цифр.")
+        else:
+            if len(inn) != 12:
+                raise ValueError("Для ИП ИНН должен содержать 12 цифр.")
+            kpp = ""
+
+        return {
+            "legal_type": legal_type,
+            "document_name": document_name,
+            "full_name": full_name,
+            "inn": inn,
+            "kpp": kpp,
+            "is_buyer": is_buyer,
+            "is_supplier": is_supplier,
+            "is_inactive": bool(cls._payload_value(payload, "isInactive", "is_inactive", default=False)),
+            "bank_name_or_bik": str(cls._payload_value(payload, "bankNameOrBik", "bank_name_or_bik") or "").strip(),
+            "bank_account": str(cls._payload_value(payload, "bankAccount", "bank_account") or "").strip(),
+            "contact_person": str(cls._payload_value(payload, "contactPerson", "contact_person") or "").strip(),
+            "email": str(cls._payload_value(payload, "email") or "").strip(),
+            "email_note": str(cls._payload_value(payload, "emailNote", "email_note") or "").strip(),
+            "phone": str(cls._payload_value(payload, "phone") or "").strip(),
+            "phone_note": str(cls._payload_value(payload, "phoneNote", "phone_note") or "").strip(),
+            "legal_address": str(cls._payload_value(payload, "legalAddress", "legal_address") or "").strip(),
+            "actual_address": str(cls._payload_value(payload, "actualAddress", "actual_address") or "").strip(),
+            "notes": str(cls._payload_value(payload, "notes") or "").strip(),
+        }
+
+    @staticmethod
+    def _digits_only(value: str) -> str:
+        return re.sub(r"\D+", "", value)
+
+    def _ensure_no_client_inn_duplicate(
+        self,
+        inn: str,
+        *,
+        exclude_client_id: int | None = None,
+        allowed_counterparty_id: int | None = None,
+    ) -> None:
+        existing_client = self.db.get_crm_client_by_inn(inn, exclude_client_id=exclude_client_id)
+        if existing_client:
+            raise ValueError(f"Локальный клиент с ИНН {inn} уже существует: {existing_client.get('name') or existing_client['id']}.")
+        existing_counterparty = self.db.get_counterparty_by_inn(inn)
+        if existing_counterparty and int(existing_counterparty["id"]) != int(allowed_counterparty_id or 0):
+            raise ValueError(f"Контрагент с ИНН {inn} уже есть в справочнике 1С: {existing_counterparty.get('name') or existing_counterparty['onec_key']}.")
+
+    def _send_crm_client_to_onec(
+        self,
+        client_id: int,
+        *,
+        actor_user_id: int | None,
+        onec_client: OneCClient | None = None,
+        remote_duplicate_checked: bool = False,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        row = self.db.get_crm_client(client_id)
+        if not row:
+            raise ValueError("Клиент не найден.")
+
+        linked_counterparty_id = int(row["linked_counterparty_id"]) if row.get("linked_counterparty_id") else None
+        self._ensure_no_client_inn_duplicate(
+            str(row.get("inn") or ""),
+            exclude_client_id=client_id,
+            allowed_counterparty_id=linked_counterparty_id,
+        )
+        onec_client = onec_client or self.build_user_client(user_id=actor_user_id)
+        existing_counterparty = None if remote_duplicate_checked else onec_client.find_counterparty_by_inn(str(row.get("inn") or ""))
+        if existing_counterparty and not self._remote_counterparty_matches_link(existing_counterparty, linked_counterparty_id):
+            raise ValueError(
+                f"В 1С уже есть контрагент с ИНН {row.get('inn')}: "
+                f"{existing_counterparty.get('Description') or existing_counterparty.get('НаименованиеПолное') or existing_counterparty.get('Ref_Key')}."
+            )
+
+        if existing_counterparty and linked_counterparty_id is not None:
+            ref_key = str(existing_counterparty.get("Ref_Key") or "").strip()
+            try:
+                updated = onec_client.update_counterparty_from_card(ref_key, row)
+            except OneCClientError as exc:
+                row = self.db.update_crm_client_sync_state(client_id, sync_status="sync_error", sync_error=str(exc))
+                return self._format_local_client(row), {"status": "sync_error", "message": str(exc), "onecRefKey": ref_key}
+
+            counterparty_id = self._upsert_synced_counterparty(updated or existing_counterparty, row)
+            row = self.db.update_crm_client_sync_state(
+                client_id,
+                sync_status="synced",
+                sync_error="",
+                linked_counterparty_id=counterparty_id,
+                synced=True,
+            )
+            return self._format_local_client(row), {
+                "status": "synced",
+                "message": "Клиент отправлен в 1С.",
+                "onecRefKey": ref_key,
+            }
+
+        try:
+            created = onec_client.create_counterparty(row)
+        except OneCCounterpartySyncError as exc:
+            ref_key = str(exc.created_counterparty.get("Ref_Key") or "").strip()
+            if ref_key:
+                counterparty_id = self._upsert_synced_counterparty(exc.created_counterparty, row)
+                row = self.db.update_crm_client_sync_state(
+                    client_id,
+                    sync_status="sync_error",
+                    sync_error=str(exc),
+                    linked_counterparty_id=counterparty_id,
+                )
+                return self._format_local_client(row), {
+                    "status": "sync_error",
+                    "message": str(exc),
+                    "onecRefKey": ref_key,
+                }
+            row = self.db.update_crm_client_sync_state(client_id, sync_status="sync_error", sync_error=str(exc))
+            return self._format_local_client(row), {"status": "sync_error", "message": str(exc), "onecRefKey": ""}
+        except OneCClientError as exc:
+            row = self.db.update_crm_client_sync_state(client_id, sync_status="sync_error", sync_error=str(exc))
+            return self._format_local_client(row), {"status": "sync_error", "message": str(exc), "onecRefKey": ""}
+
+        counterparty_id = self._upsert_synced_counterparty(created, row)
+        row = self.db.update_crm_client_sync_state(
+            client_id,
+            sync_status="synced",
+            sync_error="",
+            linked_counterparty_id=counterparty_id,
+            synced=True,
+        )
+        ref_key = str(created.get("Ref_Key") or "")
+        return self._format_local_client(row), {
+            "status": "synced",
+            "message": "Клиент отправлен в 1С.",
+            "onecRefKey": ref_key,
+        }
+
+    def _remote_counterparty_matches_link(
+        self,
+        remote_counterparty: dict[str, Any],
+        linked_counterparty_id: int | None,
+    ) -> bool:
+        if linked_counterparty_id is None:
+            return False
+        ref_key = str(remote_counterparty.get("Ref_Key") or "").strip()
+        if not ref_key:
+            return False
+        linked = self.db.get_counterparty_by_onec_key(ref_key)
+        return bool(linked and int(linked["id"]) == linked_counterparty_id)
+
+    def _upsert_synced_counterparty(self, onec_row: dict[str, Any], client_row: dict[str, Any]) -> int:
+        ref_key = str(onec_row.get("Ref_Key") or "").strip()
+        if not ref_key:
+            raise ValueError("1С не вернула Ref_Key контрагента.")
+        self.db.upsert_counterparties(
+            [
+                {
+                    "onec_key": ref_key,
+                    "name": onec_row.get("Description") or client_row.get("document_name") or client_row.get("name"),
+                    "full_name": onec_row.get("НаименованиеПолное") or client_row.get("full_name") or client_row.get("name"),
+                    "inn": onec_row.get("ИНН") or client_row.get("inn"),
+                    "kpp": onec_row.get("КПП") or client_row.get("kpp"),
+                }
+            ]
+        )
+        counterparty = self.db.get_counterparty_by_onec_key(ref_key)
+        if not counterparty:
+            raise ValueError("Не удалось сохранить созданного контрагента в локальный справочник.")
+        return int(counterparty["id"])
+
+    def _format_local_client(self, row: dict[str, Any]) -> dict[str, Any]:
         return {
             "source": "local",
             "id": int(row["id"]),
             "counterparty_id": row.get("linked_counterparty_id"),
             "crm_client_id": int(row["id"]),
-            "name": row.get("name") or "",
-            "full_name": row.get("name") or "",
-            "inn": "",
-            "kpp": "",
+            "legal_type": row.get("legal_type") or "legal_entity",
+            "name": row.get("name") or row.get("document_name") or "",
+            "document_name": row.get("document_name") or row.get("name") or "",
+            "full_name": row.get("full_name") or row.get("name") or "",
+            "inn": row.get("inn") or "",
+            "kpp": row.get("kpp") or "",
+            "is_buyer": bool(row.get("is_buyer")),
+            "is_supplier": bool(row.get("is_supplier")),
+            "is_inactive": bool(row.get("is_inactive")),
+            "bank_name_or_bik": row.get("bank_name_or_bik") or "",
+            "bank_account": row.get("bank_account") or "",
             "contact_person": row.get("contact_person") or "",
             "email": row.get("email") or "",
+            "email_note": row.get("email_note") or "",
             "phone": row.get("phone") or "",
+            "phone_note": row.get("phone_note") or "",
+            "legal_address": row.get("legal_address") or "",
+            "actual_address": row.get("actual_address") or "",
             "notes": row.get("notes") or "",
+            "sync_status": row.get("sync_status") or "local",
+            "sync_error": row.get("sync_error") or "",
+            "onec_synced_at": row.get("onec_synced_at") or "",
             "is_linked_to_onec": bool(row.get("linked_counterparty_id")),
         }
 

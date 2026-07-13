@@ -122,14 +122,28 @@ export type CrmClient = {
   id: number;
   counterpartyId: number | null;
   crmClientId: number | null;
+  legalType: "legal_entity" | "individual_entrepreneur";
   name: string;
+  documentName: string;
   fullName: string;
   inn: string;
   kpp: string;
+  isBuyer: boolean;
+  isSupplier: boolean;
+  isInactive: boolean;
+  bankNameOrBik: string;
+  bankAccount: string;
   contactPerson: string;
   email: string;
+  emailNote: string;
   phone: string;
+  phoneNote: string;
+  legalAddress: string;
+  actualAddress: string;
   notes: string;
+  syncStatus: "local" | "synced" | "sync_error";
+  syncError: string;
+  onecSyncedAt: string;
   isLinkedToOneC: boolean;
 };
 
