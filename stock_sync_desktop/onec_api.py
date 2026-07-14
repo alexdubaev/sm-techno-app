@@ -271,6 +271,14 @@ class OneCClient:
         return default
 
     @staticmethod
+    def _first_value_by_key_hint(row: dict[str, Any], hints: list[str]) -> str:
+        for key, value in row.items():
+            normalized_key = re.sub(r"[^0-9A-Za-zА-Яа-яЁё]+", "", str(key or "")).lower()
+            if any(hint in normalized_key for hint in hints) and value not in (None, ""):
+                return str(value).strip()
+        return ""
+
+    @staticmethod
     def _first_text_value(row: dict[str, Any], candidates: list[str], default: str = "") -> str:
         value = OneCClient._first_row_value(row, candidates, default)
         if isinstance(value, dict):
@@ -869,22 +877,33 @@ class OneCClient:
 
     def _format_counterparty_row(self, row: dict[str, Any]) -> dict[str, Any]:
         name = self._first_row_value(row, ["Description", "Наименование"], "Без названия")
+        document_print_name = self._first_row_value(
+            row,
+            [
+                "НаименованиеДляДокументов",
+                "Наименование для документов",
+                "НаименованиеДляПечати",
+                "Наименование для печати",
+                "ПечатноеНаименование",
+                "ПредставлениеДляДокументов",
+            ],
+        ) or self._first_value_by_key_hint(row, ["наименованиедлядокумент", "наименованиедляпечат", "печатноенаименование"])
         document_name = self._first_row_value(
             row,
             [
                 "НаименованиеПолное",
                 "ПолноеНаименование",
-                "НаименованиеДляДокументов",
-                "НаименованиеДляПечати",
                 "Description",
             ],
             name,
         )
+        document_name = document_print_name or document_name
         full_name = self._first_row_value(
             row,
-            ["НаименованиеПолное", "ПолноеНаименование", "НаименованиеДляДокументов", "Description"],
+            ["НаименованиеПолное", "ПолноеНаименование", "Description"],
             document_name,
         )
+        full_name = document_print_name or full_name
         legal_type_value = self._first_row_value(
             row,
             ["ЮридическоеФизическоеЛицо", "ЮрФизЛицо", "ВидКонтрагента", "Вид"],

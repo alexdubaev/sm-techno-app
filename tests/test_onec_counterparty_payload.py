@@ -200,6 +200,45 @@ class OneCCounterpartyPayloadTest(unittest.TestCase):
         self.assertEqual(rows[0]["document_name"], 'ООО "АГРОЗУМ"')
         self.assertEqual(rows[0]["full_name"], 'ООО "АГРОЗУМ"')
 
+    def test_list_counterparties_prefers_document_name_over_program_and_legal_name(self) -> None:
+        class DocumentNameOneCClient(FakeODataOneCClient):
+            def _request(
+                self,
+                method: str,
+                endpoint_or_url: str,
+                payload: dict[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                self.calls.append((method, endpoint_or_url, payload))
+                decoded_endpoint = unquote(endpoint_or_url)
+                if method == "GET" and (
+                    endpoint_or_url.startswith(f"{CP}?") or f"/{CP}?" in decoded_endpoint
+                ):
+                    return {
+                        "value": [
+                            {
+                                "Ref_Key": "counterparty-ref",
+                                "Description": "АГРОЗУМ ООО",
+                                "НаименованиеПолное": "Общество с ограниченной ответственностью АГРОЗУМ",
+                                "НаименованиеДляДокументов": "ООО АГРОЗУМ",
+                                "ЮридическоеФизическоеЛицо": "ЮридическоеЛицо",
+                                "ИНН": "9713019723",
+                                "КПП": "771301001",
+                                CONTACT_INFO: [],
+                            }
+                        ]
+                    }
+                if method == "GET" and endpoint_or_url.startswith(CONTACT_KINDS):
+                    return {"value": []}
+                return super()._request(method, endpoint_or_url, payload)
+
+        rows = DocumentNameOneCClient().list_counterparties()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["name"], "АГРОЗУМ ООО")
+        self.assertEqual(rows[0]["document_name"], "ООО АГРОЗУМ")
+        self.assertEqual(rows[0]["full_name"], "ООО АГРОЗУМ")
+        self.assertNotEqual(rows[0]["document_name"], rows[0]["name"])
+
     def test_create_counterparty_writes_contact_info_and_default_bank_account(self) -> None:
         client = FakeODataOneCClient()
 
