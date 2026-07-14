@@ -353,6 +353,55 @@ class OneCCounterpartyPayloadTest(unittest.TestCase):
         self.assertEqual(row["bank_account"], "40802810226110001854")
         self.assertEqual(row["correspondent_account"], "30101810500000000207")
 
+    def test_list_counterparties_extracts_bik_from_bank_presentation_and_infers_ip(self) -> None:
+        class BankPresentationOneCClient(FakeODataOneCClient):
+            def _request(
+                self,
+                method: str,
+                endpoint_or_url: str,
+                payload: dict[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                self.calls.append((method, endpoint_or_url, payload))
+                decoded_endpoint = unquote(endpoint_or_url)
+                if method == "GET" and (
+                    endpoint_or_url.startswith(f"{CP}?") or f"/{CP}?" in decoded_endpoint
+                ):
+                    return {
+                        "value": [
+                            {
+                                "Ref_Key": "counterparty-ref",
+                                "Description": "ИП Кочкин Александр Александрович",
+                                "НаименованиеПолное": "ИП Кочкин Александр Александрович",
+                                "ИНН": "340301024150",
+                                "КПП": "",
+                                BANK_DEFAULT_KEY: "bank-account-ref",
+                                CONTACT_INFO: [],
+                            }
+                        ]
+                    }
+                if method == "GET" and endpoint_or_url.startswith(CONTACT_KINDS):
+                    return {"value": []}
+                if method == "GET" and endpoint_or_url.startswith(f"{BANK_ACCOUNTS}(guid'bank-account-ref')"):
+                    return {
+                        "Ref_Key": "bank-account-ref",
+                        "Description": '40802810226110001854, в 046015207 ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"',
+                        ACCOUNT_NUMBER: "40802810226110001854",
+                        "Банк": 'в 046015207 ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"',
+                    }
+                return super()._request(method, endpoint_or_url, payload)
+
+        client = BankPresentationOneCClient()
+
+        rows = client.list_counterparties()
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["legal_type"], "individual_entrepreneur")
+        self.assertEqual(row["bank_name_or_bik"], "046015207")
+        self.assertEqual(row["bank_name"], 'ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"')
+        self.assertEqual(row["bank_bik"], "046015207")
+        self.assertEqual(row["bank_account"], "40802810226110001854")
+
 
 if __name__ == "__main__":
     unittest.main()

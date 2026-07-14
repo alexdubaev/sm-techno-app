@@ -282,6 +282,41 @@ class OneCClient:
         return bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", value.strip()))
 
     @staticmethod
+    def _extract_bik_from_text(value: str) -> str:
+        match = re.search(r"(?<!\d)(\d{9})(?!\d)", str(value or ""))
+        return match.group(1) if match else ""
+
+    @staticmethod
+    def _clean_bank_name(value: str, bik: str = "") -> str:
+        text = str(value or "").strip()
+        if bik:
+            escaped_bik = re.escape(bik)
+            text = re.sub(rf"^\s*(?:в|бик)?\s*{escaped_bik}\s*", "", text, flags=re.IGNORECASE)
+        return re.sub(r"\s{2,}", " ", text).strip(" ,;")
+
+    @classmethod
+    def _infer_counterparty_legal_type(
+        cls,
+        raw_value: Any,
+        *,
+        inn: Any,
+        kpp: Any,
+        name: Any,
+        full_name: Any,
+    ) -> str:
+        normalized = cls._normalize_counterparty_legal_type(raw_value)
+        if normalized == "individual_entrepreneur":
+            return normalized
+        inn_digits = re.sub(r"\D+", "", str(inn or ""))
+        kpp_digits = re.sub(r"\D+", "", str(kpp or ""))
+        text = " ".join(str(value or "").strip().lower() for value in (name, full_name, raw_value))
+        if len(inn_digits) == 12 and (not kpp_digits or "ип " in f"{text} " or "индивидуаль" in text):
+            return "individual_entrepreneur"
+        if text.startswith("ип ") or "индивидуальный предприниматель" in text:
+            return "individual_entrepreneur"
+        return normalized
+
+    @staticmethod
     def _normalize_bool(value: Any, default: bool = False) -> bool:
         if value in (None, ""):
             return default
@@ -701,7 +736,10 @@ class OneCClient:
         )
 
         bank_bik = self._first_text_value(bank, ["Code", "БИК", "БИКБанка", "Код"]) or direct_bank_bik
+        if not bank_bik:
+            bank_bik = self._extract_bik_from_text(" ".join([direct_bank_name, description]))
         bank_name = self._first_text_value(bank, ["Description", "Наименование", "НаименованиеПолное"]) or direct_bank_name
+        bank_name = self._clean_bank_name(bank_name, bank_bik)
         account_number = self._first_text_value(
             account,
             ["НомерСчета", "РасчетныйСчет", "НомерРасчетногоСчета", "Счет"],
@@ -729,14 +767,22 @@ class OneCClient:
             ["ЮридическоеФизическоеЛицо", "ЮрФизЛицо", "ВидКонтрагента", "Вид"],
             "ЮридическоеЛицо",
         )
+        inn = row.get("ИНН") or ""
+        kpp = row.get("КПП") or ""
         result: dict[str, Any] = {
             "onec_key": row["Ref_Key"],
             "name": name,
             "document_name": name,
             "full_name": full_name,
-            "legal_type": self._normalize_counterparty_legal_type(legal_type_value),
-            "inn": row.get("ИНН") or "",
-            "kpp": row.get("КПП") or "",
+            "legal_type": self._infer_counterparty_legal_type(
+                legal_type_value,
+                inn=inn,
+                kpp=kpp,
+                name=name,
+                full_name=full_name,
+            ),
+            "inn": inn,
+            "kpp": kpp,
             "is_buyer": self._normalize_bool(self._first_row_value(row, ["Покупатель", "Клиент"], True), True),
             "is_supplier": self._normalize_bool(row.get("Поставщик"), False),
             "is_inactive": self._normalize_bool(self._first_row_value(row, ["Недействителен", "ПометкаУдаления"], False), False),

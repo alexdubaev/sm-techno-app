@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import re
 import secrets
 import sqlite3
 from datetime import datetime
@@ -140,6 +141,32 @@ CREATE TABLE IF NOT EXISTS documents (
 """
 
 
+def _infer_crm_legal_type(record: dict[str, Any], document_name: str, full_name: str) -> str:
+    value = str(record.get("legal_type") or "").strip()
+    normalized = value if value in {"legal_entity", "individual_entrepreneur"} else "legal_entity"
+    if normalized == "individual_entrepreneur":
+        return normalized
+    inn_digits = re.sub(r"\D+", "", str(record.get("inn") or ""))
+    kpp_digits = re.sub(r"\D+", "", str(record.get("kpp") or ""))
+    text = " ".join([document_name, full_name, value]).strip().lower()
+    if len(inn_digits) == 12 and (not kpp_digits or text.startswith("ип ") or "индивидуаль" in text):
+        return "individual_entrepreneur"
+    return normalized
+
+
+def _extract_bik_from_bank_text(value: Any) -> str:
+    match = re.search(r"(?<!\d)(\d{9})(?!\d)", str(value or ""))
+    return match.group(1) if match else ""
+
+
+def _clean_bank_name(value: Any, bik: str = "") -> str:
+    text = str(value or "").strip()
+    if bik:
+        escaped_bik = re.escape(bik)
+        text = re.sub(rf"^\s*(?:в|бик)?\s*{escaped_bik}\s*", "", text, flags=re.IGNORECASE)
+    return re.sub(r"\s{2,}", " ", text).strip(" ,;")
+
+
 class WebDatabase(Database):
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
         super().__init__(db_path=db_path)
@@ -241,6 +268,8 @@ class WebDatabase(Database):
         ):
             conn.execute(f"UPDATE crm_clients SET {text_column} = '' WHERE {text_column} IS NULL")
 
+        self._backfill_crm_client_inferred_fields(conn)
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_name ON crm_clients(name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_inn ON crm_clients(inn)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_sync_status ON crm_clients(sync_status)")
@@ -250,6 +279,61 @@ class WebDatabase(Database):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_created ON documents(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_owner ON documents(created_by_user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_client ON documents(client_source, counterparty_id, crm_client_id)")
+
+    def _backfill_crm_client_inferred_fields(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            """
+            SELECT id, name, legal_type, document_name, full_name, inn, kpp,
+                   bank_name_or_bik, bank_name, bank_bik,
+                   signer_position, signer_name, signer_basis
+            FROM crm_clients
+            """
+        ).fetchall()
+        for row in rows:
+            record = dict(row)
+            document_name = str(record.get("document_name") or record.get("name") or "").strip()
+            full_name = str(record.get("full_name") or document_name).strip()
+            legal_type = _infer_crm_legal_type(record, document_name, full_name)
+            bank_name_or_bik = str(record.get("bank_name_or_bik") or "").strip()
+            bank_name = str(record.get("bank_name") or "").strip()
+            bank_text = bank_name or bank_name_or_bik
+            bank_bik = str(record.get("bank_bik") or "").strip() or _extract_bik_from_bank_text(bank_text)
+            if bank_bik:
+                bank_name_or_bik = bank_bik
+                bank_name = _clean_bank_name(bank_text, bank_bik)
+
+            signer_position = str(record.get("signer_position") or "").strip()
+            signer_name = str(record.get("signer_name") or "").strip()
+            signer_basis = str(record.get("signer_basis") or "").strip()
+            if legal_type == "individual_entrepreneur":
+                if not signer_position:
+                    signer_position = "Индивидуальный предприниматель"
+                if not signer_name:
+                    signer_name = document_name.removeprefix("ИП ").strip() or full_name.removeprefix("ИП ").strip()
+
+            conn.execute(
+                """
+                UPDATE crm_clients
+                SET legal_type = ?,
+                    bank_name_or_bik = ?,
+                    bank_name = ?,
+                    bank_bik = ?,
+                    signer_position = ?,
+                    signer_name = ?,
+                    signer_basis = ?
+                WHERE id = ?
+                """,
+                (
+                    legal_type,
+                    bank_name_or_bik,
+                    bank_name,
+                    bank_bik,
+                    signer_position,
+                    signer_name,
+                    signer_basis,
+                    int(row["id"]),
+                ),
+            )
 
     @staticmethod
     def _normalize_role(role: str | None) -> str:
@@ -743,8 +827,17 @@ class WebDatabase(Database):
                 if not document_name:
                     continue
 
-                legal_type = str(record.get("legal_type") or "legal_entity")
                 full_name = str(record.get("full_name") or document_name).strip()
+                legal_type = _infer_crm_legal_type(record, document_name, full_name)
+                bank_name_or_bik = str(record.get("bank_name_or_bik") or "").strip()
+                bank_name = str(record.get("bank_name") or "").strip()
+                bank_text = bank_name or bank_name_or_bik
+                bank_bik = str(record.get("bank_bik") or "").strip() or _extract_bik_from_bank_text(
+                    " ".join([bank_name_or_bik, bank_name])
+                )
+                if bank_bik:
+                    bank_name_or_bik = bank_bik
+                    bank_name = _clean_bank_name(bank_text, bank_bik)
                 signer_position = str(record.get("signer_position") or "").strip()
                 signer_name = str(record.get("signer_name") or "").strip()
                 signer_basis = str(record.get("signer_basis") or "").strip()
@@ -764,9 +857,9 @@ class WebDatabase(Database):
                     1 if record.get("is_buyer", True) else 0,
                     1 if record.get("is_supplier") else 0,
                     1 if record.get("is_inactive") else 0,
-                    record.get("bank_name_or_bik") or None,
-                    record.get("bank_name") or None,
-                    record.get("bank_bik") or None,
+                    bank_name_or_bik or None,
+                    bank_name or None,
+                    bank_bik or None,
                     record.get("bank_account") or None,
                     record.get("correspondent_account") or None,
                     record.get("contact_person") or None,

@@ -279,6 +279,66 @@ class ClientOneCSyncTest(unittest.TestCase):
         self.assertEqual(clients[0]["bank_account"], "40802810226110001854")
         self.assertTrue(clients[0]["is_linked_to_onec"])
 
+    def test_reference_sync_infers_ip_and_signer_from_12_digit_inn(self) -> None:
+        fake = RichCounterpartySyncClient()
+        fake.rows[0].pop("legal_type")
+        fake.rows[0]["bank_name_or_bik"] = "в 046015207 ФИЛИАЛ \"РОСТОВСКИЙ\" АО \"АЛЬФА-БАНК\""
+        fake.rows[0]["bank_name"] = "в 046015207 ФИЛИАЛ \"РОСТОВСКИЙ\" АО \"АЛЬФА-БАНК\""
+        fake.rows[0]["bank_bik"] = ""
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+
+        self.service.sync_counterparties(user_id=1)
+
+        row = self.db.list_crm_clients()[0]
+        self.assertEqual(row["legal_type"], "individual_entrepreneur")
+        self.assertEqual(row["bank_bik"], "046015207")
+        self.assertEqual(row["signer_position"], "Индивидуальный предприниматель")
+        self.assertEqual(row["signer_name"], "Кочкин Александр Александрович")
+
+    def test_database_backfill_repairs_existing_ip_bank_and_signer_fields(self) -> None:
+        now = "2026-07-14T09:36:19"
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO crm_clients(
+                    name, legal_type, document_name, full_name, inn, kpp,
+                    bank_name_or_bik, bank_name, bank_bik, bank_account,
+                    signer_position, signer_name, signer_basis,
+                    linked_counterparty_id, sync_status, created_at, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "ИП Кочкин Александр Александрович",
+                    "legal_entity",
+                    "ИП Кочкин Александр Александрович",
+                    "ИП Кочкин Александр Александрович",
+                    "340301024150",
+                    "",
+                    'в 046015207 ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"',
+                    'в 046015207 ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"',
+                    "",
+                    "40802810226110001854",
+                    "",
+                    "",
+                    "",
+                    None,
+                    "synced",
+                    now,
+                    now,
+                ),
+            )
+
+        repaired_db = WebDatabase(db_path=self.db_path)
+        row = repaired_db.list_crm_clients()[0]
+
+        self.assertEqual(row["legal_type"], "individual_entrepreneur")
+        self.assertEqual(row["bank_name_or_bik"], "046015207")
+        self.assertEqual(row["bank_name"], 'ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"')
+        self.assertEqual(row["bank_bik"], "046015207")
+        self.assertEqual(row["signer_position"], "Индивидуальный предприниматель")
+        self.assertEqual(row["signer_name"], "Кочкин Александр Александрович")
+
     def test_onec_error_keeps_local_client_and_retry_does_not_duplicate(self) -> None:
         failing = FailingOneCClient()
         self.service.build_user_client = lambda **_: failing  # type: ignore[method-assign]
