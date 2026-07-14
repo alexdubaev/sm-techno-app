@@ -106,6 +106,38 @@ class ExistingLinkedOneCClient(FakeOneCClient):
         }
 
 
+class RichCounterpartySyncClient:
+    def __init__(self) -> None:
+        self.rows = [
+            {
+                "onec_key": "9375a080-7c2f-11f1-873c-fa163e9b4947",
+                "name": "ИП Кочкин Александр Александрович",
+                "document_name": "ИП Кочкин Александр Александрович",
+                "full_name": "ИП Кочкин Александр Александрович",
+                "legal_type": "individual_entrepreneur",
+                "inn": "340301024150",
+                "kpp": "",
+                "is_buyer": True,
+                "is_supplier": False,
+                "is_inactive": False,
+                "bank_name_or_bik": "046015207",
+                "bank_name": 'ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"',
+                "bank_bik": "046015207",
+                "bank_account": "40802810226110001854",
+                "correspondent_account": "30101810500000000207",
+                "contact_person": "Кочкин Александр Александрович",
+                "phone": "+7 8442 00-00-00",
+                "email": "kochkin@example.ru",
+                "legal_address": "400007, Волгоградская область",
+                "actual_address": "400007, г. Волгоград",
+                "notes": "Любая дополнительная информация",
+            }
+        ]
+
+    def list_counterparties(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.rows]
+
+
 class ClientOneCSyncTest(unittest.TestCase):
     def setUp(self) -> None:
         self._temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -210,6 +242,42 @@ class ClientOneCSyncTest(unittest.TestCase):
         counterparties = self.client.get("/api/references/counterparties")
         self.assertEqual(counterparties.status_code, 200)
         self.assertEqual(counterparties.json()["items"][0]["onecKey"], "11111111-1111-1111-1111-111111111111")
+
+    def test_reference_sync_creates_full_crm_client_from_onec_counterparty_without_duplicate(self) -> None:
+        fake = RichCounterpartySyncClient()
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+
+        count = self.service.sync_counterparties(user_id=1)
+
+        self.assertEqual(count, 1)
+        crm_rows = self.db.list_crm_clients()
+        self.assertEqual(len(crm_rows), 1)
+        row = crm_rows[0]
+        self.assertEqual(row["legal_type"], "individual_entrepreneur")
+        self.assertEqual(row["inn"], "340301024150")
+        self.assertEqual(row["kpp"], "")
+        self.assertEqual(row["bank_account"], "40802810226110001854")
+        self.assertEqual(row["bank_name"], 'ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"')
+        self.assertEqual(row["phone"], "+7 8442 00-00-00")
+        self.assertEqual(row["email"], "kochkin@example.ru")
+        self.assertEqual(row["legal_address"], "400007, Волгоградская область")
+        self.assertEqual(row["sync_status"], "synced")
+        self.assertIsNotNone(row["linked_counterparty_id"])
+
+        fake.rows[0]["phone"] = "+7 8442 11-22-33"
+        fake.rows[0]["legal_address"] = "400007, Волгоград, новый адрес"
+        self.service.sync_counterparties(user_id=1)
+
+        crm_rows = self.db.list_crm_clients()
+        self.assertEqual(len(crm_rows), 1)
+        self.assertEqual(crm_rows[0]["phone"], "+7 8442 11-22-33")
+        self.assertEqual(crm_rows[0]["legal_address"], "400007, Волгоград, новый адрес")
+
+        clients = [client for client in self.service.list_clients() if client["inn"] == "340301024150"]
+        self.assertEqual(len(clients), 1)
+        self.assertEqual(clients[0]["source"], "local")
+        self.assertEqual(clients[0]["bank_account"], "40802810226110001854")
+        self.assertTrue(clients[0]["is_linked_to_onec"])
 
     def test_onec_error_keeps_local_client_and_retry_does_not_duplicate(self) -> None:
         failing = FailingOneCClient()

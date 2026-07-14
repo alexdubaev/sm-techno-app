@@ -636,6 +636,14 @@ class WebDatabase(Database):
             row = conn.execute(query, params).fetchone()
         return dict(row) if row else None
 
+    def get_crm_client_by_counterparty_id(self, counterparty_id: int) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                self._crm_client_select() + " WHERE linked_counterparty_id = ? ORDER BY id LIMIT 1",
+                (counterparty_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
     def create_crm_client_card(self, values: dict[str, Any]) -> dict[str, Any]:
         document_name = str(values.get("document_name") or "").strip()
         if not document_name:
@@ -714,6 +722,158 @@ class WebDatabase(Database):
                 (int(cursor.lastrowid),),
             ).fetchone()
         return dict(row)
+
+    def upsert_crm_clients_from_counterparties(self, records: list[dict[str, Any]]) -> int:
+        now = utc_now()
+        synced_count = 0
+        with self.transaction() as conn:
+            for record in records:
+                onec_key = str(record.get("onec_key") or "").strip()
+                if not onec_key:
+                    continue
+                counterparty = conn.execute(
+                    "SELECT id FROM counterparties WHERE onec_key = ?",
+                    (onec_key,),
+                ).fetchone()
+                if not counterparty:
+                    continue
+
+                counterparty_id = int(counterparty["id"])
+                document_name = str(record.get("document_name") or record.get("name") or "").strip()
+                if not document_name:
+                    continue
+
+                legal_type = str(record.get("legal_type") or "legal_entity")
+                full_name = str(record.get("full_name") or document_name).strip()
+                signer_position = str(record.get("signer_position") or "").strip()
+                signer_name = str(record.get("signer_name") or "").strip()
+                signer_basis = str(record.get("signer_basis") or "").strip()
+                if legal_type == "individual_entrepreneur":
+                    if not signer_position:
+                        signer_position = "Индивидуальный предприниматель"
+                    if not signer_name:
+                        signer_name = document_name.removeprefix("ИП ").strip() or full_name.removeprefix("ИП ").strip()
+
+                values = (
+                    document_name,
+                    legal_type,
+                    document_name,
+                    full_name,
+                    record.get("inn") or None,
+                    record.get("kpp") if record.get("kpp") is not None else None,
+                    1 if record.get("is_buyer", True) else 0,
+                    1 if record.get("is_supplier") else 0,
+                    1 if record.get("is_inactive") else 0,
+                    record.get("bank_name_or_bik") or None,
+                    record.get("bank_name") or None,
+                    record.get("bank_bik") or None,
+                    record.get("bank_account") or None,
+                    record.get("correspondent_account") or None,
+                    record.get("contact_person") or None,
+                    record.get("email") or None,
+                    record.get("email_note") or None,
+                    record.get("phone") or None,
+                    record.get("phone_note") or None,
+                    record.get("legal_address") or None,
+                    record.get("actual_address") or None,
+                    record.get("ogrn") or None,
+                    signer_position or None,
+                    signer_name or None,
+                    signer_basis or None,
+                    record.get("notes") or None,
+                    counterparty_id,
+                    "synced",
+                    None,
+                    now,
+                    now,
+                )
+
+                existing = conn.execute(
+                    "SELECT id FROM crm_clients WHERE linked_counterparty_id = ? ORDER BY id LIMIT 1",
+                    (counterparty_id,),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        """
+                        UPDATE crm_clients
+                        SET name = ?,
+                            legal_type = ?,
+                            document_name = ?,
+                            full_name = ?,
+                            inn = ?,
+                            kpp = ?,
+                            is_buyer = ?,
+                            is_supplier = ?,
+                            is_inactive = ?,
+                            bank_name_or_bik = ?,
+                            bank_name = ?,
+                            bank_bik = ?,
+                            bank_account = ?,
+                            correspondent_account = ?,
+                            contact_person = ?,
+                            email = ?,
+                            email_note = ?,
+                            phone = ?,
+                            phone_note = ?,
+                            legal_address = ?,
+                            actual_address = ?,
+                            ogrn = ?,
+                            signer_position = ?,
+                            signer_name = ?,
+                            signer_basis = ?,
+                            notes = ?,
+                            linked_counterparty_id = ?,
+                            sync_status = ?,
+                            sync_error = ?,
+                            onec_synced_at = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (*values, int(existing["id"])),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO crm_clients(
+                            name,
+                            legal_type,
+                            document_name,
+                            full_name,
+                            inn,
+                            kpp,
+                            is_buyer,
+                            is_supplier,
+                            is_inactive,
+                            bank_name_or_bik,
+                            bank_name,
+                            bank_bik,
+                            bank_account,
+                            correspondent_account,
+                            contact_person,
+                            email,
+                            email_note,
+                            phone,
+                            phone_note,
+                            legal_address,
+                            actual_address,
+                            ogrn,
+                            signer_position,
+                            signer_name,
+                            signer_basis,
+                            notes,
+                            linked_counterparty_id,
+                            sync_status,
+                            sync_error,
+                            onec_synced_at,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (*values, now),
+                    )
+                synced_count += 1
+        return synced_count
 
     def update_crm_client_sync_state(
         self,

@@ -200,6 +200,85 @@ class OneCCounterpartyPayloadTest(unittest.TestCase):
         self.assertEqual(bank_posts[0]["Owner"], "counterparty-ref")
         self.assertEqual(bank_posts[0]["Owner_Type"], f"StandardODATA.{CP}")
 
+    def test_list_counterparties_reads_contact_info_and_default_bank_account(self) -> None:
+        class RichReadOneCClient(FakeODataOneCClient):
+            def _request(
+                self,
+                method: str,
+                endpoint_or_url: str,
+                payload: dict[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                self.calls.append((method, endpoint_or_url, payload))
+                decoded_endpoint = unquote(endpoint_or_url)
+                if method == "GET" and (
+                    endpoint_or_url.startswith(f"{CP}?") or f"/{CP}?" in decoded_endpoint
+                ):
+                    return {
+                        "value": [
+                            {
+                                "Ref_Key": "counterparty-ref",
+                                "Description": "ИП Кочкин Александр Александрович",
+                                "НаименованиеПолное": "ИП Кочкин Александр Александрович",
+                                "ЮридическоеФизическоеЛицо": "ИндивидуальныйПредприниматель",
+                                "ИНН": "340301024150",
+                                "КПП": "",
+                                "Покупатель": True,
+                                "Поставщик": False,
+                                "Недействителен": False,
+                                "Комментарий": "Любая дополнительная информация",
+                                BANK_DEFAULT_KEY: "bank-account-ref",
+                                CONTACT_INFO: [
+                                    {KIND_KEY: "phone-kind", PRESENTATION: "+7 8442 00-00-00"},
+                                    {KIND_KEY: "email-kind", PRESENTATION: "kochkin@example.ru"},
+                                    {KIND_KEY: "legal-address-kind", PRESENTATION: "400007, Волгоградская область"},
+                                    {KIND_KEY: "actual-address-kind", PRESENTATION: "400007, г. Волгоград"},
+                                ],
+                            }
+                        ]
+                    }
+                if method == "GET" and endpoint_or_url.startswith(CONTACT_KINDS):
+                    for predefined, (ref_key, contact_type) in CONTACT_KIND_REFS.items():
+                        if predefined in decoded_endpoint:
+                            return {"value": [{"Ref_Key": ref_key, TYPE: contact_type, PREDEF_NAME: predefined}]}
+                    return {"value": []}
+                if method == "GET" and endpoint_or_url.startswith(f"{BANK_ACCOUNTS}(guid'bank-account-ref')"):
+                    return {
+                        "Ref_Key": "bank-account-ref",
+                        ACCOUNT_NUMBER: "40802810226110001854",
+                        BANK_KEY: "bank-ref",
+                    }
+                if method == "GET" and endpoint_or_url.startswith(f"{BANKS}(guid'bank-ref')"):
+                    return {
+                        "Ref_Key": "bank-ref",
+                        "Description": 'ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"',
+                        "Code": "046015207",
+                        "КоррСчет": "30101810500000000207",
+                    }
+                return super()._request(method, endpoint_or_url, payload)
+
+        client = RichReadOneCClient()
+
+        rows = client.list_counterparties()
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["onec_key"], "counterparty-ref")
+        self.assertEqual(row["legal_type"], "individual_entrepreneur")
+        self.assertEqual(row["inn"], "340301024150")
+        self.assertEqual(row["kpp"], "")
+        self.assertEqual(row["is_buyer"], True)
+        self.assertEqual(row["is_supplier"], False)
+        self.assertEqual(row["bank_name_or_bik"], "046015207")
+        self.assertEqual(row["bank_name"], 'ФИЛИАЛ "РОСТОВСКИЙ" АО "АЛЬФА-БАНК"')
+        self.assertEqual(row["bank_bik"], "046015207")
+        self.assertEqual(row["bank_account"], "40802810226110001854")
+        self.assertEqual(row["correspondent_account"], "30101810500000000207")
+        self.assertEqual(row["phone"], "+7 8442 00-00-00")
+        self.assertEqual(row["email"], "kochkin@example.ru")
+        self.assertEqual(row["legal_address"], "400007, Волгоградская область")
+        self.assertEqual(row["actual_address"], "400007, г. Волгоград")
+        self.assertEqual(row["notes"], "Любая дополнительная информация")
+
 
 if __name__ == "__main__":
     unittest.main()

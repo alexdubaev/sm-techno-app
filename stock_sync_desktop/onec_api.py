@@ -263,6 +263,34 @@ class OneCClient:
         return None
 
     @staticmethod
+    def _first_row_value(row: dict[str, Any], candidates: list[str], default: Any = "") -> Any:
+        for candidate in candidates:
+            value = row.get(candidate)
+            if value not in (None, ""):
+                return value
+        return default
+
+    @staticmethod
+    def _normalize_bool(value: Any, default: bool = False) -> bool:
+        if value in (None, ""):
+            return default
+        if isinstance(value, bool):
+            return value
+        normalized = str(value).strip().lower()
+        if normalized in {"true", "1", "yes", "да", "истина"}:
+            return True
+        if normalized in {"false", "0", "no", "нет", "ложь"}:
+            return False
+        return default
+
+    @staticmethod
+    def _normalize_counterparty_legal_type(value: Any) -> str:
+        normalized = str(value or "").strip().lower()
+        if "предприним" in normalized or normalized in {"ип", "individual_entrepreneur"}:
+            return "individual_entrepreneur"
+        return "legal_entity"
+
+    @staticmethod
     def _xml_contact_info(contact_type: str, presentation: str) -> str:
         root_attrs = (
             ' xmlns="http://www.v8.1c.ru/ssl/contactinfo"'
@@ -527,6 +555,129 @@ class OneCClient:
             raise OneCClientError("1С не вернула Ref_Key созданного банковского счета.")
         return created_ref
 
+    def _fetch_entity_by_ref(self, entity_set_name: str, ref_key: str) -> dict[str, Any]:
+        normalized_ref = str(ref_key or "").strip()
+        if not normalized_ref:
+            return {}
+        try:
+            return self._request("GET", f"{entity_set_name}(guid'{normalized_ref}')?$format=json")
+        except OneCClientError:
+            return {}
+
+    def _extract_counterparty_contact_values(self, row: dict[str, Any]) -> dict[str, str]:
+        contact_rows = row.get("КонтактнаяИнформация") or []
+        if not isinstance(contact_rows, list) or not contact_rows:
+            return {}
+
+        kind_to_field: dict[str, str] = {}
+        for predefined_name, field_name in (
+            ("ТелефонКонтрагента", "phone"),
+            ("EmailКонтрагента", "email"),
+            ("ЮрАдресКонтрагента", "legal_address"),
+            ("ФактАдресКонтрагента", "actual_address"),
+        ):
+            try:
+                kind = self._find_contact_kind(predefined_name)
+            except OneCClientError:
+                kind = None
+            ref_key = str((kind or {}).get("Ref_Key") or "").strip()
+            if ref_key:
+                kind_to_field[ref_key] = field_name
+
+        values: dict[str, str] = {}
+        for contact_row in contact_rows:
+            if not isinstance(contact_row, dict):
+                continue
+            kind_key = str(contact_row.get("Вид_Key") or "").strip()
+            field_name = kind_to_field.get(kind_key)
+            contact_type = str(contact_row.get("Тип") or "").strip()
+            if not field_name:
+                if contact_type == "Телефон":
+                    field_name = "phone"
+                elif contact_type == "АдресЭлектроннойПочты":
+                    field_name = "email"
+                elif contact_type == "Адрес" and "legal_address" not in values:
+                    field_name = "legal_address"
+            if not field_name or field_name in values:
+                continue
+
+            presentation = str(
+                contact_row.get("Представление")
+                or contact_row.get("АдресЭП")
+                or contact_row.get("НомерТелефона")
+                or ""
+            ).strip()
+            if not presentation:
+                raw_value = contact_row.get("Значение")
+                if isinstance(raw_value, str) and raw_value.strip():
+                    try:
+                        parsed = json.loads(raw_value)
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    if isinstance(parsed, dict):
+                        presentation = str(parsed.get("value") or "").strip()
+            if presentation:
+                values[field_name] = presentation
+        return values
+
+    def _extract_counterparty_bank_values(self, row: dict[str, Any]) -> dict[str, str]:
+        account_key = str(
+            row.get("БанковскийСчетПоУмолчанию_Key")
+            or row.get("ОсновнойБанковскийСчет_Key")
+            or ""
+        ).strip()
+        if not account_key:
+            return {}
+
+        account = self._fetch_entity_by_ref("Catalog_БанковскиеСчета", account_key)
+        if not account:
+            return {}
+        bank_key = str(account.get("Банк_Key") or "").strip()
+        bank = self._fetch_entity_by_ref("Catalog_КлассификаторБанков", bank_key) if bank_key else {}
+        bank_bik = str(bank.get("Code") or bank.get("БИК") or "").strip()
+        bank_name = str(bank.get("Description") or bank.get("Наименование") or "").strip()
+        account_number = str(
+            account.get("НомерСчета")
+            or account.get("РасчетныйСчет")
+            or account.get("Description")
+            or ""
+        ).strip()
+        correspondent_account = str(account.get("КоррСчет") or bank.get("КоррСчет") or "").strip()
+
+        return {
+            "bank_name_or_bik": bank_bik or bank_name,
+            "bank_name": bank_name,
+            "bank_bik": bank_bik,
+            "bank_account": account_number,
+            "correspondent_account": correspondent_account,
+        }
+
+    def _format_counterparty_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        name = self._first_row_value(row, ["Description", "НаименованиеПолное"], "Без названия")
+        full_name = self._first_row_value(row, ["НаименованиеПолное", "ПолноеНаименование", "Description"], name)
+        legal_type_value = self._first_row_value(
+            row,
+            ["ЮридическоеФизическоеЛицо", "ЮрФизЛицо", "ВидКонтрагента", "Вид"],
+            "ЮридическоеЛицо",
+        )
+        result: dict[str, Any] = {
+            "onec_key": row["Ref_Key"],
+            "name": name,
+            "document_name": name,
+            "full_name": full_name,
+            "legal_type": self._normalize_counterparty_legal_type(legal_type_value),
+            "inn": row.get("ИНН") or "",
+            "kpp": row.get("КПП") or "",
+            "is_buyer": self._normalize_bool(self._first_row_value(row, ["Покупатель", "Клиент"], True), True),
+            "is_supplier": self._normalize_bool(row.get("Поставщик"), False),
+            "is_inactive": self._normalize_bool(self._first_row_value(row, ["Недействителен", "ПометкаУдаления"], False), False),
+            "notes": self._first_row_value(row, ["Комментарий", "Заметки", "ДополнительнаяИнформация"], ""),
+            "ogrn": self._first_row_value(row, ["ОГРН", "ОГРНИП", "РегистрационныйНомер"], ""),
+        }
+        result.update(self._extract_counterparty_contact_values(row))
+        result.update(self._extract_counterparty_bank_values(row))
+        return result
+
     def _build_counterparty_update_payload(self, ref_key: str, card: dict[str, Any]) -> dict[str, Any]:
         core_payload = self._build_counterparty_payload(card, include_extra_fields=False)
         extra_payload = self._build_counterparty_payload(card, include_extra_fields=True, ref_key=ref_key)
@@ -542,15 +693,7 @@ class OneCClient:
     def list_counterparties(self) -> list[dict[str, Any]]:
         result = []
         for row in self._collect_all("Catalog_Контрагенты"):
-            result.append(
-                {
-                    "onec_key": row["Ref_Key"],
-                    "name": row.get("Description") or row.get("НаименованиеПолное") or "Без названия",
-                    "full_name": row.get("НаименованиеПолное") or row.get("Description"),
-                    "inn": row.get("ИНН"),
-                    "kpp": row.get("КПП"),
-                }
-            )
+            result.append(self._format_counterparty_row(row))
         return result
 
     def find_counterparty_by_inn(self, inn: str) -> dict[str, Any] | None:

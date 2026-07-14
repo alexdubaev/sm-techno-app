@@ -257,7 +257,10 @@ class WebStockSyncService:
             onec_username=onec_username,
             onec_password=onec_password,
         )
-        return self.db.upsert_counterparties(client.list_counterparties())
+        rows = client.list_counterparties()
+        count = self.db.upsert_counterparties(rows)
+        self.db.upsert_crm_clients_from_counterparties(rows)
+        return count
 
     def sync_contracts(
         self,
@@ -514,6 +517,12 @@ class WebStockSyncService:
         return self.db.list_organizations()
 
     def list_clients(self) -> list[dict[str, Any]]:
+        local_rows = self.db.list_crm_clients()
+        linked_counterparty_ids = {
+            int(row["linked_counterparty_id"])
+            for row in local_rows
+            if row.get("linked_counterparty_id")
+        }
         onec_clients = [
             {
                 "source": "onec",
@@ -552,6 +561,7 @@ class WebStockSyncService:
                 "is_linked_to_onec": True,
             }
             for row in self.db.list_counterparties()
+            if int(row["id"]) not in linked_counterparty_ids
         ]
         local_clients = [
             {
@@ -590,7 +600,7 @@ class WebStockSyncService:
                 "onec_synced_at": row.get("onec_synced_at") or "",
                 "is_linked_to_onec": bool(row.get("linked_counterparty_id")),
             }
-            for row in self.db.list_crm_clients()
+            for row in local_rows
         ]
         return sorted(onec_clients + local_clients, key=lambda row: str(row["name"]).lower())
 
