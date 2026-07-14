@@ -15,6 +15,8 @@ import type { CommercialOffer, CrmClient, GeneratedDocument } from "@/lib/types"
 
 type DocumentType = GeneratedDocument["documentType"];
 
+const SIGNER_POSITION_OPTIONS = ["Директор", "Генеральный директор"];
+
 const REQUIRED_FIELDS: Record<DocumentType, Array<keyof CrmClient>> = {
   contract: [
     "documentName",
@@ -66,6 +68,7 @@ export default function DocumentsPage() {
   const [clientValue, setClientValue] = useState("");
   const [clientSearch, setClientSearch] = useState("");
   const [commercialOfferId, setCommercialOfferId] = useState("");
+  const [signerPosition, setSignerPosition] = useState("");
   const [notes, setNotes] = useState("");
   const [clients, setClients] = useState<CrmClient[]>([]);
   const [offers, setOffers] = useState<CommercialOffer[]>([]);
@@ -81,6 +84,7 @@ export default function DocumentsPage() {
         if (loadedClients[0]) {
           setClientValue(buildClientValue(loadedClients[0]));
           setClientSearch(formatClientSearchValue(loadedClients[0]));
+          setSignerPosition(loadedClients[0].signerPosition || "");
         }
       })
       .catch((requestError: unknown) => {
@@ -108,8 +112,11 @@ export default function DocumentsPage() {
     if (!selectedClient) {
       return [];
     }
-    return REQUIRED_FIELDS[documentType].filter((field) => !String(selectedClient[field] ?? "").trim());
-  }, [documentType, selectedClient]);
+    return REQUIRED_FIELDS[documentType].filter((field) => {
+      const value = field === "signerPosition" ? signerPosition : selectedClient[field];
+      return !String(value ?? "").trim();
+    });
+  }, [documentType, selectedClient, signerPosition]);
 
   function handleOfferChange(value: string) {
     setCommercialOfferId(value);
@@ -119,6 +126,7 @@ export default function DocumentsPage() {
     if (offerClient) {
       setClientValue(offerClientValue);
       setClientSearch(formatClientSearchValue(offerClient));
+      setSignerPosition(offerClient.signerPosition || "");
     }
   }
 
@@ -126,12 +134,14 @@ export default function DocumentsPage() {
     setClientSearch(value);
     if (!selectedClient || value !== formatClientSearchValue(selectedClient)) {
       setClientValue("");
+      setSignerPosition("");
     }
   }
 
   function handleClientSelect(client: CrmClient) {
     setClientValue(buildClientValue(client));
     setClientSearch(formatClientSearchValue(client));
+    setSignerPosition(client.signerPosition || "");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -156,6 +166,7 @@ export default function DocumentsPage() {
         documentDate,
         ...clientPayload,
         commercialOfferId: documentType === "specification" ? Number(commercialOfferId) : null,
+        signerPosition: signerPosition.trim(),
         notes: notes.trim(),
       });
       await downloadDocumentFile(document.id);
@@ -333,7 +344,7 @@ export default function DocumentsPage() {
               <MetaRow label="Расчетный счет" value={selectedClient?.bankAccount || "-"} />
               <MetaRow label="БИК" value={selectedClient?.bankBik || (isBik(selectedClient?.bankNameOrBik) ? (selectedClient?.bankNameOrBik ?? "-") : "-")} />
               <MetaRow label="Корр. счет" value={selectedClient?.correspondentAccount || "-"} />
-              <MetaRow label="Должность" value={selectedClient?.signerPosition || "-"} />
+              <SignerPositionSelect label="Должность" signerPosition={signerPosition} setSignerPosition={setSignerPosition} />
               <MetaRow label="Подписант" value={selectedClient?.signerName || "-"} />
               {documentType === "specification" ? (
                 <MetaRow label="КП" value={selectedOffer ? `${selectedOffer.number} · ${formatMoney(selectedOffer.totalAmount)}` : "-"} />
@@ -408,6 +419,37 @@ function resolveClientPayload(clientValue: string): { clientSource: "onec" | "lo
 
 function isBik(value: string | null | undefined) {
   return /^\d{9}$/.test(String(value ?? "").trim());
+}
+
+function SignerPositionSelect({
+  label,
+  setSignerPosition,
+  signerPosition,
+}: {
+  label: string;
+  setSignerPosition: (value: string) => void;
+  signerPosition: string;
+}) {
+  return (
+    <label className="block rounded-[10px] bg-[var(--page-bg)] px-2.5 py-1.5">
+      <span className="text-[9px] font-semibold uppercase tracking-[0.05em]">{label}</span>
+      <select
+        value={signerPosition}
+        onChange={(event) => setSignerPosition(event.target.value)}
+        className="mt-1 h-[30px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[11px] font-medium text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+      >
+        <option value="">Выберите должность</option>
+        {signerPosition && !SIGNER_POSITION_OPTIONS.includes(signerPosition) ? (
+          <option value={signerPosition}>{signerPosition}</option>
+        ) : null}
+        {SIGNER_POSITION_OPTIONS.map((position) => (
+          <option key={position} value={position}>
+            {position}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
 function MetaRow({ label, value }: { label: string; value: string }) {

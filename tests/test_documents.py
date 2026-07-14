@@ -312,6 +312,39 @@ class DocumentApiTest(unittest.TestCase):
             download_response.headers["content-disposition"],
         )
 
+    def test_contract_uses_signer_position_selected_in_generator(self) -> None:
+        crm_client = self.db.create_crm_client_card(
+            {
+                **VALID_CLIENT_CARD,
+                "signer_position": "",
+                "signer_name": "Ivan Ivanov",
+                "signer_basis": "Charter",
+            }
+        )
+
+        response = self.client.post(
+            "/api/documents",
+            json={
+                "documentType": "contract",
+                "number": "D-43",
+                "documentDate": "2026-07-14",
+                "clientSource": "local",
+                "clientId": int(crm_client["id"]),
+                "commercialOfferId": None,
+                "signerPosition": "Генеральный директор",
+                "notes": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        document_payload = response.json()["document"]
+        self.assertNotIn("signer_position", document_payload["missingFields"])
+
+        download_response = self.client.get(f"/api/documents/{document_payload['id']}/download")
+        self.assertEqual(download_response.status_code, 200)
+        text = read_docx_text(BytesIO(download_response.content))
+        self.assertIn("Генеральный директор Ivan Ivanov", text)
+
 
 def create_contract_template(path: Path) -> None:
     document = Document()

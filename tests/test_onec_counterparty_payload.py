@@ -396,6 +396,99 @@ class OneCCounterpartyPayloadTest(unittest.TestCase):
         self.assertEqual(row["signer_position"], "Генеральный директор")
         self.assertEqual(row["signer_basis"], "Устава")
 
+    def test_list_counterparties_reads_contact_person_position_fields(self) -> None:
+        class ContactPositionFieldsOneCClient(FakeODataOneCClient):
+            def _request(
+                self,
+                method: str,
+                endpoint_or_url: str,
+                payload: dict[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                self.calls.append((method, endpoint_or_url, payload))
+                decoded_endpoint = unquote(endpoint_or_url)
+                if method == "GET" and (
+                    endpoint_or_url.startswith(f"{CP}?") or f"/{CP}?" in decoded_endpoint
+                ):
+                    return {
+                        "value": [
+                            {
+                                "Ref_Key": "counterparty-ref",
+                                "Description": "АГРОЗУМ ООО",
+                                "НаименованиеПолное": 'ООО "АГРОЗУМ"',
+                                "ЮридическоеФизическоеЛицо": "ЮридическоеЛицо",
+                                "ИНН": "9713019723",
+                                "КПП": "771301001",
+                                "ОсновноеКонтактноеЛицо": "Столяров Сергей Михайлович",
+                                "ДолжностьОсновногоКонтактногоЛица": "Генеральный директор",
+                                CONTACT_INFO: [],
+                            }
+                        ]
+                    }
+                if method == "GET" and endpoint_or_url.startswith(CONTACT_KINDS):
+                    return {"value": []}
+                return super()._request(method, endpoint_or_url, payload)
+
+        client = ContactPositionFieldsOneCClient()
+
+        rows = client.list_counterparties()
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["signer_name"], "Столяров Сергей Михайлович")
+        self.assertEqual(row["signer_position"], "Генеральный директор")
+
+    def test_list_counterparties_reads_position_from_partner_contact_ref(self) -> None:
+        class PartnerContactRefOneCClient(FakeODataOneCClient):
+            def _request(
+                self,
+                method: str,
+                endpoint_or_url: str,
+                payload: dict[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                self.calls.append((method, endpoint_or_url, payload))
+                decoded_endpoint = unquote(endpoint_or_url)
+                if method == "GET" and (
+                    endpoint_or_url.startswith(f"{CP}?") or f"/{CP}?" in decoded_endpoint
+                ):
+                    return {
+                        "value": [
+                            {
+                                "Ref_Key": "counterparty-ref",
+                                "Description": "АГРОЗУМ ООО",
+                                "НаименованиеПолное": 'ООО "АГРОЗУМ"',
+                                "ЮридическоеФизическоеЛицо": "ЮридическоеЛицо",
+                                "ИНН": "9713019723",
+                                "КПП": "771301001",
+                                "ОсновноеКонтактноеЛицо_Key": "contact-ref",
+                                CONTACT_INFO: [],
+                            }
+                        ]
+                    }
+                if method == "GET" and endpoint_or_url.startswith("Catalog_КонтактныеЛицаПартнеров(guid'contact-ref')"):
+                    return {
+                        "Ref_Key": "contact-ref",
+                        "Description": "Столяров Сергей Михайлович",
+                        "ДолжностьПоВизитке": "Генеральный директор",
+                    }
+                if method == "GET" and (
+                    endpoint_or_url.startswith("Catalog_КонтактныеЛица")
+                    or endpoint_or_url.startswith("Catalog_КонтактныеЛицаКонтрагентов")
+                    or endpoint_or_url.startswith("Catalog_ФизическиеЛица")
+                ):
+                    return {}
+                if method == "GET" and endpoint_or_url.startswith(CONTACT_KINDS):
+                    return {"value": []}
+                return super()._request(method, endpoint_or_url, payload)
+
+        client = PartnerContactRefOneCClient()
+
+        rows = client.list_counterparties()
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["signer_name"], "Столяров Сергей Михайлович")
+        self.assertEqual(row["signer_position"], "Генеральный директор")
+
     def test_list_counterparties_extracts_bik_from_bank_presentation_and_infers_ip(self) -> None:
         class BankPresentationOneCClient(FakeODataOneCClient):
             def _request(

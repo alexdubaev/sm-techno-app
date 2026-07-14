@@ -1080,6 +1080,7 @@ class WebStockSyncService:
         client_id: int | None,
         commercial_offer_id: int | None,
         notes: str,
+        signer_position: str,
         created_by_user_id: int,
         is_admin: bool,
     ) -> dict[str, Any]:
@@ -1094,6 +1095,10 @@ class WebStockSyncService:
 
         normalized_date = str(document_date or "").strip()[:10] or date.today().isoformat()
         client = self._resolve_document_client(client_source=client_source, client_id=client_id)
+        client_data = dict(client["client"])
+        signer_position = str(signer_position or "").strip()
+        if signer_position:
+            client_data["signer_position"] = signer_position
         lines: list[DocumentLineInput] = []
         linked_offer_id = commercial_offer_id
         if normalized_type == "specification":
@@ -1107,7 +1112,7 @@ class WebStockSyncService:
             lines = self._commercial_offer_lines_to_document_lines(offer_bundle["lines"])
 
         context = build_document_context(
-            client=client["client"],
+            client=client_data,
             document_number=document_number,
             document_date=normalized_date,
             lines=lines,

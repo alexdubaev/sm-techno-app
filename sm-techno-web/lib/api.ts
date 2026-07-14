@@ -159,6 +159,7 @@ export type CreateDocumentPayload = {
   clientSource: "onec" | "local";
   clientId: number;
   commercialOfferId?: number | null;
+  signerPosition?: string;
   notes?: string;
 };
 

@@ -1043,6 +1043,7 @@ def create_document(
                 payload.get("commercialOfferId") or payload.get("commercial_offer_id")
             ),
             notes=str(payload.get("notes") or "").strip(),
+            signer_position=str(payload.get("signerPosition") or payload.get("signer_position") or "").strip(),
             created_by_user_id=int(current_user["id"]),
             is_admin=str(current_user.get("role") or "") == "admin",
         )

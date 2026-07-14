@@ -47,7 +47,17 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
 
         self.assertIn('label="Должность"', source)
-        self.assertIn("selectedClient?.signerPosition", source)
+        self.assertIn("SignerPositionSelect", source)
+        self.assertIn("signerPosition={signerPosition}", source)
+
+    def test_documents_generator_uses_signer_position_select(self) -> None:
+        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("SIGNER_POSITION_OPTIONS", source)
+        self.assertIn('"Директор"', source)
+        self.assertIn('"Генеральный директор"', source)
+        self.assertIn('value={signerPosition}', source)
+        self.assertIn('onChange={(event) => setSignerPosition(event.target.value)}', source)
 
     def test_sidebar_places_journal_inside_documents_section(self) -> None:
         source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
