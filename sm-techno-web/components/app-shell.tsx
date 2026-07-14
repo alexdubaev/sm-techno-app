@@ -65,7 +65,18 @@ const navGroups: NavGroup[] = [
   {
     label: "Документы",
     items: [
-      { href: "/documents", label: "Документы", Icon: DocumentIcon },
+      {
+        href: "/documents",
+        label: "Документы",
+        Icon: DocumentIcon,
+        isActive: (path) => path === "/documents",
+      },
+    ],
+  },
+  {
+    label: "Журнал",
+    items: [
+      { href: "/documents/journal", label: "Журнал документов", Icon: ClipboardIcon },
     ],
   },
   {

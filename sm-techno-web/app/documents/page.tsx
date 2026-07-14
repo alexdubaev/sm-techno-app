@@ -1,104 +1,163 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { AppShell } from "@/components/app-shell";
 import {
-  ResizableTableHeader,
-  useResizableColumns,
-  type ResizableColumnConfig,
-} from "@/components/resizable-table";
-import { downloadDocumentFile, fetchDocuments } from "@/lib/api";
-import type { GeneratedDocument } from "@/lib/types";
+  createDocument,
+  downloadDocumentFile,
+  fetchClients,
+  fetchCommercialOffers,
+} from "@/lib/api";
+import type { CommercialOffer, CrmClient, GeneratedDocument } from "@/lib/types";
 
-const DOCUMENTS_TABLE_COLUMNS: ResizableColumnConfig[] = [
-  { key: "type", width: 132, minWidth: 112, maxWidth: 180 },
-  { key: "number", width: 132, minWidth: 104, maxWidth: 190 },
-  { key: "date", width: 98, minWidth: 86, maxWidth: 140 },
-  { key: "client", width: 320, minWidth: 220, maxWidth: 520 },
-  { key: "offer", width: 94, minWidth: 78, maxWidth: 130 },
-  { key: "warnings", width: 170, minWidth: 130, maxWidth: 260 },
-  { key: "author", width: 156, minWidth: 120, maxWidth: 240 },
-  { key: "created", width: 124, minWidth: 106, maxWidth: 180 },
-  { key: "actions", width: 124, minWidth: 104, maxWidth: 170 },
-];
+type DocumentType = GeneratedDocument["documentType"];
+
+const REQUIRED_FIELDS: Record<DocumentType, Array<keyof CrmClient>> = {
+  contract: [
+    "documentName",
+    "inn",
+    "kpp",
+    "ogrn",
+    "legalAddress",
+    "bankAccount",
+    "signerPosition",
+    "signerName",
+    "signerBasis",
+  ],
+  specification: [
+    "documentName",
+    "inn",
+    "legalAddress",
+    "bankAccount",
+    "signerName",
+    "signerBasis",
+  ],
+};
+
+const FIELD_LABELS: Partial<Record<keyof CrmClient, string>> = {
+  bankAccount: "расчетный счет",
+  documentName: "наименование",
+  inn: "ИНН",
+  kpp: "КПП",
+  legalAddress: "юридический адрес",
+  ogrn: "ОГРН",
+  signerBasis: "основание подписанта",
+  signerName: "ФИО подписанта",
+  signerPosition: "должность подписанта",
+};
 
 export default function DocumentsPage() {
-  const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
+  const router = useRouter();
+  const [documentType, setDocumentType] = useState<DocumentType>("contract");
+  const [number, setNumber] = useState("");
+  const [documentDate, setDocumentDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [clientValue, setClientValue] = useState("");
+  const [commercialOfferId, setCommercialOfferId] = useState("");
+  const [notes, setNotes] = useState("");
+  const [clients, setClients] = useState<CrmClient[]>([]);
+  const [offers, setOffers] = useState<CommercialOffer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { containerRef, getWidth, onResizeStart, tableWidth } = useResizableColumns(
-    "sm-techno-documents-table-widths-v1",
-    DOCUMENTS_TABLE_COLUMNS,
-  );
 
   useEffect(() => {
-    void loadDocuments();
+    void Promise.all([fetchClients(), fetchCommercialOffers()])
+      .then(([loadedClients, loadedOffers]) => {
+        setClients(loadedClients);
+        setOffers(loadedOffers);
+        if (loadedClients[0]) {
+          setClientValue(buildClientValue(loadedClients[0]));
+        }
+      })
+      .catch((requestError: unknown) => {
+        setError(getErrorMessage(requestError, "Не удалось загрузить клиентов и КП."));
+      })
+      .finally(() => setIsLoading(false));
   }, []);
 
-  const summary = useMemo(() => {
-    const contracts = documents.filter((document) => document.documentType === "contract").length;
-    const specifications = documents.filter((document) => document.documentType === "specification").length;
-    const warnings = documents.filter((document) => document.missingFields.length > 0).length;
-    return { total: documents.length, contracts, specifications, warnings };
-  }, [documents]);
+  const selectedClient = useMemo(
+    () => clients.find((client) => buildClientValue(client) === clientValue) ?? null,
+    [clientValue, clients],
+  );
+  const selectedOffer = useMemo(
+    () => offers.find((offer) => String(offer.id) === commercialOfferId) ?? null,
+    [commercialOfferId, offers],
+  );
+  const missingFields = useMemo(() => {
+    if (!selectedClient) {
+      return [];
+    }
+    return REQUIRED_FIELDS[documentType].filter((field) => !String(selectedClient[field] ?? "").trim());
+  }, [documentType, selectedClient]);
 
-  async function loadDocuments() {
-    setIsLoading(true);
-    setError(null);
-    try {
-      setDocuments(await fetchDocuments());
-    } catch (requestError: unknown) {
-      setError(getErrorMessage(requestError, "Не удалось загрузить документы."));
-    } finally {
-      setIsLoading(false);
+  function handleOfferChange(value: string) {
+    setCommercialOfferId(value);
+    const offer = offers.find((item) => String(item.id) === value);
+    const offerClientValue = offer ? buildClientValueFromOffer(offer) : "";
+    if (offerClientValue && clients.some((client) => buildClientValue(client) === offerClientValue)) {
+      setClientValue(offerClientValue);
     }
   }
 
-  async function handleDownload(documentId: number) {
-    setDownloadingId(documentId);
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError(null);
+
+    const clientPayload = resolveClientPayload(clientValue);
+    if (!clientPayload) {
+      setError("Выберите клиента.");
+      return;
+    }
+    if (documentType === "specification" && !commercialOfferId) {
+      setError("Для спецификации выберите КП.");
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      await downloadDocumentFile(documentId);
+      const document = await createDocument({
+        documentType,
+        number: number.trim(),
+        documentDate,
+        ...clientPayload,
+        commercialOfferId: documentType === "specification" ? Number(commercialOfferId) : null,
+        notes: notes.trim(),
+      });
+      await downloadDocumentFile(document.id);
+      router.push("/documents/journal");
     } catch (requestError: unknown) {
-      setError(getErrorMessage(requestError, "Не удалось скачать документ."));
+      setError(getErrorMessage(requestError, "Не удалось сформировать документ."));
     } finally {
-      setDownloadingId(null);
+      setIsSubmitting(false);
     }
   }
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-        <header className="flex flex-wrap items-start justify-between gap-1.5">
+      <form
+        onSubmit={(event) => void handleSubmit(event)}
+        className="flex flex-col gap-2 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]"
+      >
+        <header className="flex flex-wrap items-start justify-between gap-2">
           <div>
+            <div className="mb-1">
+              <Link href="/documents/journal" className="text-[10px] font-semibold text-[var(--text-secondary)] transition hover:text-[var(--brand-dark)]">
+                Журнал документов
+              </Link>
+            </div>
             <h1 className="text-[17px] font-[650] leading-none text-[var(--text-primary)]">
-              Документы
+              Сформировать документ
             </h1>
             <p className="mt-0.5 max-w-[72ch] text-[10px] leading-[14px] text-[var(--text-secondary)]">
-              Договоры и спецификации формируются из карточки клиента и сохраняются как редактируемые DOCX-файлы.
+              Данные берутся из карточки клиента. Спецификация дополнительно использует строки выбранного КП.
             </p>
           </div>
-
-          <div className="flex flex-wrap items-center gap-1">
-            <MetricChip label="Всего" value={String(summary.total)} />
-            <MetricChip label="Договоры" value={String(summary.contracts)} />
-            <MetricChip label="Спецификации" value={String(summary.specifications)} />
-            <MetricChip label="Предупр." value={String(summary.warnings)} tone={summary.warnings > 0 ? "warning" : "default"} />
-            <Link href="/documents/new" className="app-action-button app-action-button--xs">
-              Сформировать
-            </Link>
-            <button
-              type="button"
-              onClick={() => void loadDocuments()}
-              disabled={isLoading}
-              className="app-action-button app-action-button--xs"
-            >
-              {isLoading ? "Обновление..." : "Обновить"}
-            </button>
-          </div>
+          <button type="submit" disabled={isSubmitting || isLoading} className="app-action-button app-action-button--md">
+            {isSubmitting ? "Формируем..." : "Сформировать DOCX"}
+          </button>
         </header>
 
         {error ? (
@@ -107,121 +166,166 @@ export default function DocumentsPage() {
           </div>
         ) : null}
 
-        <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
-          <div className="overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
-            {documents.length === 0 && !isLoading ? (
-              <div className="px-3 py-5 text-[11px] leading-4 text-[var(--text-secondary)]">
-                Журнал пока пуст. Сформируйте первый договор или спецификацию из карточки клиента.
+        <section className="grid gap-2 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]">
+          <div className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
+            <div className="grid gap-2">
+              <label>
+                <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
+                  Тип
+                </span>
+                <select
+                  value={documentType}
+                  onChange={(event) => setDocumentType(event.target.value as DocumentType)}
+                  className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+                >
+                  <option value="contract">Договор</option>
+                  <option value="specification">Спецификация</option>
+                </select>
+              </label>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label>
+                  <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
+                    Номер
+                  </span>
+                  <input
+                    type="text"
+                    value={number}
+                    onChange={(event) => setNumber(event.target.value)}
+                    placeholder="Автонумерация"
+                    className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+                  />
+                </label>
+                <label>
+                  <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
+                    Дата
+                  </span>
+                  <input
+                    type="date"
+                    value={documentDate}
+                    onChange={(event) => setDocumentDate(event.target.value)}
+                    className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+                  />
+                </label>
+              </div>
+
+              <label>
+                <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
+                  Клиент
+                </span>
+                <select
+                  value={clientValue}
+                  onChange={(event) => setClientValue(event.target.value)}
+                  disabled={isLoading}
+                  className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+                >
+                  <option value="">Выберите клиента</option>
+                  {clients.map((client) => (
+                    <option key={buildClientValue(client)} value={buildClientValue(client)}>
+                      {client.source === "onec" ? "1С" : "Локальный"} · {client.documentName || client.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {documentType === "specification" ? (
+                <label>
+                  <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
+                    КП
+                  </span>
+                  <select
+                    value={commercialOfferId}
+                    onChange={(event) => handleOfferChange(event.target.value)}
+                    disabled={isLoading}
+                    className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+                  >
+                    <option value="">Выберите КП</option>
+                    {offers.map((offer) => (
+                      <option key={offer.id} value={offer.id}>
+                        {offer.number} · {offer.clientName} · {formatMoney(offer.totalAmount)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+
+              <label>
+                <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
+                  Заметка
+                </span>
+                <textarea
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  rows={4}
+                  placeholder="Внутренняя заметка к документу"
+                  className="w-full resize-none rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 py-2 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+                />
+              </label>
+            </div>
+          </div>
+
+          <aside className="rounded-[14px] border border-[var(--border-color)] bg-white p-2">
+            <div className="grid gap-1.5 text-[10px] text-[var(--text-secondary)]">
+              <MetaRow label="Клиент" value={selectedClient?.documentName || selectedClient?.name || "-"} />
+              <MetaRow label="ИНН / КПП" value={selectedClient ? `${selectedClient.inn || "-"} / ${selectedClient.kpp || "-"}` : "-"} />
+              <MetaRow label="Адрес" value={selectedClient?.legalAddress || "-"} />
+              <MetaRow label="Банк" value={selectedClient?.bankName || selectedClient?.bankNameOrBik || "-"} />
+              <MetaRow label="Подписант" value={selectedClient?.signerName || "-"} />
+              {documentType === "specification" ? (
+                <MetaRow label="КП" value={selectedOffer ? `${selectedOffer.number} · ${formatMoney(selectedOffer.totalAmount)}` : "-"} />
+              ) : null}
+            </div>
+
+            {missingFields.length > 0 ? (
+              <div className="mt-2 rounded-[12px] border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-[10px] leading-4 text-[#92400E]">
+                Не заполнено в карточке клиента: {missingFields.map((field) => FIELD_LABELS[field] ?? String(field)).join(", ")}. Документ сформируется, но эти места будут пустыми.
               </div>
             ) : (
-              <div ref={containerRef} className="max-h-[calc(100dvh-8rem)] overflow-auto">
-                <table className="min-w-full table-fixed border-collapse" style={{ width: tableWidth }}>
-                  <colgroup>
-                    {DOCUMENTS_TABLE_COLUMNS.map((column) => (
-                      <col key={column.key} style={{ width: getWidth(column.key) }} />
-                    ))}
-                  </colgroup>
-                  <thead className="sticky top-0 z-10 bg-[#FAFBFD] text-left text-[10px] text-[var(--text-secondary)]">
-                    <tr>
-                      <ResizableTableHeader columnKey="type" label="Тип" onResizeStart={onResizeStart} className="px-3 py-2 text-left font-semibold" />
-                      <ResizableTableHeader columnKey="number" label="Номер" onResizeStart={onResizeStart} className="px-3 py-2 text-left font-semibold" />
-                      <ResizableTableHeader columnKey="date" label="Дата" onResizeStart={onResizeStart} className="px-3 py-2 text-left font-semibold" />
-                      <ResizableTableHeader columnKey="client" label="Клиент" onResizeStart={onResizeStart} className="px-3 py-2 text-left font-semibold" />
-                      <ResizableTableHeader columnKey="offer" label="КП" onResizeStart={onResizeStart} className="px-3 py-2 text-right font-semibold" />
-                      <ResizableTableHeader columnKey="warnings" label="Поля" onResizeStart={onResizeStart} className="px-3 py-2 text-left font-semibold" />
-                      <ResizableTableHeader columnKey="author" label="Автор" onResizeStart={onResizeStart} className="px-3 py-2 text-left font-semibold" />
-                      <ResizableTableHeader columnKey="created" label="Создано" onResizeStart={onResizeStart} className="px-3 py-2 text-left font-semibold" />
-                      <ResizableTableHeader columnKey="actions" label="" onResizeStart={onResizeStart} className="px-3 py-2 text-center font-semibold" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {documents.map((document) => (
-                      <tr key={document.id} className="border-t border-[var(--border-color)] text-[10px] text-[var(--text-primary)]">
-                        <td className="px-3 py-1.5">
-                          <TypeBadge type={document.documentType} />
-                        </td>
-                        <td className="px-3 py-1.5 font-semibold tabular-nums">{document.number}</td>
-                        <td className="px-3 py-1.5 text-[var(--text-secondary)]">{formatShortDate(document.documentDate)}</td>
-                        <td className="px-3 py-1.5">
-                          <div className="line-clamp-2 text-[11px] font-medium leading-[15px]">{document.clientName || "-"}</div>
-                          <div className="mt-0.5 text-[9px] text-[var(--text-secondary)]">
-                            {document.clientSource === "onec" ? "Клиент из 1С" : "Локальный клиент"}
-                          </div>
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums text-[var(--text-secondary)]">
-                          {document.commercialOfferId ? `#${document.commercialOfferId}` : "-"}
-                        </td>
-                        <td className="px-3 py-1.5">
-                          {document.missingFields.length > 0 ? (
-                            <span className="line-clamp-2 text-[9px] leading-[12px] text-[#92400E]">
-                              Не заполнено: {document.missingFields.join(", ")}
-                            </span>
-                          ) : (
-                            <span className="text-[9px] text-[#166534]">Готово</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-1.5 text-[var(--text-secondary)]">{document.createdByName || document.createdByUsername || "-"}</td>
-                        <td className="px-3 py-1.5 text-[var(--text-secondary)]">{formatDateTime(document.createdAt)}</td>
-                        <td className="px-3 py-1.5 text-center">
-                          <button
-                            type="button"
-                            onClick={() => void handleDownload(document.id)}
-                            disabled={downloadingId === document.id}
-                            className="app-action-button app-action-button--xs"
-                          >
-                            {downloadingId === document.id ? "..." : "DOCX"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="mt-2 rounded-[12px] border border-[#BFE8D2] bg-[#F0FDF4] px-3 py-2 text-[10px] leading-4 text-[#166534]">
+                Обязательные реквизиты для выбранного шаблона заполнены.
               </div>
             )}
-          </div>
+          </aside>
         </section>
-      </div>
+      </form>
     </AppShell>
   );
 }
 
-function MetricChip({ label, tone = "default", value }: { label: string; tone?: "default" | "warning"; value: string }) {
-  const toneClass = tone === "warning" ? "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]" : "border-[var(--border-color)] bg-[#FBFCFE] text-[var(--text-primary)]";
+function buildClientValue(client: CrmClient) {
+  return `${client.source}:${client.id}`;
+}
+
+function buildClientValueFromOffer(offer: CommercialOffer) {
+  const id = offer.clientSource === "onec" ? offer.counterpartyId : offer.crmClientId;
+  return id ? `${offer.clientSource}:${id}` : "";
+}
+
+function resolveClientPayload(clientValue: string): { clientSource: "onec" | "local"; clientId: number } | null {
+  const [source, rawId] = clientValue.split(":");
+  const id = Number(rawId);
+  if ((source !== "onec" && source !== "local") || !Number.isFinite(id) || id <= 0) {
+    return null;
+  }
+  return { clientSource: source, clientId: id };
+}
+
+function MetaRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className={`rounded-[9px] border px-2.5 py-1.5 ${toneClass}`}>
-      <span className="text-[9px] text-[var(--text-secondary)]">{label}</span>
-      <span className="ml-1.5 text-[11px] font-semibold">{value}</span>
+    <div className="rounded-[10px] bg-[var(--page-bg)] px-2.5 py-1.5">
+      <div className="text-[9px] font-semibold uppercase tracking-[0.05em]">{label}</div>
+      <div className="mt-0.5 break-words text-[11px] font-medium text-[var(--text-primary)]">{value}</div>
     </div>
   );
 }
 
-function TypeBadge({ type }: { type: GeneratedDocument["documentType"] }) {
-  const isContract = type === "contract";
-  return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-semibold ${isContract ? "bg-[#EEF2FF] text-[#3730A3]" : "bg-[var(--brand-light)] text-[var(--brand-dark)]"}`}>
-      {isContract ? "Договор" : "Спецификация"}
-    </span>
-  );
-}
-
-function formatShortDate(value: string) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("ru-RU").format(date);
-}
-
-function formatDateTime(value: string) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-  }).format(date);
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("ru-RU", {
+    currency: "RUB",
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(Number.isFinite(value) ? value : 0);
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
