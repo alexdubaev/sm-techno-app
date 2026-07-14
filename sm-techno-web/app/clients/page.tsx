@@ -12,6 +12,7 @@ import {
   createClient,
   fetchClients,
   sendClientToOneC,
+  syncReferences,
   type ClientSyncResult,
   type CreateClientPayload,
 } from "@/lib/api";
@@ -68,6 +69,7 @@ export default function ClientsPage() {
   const [syncFilter, setSyncFilter] = useState<SyncFilter>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncingReferences, setIsSyncingReferences] = useState(false);
   const [retryingClientId, setRetryingClientId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -105,6 +107,24 @@ export default function ClientsPage() {
       setError(getErrorMessage(requestError, "Не удалось загрузить клиентов."));
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleSyncReferences() {
+    setIsSyncingReferences(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const result = await syncReferences();
+      await loadClients();
+      setNotice(
+        `Справочники 1С обновлены. Контрагентов: ${result.counterparties}, договоров: ${result.contracts}, организаций: ${result.organizations}.`,
+      );
+    } catch (requestError: unknown) {
+      setError(getErrorMessage(requestError, "Не удалось синхронизировать клиентов с 1С."));
+    } finally {
+      setIsSyncingReferences(false);
     }
   }
 
@@ -175,8 +195,16 @@ export default function ClientsPage() {
               <MetricChip label="Ошибки" value={String(summary.errors)} tone={summary.errors > 0 ? "error" : "default"} />
               <button
                 type="button"
+                onClick={() => void handleSyncReferences()}
+                disabled={isLoading || isSyncingReferences}
+                className="app-action-button app-action-button--xs"
+              >
+                {isSyncingReferences ? "Синхронизация..." : "Синхронизировать с 1С"}
+              </button>
+              <button
+                type="button"
                 onClick={() => void loadClients()}
-                disabled={isLoading}
+                disabled={isLoading || isSyncingReferences}
                 className="app-action-button app-action-button--xs"
               >
                 {isLoading ? "Обновление..." : "Обновить"}

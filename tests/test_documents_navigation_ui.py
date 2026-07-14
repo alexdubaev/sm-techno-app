@@ -24,6 +24,14 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn("downloadDocumentFile", journal_source)
         self.assertIn('href="/documents"', journal_source)
 
+    def test_documents_generator_uses_searchable_client_picker(self) -> None:
+        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("clientSearch", source)
+        self.assertIn("filteredClients", source)
+        self.assertIn('placeholder="Поиск по названию, ИНН или КПП"', source)
+        self.assertNotIn("setClientValue(event.target.value)", source)
+
     def test_sidebar_places_journal_inside_documents_section(self) -> None:
         source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
 

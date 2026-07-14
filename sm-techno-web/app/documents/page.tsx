@@ -55,6 +55,7 @@ export default function DocumentsPage() {
   const [number, setNumber] = useState("");
   const [documentDate, setDocumentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [clientValue, setClientValue] = useState("");
+  const [clientSearch, setClientSearch] = useState("");
   const [commercialOfferId, setCommercialOfferId] = useState("");
   const [notes, setNotes] = useState("");
   const [clients, setClients] = useState<CrmClient[]>([]);
@@ -70,6 +71,7 @@ export default function DocumentsPage() {
         setOffers(loadedOffers);
         if (loadedClients[0]) {
           setClientValue(buildClientValue(loadedClients[0]));
+          setClientSearch(formatClientSearchValue(loadedClients[0]));
         }
       })
       .catch((requestError: unknown) => {
@@ -86,6 +88,13 @@ export default function DocumentsPage() {
     () => offers.find((offer) => String(offer.id) === commercialOfferId) ?? null,
     [commercialOfferId, offers],
   );
+  const filteredClients = useMemo(() => {
+    const query = normalizeClientSearch(clientSearch);
+    const source = query
+      ? clients.filter((client) => clientMatchesSearch(client, query))
+      : clients;
+    return source.slice(0, 20);
+  }, [clientSearch, clients]);
   const missingFields = useMemo(() => {
     if (!selectedClient) {
       return [];
@@ -97,9 +106,23 @@ export default function DocumentsPage() {
     setCommercialOfferId(value);
     const offer = offers.find((item) => String(item.id) === value);
     const offerClientValue = offer ? buildClientValueFromOffer(offer) : "";
-    if (offerClientValue && clients.some((client) => buildClientValue(client) === offerClientValue)) {
+    const offerClient = clients.find((client) => buildClientValue(client) === offerClientValue);
+    if (offerClient) {
       setClientValue(offerClientValue);
+      setClientSearch(formatClientSearchValue(offerClient));
     }
+  }
+
+  function handleClientSearchChange(value: string) {
+    setClientSearch(value);
+    if (!selectedClient || value !== formatClientSearchValue(selectedClient)) {
+      setClientValue("");
+    }
+  }
+
+  function handleClientSelect(client: CrmClient) {
+    setClientValue(buildClientValue(client));
+    setClientSearch(formatClientSearchValue(client));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -209,24 +232,52 @@ export default function DocumentsPage() {
                 </label>
               </div>
 
-              <label>
+              <div>
                 <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
                   Клиент
                 </span>
-                <select
-                  value={clientValue}
-                  onChange={(event) => setClientValue(event.target.value)}
+                <input
+                  type="search"
+                  value={clientSearch}
+                  onChange={(event) => handleClientSearchChange(event.target.value)}
                   disabled={isLoading}
+                  placeholder="Поиск по названию, ИНН или КПП"
                   className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
-                >
-                  <option value="">Выберите клиента</option>
-                  {clients.map((client) => (
-                    <option key={buildClientValue(client)} value={buildClientValue(client)}>
-                      {client.source === "onec" ? "1С" : "Локальный"} · {client.documentName || client.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                />
+                <div className="mt-1 max-h-[176px] overflow-auto rounded-[10px] border border-[var(--border-color)] bg-white p-1">
+                  {filteredClients.length > 0 ? (
+                    <div className="grid gap-1">
+                      {filteredClients.map((client) => {
+                        const value = buildClientValue(client);
+                        const isSelected = value === clientValue;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => handleClientSelect(client)}
+                            className={`rounded-[8px] border px-2.5 py-1.5 text-left text-[10px] transition ${
+                              isSelected
+                                ? "border-[var(--brand-yellow)] bg-[var(--brand-light)] text-[var(--brand-dark)]"
+                                : "border-transparent text-[var(--text-primary)] hover:border-[var(--border-color)] hover:bg-[var(--page-bg)]"
+                            }`}
+                          >
+                            <span className="block truncate font-semibold">
+                              {client.source === "onec" ? "1С" : "Локальный"} · {client.documentName || client.name || client.fullName}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
+                              ИНН {client.inn || "-"} · КПП {client.kpp || "-"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="px-2.5 py-2 text-[10px] text-[var(--text-secondary)]">
+                      Клиенты не найдены.
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {documentType === "specification" ? (
                 <label>
@@ -294,6 +345,38 @@ export default function DocumentsPage() {
 
 function buildClientValue(client: CrmClient) {
   return `${client.source}:${client.id}`;
+}
+
+function formatClientSearchValue(client: CrmClient) {
+  const name = client.documentName || client.name || client.fullName || "";
+  const parts = [name];
+  if (client.inn) {
+    parts.push(`ИНН ${client.inn}`);
+  }
+  if (client.kpp) {
+    parts.push(`КПП ${client.kpp}`);
+  }
+  return parts.join(" · ");
+}
+
+function normalizeClientSearch(value: string) {
+  return value.toLocaleLowerCase("ru-RU").replace(/\s+/g, " ").trim();
+}
+
+function clientMatchesSearch(client: CrmClient, query: string) {
+  const haystack = normalizeClientSearch(
+    [
+      client.documentName,
+      client.name,
+      client.fullName,
+      client.inn,
+      client.kpp,
+      client.source === "onec" ? "1С" : "локальный",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  return haystack.includes(query);
 }
 
 function buildClientValueFromOffer(offer: CommercialOffer) {
