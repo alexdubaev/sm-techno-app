@@ -32,6 +32,17 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn('placeholder="Поиск по названию, ИНН или КПП"', source)
         self.assertNotIn("setClientValue(event.target.value)", source)
 
+    def test_documents_preview_shows_bank_requisites(self) -> None:
+        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn('label="Название банка"', source)
+        self.assertIn('label="Расчетный счет"', source)
+        self.assertIn('label="БИК"', source)
+        self.assertIn('label="Корр. счет"', source)
+        self.assertIn("selectedClient?.bankAccount", source)
+        self.assertIn("selectedClient?.bankBik", source)
+        self.assertIn("selectedClient?.correspondentAccount", source)
+
     def test_sidebar_places_journal_inside_documents_section(self) -> None:
         source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
 

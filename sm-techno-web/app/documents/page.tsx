@@ -23,6 +23,9 @@ const REQUIRED_FIELDS: Record<DocumentType, Array<keyof CrmClient>> = {
     "ogrn",
     "legalAddress",
     "bankAccount",
+    "bankName",
+    "bankBik",
+    "correspondentAccount",
     "signerPosition",
     "signerName",
     "signerBasis",
@@ -32,6 +35,9 @@ const REQUIRED_FIELDS: Record<DocumentType, Array<keyof CrmClient>> = {
     "inn",
     "legalAddress",
     "bankAccount",
+    "bankName",
+    "bankBik",
+    "correspondentAccount",
     "signerName",
     "signerBasis",
   ],
@@ -39,6 +45,9 @@ const REQUIRED_FIELDS: Record<DocumentType, Array<keyof CrmClient>> = {
 
 const FIELD_LABELS: Partial<Record<keyof CrmClient, string>> = {
   bankAccount: "расчетный счет",
+  bankBik: "БИК",
+  bankName: "название банка",
+  correspondentAccount: "корреспондентский счет",
   documentName: "наименование",
   inn: "ИНН",
   kpp: "КПП",
@@ -320,7 +329,10 @@ export default function DocumentsPage() {
               <MetaRow label="Клиент" value={selectedClient?.documentName || selectedClient?.name || "-"} />
               <MetaRow label="ИНН / КПП" value={selectedClient ? `${selectedClient.inn || "-"} / ${selectedClient.kpp || "-"}` : "-"} />
               <MetaRow label="Адрес" value={selectedClient?.legalAddress || "-"} />
-              <MetaRow label="Банк" value={selectedClient?.bankName || selectedClient?.bankNameOrBik || "-"} />
+              <MetaRow label="Название банка" value={selectedClient?.bankName || (isBik(selectedClient?.bankNameOrBik) ? "-" : (selectedClient?.bankNameOrBik ?? "-"))} />
+              <MetaRow label="Расчетный счет" value={selectedClient?.bankAccount || "-"} />
+              <MetaRow label="БИК" value={selectedClient?.bankBik || (isBik(selectedClient?.bankNameOrBik) ? (selectedClient?.bankNameOrBik ?? "-") : "-")} />
+              <MetaRow label="Корр. счет" value={selectedClient?.correspondentAccount || "-"} />
               <MetaRow label="Подписант" value={selectedClient?.signerName || "-"} />
               {documentType === "specification" ? (
                 <MetaRow label="КП" value={selectedOffer ? `${selectedOffer.number} · ${formatMoney(selectedOffer.totalAmount)}` : "-"} />
@@ -391,6 +403,10 @@ function resolveClientPayload(clientValue: string): { clientSource: "onec" | "lo
     return null;
   }
   return { clientSource: source, clientId: id };
+}
+
+function isBik(value: string | null | undefined) {
+  return /^\d{9}$/.test(String(value ?? "").trim());
 }
 
 function MetaRow({ label, value }: { label: string; value: string }) {

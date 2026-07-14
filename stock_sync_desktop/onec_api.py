@@ -271,6 +271,17 @@ class OneCClient:
         return default
 
     @staticmethod
+    def _first_text_value(row: dict[str, Any], candidates: list[str], default: str = "") -> str:
+        value = OneCClient._first_row_value(row, candidates, default)
+        if isinstance(value, dict):
+            value = value.get("Description") or value.get("Наименование") or value.get("Presentation") or ""
+        return str(value or "").strip()
+
+    @staticmethod
+    def _looks_like_guid(value: str) -> bool:
+        return bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", value.strip()))
+
+    @staticmethod
     def _normalize_bool(value: Any, default: bool = False) -> bool:
         if value in (None, ""):
             return default
@@ -622,9 +633,17 @@ class OneCClient:
 
     def _extract_counterparty_bank_values(self, row: dict[str, Any]) -> dict[str, str]:
         account_key = str(
-            row.get("БанковскийСчетПоУмолчанию_Key")
-            or row.get("ОсновнойБанковскийСчет_Key")
-            or ""
+            self._first_row_value(
+                row,
+                [
+                    "БанковскийСчетПоУмолчанию_Key",
+                    "ОсновнойБанковскийСчет_Key",
+                    "БанковскийСчет_Key",
+                    "БанковскийСчет",
+                    "ОсновнойБанковскийСчет",
+                ],
+                "",
+            )
         ).strip()
         if not account_key:
             return {}
@@ -632,17 +651,58 @@ class OneCClient:
         account = self._fetch_entity_by_ref("Catalog_БанковскиеСчета", account_key)
         if not account:
             return {}
-        bank_key = str(account.get("Банк_Key") or "").strip()
+
+        bank_key = self._first_text_value(
+            account,
+            [
+                "Банк_Key",
+                "БанкДляРасчетов_Key",
+                "БанкКорреспондент_Key",
+                "БанкРасчетов_Key",
+                "ОсновнойБанк_Key",
+            ],
+        )
         bank = self._fetch_entity_by_ref("Catalog_КлассификаторБанков", bank_key) if bank_key else {}
-        bank_bik = str(bank.get("Code") or bank.get("БИК") or "").strip()
-        bank_name = str(bank.get("Description") or bank.get("Наименование") or "").strip()
-        account_number = str(
-            account.get("НомерСчета")
-            or account.get("РасчетныйСчет")
-            or account.get("Description")
-            or ""
-        ).strip()
-        correspondent_account = str(account.get("КоррСчет") or bank.get("КоррСчет") or "").strip()
+        direct_bank_name = self._first_text_value(
+            account,
+            [
+                "НаименованиеБанка",
+                "БанкНаименование",
+                "БанкНаименованиеПолное",
+                "ПредставлениеБанка",
+                "Банк",
+                "БанкДляРасчетов",
+                "БанкКорреспондент",
+                "ОсновнойБанк",
+            ],
+        )
+        if self._looks_like_guid(direct_bank_name):
+            direct_bank_name = ""
+        description = self._first_text_value(account, ["Description", "Наименование"])
+        if not direct_bank_name and "," in description:
+            direct_bank_name = description.split(",", 1)[1].strip()
+
+        direct_bank_bik = self._first_text_value(
+            account,
+            ["БИК", "БИКБанка", "БИКБанкаДляПечати", "БИКБанкаДляПоиска", "BankBIK"],
+        )
+        direct_correspondent_account = self._first_text_value(
+            account,
+            ["КоррСчет", "КорреспондентскийСчет", "КоррСчетБанка", "КорреспондентскийСчетБанка"],
+        )
+
+        bank_bik = self._first_text_value(bank, ["Code", "БИК", "БИКБанка", "Код"]) or direct_bank_bik
+        bank_name = self._first_text_value(bank, ["Description", "Наименование", "НаименованиеПолное"]) or direct_bank_name
+        account_number = self._first_text_value(
+            account,
+            ["НомерСчета", "РасчетныйСчет", "НомерРасчетногоСчета", "Счет"],
+        )
+        if not account_number:
+            account_number = description.split(",", 1)[0].strip() if "," in description else description
+        correspondent_account = direct_correspondent_account or self._first_text_value(
+            bank,
+            ["КоррСчет", "КорреспондентскийСчет", "КоррСчетБанка", "КорреспондентскийСчетБанка"],
+        )
 
         return {
             "bank_name_or_bik": bank_bik or bank_name,
