@@ -98,6 +98,8 @@ class DocumentGenerationTest(unittest.TestCase):
         self.assertIn("ДОГОВОР ПОСТАВКИ № D-17", text)
         self.assertIn('ООО "СМ ТЕХНО"', text)
         self.assertIn("OOO Romashka", text)
+        self.assertIn("Director Ivan Ivanov", text)
+        self.assertNotIn("Director Obschestvo", text)
 
     def test_specification_template_repeats_commercial_offer_lines(self) -> None:
         template_path = self.temp_path / "specification_template.docx"
