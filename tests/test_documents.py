@@ -18,6 +18,9 @@ from stock_sync_web.documents import (
 )
 from stock_sync_web.service import WebStockSyncService
 from docx import Document
+from docx.oxml.ns import qn
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 
 
 VALID_CLIENT_CARD = {
@@ -100,6 +103,129 @@ class DocumentGenerationTest(unittest.TestCase):
         self.assertIn("OOO Romashka", text)
         self.assertIn("Director Ivan Ivanov", text)
         self.assertNotIn("Director Obschestvo", text)
+
+    def test_client_context_builds_genitive_signer_and_short_name(self) -> None:
+        context = build_document_context(
+            client={
+                **VALID_CLIENT_CARD,
+                "document_name": "АГРОЗУМ ООО",
+                "signer_position": "Генеральный директор",
+                "signer_name": "Столяров Сергей Михайлович",
+                "signer_basis": "Устава",
+            },
+            document_number="D-18",
+            document_date="2026-07-14",
+        )
+
+        client = context["client"]
+
+        self.assertEqual(client["signer_position_genitive"], "генерального директора")
+        self.assertEqual(client["signer_name_genitive"], "Столярова Сергея Михайловича")
+        self.assertEqual(client["signer_short_name"], "Столяров С.М.")
+
+    def test_contract_template_asset_uses_genitive_intro_and_short_signature(self) -> None:
+        template_path = Path("assets/templates/contract_template.docx")
+        output_path = self.temp_path / "contract_asset_agrozum.docx"
+
+        context = build_document_context(
+            client={
+                **VALID_CLIENT_CARD,
+                "document_name": "АГРОЗУМ ООО",
+                "signer_position": "Генеральный директор",
+                "signer_name": "Столяров Сергей Михайлович",
+                "signer_basis": "Устава",
+            },
+            document_number="D-18",
+            document_date="2026-07-14",
+        )
+        generate_document_docx(
+            template_path=template_path,
+            output_path=output_path,
+            context=context,
+        )
+
+        text = read_docx_text(output_path)
+        buyer_requisites = Document(output_path).tables[0].rows[1].cells[1].text
+
+        self.assertIn("в лице генерального директора Столярова Сергея Михайловича", text)
+        self.assertIn("___________________/ Столяров С.М.", text)
+        self.assertNotIn("Генеральный директор Столяров Сергей Михайлович", text)
+        self.assertLessEqual(max_consecutive_blank_lines(buyer_requisites), 2)
+
+    def test_contract_template_keeps_requisites_section_together_without_empty_gaps(self) -> None:
+        document = Document("assets/templates/contract_template.docx")
+        blocks = list(iter_document_blocks(document))
+        section_index = next(
+            index
+            for index, block in enumerate(blocks)
+            if isinstance(block, Paragraph) and block.text.strip().startswith("13.")
+        )
+        section_heading = blocks[section_index]
+        requisites_table = blocks[section_index + 1]
+
+        self.assertIsInstance(section_heading, Paragraph)
+        self.assertIsInstance(requisites_table, Table)
+        self.assertTrue(section_heading.paragraph_format.keep_with_next)
+        self.assertFalse(
+            isinstance(blocks[section_index - 1], Paragraph)
+            and not blocks[section_index - 1].text.strip()
+        )
+        self.assertFalse(
+            section_index + 2 < len(blocks)
+            and isinstance(blocks[section_index + 2], Paragraph)
+            and not blocks[section_index + 2].text.strip()
+        )
+        assert isinstance(requisites_table, Table)
+        self.assertTrue(all(row_has_cant_split(row) for row in requisites_table.rows))
+
+    def test_generated_contract_polishes_requisites_section_layout(self) -> None:
+        template_path = self.temp_path / "unpolished_contract_template.docx"
+        output_path = self.temp_path / "polished_contract_output.docx"
+        create_unpolished_requisites_template(template_path)
+
+        context = build_document_context(
+            client={
+                **VALID_CLIENT_CARD,
+                "document_name": "АГРОЗУМ ООО",
+                "signer_position": "Генеральный директор",
+                "signer_name": "Столяров Сергей Михайлович",
+                "signer_basis": "Устава",
+            },
+            document_number="D-19",
+            document_date="2026-07-14",
+        )
+        generate_document_docx(
+            template_path=template_path,
+            output_path=output_path,
+            context=context,
+        )
+
+        document = Document(output_path)
+        blocks = list(iter_document_blocks(document))
+        section_index = next(
+            index
+            for index, block in enumerate(blocks)
+            if isinstance(block, Paragraph) and block.text.strip().startswith("13.")
+        )
+        section_heading = blocks[section_index]
+        requisites_table = blocks[section_index + 1]
+
+        self.assertIsInstance(section_heading, Paragraph)
+        self.assertIsInstance(requisites_table, Table)
+        self.assertTrue(section_heading.paragraph_format.keep_with_next)
+        self.assertFalse(
+            isinstance(blocks[section_index - 1], Paragraph)
+            and not blocks[section_index - 1].text.strip()
+        )
+        self.assertFalse(
+            section_index + 2 < len(blocks)
+            and isinstance(blocks[section_index + 2], Paragraph)
+            and not blocks[section_index + 2].text.strip()
+        )
+        assert isinstance(requisites_table, Table)
+        self.assertEqual(len(requisites_table.rows), 2)
+        self.assertTrue(all(row_has_cant_split(row) for row in requisites_table.rows))
+        self.assertLessEqual(max_consecutive_blank_lines(requisites_table.rows[1].cells[1].text), 2)
 
     def test_specification_template_repeats_commercial_offer_lines(self) -> None:
         template_path = self.temp_path / "specification_template.docx"
@@ -375,6 +501,23 @@ def create_specification_template(path: Path) -> None:
     document.save(path)
 
 
+def create_unpolished_requisites_template(path: Path) -> None:
+    document = Document()
+    document.add_paragraph("12.9. Previous section.")
+    document.add_paragraph("")
+    document.add_paragraph("13. Юридические адреса и реквизиты сторон")
+    document.add_paragraph("")
+    table = document.add_table(rows=3, cols=2)
+    table.rows[0].cells[0].text = "Поставщик:"
+    table.rows[0].cells[1].text = "Покупатель:"
+    table.rows[1].cells[0].text = "ООО « СМ ТЕХНО »\n___________________/ Дыбаев А.А."
+    table.rows[1].cells[1].text = "{{ client.document_name }}\n___________________/ {{ client.signer_short_name }}"
+    table.rows[2].cells[0].text = ""
+    table.rows[2].cells[1].text = ""
+    document.add_paragraph("")
+    document.save(path)
+
+
 def read_docx_text(source: Path | BytesIO) -> str:
     document = Document(source)
     chunks: list[str] = []
@@ -384,6 +527,31 @@ def read_docx_text(source: Path | BytesIO) -> str:
         for row in table.rows:
             chunks.extend(cell.text for cell in row.cells)
     return "\n".join(chunks)
+
+
+def iter_document_blocks(document: Document):
+    for child in document.element.body.iterchildren():
+        if child.tag == qn("w:p"):
+            yield Paragraph(child, document)
+        elif child.tag == qn("w:tbl"):
+            yield Table(child, document)
+
+
+def row_has_cant_split(row) -> bool:
+    tr_pr = row._tr.trPr
+    return tr_pr is not None and tr_pr.find(qn("w:cantSplit")) is not None
+
+
+def max_consecutive_blank_lines(value: str) -> int:
+    longest = 0
+    current = 0
+    for line in value.splitlines():
+        if line.strip():
+            current = 0
+            continue
+        current += 1
+        longest = max(longest, current)
+    return longest
 
 
 if __name__ == "__main__":
