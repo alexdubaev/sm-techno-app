@@ -912,7 +912,7 @@ export function StockPage() {
                     void handleClientPriceExport();
                   }}
                   disabled={!priceLoaded || isExportingClientPrice}
-                  className="inline-flex h-[36px] items-center justify-center gap-2 rounded-[12px] bg-[var(--brand-yellow)] px-3 text-[11px] font-semibold text-[var(--brand-dark)] transition-all duration-200 hover:bg-[var(--brand-yellow-hover)] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#F3F4F6] disabled:text-[var(--text-secondary)]"
+                  className="app-action-button app-action-button--lg"
                 >
                   <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />
                   {isExportingClientPrice ? CLIENT_PRICE_LOADING_LABEL : CLIENT_PRICE_LABEL}
@@ -1134,7 +1134,7 @@ export function StockPage() {
                         }
                         updateDraftLine(selectedItem, selectedWarehouseBalance, selectedQuantityParsed);
                       }}
-                      className="mt-2 flex h-[34px] w-full items-center justify-center gap-1.5 rounded-[12px] bg-[var(--brand-dark)] px-3 text-[12px] font-semibold text-white transition-all duration-200 hover:bg-[#10264A] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+                      className="app-action-button app-action-button--md mt-2 w-full"
                     >
                       <CartIcon className="h-3.5 w-3.5 stroke-[2]" />
                       Добавить в счет
@@ -1144,7 +1144,7 @@ export function StockPage() {
                       type="button"
                       disabled={!canAddSelectedItem || !selectedWarehouseBalance}
                       onClick={addSelectedItemToCommercialOfferDraft}
-                      className="mt-1.5 flex h-[34px] w-full items-center justify-center gap-1.5 rounded-[12px] bg-[var(--brand-yellow)] px-3 text-[12px] font-semibold text-[var(--brand-dark)] transition-all duration-200 hover:bg-[var(--brand-yellow-hover)] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#F3F4F6] disabled:text-[var(--text-secondary)]"
+                      className="app-action-button app-action-button--md mt-1.5 w-full"
                     >
                       <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />
                       Добавить в КП
@@ -1159,14 +1159,14 @@ export function StockPage() {
                             removeDraftLine(selectedLineKey);
                           }
                         }}
-                        className="flex h-[32px] min-w-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-medium leading-none text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-40"
+                        className="app-action-button app-action-button--sm min-w-0"
                       >
                         Убрать из счета
                       </button>
                       <button
                         type="button"
                         onClick={clearSelection}
-                        className="flex h-[32px] min-w-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-medium leading-none text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+                        className="app-action-button app-action-button--sm min-w-0"
                       >
                         Снять выбор
                       </button>
@@ -1338,7 +1338,7 @@ export function StockPage() {
               <button
                 type="button"
                 onClick={handleOpenInvoice}
-                className="mt-2 flex h-[36px] w-full items-center justify-center gap-1.5 rounded-[12px] bg-[var(--brand-yellow)] px-3 text-[12px] font-semibold text-[var(--brand-dark)] transition-all duration-200 hover:bg-[var(--brand-yellow-hover)] active:scale-[0.985]"
+                className="app-action-button app-action-button--lg mt-2 w-full"
               >
                 <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />
                 Перейти к счету
@@ -1655,7 +1655,7 @@ function EmptyStateCard({
         <button
           type="button"
           onClick={onAction}
-          className="mt-4 rounded-[14px] bg-[var(--brand-yellow)] px-4 py-2 text-[12px] font-semibold text-[var(--brand-dark)] transition-all duration-200 hover:bg-[var(--brand-yellow-hover)] active:scale-[0.985]"
+          className="app-action-button app-action-button--lg mt-4"
         >
           {actionLabel}
         </button>

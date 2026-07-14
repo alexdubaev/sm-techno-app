@@ -91,7 +91,7 @@ export default function OrdersPage() {
               type="button"
               onClick={() => void loadOrders()}
               disabled={isLoading}
-              className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-50"
+              className="app-action-button app-action-button--xs"
             >
               {isLoading ? "Обновление..." : "Обновить"}
             </button>
@@ -191,7 +191,7 @@ export default function OrdersPage() {
                           <td className="px-3 py-1.5 text-center">
                             <Link
                               href={`/orders/${order.id}`}
-                              className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+                              className="app-action-button app-action-button--xs"
                             >
                               Открыть
                             </Link>

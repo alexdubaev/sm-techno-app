@@ -194,7 +194,7 @@ export default function OrderDetailsPage() {
                     type="button"
                     onClick={handlePrint}
                     disabled={!canPrint}
-                    className="inline-flex h-7 items-center justify-center rounded-[8px] border border-[var(--border-color)] bg-[#F8FAFD] px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                    className="app-action-button app-action-button--xs"
                   >
                     Печать
                   </button>
@@ -205,20 +205,20 @@ export default function OrderDetailsPage() {
                   type="button"
                   onClick={() => void handleWriteoff()}
                   disabled={isSubmittingWriteoff}
-                  className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[#F5E1B8] bg-[#FFF6E5] px-2.5 text-[10px] font-semibold text-[var(--brand-dark)] transition hover:bg-[#FFEECC] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="app-action-button app-action-button--xs"
                 >
                   {isSubmittingWriteoff ? "Списание..." : "Списать со склада"}
                 </button>
               ) : null}
               <Link
                 href="/orders"
-                className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+                className="app-action-button app-action-button--xs"
               >
                 Назад к истории
               </Link>
               <Link
                 href="/work-with-invoice"
-                className="inline-flex h-7 items-center justify-center rounded-[9px] bg-[var(--brand-yellow)] px-2.5 text-[10px] font-semibold text-[var(--brand-dark)] transition hover:bg-[var(--brand-yellow-hover)]"
+                className="app-action-button app-action-button--xs"
               >
                 Перейти к счету
               </Link>

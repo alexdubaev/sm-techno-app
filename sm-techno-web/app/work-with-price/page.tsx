@@ -888,7 +888,7 @@ function WorkWithPriceAdminPage() {
             />
             {isAdmin ? (
               <>
-                <label className="flex h-[34px] cursor-pointer items-center justify-center gap-2 rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-primary)] transition-all duration-200 hover:bg-[#F8FAFD] active:scale-[0.985]">
+                <label className="app-action-button app-action-button--md cursor-pointer">
                   <UploadIcon className="h-3.5 w-3.5 stroke-[2] text-[var(--text-secondary)]" />
                   <input
                     type="file"
@@ -902,7 +902,7 @@ function WorkWithPriceAdminPage() {
                   type="button"
                   disabled={!importFile || isBusy}
                   onClick={handleImport}
-                  className="flex h-[34px] items-center justify-center gap-2 rounded-[10px] bg-[var(--brand-dark)] px-3 text-[11px] font-semibold text-white transition-all duration-200 hover:bg-[#10264A] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+                  className="app-action-button app-action-button--md"
                 >
                   <SparkBoxIcon className="h-3.5 w-3.5 stroke-[2]" />
                   Импортировать остатки
@@ -1309,7 +1309,7 @@ function WorkWithPriceAdminPage() {
                         type="button"
                         disabled={isBusy}
                         onClick={() => void handleOpenStockAction(selectedItem, "add")}
-                        className="mt-1.5 flex h-[28px] w-full items-center justify-center rounded-[8px] bg-[var(--brand-dark)] px-3 text-[10px] font-semibold leading-none whitespace-nowrap text-white transition-all duration-200 hover:bg-[#10264A] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+                        className="app-action-button app-action-button--xs mt-1.5 w-full"
                       >
                         Изменить остатки
                       </button>
@@ -1361,7 +1361,7 @@ function WorkWithPriceAdminPage() {
                         type="button"
                         disabled={isBusy || !editFormValidation.ok}
                         onClick={handleSaveItem}
-                        className="flex h-[32px] items-center justify-center gap-1.5 rounded-[10px] bg-[var(--brand-dark)] px-3 text-[11px] font-semibold text-white transition-all duration-200 hover:bg-[#10264A] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+                        className="app-action-button app-action-button--sm"
                       >
                         <SaveIcon className="h-3.5 w-3.5 stroke-[2]" />
                         Сохранить
@@ -1370,7 +1370,7 @@ function WorkWithPriceAdminPage() {
                         type="button"
                         disabled={isBusy}
                         onClick={() => setItemPendingDelete(selectedItem)}
-                        className="flex h-[32px] items-center justify-center gap-1.5 rounded-[10px] border border-[#FECACA] bg-[#FEF2F2] px-3 text-[11px] font-semibold text-[var(--stock-empty)] transition-all duration-200 hover:bg-[#FEE2E2] active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60"
+                        className="app-action-button app-action-button--sm"
                       >
                         <TrashIcon className="h-3.5 w-3.5 stroke-[2]" />
                         Удалить
@@ -1431,7 +1431,7 @@ function WorkWithPriceAdminPage() {
                         type="button"
                         disabled={isBusy || !warehouseNameInput.trim()}
                         onClick={handleCreateWarehouse}
-                        className="flex h-[30px] shrink-0 items-center justify-center rounded-[9px] bg-[var(--brand-dark)] px-3 text-[10px] font-semibold text-white transition-all duration-200 hover:bg-[#10264A] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+                        className="app-action-button app-action-button--xs shrink-0"
                       >
                         Добавить
                       </button>
@@ -1456,7 +1456,7 @@ function WorkWithPriceAdminPage() {
                               type="button"
                               disabled={isBusy}
                               onClick={() => void handleDeleteWarehouse(warehouse.id)}
-                              className="flex h-[28px] shrink-0 items-center justify-center rounded-[8px] border border-[#FECACA] bg-[#FEF2F2] px-2.5 text-[10px] font-semibold text-[var(--stock-empty)] transition-all duration-200 hover:bg-[#FEE2E2] disabled:cursor-not-allowed disabled:opacity-60"
+                              className="app-action-button app-action-button--xs shrink-0"
                             >
                               Удалить
                             </button>
@@ -1580,7 +1580,7 @@ function WorkWithPriceAdminPage() {
                     type="button"
                     disabled={isBusy || !createFormValidation.ok}
                     onClick={handleCreateItem}
-                    className="mt-1.5 flex h-[32px] w-full items-center justify-center gap-1.5 rounded-[10px] bg-[var(--brand-dark)] px-3 text-[11px] font-semibold text-white transition-all duration-200 hover:bg-[#10264A] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+                    className="app-action-button app-action-button--sm mt-1.5 w-full"
                   >
                     <PlusIcon className="h-3.5 w-3.5 stroke-[2]" />
                     Добавить позицию
@@ -1603,7 +1603,7 @@ function WorkWithPriceAdminPage() {
                   type="button"
                   disabled={isBusy}
                   onClick={handleClearCatalog}
-                  className="flex h-[32px] items-center justify-center gap-1.5 rounded-[10px] border border-[#FECACA] bg-white px-3 text-[11px] font-semibold text-[var(--stock-empty)] transition-all duration-200 hover:bg-[#FEF2F2] active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="app-action-button app-action-button--sm"
                 >
                   <TrashIcon className="h-3.5 w-3.5 stroke-[2]" />
                   Очистить весь локальный прайс
@@ -1902,9 +1902,9 @@ function ActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex h-[38px] items-center justify-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition-all duration-200 hover:bg-[#F8FAFD] active:scale-[0.985] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
+      className="app-action-button app-action-button--xl"
     >
-      <span className="text-[var(--text-secondary)]">{icon}</span>
+      <span>{icon}</span>
       {label}
     </button>
   );
@@ -2045,7 +2045,7 @@ function WarehouseFormEditor({
           type="button"
           disabled={disabled}
           onClick={() => onChange([...safeRows, createWarehouseFormState()])}
-          className="inline-flex h-[28px] shrink-0 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-60"
+          className="app-action-button app-action-button--xs shrink-0"
         >
           + Склад
         </button>
@@ -2081,7 +2081,7 @@ function WarehouseFormEditor({
                 type="button"
                 disabled={disabled}
                 onClick={() => handleRemove(row.key)}
-                className="flex h-[28px] w-8 items-center justify-center rounded-[8px] border border-[#FECACA] bg-[#FEF2F2] text-[11px] font-semibold text-[var(--stock-empty)] transition hover:bg-[#FEE2E2] disabled:cursor-not-allowed disabled:opacity-60"
+                className="app-action-button app-action-button--xs app-action-button--icon-xs"
                 title="Удалить складскую строку"
               >
                 ×
@@ -2256,9 +2256,7 @@ function StockActionDrawer({
                 className={[
                   "flex h-9 items-center rounded-[10px] px-3 text-[11px] font-semibold transition",
                   mode === entry
-                    ? entry === "writeoff"
-                      ? "bg-[#FEF2F2] text-[var(--stock-empty)]"
-                      : "bg-[var(--brand-dark)] text-white"
+                    ? "bg-[var(--brand-yellow)] text-[var(--brand-dark)]"
                     : "bg-[#F8FAFD] text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
                 ].join(" ")}
               >
@@ -2416,12 +2414,7 @@ function StockActionDrawer({
             type="button"
             disabled={isSubmitDisabled}
             onClick={onSubmit}
-            className={[
-              "flex h-[38px] w-full items-center justify-center rounded-[12px] px-4 text-[12px] font-semibold transition-all duration-200 active:scale-[0.985]",
-              mode === "writeoff"
-                ? "bg-[#FEF2F2] text-[var(--stock-empty)] hover:bg-[#FDE8E8] disabled:bg-[#F8D7DA]"
-                : "bg-[var(--brand-dark)] text-white hover:bg-[#10264A] disabled:bg-[#CBD5E1]",
-            ].join(" ")}
+            className="app-action-button app-action-button--xl w-full"
           >
             {mode === "add" ? "Добавить остаток" : mode === "move" ? "Переместить" : "Списать"}
           </button>
@@ -2453,7 +2446,7 @@ function ConfirmDeleteDialog({
           <button
             type="button"
             onClick={onCancel}
-            className="flex h-[38px] items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+            className="app-action-button app-action-button--xl"
           >
             Отмена
           </button>
@@ -2461,7 +2454,7 @@ function ConfirmDeleteDialog({
             type="button"
             disabled={isBusy}
             onClick={onConfirm}
-            className="flex h-[38px] items-center justify-center rounded-[12px] bg-[#EF4444] text-[12px] font-semibold text-white transition hover:bg-[#DC2626] disabled:cursor-not-allowed disabled:opacity-60"
+            className="app-action-button app-action-button--xl"
           >
             Удалить товар
           </button>

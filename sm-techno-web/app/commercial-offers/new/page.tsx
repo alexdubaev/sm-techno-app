@@ -150,14 +150,14 @@ export default function NewCommercialOfferPage() {
           <div className="flex gap-1">
             <Link
               href="/commercial-offers"
-              className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+              className="app-action-button app-action-button--xs"
             >
               Журнал КП
             </Link>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="inline-flex h-7 items-center justify-center rounded-[9px] bg-[var(--brand-dark)] px-2.5 text-[10px] font-semibold text-white transition hover:bg-[#10264A] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+              className="app-action-button app-action-button--xs"
             >
               {isSubmitting ? "Формируем..." : "Сформировать"}
             </button>
@@ -244,7 +244,7 @@ export default function NewCommercialOfferPage() {
                     type="button"
                     onClick={handleClearDraft}
                     disabled={draftLines.length === 0}
-                    className="h-7 rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-45"
+                    className="app-action-button app-action-button--xs"
                   >
                     Очистить
                   </button>
@@ -282,7 +282,7 @@ export default function NewCommercialOfferPage() {
                               <button
                                 type="button"
                                 onClick={() => handleRemoveLine(line.lineId)}
-                                className="h-7 rounded-[9px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+                                className="app-action-button app-action-button--xs"
                               >
                                 Убрать
                               </button>

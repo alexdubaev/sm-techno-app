@@ -238,7 +238,7 @@ export function AppShell({ children }: ShellProps) {
               <button
                 type="button"
                 onClick={() => void logout()}
-                className="inline-flex shrink-0 items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 py-2 text-[11px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+                className="app-action-button app-action-button--sm shrink-0"
               >
                 Выйти
               </button>

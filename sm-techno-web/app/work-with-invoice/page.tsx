@@ -600,7 +600,7 @@ export default function WorkWithInvoicePage() {
                 type="button"
                 onClick={handleTestOneC}
                 disabled={isTestingOneC || isSyncingReferences || isSending}
-                className="flex h-[32px] items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-action-button app-action-button--sm"
               >
                 {isTestingOneC ? "Проверка..." : "Проверить 1С"}
               </button>
@@ -611,7 +611,7 @@ export default function WorkWithInvoicePage() {
                 type="button"
                 onClick={handleSyncReferences}
                 disabled={isReferencesLoading || isSyncingReferences || isSending}
-                className="flex h-[32px] items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-action-button app-action-button--sm"
               >
                 {isSyncingReferences ? "Синхронизация..." : "Синхронизировать справочники"}
               </button>
@@ -634,7 +634,7 @@ export default function WorkWithInvoicePage() {
                 type="button"
                 onClick={handleSendOrder}
                 disabled={isSending || draftLines.length === 0}
-                className="flex h-[32px] items-center justify-center rounded-[10px] bg-[var(--brand-dark)] px-4 text-[11px] font-semibold text-white transition hover:bg-[#10264A] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+                className="app-action-button app-action-button--sm"
               >
                 {isSending ? "Отправка..." : "Отправить в 1С"}
               </button>
@@ -930,13 +930,13 @@ export default function WorkWithInvoicePage() {
 
             <Link
               href="/orders"
-              className="mt-2 inline-flex h-8 w-full items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+              className="app-action-button app-action-button--sm mt-2 w-full"
             >
               История заказов
             </Link>
             <Link
               href="/"
-              className="mt-1.5 inline-flex h-8 w-full items-center justify-center rounded-[10px] bg-[var(--brand-yellow)] px-3 text-[11px] font-semibold text-[var(--brand-dark)] transition hover:bg-[var(--brand-yellow-hover)]"
+              className="app-action-button app-action-button--sm mt-1.5 w-full"
             >
               Вернуться в остатки
             </Link>

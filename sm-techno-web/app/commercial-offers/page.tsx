@@ -107,7 +107,7 @@ export default function CommercialOffersPage() {
             <MetricChip label="Сумма" value={formatMoney(summary.amount)} />
             <Link
               href="/commercial-offers/new"
-              className="inline-flex h-7 items-center justify-center rounded-[9px] bg-[var(--brand-yellow)] px-2.5 text-[10px] font-semibold text-[var(--brand-dark)] transition hover:bg-[var(--brand-yellow-hover)]"
+              className="app-action-button app-action-button--xs"
             >
               Создать КП
             </Link>
@@ -115,7 +115,7 @@ export default function CommercialOffersPage() {
               type="button"
               onClick={() => void loadOffers()}
               disabled={isLoading}
-              className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-50"
+              className="app-action-button app-action-button--xs"
             >
               {isLoading ? "Обновление..." : "Обновить"}
             </button>
@@ -179,13 +179,13 @@ export default function CommercialOffersPage() {
                         <td className="px-3 py-1.5 text-[var(--text-secondary)]">{formatDateTime(offer.createdAt)}</td>
                         <td className="px-3 py-1.5">
                           <div className="flex justify-center gap-1">
-                            <Link href={`/commercial-offers/${offer.id}`} className="inline-flex h-7 items-center rounded-[9px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold text-[var(--text-primary)] hover:bg-[#F8FAFD]">
+                            <Link href={`/commercial-offers/${offer.id}`} className="app-action-button app-action-button--xs">
                               Открыть
                             </Link>
                             <button
                               type="button"
                               onClick={() => void handleDownload(offer.id, "output")}
-                              className="inline-flex h-7 items-center rounded-[9px] bg-[var(--brand-dark)] px-2 text-[10px] font-semibold text-white hover:bg-[#10264A]"
+                              className="app-action-button app-action-button--xs"
                             >
                               Excel
                             </button>
@@ -194,7 +194,7 @@ export default function CommercialOffersPage() {
                                 type="button"
                                 onClick={() => void handleDelete(offer)}
                                 disabled={deletingOfferId === offer.id}
-                                className="inline-flex h-7 items-center rounded-[9px] border border-[#F9D4D4] bg-[#FEF2F2] px-2 text-[10px] font-semibold text-[var(--stock-empty)] transition hover:bg-[#FDE8E8] disabled:cursor-not-allowed disabled:opacity-50"
+                                className="app-action-button app-action-button--xs"
                               >
                                 {deletingOfferId === offer.id ? "..." : "Удалить"}
                               </button>

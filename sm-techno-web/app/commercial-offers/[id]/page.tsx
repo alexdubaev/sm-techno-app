@@ -153,7 +153,7 @@ export default function CommercialOfferDetailsPage() {
               type="button"
               onClick={() => void handleDownload("output")}
               disabled={!details}
-              className="inline-flex h-7 items-center justify-center rounded-[9px] bg-[var(--brand-dark)] px-2.5 text-[10px] font-semibold text-white transition hover:bg-[#10264A] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+              className="app-action-button app-action-button--xs"
             >
               Скачать Excel
             </button>
@@ -161,7 +161,7 @@ export default function CommercialOfferDetailsPage() {
               type="button"
               onClick={() => void handleDownload("source")}
               disabled={!offer?.hasSourceFile}
-              className="inline-flex h-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-45"
+              className="app-action-button app-action-button--xs"
             >
               Исходник
             </button>
@@ -269,7 +269,7 @@ export default function CommercialOfferDetailsPage() {
                 <button
                   type="submit"
                   disabled={isSending}
-                  className="h-[34px] rounded-[11px] bg-[var(--brand-yellow)] px-3 text-[11px] font-semibold text-[var(--brand-dark)] transition hover:bg-[var(--brand-yellow-hover)] disabled:cursor-not-allowed disabled:bg-[#F3F4F6] disabled:text-[var(--text-secondary)]"
+                  className="app-action-button app-action-button--md"
                 >
                   {isSending ? "Сохраняем..." : "Отметить отправленным"}
                 </button>

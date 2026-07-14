@@ -295,7 +295,7 @@ export default function SettingsPage() {
               type="button"
               onClick={() => void loadPageData()}
               disabled={isLoading || isSaving}
-              className="flex h-[36px] items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-50"
+              className="app-action-button app-action-button--lg"
             >
               {isLoading ? "Загрузка..." : "Обновить"}
             </button>
@@ -303,7 +303,7 @@ export default function SettingsPage() {
               type="button"
               onClick={() => void handleSaveSettings()}
               disabled={!form || isSaving}
-              className="flex h-[36px] items-center justify-center rounded-[12px] bg-[var(--brand-dark)] px-4 text-[12px] font-semibold text-white transition hover:bg-[#10264A] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+              className="app-action-button app-action-button--lg"
             >
               {isSaving ? "Сохранение..." : "Сохранить настройки"}
             </button>
@@ -573,7 +573,7 @@ export default function SettingsPage() {
                     type="button"
                     onClick={() => void handleUpdateUser()}
                     disabled={isSaving}
-                    className="flex h-[36px] items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white px-4 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="app-action-button app-action-button--lg"
                   >
                     Сохранить доступ
                   </button>
@@ -582,7 +582,7 @@ export default function SettingsPage() {
                     type="button"
                     onClick={() => void handleDeleteUser()}
                     disabled={isSaving || selectedUser.id === user.id}
-                    className="flex h-[36px] items-center justify-center rounded-[12px] border border-[#FECACA] bg-[#FEF2F2] px-4 text-[12px] font-semibold text-[var(--stock-empty)] transition hover:bg-[#FEE2E2] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="app-action-button app-action-button--lg"
                   >
                     {selectedUser.id === user.id ? "Нельзя удалить себя" : "Удалить пользователя"}
                   </button>
@@ -684,7 +684,7 @@ export default function SettingsPage() {
                     type="button"
                     onClick={() => void handleCreateUser()}
                     disabled={isSaving}
-                    className="flex h-[36px] items-center justify-center rounded-[12px] bg-[var(--brand-dark)] px-4 text-[12px] font-semibold text-white transition hover:bg-[#10264A] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+                    className="app-action-button app-action-button--lg"
                   >
                     Создать пользователя
                   </button>

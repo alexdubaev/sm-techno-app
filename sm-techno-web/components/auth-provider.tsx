@@ -291,7 +291,7 @@ function LoginScreen({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="mt-1 flex h-[50px] items-center justify-center rounded-[16px] bg-[var(--brand-dark)] px-5 text-[14px] font-semibold text-white transition-all duration-200 hover:bg-[#10264A] disabled:cursor-not-allowed disabled:bg-[#CBD5E1]"
+              className="app-action-button mt-1 h-[50px] rounded-[16px] px-5 text-[14px]"
             >
               {isSubmitting ? "Входим..." : "Войти в приложение"}
             </button>

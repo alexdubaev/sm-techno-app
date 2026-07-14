@@ -170,7 +170,7 @@ export default function ClientsPage() {
                 type="button"
                 onClick={() => void loadClients()}
                 disabled={isLoading}
-                className="inline-flex h-7 items-center justify-center rounded-[8px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-action-button app-action-button--xs"
               >
                 {isLoading ? "Обновление..." : "Обновить"}
               </button>
@@ -202,7 +202,7 @@ export default function ClientsPage() {
             <button
               type="submit"
               disabled={isSaving}
-              className="inline-flex h-[34px] w-full items-center justify-center gap-2 rounded-[9px] bg-[var(--brand-dark)] px-3 text-[11px] font-semibold text-white transition hover:bg-[#10264A] disabled:cursor-not-allowed disabled:bg-[#CBD5E1] sm:w-auto"
+              className="app-action-button app-action-button--md w-full sm:w-auto"
             >
               <ExternalLinkIcon className="h-3.5 w-3.5 stroke-[2.2]" />
               {isSaving ? "Отправка..." : "Создать в 1С"}
@@ -372,7 +372,7 @@ export default function ClientsPage() {
                   onClick={() => setSyncFilter(filter.value)}
                   className={`h-7 rounded-[8px] border px-2.5 text-[10px] font-semibold transition ${
                     syncFilter === filter.value
-                      ? "border-[var(--brand-dark)] bg-[var(--brand-dark)] text-white"
+                      ? "border-[var(--brand-yellow)] bg-[var(--brand-yellow)] text-[var(--brand-dark)]"
                       : "border-[var(--border-color)] bg-white text-[var(--text-primary)] hover:bg-[#F8FAFD]"
                   }`}
                 >
@@ -464,7 +464,7 @@ export default function ClientsPage() {
                               type="button"
                               disabled={retryingClientId === localClientId}
                               onClick={() => void handleRetrySync(client)}
-                              className="h-7 w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-50"
+                              className="app-action-button app-action-button--xs w-full"
                             >
                               {retryingClientId === localClientId ? "Отправка..." : "В 1С"}
                             </button>
