@@ -407,12 +407,12 @@ function resolveClientPayload(
   return {
     clientSource: client.source,
     clientId: client.id,
-    clientName: client.documentName || client.name || client.fullName,
+    clientName: formatClientDisplayName(client),
   };
 }
 
 function formatClientDisplayName(client: CrmClient) {
-  return client.documentName || client.name || client.fullName || "-";
+  return client.documentName || client.fullName || client.name || "-";
 }
 
 function formatMoney(value: number) {

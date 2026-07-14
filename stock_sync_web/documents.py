@@ -109,9 +109,12 @@ def _client_to_context(client: dict[str, Any]) -> dict[str, str]:
     bank_name_or_bik = _get_value(client, "bank_name_or_bik", "bankNameOrBik")
     signer_position = _get_value(client, "signer_position", "signerPosition")
     signer_name = _get_value(client, "signer_name", "signerName")
+    document_name = _get_value(client, "document_name", "documentName")
+    full_name = _get_value(client, "full_name", "fullName")
+    display_name = document_name or full_name
     values = {
-        "document_name": _get_value(client, "document_name", "documentName", "name"),
-        "full_name": _get_value(client, "full_name", "fullName", "document_name", "documentName", "name"),
+        "document_name": display_name,
+        "full_name": full_name or document_name,
         "inn": _get_value(client, "inn"),
         "kpp": _get_value(client, "kpp"),
         "ogrn": _get_value(client, "ogrn"),

@@ -282,7 +282,7 @@ export default function DocumentsPage() {
                             }`}
                           >
                             <span className="block truncate font-semibold">
-                              {client.source === "onec" ? "1С" : "Локальный"} · {client.documentName || client.name || client.fullName}
+                              {client.source === "onec" ? "1С" : "Локальный"} · {formatClientDisplayName(client)}
                             </span>
                             <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
                               ИНН {client.inn || "-"} · КПП {client.kpp || "-"}
@@ -337,7 +337,7 @@ export default function DocumentsPage() {
 
           <aside className="rounded-[14px] border border-[var(--border-color)] bg-white p-2">
             <div className="grid gap-1.5 text-[10px] text-[var(--text-secondary)]">
-              <MetaRow label="Клиент" value={selectedClient?.documentName || selectedClient?.name || "-"} />
+              <MetaRow label="Клиент" value={selectedClient ? formatClientDisplayName(selectedClient) : "-"} />
               <MetaRow label="ИНН / КПП" value={selectedClient ? `${selectedClient.inn || "-"} / ${selectedClient.kpp || "-"}` : "-"} />
               <MetaRow label="Адрес" value={selectedClient?.legalAddress || "-"} />
               <MetaRow label="Название банка" value={selectedClient?.bankName || (isBik(selectedClient?.bankNameOrBik) ? "-" : (selectedClient?.bankNameOrBik ?? "-"))} />
@@ -372,7 +372,7 @@ function buildClientValue(client: CrmClient) {
 }
 
 function formatClientSearchValue(client: CrmClient) {
-  const name = client.documentName || client.name || client.fullName || "";
+  const name = formatClientDisplayName(client);
   const parts = [name];
   if (client.inn) {
     parts.push(`ИНН ${client.inn}`);
@@ -383,6 +383,10 @@ function formatClientSearchValue(client: CrmClient) {
   return parts.join(" · ");
 }
 
+function formatClientDisplayName(client: CrmClient) {
+  return client.documentName || client.fullName || client.name || "-";
+}
+
 function normalizeClientSearch(value: string) {
   return value.toLocaleLowerCase("ru-RU").replace(/\s+/g, " ").trim();
 }
@@ -391,8 +395,8 @@ function clientMatchesSearch(client: CrmClient, query: string) {
   const haystack = normalizeClientSearch(
     [
       client.documentName,
-      client.name,
       client.fullName,
+      client.name,
       client.inn,
       client.kpp,
       client.source === "onec" ? "1С" : "локальный",

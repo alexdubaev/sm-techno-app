@@ -473,7 +473,7 @@ class CommercialOfferUiTest(unittest.TestCase):
         source = Path("sm-techno-web/app/commercial-offers/new/page.tsx").read_text(encoding="utf-8")
 
         self.assertIn("formatClientDisplayName(client)", source)
-        self.assertIn("client.documentName || client.name || client.fullName", source)
+        self.assertIn("client.documentName || client.fullName || client.name", source)
         self.assertNotIn("clientName: client.name || client.fullName", source)
 
 

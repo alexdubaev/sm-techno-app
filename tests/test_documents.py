@@ -123,6 +123,24 @@ class DocumentGenerationTest(unittest.TestCase):
         self.assertEqual(client["signer_name_genitive"], "Столярова Сергея Михайловича")
         self.assertEqual(client["signer_short_name"], "Столяров С.М.")
 
+    def test_client_context_uses_full_name_instead_of_program_name(self) -> None:
+        context = build_document_context(
+            client={
+                **VALID_CLIENT_CARD,
+                "name": "АГРОЗУМ ООО",
+                "document_name": "",
+                "full_name": 'ООО "АГРОЗУМ"',
+            },
+            document_number="D-18",
+            document_date="2026-07-14",
+        )
+
+        client = context["client"]
+
+        self.assertEqual(client["document_name"], 'ООО "АГРОЗУМ"')
+        self.assertEqual(client["full_name"], 'ООО "АГРОЗУМ"')
+        self.assertNotEqual(client["document_name"], "АГРОЗУМ ООО")
+
     def test_contract_template_asset_uses_genitive_intro_and_short_signature(self) -> None:
         template_path = Path("assets/templates/contract_template.docx")
         output_path = self.temp_path / "contract_asset_agrozum.docx"
@@ -151,6 +169,38 @@ class DocumentGenerationTest(unittest.TestCase):
         self.assertIn("___________________/ Столяров С.М.", text)
         self.assertNotIn("Генеральный директор Столяров Сергей Михайлович", text)
         self.assertLessEqual(max_consecutive_blank_lines(buyer_requisites), 2)
+
+    def test_contract_template_asset_uses_full_name_in_requisites_and_signature(self) -> None:
+        template_path = Path("assets/templates/contract_template.docx")
+        output_path = self.temp_path / "contract_asset_document_name.docx"
+
+        context = build_document_context(
+            client={
+                **VALID_CLIENT_CARD,
+                "name": "АГРОЗУМ ООО",
+                "document_name": "",
+                "full_name": 'ООО "АГРОЗУМ"',
+                "signer_position": "Генеральный директор",
+                "signer_name": "Столяров Сергей Михайлович",
+                "signer_basis": "Устава",
+            },
+            document_number="D-18",
+            document_date="2026-07-14",
+        )
+        generate_document_docx(
+            template_path=template_path,
+            output_path=output_path,
+            context=context,
+        )
+
+        document = Document(output_path)
+        text = read_docx_text(output_path)
+        buyer_requisites = document.tables[0].rows[1].cells[1].text
+
+        self.assertIn('и ООО "АГРОЗУМ", в лице генерального директора', text)
+        self.assertIn('ООО "АГРОЗУМ"', buyer_requisites)
+        self.assertIn('Генеральный директор \n ООО "АГРОЗУМ"', buyer_requisites)
+        self.assertNotIn("АГРОЗУМ ООО", text)
 
     def test_contract_template_keeps_requisites_section_together_without_empty_gaps(self) -> None:
         document = Document("assets/templates/contract_template.docx")
@@ -470,6 +520,51 @@ class DocumentApiTest(unittest.TestCase):
         self.assertEqual(download_response.status_code, 200)
         text = read_docx_text(BytesIO(download_response.content))
         self.assertIn("Генеральный директор Ivan Ivanov", text)
+
+    def test_contract_from_onec_counterparty_uses_full_name_for_buyer_everywhere(self) -> None:
+        self.service.document_template_paths["contract"] = Path("assets/templates/contract_template.docx")
+        self.db.upsert_counterparties(
+            [
+                {
+                    "onec_key": "onec-agrozum",
+                    "name": "АГРОЗУМ ООО",
+                    "full_name": 'ООО "АГРОЗУМ"',
+                    "inn": "9713019723",
+                    "kpp": "771301001",
+                }
+            ]
+        )
+        counterparty = self.db.get_counterparty_by_onec_key("onec-agrozum")
+        assert counterparty is not None
+
+        response = self.client.post(
+            "/api/documents",
+            json={
+                "documentType": "contract",
+                "number": "D-44",
+                "documentDate": "2026-07-14",
+                "clientSource": "onec",
+                "clientId": int(counterparty["id"]),
+                "commercialOfferId": None,
+                "signerPosition": "Генеральный директор",
+                "notes": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        document_payload = response.json()["document"]
+        self.assertEqual(document_payload["clientName"], 'ООО "АГРОЗУМ"')
+
+        download_response = self.client.get(f"/api/documents/{document_payload['id']}/download")
+        self.assertEqual(download_response.status_code, 200)
+        document = Document(BytesIO(download_response.content))
+        text = read_docx_text(BytesIO(download_response.content))
+        buyer_requisites = document.tables[0].rows[1].cells[1].text
+
+        self.assertIn('и ООО "АГРОЗУМ", в лице генерального директора', text)
+        self.assertIn('ООО "АГРОЗУМ"', buyer_requisites)
+        self.assertIn('Генеральный директор \n ООО "АГРОЗУМ"', buyer_requisites)
+        self.assertNotIn("АГРОЗУМ ООО", text)
 
 
 def create_contract_template(path: Path) -> None:

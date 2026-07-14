@@ -531,8 +531,8 @@ class WebStockSyncService:
                 "crm_client_id": None,
                 "legal_type": "legal_entity",
                 "name": row.get("name") or "",
-                "document_name": row.get("full_name") or row.get("name") or "",
-                "full_name": row.get("full_name") or row.get("name") or "",
+                "document_name": row.get("full_name") or "",
+                "full_name": row.get("full_name") or "",
                 "inn": row.get("inn") or "",
                 "kpp": row.get("kpp") or "",
                 "is_buyer": True,
@@ -571,8 +571,8 @@ class WebStockSyncService:
                 "crm_client_id": int(row["id"]),
                 "legal_type": row.get("legal_type") or "legal_entity",
                 "name": row.get("name") or "",
-                "document_name": row.get("document_name") or row.get("name") or "",
-                "full_name": row.get("full_name") or row.get("name") or "",
+                "document_name": row.get("document_name") or row.get("full_name") or "",
+                "full_name": row.get("full_name") or row.get("document_name") or "",
                 "inn": row.get("inn") or "",
                 "kpp": row.get("kpp") or "",
                 "is_buyer": bool(row.get("is_buyer")),
@@ -602,7 +602,10 @@ class WebStockSyncService:
             }
             for row in local_rows
         ]
-        return sorted(onec_clients + local_clients, key=lambda row: str(row["name"]).lower())
+        return sorted(
+            onec_clients + local_clients,
+            key=lambda row: str(row.get("document_name") or row.get("full_name") or row.get("name") or "").lower(),
+        )
 
     def create_client(
         self,
@@ -637,7 +640,7 @@ class WebStockSyncService:
         if existing_counterparty:
             raise ValueError(
                 f"В 1С уже есть контрагент с ИНН {card['inn']}: "
-                f"{existing_counterparty.get('Description') or existing_counterparty.get('НаименованиеПолное') or existing_counterparty.get('Ref_Key')}."
+                f"{existing_counterparty.get('НаименованиеПолное') or existing_counterparty.get('Description') or existing_counterparty.get('Ref_Key')}."
             )
 
         row = self.db.create_crm_client_card(card)
@@ -775,7 +778,7 @@ class WebStockSyncService:
         if existing_counterparty and not self._remote_counterparty_matches_link(existing_counterparty, linked_counterparty_id):
             raise ValueError(
                 f"В 1С уже есть контрагент с ИНН {row.get('inn')}: "
-                f"{existing_counterparty.get('Description') or existing_counterparty.get('НаименованиеПолное') or existing_counterparty.get('Ref_Key')}."
+                f"{existing_counterparty.get('НаименованиеПолное') or existing_counterparty.get('Description') or existing_counterparty.get('Ref_Key')}."
             )
 
         if existing_counterparty and linked_counterparty_id is not None:
@@ -860,7 +863,7 @@ class WebStockSyncService:
                 {
                     "onec_key": ref_key,
                     "name": onec_row.get("Description") or client_row.get("document_name") or client_row.get("name"),
-                    "full_name": onec_row.get("НаименованиеПолное") or client_row.get("full_name") or client_row.get("name"),
+                    "full_name": onec_row.get("НаименованиеПолное") or client_row.get("full_name") or client_row.get("document_name"),
                     "inn": onec_row.get("ИНН") or client_row.get("inn"),
                     "kpp": onec_row.get("КПП") or client_row.get("kpp"),
                 }
@@ -879,8 +882,8 @@ class WebStockSyncService:
             "crm_client_id": int(row["id"]),
             "legal_type": row.get("legal_type") or "legal_entity",
             "name": row.get("name") or row.get("document_name") or "",
-            "document_name": row.get("document_name") or row.get("name") or "",
-            "full_name": row.get("full_name") or row.get("name") or "",
+            "document_name": row.get("document_name") or row.get("full_name") or "",
+            "full_name": row.get("full_name") or row.get("document_name") or "",
             "inn": row.get("inn") or "",
             "kpp": row.get("kpp") or "",
             "is_buyer": bool(row.get("is_buyer")),
@@ -1208,7 +1211,7 @@ class WebStockSyncService:
                 "client_source": "onec",
                 "counterparty_id": int(target["id"]),
                 "crm_client_id": None,
-                "client_name": target.get("full_name") or target.get("name") or client_name.strip(),
+                "client_name": target.get("full_name") or client_name.strip(),
             }
 
         if normalized_source == "local" and client_id:
@@ -1219,7 +1222,7 @@ class WebStockSyncService:
                 "client_source": "local",
                 "counterparty_id": target.get("linked_counterparty_id"),
                 "crm_client_id": int(target["id"]),
-                "client_name": target.get("document_name") or target.get("name") or client_name.strip(),
+                "client_name": target.get("document_name") or target.get("full_name") or client_name.strip(),
             }
 
         target = self.db.get_or_create_crm_client(name=client_name)
@@ -1227,7 +1230,7 @@ class WebStockSyncService:
             "client_source": "local",
             "counterparty_id": target.get("linked_counterparty_id"),
             "crm_client_id": int(target["id"]),
-            "client_name": target.get("name") or client_name.strip(),
+            "client_name": target.get("document_name") or target.get("full_name") or client_name.strip(),
         }
 
     def _resolve_document_client(
@@ -1249,8 +1252,8 @@ class WebStockSyncService:
                 "counterparty_id": int(target["id"]),
                 "crm_client_id": None,
                 "client": {
-                    "document_name": target.get("name") or "",
-                    "full_name": target.get("full_name") or target.get("name") or "",
+                    "document_name": target.get("full_name") or "",
+                    "full_name": target.get("full_name") or "",
                     "inn": target.get("inn") or "",
                     "kpp": target.get("kpp") or "",
                 },

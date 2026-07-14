@@ -291,8 +291,8 @@ class WebDatabase(Database):
         ).fetchall()
         for row in rows:
             record = dict(row)
-            document_name = str(record.get("document_name") or record.get("name") or "").strip()
-            full_name = str(record.get("full_name") or document_name).strip()
+            full_name = str(record.get("full_name") or record.get("document_name") or "").strip()
+            document_name = str(record.get("document_name") or full_name or record.get("name") or "").strip()
             legal_type = _infer_crm_legal_type(record, document_name, full_name)
             bank_name_or_bik = str(record.get("bank_name_or_bik") or "").strip()
             bank_name = str(record.get("bank_name") or "").strip()
@@ -823,7 +823,7 @@ class WebDatabase(Database):
                     continue
 
                 counterparty_id = int(counterparty["id"])
-                document_name = str(record.get("document_name") or record.get("name") or "").strip()
+                document_name = str(record.get("document_name") or record.get("full_name") or record.get("name") or "").strip()
                 if not document_name:
                     continue
 

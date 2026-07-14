@@ -533,7 +533,7 @@ export default function ClientsPage() {
                         </td>
                         <td className="px-3 py-1.5 align-top">
                           <div className="line-clamp-2 text-[11px] font-semibold leading-[15px]">
-                            {client.documentName || client.name || client.fullName || "-"}
+                            {formatClientDisplayName(client)}
                           </div>
                           {client.fullName && client.fullName !== client.documentName ? (
                             <div className="mt-0.5 line-clamp-1 text-[9px] text-[var(--text-secondary)]">
@@ -647,6 +647,10 @@ function validateClientForm(form: CreateClientPayload) {
 
 function onlyDigits(value: string) {
   return value.replace(/\D+/g, "");
+}
+
+function formatClientDisplayName(client: CrmClient) {
+  return client.documentName || client.fullName || client.name || "-";
 }
 
 function formatSyncNotice(sync: ClientSyncResult) {

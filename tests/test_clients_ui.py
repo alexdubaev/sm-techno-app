@@ -22,6 +22,13 @@ class ClientsUiTest(unittest.TestCase):
         self.assertIn('value={form.signerPosition ?? ""}', source)
         self.assertIn('onChange={(event) => updateForm("signerPosition", event.target.value)}', source)
 
+    def test_clients_page_displays_document_name_before_program_name(self) -> None:
+        source = Path("sm-techno-web/app/clients/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("formatClientDisplayName(client)", source)
+        self.assertIn("client.documentName || client.fullName || client.name", source)
+        self.assertNotIn("client.documentName || client.name || client.fullName", source)
+
 
 if __name__ == "__main__":
     unittest.main()
