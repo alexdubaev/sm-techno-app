@@ -299,6 +299,101 @@ class CommercialOfferApiTest(unittest.TestCase):
         self.assertEqual(after_stock["quantity"], initial_stock["quantity"])
         self.assertEqual(self.db.list_orders(include_all=True), [])
 
+    def test_create_from_draft_uses_client_document_name_for_offer(self) -> None:
+        item = self.db.create_local_item(
+            sku="SKU-DOC",
+            name="Фильтр",
+            print_name="Фильтр",
+            category_name="CAT",
+            group_name="Фильтры",
+            price=100,
+            warehouses=[{"warehouse_name": "Основной склад", "quantity": 3}],
+        )
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO crm_clients(
+                    name, legal_type, document_name, full_name, inn, kpp,
+                    is_buyer, is_supplier, is_inactive, sync_status, created_at, updated_at
+                )
+                VALUES(?, 'legal_entity', ?, ?, '9713019723', '771301001', 1, 0, 0, 'local', '2026-07-14T10:00:00', '2026-07-14T10:00:00')
+                """,
+                ("АГРОЗУМ ООО", 'ООО "АГРОЗУМ"', 'ООО "АГРОЗУМ"'),
+            )
+            client_id = int(cursor.lastrowid)
+
+        response = self.client.post(
+            "/api/commercial-offers/from-draft",
+            json={
+                "clientSource": "local",
+                "clientId": client_id,
+                "clientName": "АГРОЗУМ ООО",
+                "lines": [
+                    {
+                        "itemId": item["id"],
+                        "article": "SKU-DOC",
+                        "name": "Фильтр",
+                        "qty": 1,
+                        "priceVat": 100,
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        offer = response.json()["offer"]
+        self.assertEqual(offer["clientName"], 'ООО "АГРОЗУМ"')
+
+        download_response = self.client.get(f"/api/commercial-offers/{offer['id']}/download/output")
+        self.assertEqual(download_response.status_code, 200)
+        generated = load_workbook(BytesIO(download_response.content), data_only=False, rich_text=True)
+        self.assertEqual(str(generated["КП"]["A9"].value), 'Покупатель: ООО "АГРОЗУМ"')
+
+    def test_create_from_draft_uses_onec_full_name_for_offer(self) -> None:
+        item = self.db.create_local_item(
+            sku="SKU-ONEC",
+            name="Насос",
+            print_name="Насос",
+            category_name="JCB",
+            group_name="Насосы",
+            price=200,
+            warehouses=[{"warehouse_name": "Основной склад", "quantity": 2}],
+        )
+        self.db.upsert_counterparties(
+            [
+                {
+                    "onec_key": "counterparty-ref",
+                    "name": "АГРОЗУМ ООО",
+                    "full_name": 'ООО "АГРОЗУМ"',
+                    "inn": "9713019723",
+                    "kpp": "771301001",
+                }
+            ]
+        )
+        counterparty_id = self.db.list_counterparties()[0]["id"]
+
+        response = self.client.post(
+            "/api/commercial-offers/from-draft",
+            json={
+                "clientSource": "onec",
+                "clientId": counterparty_id,
+                "clientName": "АГРОЗУМ ООО",
+                "lines": [
+                    {
+                        "itemId": item["id"],
+                        "article": "SKU-ONEC",
+                        "name": "Насос",
+                        "qty": 1,
+                        "priceVat": 200,
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        offer = response.json()["offer"]
+        self.assertEqual(offer["clientName"], 'ООО "АГРОЗУМ"')
+
     def test_create_from_excel_uses_filename_as_offer_number_and_keeps_source_download(self) -> None:
         source = BytesIO()
         workbook = Workbook()
@@ -371,6 +466,15 @@ class CommercialOfferApiTest(unittest.TestCase):
 
         details_response = self.client.get(f"/api/commercial-offers/{offer_id}")
         self.assertEqual(details_response.status_code, 404)
+
+
+class CommercialOfferUiTest(unittest.TestCase):
+    def test_new_offer_page_uses_client_document_name(self) -> None:
+        source = Path("sm-techno-web/app/commercial-offers/new/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("formatClientDisplayName(client)", source)
+        self.assertIn("client.documentName || client.name || client.fullName", source)
+        self.assertNotIn("clientName: client.name || client.fullName", source)
 
 
 def create_minimal_template(path: Path) -> None:

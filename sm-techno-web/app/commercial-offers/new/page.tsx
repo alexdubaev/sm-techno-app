@@ -186,7 +186,7 @@ export default function NewCommercialOfferPage() {
                   <option value={MANUAL_CLIENT_VALUE}>Новый локальный клиент</option>
                   {clients.map((client) => (
                     <option key={buildClientValue(client)} value={buildClientValue(client)}>
-                      {client.source === "onec" ? "1С" : "Локальный"} · {client.name}
+                      {client.source === "onec" ? "1С" : "Локальный"} · {formatClientDisplayName(client)}
                     </option>
                   ))}
                 </select>
@@ -407,8 +407,12 @@ function resolveClientPayload(
   return {
     clientSource: client.source,
     clientId: client.id,
-    clientName: client.name || client.fullName,
+    clientName: client.documentName || client.name || client.fullName,
   };
+}
+
+function formatClientDisplayName(client: CrmClient) {
+  return client.documentName || client.name || client.fullName || "-";
 }
 
 function formatMoney(value: number) {

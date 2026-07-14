@@ -531,7 +531,7 @@ class WebStockSyncService:
                 "crm_client_id": None,
                 "legal_type": "legal_entity",
                 "name": row.get("name") or "",
-                "document_name": row.get("name") or "",
+                "document_name": row.get("full_name") or row.get("name") or "",
                 "full_name": row.get("full_name") or row.get("name") or "",
                 "inn": row.get("inn") or "",
                 "kpp": row.get("kpp") or "",
@@ -1208,7 +1208,7 @@ class WebStockSyncService:
                 "client_source": "onec",
                 "counterparty_id": int(target["id"]),
                 "crm_client_id": None,
-                "client_name": target.get("name") or client_name.strip(),
+                "client_name": target.get("full_name") or target.get("name") or client_name.strip(),
             }
 
         if normalized_source == "local" and client_id:
@@ -1219,7 +1219,7 @@ class WebStockSyncService:
                 "client_source": "local",
                 "counterparty_id": target.get("linked_counterparty_id"),
                 "crm_client_id": int(target["id"]),
-                "client_name": target.get("name") or client_name.strip(),
+                "client_name": target.get("document_name") or target.get("name") or client_name.strip(),
             }
 
         target = self.db.get_or_create_crm_client(name=client_name)

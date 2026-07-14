@@ -868,8 +868,23 @@ class OneCClient:
         return values
 
     def _format_counterparty_row(self, row: dict[str, Any]) -> dict[str, Any]:
-        name = self._first_row_value(row, ["Description", "НаименованиеПолное"], "Без названия")
-        full_name = self._first_row_value(row, ["НаименованиеПолное", "ПолноеНаименование", "Description"], name)
+        name = self._first_row_value(row, ["Description", "Наименование"], "Без названия")
+        document_name = self._first_row_value(
+            row,
+            [
+                "НаименованиеПолное",
+                "ПолноеНаименование",
+                "НаименованиеДляДокументов",
+                "НаименованиеДляПечати",
+                "Description",
+            ],
+            name,
+        )
+        full_name = self._first_row_value(
+            row,
+            ["НаименованиеПолное", "ПолноеНаименование", "НаименованиеДляДокументов", "Description"],
+            document_name,
+        )
         legal_type_value = self._first_row_value(
             row,
             ["ЮридическоеФизическоеЛицо", "ЮрФизЛицо", "ВидКонтрагента", "Вид"],
@@ -880,7 +895,7 @@ class OneCClient:
         result: dict[str, Any] = {
             "onec_key": row["Ref_Key"],
             "name": name,
-            "document_name": name,
+            "document_name": document_name,
             "full_name": full_name,
             "legal_type": self._infer_counterparty_legal_type(
                 legal_type_value,
