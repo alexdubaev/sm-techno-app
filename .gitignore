@@ -16,6 +16,7 @@ stock_sync.db
 backups/
 transfer/
 storage/commercial_offers/
+storage/documents/
 sm-techno-web/.env.local
 sm-techno-web/node_modules/
 sm-techno-web/.next/

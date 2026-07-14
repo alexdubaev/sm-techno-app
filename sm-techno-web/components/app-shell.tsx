@@ -63,6 +63,12 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "Документы",
+    items: [
+      { href: "/documents", label: "Документы", Icon: DocumentIcon },
+    ],
+  },
+  {
     label: "Администрирование",
     items: [
       { href: "/references", label: "Справочники", Icon: BookIcon },

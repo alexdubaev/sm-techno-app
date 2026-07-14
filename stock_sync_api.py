@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import json
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -249,7 +250,10 @@ def _serialize_client(row: dict[str, Any]) -> dict[str, Any]:
         "isSupplier": bool(row.get("is_supplier")),
         "isInactive": bool(row.get("is_inactive")),
         "bankNameOrBik": row.get("bank_name_or_bik") or "",
+        "bankName": row.get("bank_name") or "",
+        "bankBik": row.get("bank_bik") or "",
         "bankAccount": row.get("bank_account") or "",
+        "correspondentAccount": row.get("correspondent_account") or "",
         "contactPerson": row.get("contact_person") or "",
         "email": row.get("email") or "",
         "emailNote": row.get("email_note") or "",
@@ -257,6 +261,10 @@ def _serialize_client(row: dict[str, Any]) -> dict[str, Any]:
         "phoneNote": row.get("phone_note") or "",
         "legalAddress": row.get("legal_address") or "",
         "actualAddress": row.get("actual_address") or "",
+        "ogrn": row.get("ogrn") or "",
+        "signerPosition": row.get("signer_position") or "",
+        "signerName": row.get("signer_name") or "",
+        "signerBasis": row.get("signer_basis") or "",
         "notes": row.get("notes") or "",
         "syncStatus": row.get("sync_status") or ("synced" if row.get("is_linked_to_onec") else "local"),
         "syncError": row.get("sync_error") or "",
@@ -312,6 +320,41 @@ def _serialize_commercial_offer_details(bundle: dict[str, Any]) -> dict[str, Any
     return {
         "offer": _serialize_commercial_offer(bundle["offer"]),
         "lines": [_serialize_commercial_offer_line(row) for row in bundle["lines"]],
+    }
+
+
+def _parse_missing_fields(value: Any) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    try:
+        parsed = json.loads(str(value))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed]
+
+
+def _serialize_document(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "documentType": row.get("document_type") or "",
+        "number": row.get("number") or "",
+        "clientSource": row.get("client_source") or "local",
+        "counterpartyId": int(row["counterparty_id"]) if row.get("counterparty_id") else None,
+        "crmClientId": int(row["crm_client_id"]) if row.get("crm_client_id") else None,
+        "commercialOfferId": int(row["commercial_offer_id"]) if row.get("commercial_offer_id") else None,
+        "clientName": row.get("client_name_snapshot") or "",
+        "documentDate": row.get("document_date") or "",
+        "status": row.get("status") or "",
+        "notes": row.get("notes") or "",
+        "missingFields": _parse_missing_fields(row.get("missing_fields")),
+        "createdByName": row.get("created_by_name") or "",
+        "createdByUsername": row.get("created_by_username") or "",
+        "createdAt": row.get("created_at") or "",
+        "updatedAt": row.get("updated_at") or "",
     }
 
 
@@ -967,6 +1010,79 @@ def download_commercial_offer_file(
     return StreamingResponse(
         iter([path.read_bytes()]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=_download_headers(filename),
+    )
+
+
+@app.get("/api/documents")
+def list_documents(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    return {
+        "items": [
+            _serialize_document(row)
+            for row in SERVICE.list_documents_for_user(
+                user_id=int(current_user["id"]),
+                is_admin=str(current_user.get("role") or "") == "admin",
+            )
+        ]
+    }
+
+
+@app.post("/api/documents")
+def create_document(
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        document = SERVICE.create_document(
+            document_type=str(payload.get("documentType") or payload.get("document_type") or "").strip(),
+            number=str(payload.get("number") or "").strip(),
+            document_date=str(payload.get("documentDate") or payload.get("document_date") or "").strip(),
+            client_source=str(payload.get("clientSource") or payload.get("client_source") or "").strip(),
+            client_id=_parse_optional_client_id(payload.get("clientId") or payload.get("client_id")),
+            commercial_offer_id=_parse_optional_client_id(
+                payload.get("commercialOfferId") or payload.get("commercial_offer_id")
+            ),
+            notes=str(payload.get("notes") or "").strip(),
+            created_by_user_id=int(current_user["id"]),
+            is_admin=str(current_user.get("role") or "") == "admin",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"document": _serialize_document(document)}
+
+
+@app.get("/api/documents/{document_id}")
+def get_document(
+    document_id: int,
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        document = SERVICE.get_document_for_user(
+            document_id=document_id,
+            user_id=int(current_user["id"]),
+            is_admin=str(current_user.get("role") or "") == "admin",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"document": _serialize_document(document)}
+
+
+@app.get("/api/documents/{document_id}/download")
+def download_document_file(
+    document_id: int,
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> StreamingResponse:
+    try:
+        path, filename = SERVICE.resolve_document_file_for_user(
+            document_id=document_id,
+            user_id=int(current_user["id"]),
+            is_admin=str(current_user.get("role") or "") == "admin",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StreamingResponse(
+        iter([path.read_bytes()]),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers=_download_headers(filename),
     )
 

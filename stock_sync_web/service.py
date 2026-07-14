@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import json
 import tempfile
 import re
 import shutil
@@ -12,6 +13,12 @@ from stock_sync_web.commercial_offers import (
     CommercialOfferLineInput,
     generate_commercial_offer_workbook,
     read_source_offer_lines,
+)
+from stock_sync_web.documents import (
+    DocumentLineInput,
+    build_document_context,
+    find_missing_client_fields,
+    generate_document_docx,
 )
 from stock_sync_desktop.excel_tools import (
     create_import_template,
@@ -27,6 +34,11 @@ CLIENT_PRICE_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" /
 ROOT_DIR = Path(__file__).resolve().parent.parent
 COMMERCIAL_OFFER_TEMPLATE_PATH = ROOT_DIR / "assets" / "templates" / "commercial_offer_template.xlsx"
 COMMERCIAL_OFFER_STORAGE_DIR = ROOT_DIR / "storage" / "commercial_offers"
+DOCUMENT_TEMPLATE_PATHS = {
+    "contract": ROOT_DIR / "assets" / "templates" / "contract_template.docx",
+    "specification": ROOT_DIR / "assets" / "templates" / "specification_template.docx",
+}
+DOCUMENT_STORAGE_DIR = ROOT_DIR / "storage" / "documents"
 
 
 class WebStockSyncService:
@@ -36,6 +48,8 @@ class WebStockSyncService:
         *,
         commercial_offer_template_path: Path | str = COMMERCIAL_OFFER_TEMPLATE_PATH,
         commercial_offer_storage_dir: Path | str = COMMERCIAL_OFFER_STORAGE_DIR,
+        document_template_paths: dict[str, Path | str] | None = None,
+        document_storage_dir: Path | str = DOCUMENT_STORAGE_DIR,
     ) -> None:
         self.db = db or WebDatabase()
         self.commercial_offer_template_path = Path(commercial_offer_template_path)
@@ -44,6 +58,11 @@ class WebStockSyncService:
         self.commercial_offer_exports_dir = self.commercial_offer_storage_dir / "exports"
         self.commercial_offer_uploads_dir.mkdir(parents=True, exist_ok=True)
         self.commercial_offer_exports_dir.mkdir(parents=True, exist_ok=True)
+        template_paths = document_template_paths or DOCUMENT_TEMPLATE_PATHS
+        self.document_template_paths = {key: Path(value) for key, value in template_paths.items()}
+        self.document_storage_dir = Path(document_storage_dir)
+        self.document_exports_dir = self.document_storage_dir / "exports"
+        self.document_exports_dir.mkdir(parents=True, exist_ok=True)
 
     def bootstrap(self) -> bool:
         return self.db.ensure_default_admin()
@@ -511,7 +530,10 @@ class WebStockSyncService:
                 "is_supplier": False,
                 "is_inactive": False,
                 "bank_name_or_bik": "",
+                "bank_name": "",
+                "bank_bik": "",
                 "bank_account": "",
+                "correspondent_account": "",
                 "contact_person": "",
                 "email": "",
                 "email_note": "",
@@ -519,6 +541,10 @@ class WebStockSyncService:
                 "phone_note": "",
                 "legal_address": "",
                 "actual_address": "",
+                "ogrn": "",
+                "signer_position": "",
+                "signer_name": "",
+                "signer_basis": "",
                 "notes": "",
                 "sync_status": "synced",
                 "sync_error": "",
@@ -543,7 +569,10 @@ class WebStockSyncService:
                 "is_supplier": bool(row.get("is_supplier")),
                 "is_inactive": bool(row.get("is_inactive")),
                 "bank_name_or_bik": row.get("bank_name_or_bik") or "",
+                "bank_name": row.get("bank_name") or "",
+                "bank_bik": row.get("bank_bik") or "",
                 "bank_account": row.get("bank_account") or "",
+                "correspondent_account": row.get("correspondent_account") or "",
                 "contact_person": row.get("contact_person") or "",
                 "email": row.get("email") or "",
                 "email_note": row.get("email_note") or "",
@@ -551,6 +580,10 @@ class WebStockSyncService:
                 "phone_note": row.get("phone_note") or "",
                 "legal_address": row.get("legal_address") or "",
                 "actual_address": row.get("actual_address") or "",
+                "ogrn": row.get("ogrn") or "",
+                "signer_position": row.get("signer_position") or "",
+                "signer_name": row.get("signer_name") or "",
+                "signer_basis": row.get("signer_basis") or "",
                 "notes": row.get("notes") or "",
                 "sync_status": row.get("sync_status") or "local",
                 "sync_error": row.get("sync_error") or "",
@@ -673,7 +706,10 @@ class WebStockSyncService:
             "is_supplier": is_supplier,
             "is_inactive": bool(cls._payload_value(payload, "isInactive", "is_inactive", default=False)),
             "bank_name_or_bik": str(cls._payload_value(payload, "bankNameOrBik", "bank_name_or_bik") or "").strip(),
+            "bank_name": str(cls._payload_value(payload, "bankName", "bank_name") or "").strip(),
+            "bank_bik": cls._digits_only(str(cls._payload_value(payload, "bankBik", "bank_bik") or "")),
             "bank_account": str(cls._payload_value(payload, "bankAccount", "bank_account") or "").strip(),
+            "correspondent_account": str(cls._payload_value(payload, "correspondentAccount", "correspondent_account") or "").strip(),
             "contact_person": str(cls._payload_value(payload, "contactPerson", "contact_person") or "").strip(),
             "email": str(cls._payload_value(payload, "email") or "").strip(),
             "email_note": str(cls._payload_value(payload, "emailNote", "email_note") or "").strip(),
@@ -681,6 +717,10 @@ class WebStockSyncService:
             "phone_note": str(cls._payload_value(payload, "phoneNote", "phone_note") or "").strip(),
             "legal_address": str(cls._payload_value(payload, "legalAddress", "legal_address") or "").strip(),
             "actual_address": str(cls._payload_value(payload, "actualAddress", "actual_address") or "").strip(),
+            "ogrn": cls._digits_only(str(cls._payload_value(payload, "ogrn") or "")),
+            "signer_position": str(cls._payload_value(payload, "signerPosition", "signer_position") or "").strip(),
+            "signer_name": str(cls._payload_value(payload, "signerName", "signer_name") or "").strip(),
+            "signer_basis": str(cls._payload_value(payload, "signerBasis", "signer_basis") or "").strip(),
             "notes": str(cls._payload_value(payload, "notes") or "").strip(),
         }
 
@@ -837,7 +877,10 @@ class WebStockSyncService:
             "is_supplier": bool(row.get("is_supplier")),
             "is_inactive": bool(row.get("is_inactive")),
             "bank_name_or_bik": row.get("bank_name_or_bik") or "",
+            "bank_name": row.get("bank_name") or "",
+            "bank_bik": row.get("bank_bik") or "",
             "bank_account": row.get("bank_account") or "",
+            "correspondent_account": row.get("correspondent_account") or "",
             "contact_person": row.get("contact_person") or "",
             "email": row.get("email") or "",
             "email_note": row.get("email_note") or "",
@@ -845,6 +888,10 @@ class WebStockSyncService:
             "phone_note": row.get("phone_note") or "",
             "legal_address": row.get("legal_address") or "",
             "actual_address": row.get("actual_address") or "",
+            "ogrn": row.get("ogrn") or "",
+            "signer_position": row.get("signer_position") or "",
+            "signer_name": row.get("signer_name") or "",
+            "signer_basis": row.get("signer_basis") or "",
             "notes": row.get("notes") or "",
             "sync_status": row.get("sync_status") or "local",
             "sync_error": row.get("sync_error") or "",
@@ -1003,6 +1050,104 @@ class WebStockSyncService:
             raise ValueError("Файл не найден на диске.")
         return path, filename
 
+    def list_documents_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
+        return self.db.list_documents(user_id=user_id, include_all=is_admin)
+
+    def get_document_for_user(self, *, document_id: int, user_id: int, is_admin: bool) -> dict[str, Any]:
+        document = self.db.get_document(document_id)
+        owner_id = document.get("created_by_user_id")
+        if not is_admin and int(owner_id or 0) != int(user_id):
+            raise ValueError("Документ не найден.")
+        return document
+
+    def create_document(
+        self,
+        *,
+        document_type: str,
+        number: str,
+        document_date: str,
+        client_source: str,
+        client_id: int | None,
+        commercial_offer_id: int | None,
+        notes: str,
+        created_by_user_id: int,
+        is_admin: bool,
+    ) -> dict[str, Any]:
+        normalized_type = str(document_type or "").strip().lower()
+        if normalized_type not in {"contract", "specification"}:
+            raise ValueError("Выберите тип документа: договор или спецификация.")
+
+        document_number = str(number or "").strip()
+        if not document_number:
+            prefix = "ДОГ" if normalized_type == "contract" else "СП"
+            document_number = f"{prefix}-{datetime.now():%Y%m%d-%H%M%S}"
+
+        normalized_date = str(document_date or "").strip()[:10] or date.today().isoformat()
+        client = self._resolve_document_client(client_source=client_source, client_id=client_id)
+        lines: list[DocumentLineInput] = []
+        linked_offer_id = commercial_offer_id
+        if normalized_type == "specification":
+            if not commercial_offer_id:
+                raise ValueError("Для спецификации выберите КП.")
+            offer_bundle = self.get_commercial_offer_for_user(
+                offer_id=int(commercial_offer_id),
+                user_id=created_by_user_id,
+                is_admin=is_admin,
+            )
+            lines = self._commercial_offer_lines_to_document_lines(offer_bundle["lines"])
+
+        context = build_document_context(
+            client=client["client"],
+            document_number=document_number,
+            document_date=normalized_date,
+            lines=lines,
+        )
+        missing_fields = find_missing_client_fields(
+            context,
+            self._required_document_fields(normalized_type),
+        )
+        template_path = self.document_template_paths.get(normalized_type)
+        if not template_path or not template_path.exists():
+            raise ValueError("Шаблон документа не найден.")
+
+        file_id = uuid.uuid4().hex[:12]
+        label = "Договор" if normalized_type == "contract" else "Спецификация"
+        output_path = self.document_exports_dir / f"{file_id}_{self._safe_filename(label + '_' + document_number + '.docx')}"
+        generate_document_docx(
+            template_path=template_path,
+            output_path=output_path,
+            context=context,
+        )
+        document_id = self.db.create_document(
+            document_type=normalized_type,
+            number=document_number,
+            client_source=client["client_source"],
+            counterparty_id=client["counterparty_id"],
+            crm_client_id=client["crm_client_id"],
+            commercial_offer_id=linked_offer_id,
+            client_name=context["client"]["document_name"],
+            document_date=normalized_date,
+            output_path=self._store_path(output_path),
+            notes=notes,
+            missing_fields=json.dumps(missing_fields, ensure_ascii=False),
+            created_by_user_id=created_by_user_id,
+        )
+        return self.db.get_document(document_id)
+
+    def resolve_document_file_for_user(
+        self,
+        *,
+        document_id: int,
+        user_id: int,
+        is_admin: bool,
+    ) -> tuple[Path, str]:
+        document = self.get_document_for_user(document_id=document_id, user_id=user_id, is_admin=is_admin)
+        path = self._resolve_stored_path(str(document.get("output_path") or ""))
+        if not path.exists():
+            raise ValueError("Файл не найден на диске.")
+        filename = f"{document.get('document_type') or 'document'}_{document.get('number') or document_id}.docx"
+        return path, self._safe_filename(filename)
+
     def list_orders_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
         return self.db.list_orders(user_id=user_id, include_all=is_admin)
 
@@ -1061,6 +1206,76 @@ class WebStockSyncService:
             "crm_client_id": int(target["id"]),
             "client_name": target.get("name") or client_name.strip(),
         }
+
+    def _resolve_document_client(
+        self,
+        *,
+        client_source: str,
+        client_id: int | None,
+    ) -> dict[str, Any]:
+        normalized_source = str(client_source or "").strip().lower()
+        if normalized_source == "onec" and client_id:
+            target = next(
+                (row for row in self.db.list_counterparties() if int(row["id"]) == int(client_id)),
+                None,
+            )
+            if not target:
+                raise ValueError("Контрагент 1С не найден.")
+            return {
+                "client_source": "onec",
+                "counterparty_id": int(target["id"]),
+                "crm_client_id": None,
+                "client": {
+                    "document_name": target.get("name") or "",
+                    "full_name": target.get("full_name") or target.get("name") or "",
+                    "inn": target.get("inn") or "",
+                    "kpp": target.get("kpp") or "",
+                },
+            }
+
+        if normalized_source == "local" and client_id:
+            target = self.db.get_crm_client(int(client_id))
+            if not target:
+                raise ValueError("Локальный клиент не найден.")
+            return {
+                "client_source": "local",
+                "counterparty_id": target.get("linked_counterparty_id"),
+                "crm_client_id": int(target["id"]),
+                "client": target,
+            }
+
+        raise ValueError("Выберите клиента.")
+
+    @staticmethod
+    def _required_document_fields(document_type: str) -> list[str]:
+        common = [
+            "document_name",
+            "inn",
+            "legal_address",
+            "bank_account",
+            "signer_name",
+            "signer_basis",
+        ]
+        if document_type == "contract":
+            return common + ["kpp", "ogrn", "signer_position"]
+        return common
+
+    @staticmethod
+    def _commercial_offer_lines_to_document_lines(lines: list[dict[str, Any]]) -> list[DocumentLineInput]:
+        parsed: list[DocumentLineInput] = []
+        for index, row in enumerate(lines, start=1):
+            parsed.append(
+                DocumentLineInput(
+                    row_no=int(row.get("row_no") or index),
+                    article=str(row.get("article") or ""),
+                    name=str(row.get("name") or ""),
+                    qty=float(row.get("qty") or 0),
+                    price=float(row.get("price_vat") or 0),
+                )
+            )
+        if not parsed:
+            raise ValueError("В выбранном КП нет строк для спецификации.")
+        return parsed
 
     def _parse_draft_offer_lines(self, lines: list[dict[str, Any]]) -> list[CommercialOfferLineInput]:
         parsed: list[CommercialOfferLineInput] = []

@@ -47,7 +47,10 @@ CREATE TABLE IF NOT EXISTS crm_clients (
     is_supplier INTEGER NOT NULL DEFAULT 0,
     is_inactive INTEGER NOT NULL DEFAULT 0,
     bank_name_or_bik TEXT,
+    bank_name TEXT,
+    bank_bik TEXT,
     bank_account TEXT,
+    correspondent_account TEXT,
     contact_person TEXT,
     email TEXT,
     email_note TEXT,
@@ -55,6 +58,10 @@ CREATE TABLE IF NOT EXISTS crm_clients (
     phone_note TEXT,
     legal_address TEXT,
     actual_address TEXT,
+    ogrn TEXT,
+    signer_position TEXT,
+    signer_name TEXT,
+    signer_basis TEXT,
     notes TEXT,
     linked_counterparty_id INTEGER,
     sync_status TEXT NOT NULL DEFAULT 'local',
@@ -108,6 +115,28 @@ CREATE TABLE IF NOT EXISTS commercial_offer_lines (
     FOREIGN KEY(item_id) REFERENCES items(id),
     FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
 );
+
+CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_type TEXT NOT NULL,
+    number TEXT NOT NULL,
+    client_source TEXT NOT NULL DEFAULT 'local',
+    counterparty_id INTEGER,
+    crm_client_id INTEGER,
+    commercial_offer_id INTEGER,
+    client_name_snapshot TEXT NOT NULL,
+    document_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Создано',
+    output_path TEXT NOT NULL,
+    notes TEXT,
+    missing_fields TEXT,
+    created_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(counterparty_id) REFERENCES counterparties(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(commercial_offer_id) REFERENCES commercial_offers(id)
+);
 """
 
 
@@ -150,11 +179,18 @@ class WebDatabase(Database):
             "is_supplier": "ALTER TABLE crm_clients ADD COLUMN is_supplier INTEGER NOT NULL DEFAULT 0",
             "is_inactive": "ALTER TABLE crm_clients ADD COLUMN is_inactive INTEGER NOT NULL DEFAULT 0",
             "bank_name_or_bik": "ALTER TABLE crm_clients ADD COLUMN bank_name_or_bik TEXT",
+            "bank_name": "ALTER TABLE crm_clients ADD COLUMN bank_name TEXT",
+            "bank_bik": "ALTER TABLE crm_clients ADD COLUMN bank_bik TEXT",
             "bank_account": "ALTER TABLE crm_clients ADD COLUMN bank_account TEXT",
+            "correspondent_account": "ALTER TABLE crm_clients ADD COLUMN correspondent_account TEXT",
             "email_note": "ALTER TABLE crm_clients ADD COLUMN email_note TEXT",
             "phone_note": "ALTER TABLE crm_clients ADD COLUMN phone_note TEXT",
             "legal_address": "ALTER TABLE crm_clients ADD COLUMN legal_address TEXT",
             "actual_address": "ALTER TABLE crm_clients ADD COLUMN actual_address TEXT",
+            "ogrn": "ALTER TABLE crm_clients ADD COLUMN ogrn TEXT",
+            "signer_position": "ALTER TABLE crm_clients ADD COLUMN signer_position TEXT",
+            "signer_name": "ALTER TABLE crm_clients ADD COLUMN signer_name TEXT",
+            "signer_basis": "ALTER TABLE crm_clients ADD COLUMN signer_basis TEXT",
             "sync_status": "ALTER TABLE crm_clients ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'local'",
             "sync_error": "ALTER TABLE crm_clients ADD COLUMN sync_error TEXT",
             "onec_synced_at": "ALTER TABLE crm_clients ADD COLUMN onec_synced_at TEXT",
@@ -194,6 +230,16 @@ class WebDatabase(Database):
             WHERE COALESCE(sync_status, '') = ''
             """
         )
+        for text_column in (
+            "bank_name",
+            "bank_bik",
+            "correspondent_account",
+            "ogrn",
+            "signer_position",
+            "signer_name",
+            "signer_basis",
+        ):
+            conn.execute(f"UPDATE crm_clients SET {text_column} = '' WHERE {text_column} IS NULL")
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_name ON crm_clients(name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_inn ON crm_clients(inn)")
@@ -201,6 +247,9 @@ class WebDatabase(Database):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_created ON commercial_offers(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_owner ON commercial_offers(created_by_user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offer_lines_offer ON commercial_offer_lines(offer_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_created ON documents(created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_owner ON documents(created_by_user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_client ON documents(client_source, counterparty_id, crm_client_id)")
 
     @staticmethod
     def _normalize_role(role: str | None) -> str:
@@ -501,7 +550,10 @@ class WebDatabase(Database):
                 is_supplier,
                 is_inactive,
                 bank_name_or_bik,
+                bank_name,
+                bank_bik,
                 bank_account,
+                correspondent_account,
                 contact_person,
                 email,
                 email_note,
@@ -509,6 +561,10 @@ class WebDatabase(Database):
                 phone_note,
                 legal_address,
                 actual_address,
+                ogrn,
+                signer_position,
+                signer_name,
+                signer_basis,
                 notes,
                 linked_counterparty_id,
                 sync_status,
@@ -600,7 +656,10 @@ class WebDatabase(Database):
                     is_supplier,
                     is_inactive,
                     bank_name_or_bik,
+                    bank_name,
+                    bank_bik,
                     bank_account,
+                    correspondent_account,
                     contact_person,
                     email,
                     email_note,
@@ -608,12 +667,16 @@ class WebDatabase(Database):
                     phone_note,
                     legal_address,
                     actual_address,
+                    ogrn,
+                    signer_position,
+                    signer_name,
+                    signer_basis,
                     notes,
                     sync_status,
                     created_at,
                     updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)
                 """,
                 (
                     document_name,
@@ -626,7 +689,10 @@ class WebDatabase(Database):
                     1 if values.get("is_supplier") else 0,
                     1 if values.get("is_inactive") else 0,
                     values.get("bank_name_or_bik") or None,
+                    values.get("bank_name") or None,
+                    values.get("bank_bik") or None,
                     values.get("bank_account") or None,
+                    values.get("correspondent_account") or None,
                     values.get("contact_person") or None,
                     values.get("email") or None,
                     values.get("email_note") or None,
@@ -634,6 +700,10 @@ class WebDatabase(Database):
                     values.get("phone_note") or None,
                     values.get("legal_address") or None,
                     values.get("actual_address") or None,
+                    values.get("ogrn") or None,
+                    values.get("signer_position") or None,
+                    values.get("signer_name") or None,
+                    values.get("signer_basis") or None,
                     values.get("notes") or None,
                     now,
                     now,
@@ -967,6 +1037,118 @@ class WebDatabase(Database):
             conn.execute("DELETE FROM commercial_offers WHERE id = ?", (offer_id,))
 
         return dict(offer)
+
+    def create_document(
+        self,
+        *,
+        document_type: str,
+        number: str,
+        client_source: str,
+        counterparty_id: int | None,
+        crm_client_id: int | None,
+        commercial_offer_id: int | None,
+        client_name: str,
+        document_date: str,
+        output_path: str,
+        notes: str,
+        missing_fields: str,
+        created_by_user_id: int | None,
+    ) -> int:
+        now = utc_now()
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO documents(
+                    document_type, number, client_source, counterparty_id, crm_client_id,
+                    commercial_offer_id, client_name_snapshot, document_date, status,
+                    output_path, notes, missing_fields, created_by_user_id, created_at, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'Создано', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    document_type,
+                    number,
+                    client_source,
+                    counterparty_id,
+                    crm_client_id,
+                    commercial_offer_id,
+                    client_name,
+                    document_date,
+                    output_path,
+                    notes.strip() or None,
+                    missing_fields,
+                    created_by_user_id,
+                    now,
+                    now,
+                ),
+            )
+        return int(cursor.lastrowid)
+
+    def list_documents(self, *, user_id: int | None = None, include_all: bool = False) -> list[dict[str, Any]]:
+        query = """
+            SELECT
+                d.id,
+                d.document_type,
+                d.number,
+                d.client_source,
+                d.counterparty_id,
+                d.crm_client_id,
+                d.commercial_offer_id,
+                d.client_name_snapshot,
+                d.document_date,
+                d.status,
+                d.output_path,
+                d.notes,
+                d.missing_fields,
+                d.created_by_user_id,
+                d.created_at,
+                d.updated_at,
+                u.username AS created_by_username,
+                COALESCE(NULLIF(u.full_name, ''), u.username) AS created_by_name
+            FROM documents d
+            LEFT JOIN users u ON u.id = d.created_by_user_id
+        """
+        params: list[Any] = []
+        if not include_all and user_id is not None:
+            query += " WHERE d.created_by_user_id = ?"
+            params.append(user_id)
+        query += " ORDER BY d.created_at DESC"
+        with self.connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return self._rows_to_dicts(rows)
+
+    def get_document(self, document_id: int) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    d.id,
+                    d.document_type,
+                    d.number,
+                    d.client_source,
+                    d.counterparty_id,
+                    d.crm_client_id,
+                    d.commercial_offer_id,
+                    d.client_name_snapshot,
+                    d.document_date,
+                    d.status,
+                    d.output_path,
+                    d.notes,
+                    d.missing_fields,
+                    d.created_by_user_id,
+                    d.created_at,
+                    d.updated_at,
+                    u.username AS created_by_username,
+                    COALESCE(NULLIF(u.full_name, ''), u.username) AS created_by_name
+                FROM documents d
+                LEFT JOIN users u ON u.id = d.created_by_user_id
+                WHERE d.id = ?
+                """,
+                (document_id,),
+            ).fetchone()
+        if not row:
+            raise ValueError("Документ не найден.")
+        return dict(row)
 
     def create_order(
         self,

@@ -7,6 +7,7 @@
   Contract,
   Counterparty,
   CrmClient,
+  GeneratedDocument,
   OrderDetails,
   OrderHistoryItem,
   Organization,
@@ -114,7 +115,10 @@ export type CreateClientPayload = {
   isSupplier: boolean;
   isInactive: boolean;
   bankNameOrBik: string;
+  bankName?: string;
+  bankBik?: string;
   bankAccount: string;
+  correspondentAccount?: string;
   contactPerson?: string;
   email?: string;
   emailNote?: string;
@@ -122,6 +126,10 @@ export type CreateClientPayload = {
   phoneNote?: string;
   legalAddress?: string;
   actualAddress?: string;
+  ogrn?: string;
+  signerPosition?: string;
+  signerName?: string;
+  signerBasis?: string;
   notes?: string;
 };
 
@@ -142,6 +150,16 @@ export type CreateCommercialOfferPayload = {
   clientName: string;
   notes?: string;
   lines: CommercialOfferDraftLine[];
+};
+
+export type CreateDocumentPayload = {
+  documentType: "contract" | "specification";
+  number: string;
+  documentDate: string;
+  clientSource: "onec" | "local";
+  clientId: number;
+  commercialOfferId?: number | null;
+  notes?: string;
 };
 
 async function parseJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
@@ -626,6 +644,39 @@ export async function downloadCommercialOfferFile(
     `/api/commercial-offers/${offerId}/download/${kind}`,
     "Не удалось скачать файл КП.",
     kind === "source" ? "source.xlsx" : "commercial_offer.xlsx",
+  );
+}
+
+export async function fetchDocuments(): Promise<GeneratedDocument[]> {
+  const result = await requestJson<{ items: GeneratedDocument[] }>("/api/documents");
+  return result.items;
+}
+
+export async function fetchDocument(documentId: number): Promise<GeneratedDocument> {
+  const result = await requestJson<{ document: GeneratedDocument }>(`/api/documents/${documentId}`);
+  return result.document;
+}
+
+export async function createDocument(payload: CreateDocumentPayload): Promise<GeneratedDocument> {
+  const result = await requestJsonWithInit<{ document: GeneratedDocument }>(
+    "/api/documents",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сформировать документ.",
+  );
+  return result.document;
+}
+
+export async function downloadDocumentFile(documentId: number): Promise<void> {
+  await downloadApiFile(
+    `/api/documents/${documentId}/download`,
+    "Не удалось скачать документ.",
+    "document.docx",
   );
 }
 

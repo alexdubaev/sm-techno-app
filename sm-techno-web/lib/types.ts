@@ -132,7 +132,10 @@ export type CrmClient = {
   isSupplier: boolean;
   isInactive: boolean;
   bankNameOrBik: string;
+  bankName: string;
+  bankBik: string;
   bankAccount: string;
+  correspondentAccount: string;
   contactPerson: string;
   email: string;
   emailNote: string;
@@ -140,6 +143,10 @@ export type CrmClient = {
   phoneNote: string;
   legalAddress: string;
   actualAddress: string;
+  ogrn: string;
+  signerPosition: string;
+  signerName: string;
+  signerBasis: string;
   notes: string;
   syncStatus: "local" | "synced" | "sync_error";
   syncError: string;
@@ -184,6 +191,25 @@ export type CommercialOffer = {
   createdAt: string;
   updatedAt: string;
   hasSourceFile: boolean;
+};
+
+export type GeneratedDocument = {
+  id: number;
+  documentType: "contract" | "specification";
+  number: string;
+  clientSource: "onec" | "local";
+  counterpartyId: number | null;
+  crmClientId: number | null;
+  commercialOfferId: number | null;
+  clientName: string;
+  documentDate: string;
+  status: string;
+  notes: string;
+  missingFields: string[];
+  createdByName: string;
+  createdByUsername: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type CommercialOfferLine = {

@@ -43,7 +43,10 @@ function createEmptyForm(): CreateClientPayload {
     isSupplier: false,
     isInactive: false,
     bankNameOrBik: "",
+    bankName: "",
+    bankBik: "",
     bankAccount: "",
+    correspondentAccount: "",
     contactPerson: "",
     email: "",
     emailNote: "",
@@ -51,6 +54,10 @@ function createEmptyForm(): CreateClientPayload {
     phoneNote: "",
     legalAddress: "",
     actualAddress: "",
+    ogrn: "",
+    signerPosition: "",
+    signerName: "",
+    signerBasis: "",
     notes: "",
   };
 }
@@ -279,6 +286,13 @@ export default function ClientsPage() {
                     disabled={form.legalType === "individual_entrepreneur"}
                   />
                 </div>
+                <TextInput
+                  label="ОГРН / ОГРНИП"
+                  value={form.ogrn ?? ""}
+                  onChange={(value) => updateForm("ogrn", value)}
+                  placeholder={form.legalType === "legal_entity" ? "13 цифр" : "15 цифр"}
+                  inputMode="numeric"
+                />
               </div>
             </section>
 
@@ -292,9 +306,29 @@ export default function ClientsPage() {
                   placeholder="БИК или название"
                 />
                 <TextInput
+                  label="Название банка"
+                  value={form.bankName ?? ""}
+                  onChange={(value) => updateForm("bankName", value)}
+                  placeholder="ПАО Банк"
+                />
+                <TextInput
+                  label="БИК"
+                  value={form.bankBik ?? ""}
+                  onChange={(value) => updateForm("bankBik", value)}
+                  placeholder="9 цифр"
+                  inputMode="numeric"
+                />
+                <TextInput
                   label="Номер счета"
                   value={form.bankAccount}
                   onChange={(value) => updateForm("bankAccount", value)}
+                  placeholder="20 цифр"
+                  inputMode="numeric"
+                />
+                <TextInput
+                  label="Корр. счет"
+                  value={form.correspondentAccount ?? ""}
+                  onChange={(value) => updateForm("correspondentAccount", value)}
                   placeholder="20 цифр"
                   inputMode="numeric"
                 />
@@ -342,6 +376,30 @@ export default function ClientsPage() {
                   onChange={(value) => updateForm("actualAddress", value)}
                   placeholder="Адрес"
                   minHeightClass="min-h-[50px]"
+                />
+              </div>
+            </section>
+
+            <section className="min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
+              <SectionTitle icon={<DocumentCardIcon className="h-4 w-4 stroke-[1.9]" />}>Подписант</SectionTitle>
+              <div className="grid gap-1.5 md:grid-cols-2">
+                <TextInput
+                  label="Должность"
+                  value={form.signerPosition ?? ""}
+                  onChange={(value) => updateForm("signerPosition", value)}
+                  placeholder="Генеральный директор"
+                />
+                <TextInput
+                  label="ФИО"
+                  value={form.signerName ?? ""}
+                  onChange={(value) => updateForm("signerName", value)}
+                  placeholder="Иванов Иван Иванович"
+                />
+                <TextInput
+                  label="Основание"
+                  value={form.signerBasis ?? ""}
+                  onChange={(value) => updateForm("signerBasis", value)}
+                  placeholder="Устав"
                 />
               </div>
             </section>
@@ -504,7 +562,10 @@ function normalizeFormForSubmit(form: CreateClientPayload): CreateClientPayload 
     inn: form.inn.trim(),
     kpp: form.legalType === "individual_entrepreneur" ? "" : form.kpp.trim(),
     bankNameOrBik: form.bankNameOrBik.trim(),
+    bankName: form.bankName?.trim() ?? "",
+    bankBik: onlyDigits(form.bankBik ?? ""),
     bankAccount: form.bankAccount.trim(),
+    correspondentAccount: onlyDigits(form.correspondentAccount ?? ""),
     contactPerson: form.contactPerson?.trim() ?? "",
     email: form.email?.trim() ?? "",
     emailNote: form.emailNote?.trim() ?? "",
@@ -512,6 +573,10 @@ function normalizeFormForSubmit(form: CreateClientPayload): CreateClientPayload 
     phoneNote: form.phoneNote?.trim() ?? "",
     legalAddress: form.legalAddress?.trim() ?? "",
     actualAddress: form.actualAddress?.trim() ?? "",
+    ogrn: onlyDigits(form.ogrn ?? ""),
+    signerPosition: form.signerPosition?.trim() ?? "",
+    signerName: form.signerName?.trim() ?? "",
+    signerBasis: form.signerBasis?.trim() ?? "",
     notes: form.notes?.trim() ?? "",
   };
 }
