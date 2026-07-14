@@ -1111,8 +1111,12 @@ class WebStockSyncService:
             raise ValueError("Шаблон документа не найден.")
 
         file_id = uuid.uuid4().hex[:12]
-        label = "Договор" if normalized_type == "contract" else "Спецификация"
-        output_path = self.document_exports_dir / f"{file_id}_{self._safe_filename(label + '_' + document_number + '.docx')}"
+        document_filename = self._build_document_filename(
+            document_type=normalized_type,
+            client_name=context["client"]["document_name"],
+            document_number=document_number,
+        )
+        output_path = self.document_exports_dir / f"{file_id}_{document_filename}"
         generate_document_docx(
             template_path=template_path,
             output_path=output_path,
@@ -1145,8 +1149,12 @@ class WebStockSyncService:
         path = self._resolve_stored_path(str(document.get("output_path") or ""))
         if not path.exists():
             raise ValueError("Файл не найден на диске.")
-        filename = f"{document.get('document_type') or 'document'}_{document.get('number') or document_id}.docx"
-        return path, self._safe_filename(filename)
+        filename = self._build_document_filename(
+            document_type=str(document.get("document_type") or ""),
+            client_name=str(document.get("client_name") or document.get("client_name_snapshot") or ""),
+            document_number=str(document.get("number") or document_id),
+        )
+        return path, filename
 
     def list_orders_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
         return self.db.list_orders(user_id=user_id, include_all=is_admin)
@@ -1339,6 +1347,18 @@ class WebStockSyncService:
             "warehouse_id": line.warehouse_id,
             "warehouse_name": line.warehouse_name,
         }
+
+    @staticmethod
+    def _build_document_filename(*, document_type: str, client_name: str, document_number: str) -> str:
+        normalized_type = str(document_type or "").strip().lower()
+        number = str(document_number or "").strip()
+        if normalized_type == "contract":
+            parts = ["Договор", "ООО", "СМ", "ТЕХНО", str(client_name or "").strip(), number]
+            stem = "_".join(part for part in parts if part)
+            return WebStockSyncService._safe_filename(f"{stem}.docx")
+
+        fallback_type = normalized_type or "document"
+        return WebStockSyncService._safe_filename(f"{fallback_type}_{number}.docx")
 
     @staticmethod
     def _safe_filename(filename: str) -> str:

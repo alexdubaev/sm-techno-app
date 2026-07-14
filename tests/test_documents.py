@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
@@ -76,6 +77,27 @@ class DocumentGenerationTest(unittest.TestCase):
         self.assertIn("Client: OOO Romashka", text)
         self.assertIn("INN/KPP: 7707083893 / 770701001", text)
         self.assertIn("Signer: Director Ivan Ivanov, basis: Charter", text)
+
+    def test_contract_template_asset_uses_sm_techno_contract_wording(self) -> None:
+        template_path = Path("assets/templates/contract_template.docx")
+        output_path = self.temp_path / "contract_asset_output.docx"
+
+        context = build_document_context(
+            client=VALID_CLIENT_CARD,
+            document_number="D-17",
+            document_date="2026-07-14",
+        )
+        generate_document_docx(
+            template_path=template_path,
+            output_path=output_path,
+            context=context,
+        )
+
+        text = read_docx_text(output_path)
+
+        self.assertIn("ДОГОВОР ПОСТАВКИ № D-17", text)
+        self.assertIn('ООО "СМ ТЕХНО"', text)
+        self.assertIn("OOO Romashka", text)
 
     def test_specification_template_repeats_commercial_offer_lines(self) -> None:
         template_path = self.temp_path / "specification_template.docx"
@@ -260,6 +282,33 @@ class DocumentApiTest(unittest.TestCase):
         text = read_docx_text(BytesIO(download_response.content))
         self.assertIn("Specification SP-99", text)
         self.assertIn("CAT-001", text)
+
+    def test_download_contract_uses_sm_techno_filename(self) -> None:
+        crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+
+        response = self.client.post(
+            "/api/documents",
+            json={
+                "documentType": "contract",
+                "number": "D-42",
+                "documentDate": "2026-07-14",
+                "clientSource": "local",
+                "clientId": int(crm_client["id"]),
+                "commercialOfferId": None,
+                "notes": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        document_payload = response.json()["document"]
+        download_response = self.client.get(f"/api/documents/{document_payload['id']}/download")
+
+        self.assertEqual(download_response.status_code, 200)
+        expected_filename = "Договор_ООО_СМ_ТЕХНО_OOO Romashka_D-42.docx"
+        self.assertIn(
+            f"filename*=UTF-8''{quote(expected_filename)}",
+            download_response.headers["content-disposition"],
+        )
 
 
 def create_contract_template(path: Path) -> None:
