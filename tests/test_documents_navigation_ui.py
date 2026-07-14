@@ -24,16 +24,18 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn("downloadDocumentFile", journal_source)
         self.assertIn('href="/documents"', journal_source)
 
-    def test_sidebar_has_separate_documents_and_journal_sections(self) -> None:
+    def test_sidebar_places_journal_inside_documents_section(self) -> None:
         source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
 
-        self.assertIn('label: "Документы"', source)
-        self.assertIn('href: "/documents"', source)
-        self.assertIn('isActive: (path) => path === "/documents"', source)
+        documents_start = source.index('label: "Документы"')
+        admin_start = source.index('label: "Администрирование"', documents_start)
+        documents_block = source[documents_start:admin_start]
 
-        self.assertIn('label: "Журнал"', source)
-        self.assertIn('href: "/documents/journal"', source)
-        self.assertIn('label: "Журнал документов"', source)
+        self.assertIn('href: "/documents"', documents_block)
+        self.assertIn('isActive: (path) => path === "/documents"', documents_block)
+        self.assertIn('href: "/documents/journal"', documents_block)
+        self.assertIn('label: "Журнал документов"', documents_block)
+        self.assertNotIn('label: "Журнал",', source)
 
 
 if __name__ == "__main__":
