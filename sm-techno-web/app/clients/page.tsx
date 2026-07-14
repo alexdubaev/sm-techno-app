@@ -33,6 +33,8 @@ const CLIENTS_TABLE_COLUMNS: ResizableColumnConfig[] = [
 
 type SyncFilter = "all" | "synced" | "sync_error" | "local";
 
+const SIGNER_POSITION_OPTIONS = ["Директор", "Генеральный директор"];
+
 function createEmptyForm(): CreateClientPayload {
   return {
     legalType: "legal_entity",
@@ -411,12 +413,23 @@ export default function ClientsPage() {
             <section className="min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
               <SectionTitle icon={<DocumentCardIcon className="h-4 w-4 stroke-[1.9]" />}>Подписант</SectionTitle>
               <div className="grid gap-1.5 md:grid-cols-2">
-                <TextInput
-                  label="Должность"
-                  value={form.signerPosition ?? ""}
-                  onChange={(value) => updateForm("signerPosition", value)}
-                  placeholder="Генеральный директор"
-                />
+                <Field label="Должность">
+                  <select
+                    value={form.signerPosition ?? ""}
+                    onChange={(event) => updateForm("signerPosition", event.target.value)}
+                    className={fieldClassName}
+                  >
+                    <option value="">Выберите должность</option>
+                    {form.signerPosition && !SIGNER_POSITION_OPTIONS.includes(form.signerPosition) ? (
+                      <option value={form.signerPosition}>{form.signerPosition}</option>
+                    ) : null}
+                    {SIGNER_POSITION_OPTIONS.map((position) => (
+                      <option key={position} value={position}>
+                        {position}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
                 <TextInput
                   label="ФИО"
                   value={form.signerName ?? ""}

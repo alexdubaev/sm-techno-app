@@ -43,6 +43,12 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn("selectedClient?.bankBik", source)
         self.assertIn("selectedClient?.correspondentAccount", source)
 
+    def test_documents_preview_shows_signer_position(self) -> None:
+        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn('label="Должность"', source)
+        self.assertIn("selectedClient?.signerPosition", source)
+
     def test_sidebar_places_journal_inside_documents_section(self) -> None:
         source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
 

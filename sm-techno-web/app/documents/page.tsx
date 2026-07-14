@@ -333,6 +333,7 @@ export default function DocumentsPage() {
               <MetaRow label="Расчетный счет" value={selectedClient?.bankAccount || "-"} />
               <MetaRow label="БИК" value={selectedClient?.bankBik || (isBik(selectedClient?.bankNameOrBik) ? (selectedClient?.bankNameOrBik ?? "-") : "-")} />
               <MetaRow label="Корр. счет" value={selectedClient?.correspondentAccount || "-"} />
+              <MetaRow label="Должность" value={selectedClient?.signerPosition || "-"} />
               <MetaRow label="Подписант" value={selectedClient?.signerName || "-"} />
               {documentType === "specification" ? (
                 <MetaRow label="КП" value={selectedOffer ? `${selectedOffer.number} · ${formatMoney(selectedOffer.totalAmount)}` : "-"} />

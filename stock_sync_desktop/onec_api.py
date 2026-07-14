@@ -295,6 +295,11 @@ class OneCClient:
         return re.sub(r"\s{2,}", " ", text).strip(" ,;")
 
     @classmethod
+    def _clean_reference_text(cls, value: Any) -> str:
+        text = cls._first_text_value({"value": value}, ["value"])
+        return "" if cls._looks_like_guid(text) else text
+
+    @classmethod
     def _infer_counterparty_legal_type(
         cls,
         raw_value: Any,
@@ -759,6 +764,93 @@ class OneCClient:
             "correspondent_account": correspondent_account,
         }
 
+    def _fetch_contact_person_by_ref(self, ref_key: str) -> dict[str, Any]:
+        normalized_ref = str(ref_key or "").strip()
+        if not normalized_ref:
+            return {}
+        for entity_set_name in (
+            "Catalog_КонтактныеЛица",
+            "Catalog_КонтактныеЛицаКонтрагентов",
+            "Catalog_ФизическиеЛица",
+        ):
+            row = self._fetch_entity_by_ref(entity_set_name, normalized_ref)
+            if row:
+                return row
+        return {}
+
+    def _extract_counterparty_signer_values(self, row: dict[str, Any]) -> dict[str, str]:
+        signer_name = self._clean_reference_text(
+            self._first_row_value(
+                row,
+                [
+                    "ФИОПодписанта",
+                    "Подписант",
+                    "Руководитель",
+                    "ФИОРуководителя",
+                    "ФИОРуководителяОрганизации",
+                    "ОсновноеКонтактноеЛицо",
+                    "КонтактноеЛицо",
+                    "Представитель",
+                ],
+            )
+        )
+        signer_position = self._clean_reference_text(
+            self._first_row_value(
+                row,
+                [
+                    "ДолжностьПодписанта",
+                    "ДолжностьРуководителя",
+                    "Должность",
+                    "ДолжностьПредставителя",
+                    "ДолжностьКонтактногоЛица",
+                ],
+            )
+        )
+        signer_basis = self._clean_reference_text(
+            self._first_row_value(
+                row,
+                [
+                    "ОснованиеПодписанта",
+                    "ОснованиеПолномочий",
+                    "ДействуетНаОсновании",
+                    "ОснованиеДействия",
+                    "Основание",
+                ],
+            )
+        )
+
+        contact_ref = str(
+            self._first_row_value(
+                row,
+                [
+                    "Подписант_Key",
+                    "Руководитель_Key",
+                    "ОсновноеКонтактноеЛицо_Key",
+                    "КонтактноеЛицо_Key",
+                    "Представитель_Key",
+                ],
+            )
+            or ""
+        ).strip()
+        contact = self._fetch_contact_person_by_ref(contact_ref) if contact_ref else {}
+        if contact:
+            signer_name = signer_name or self._clean_reference_text(
+                self._first_row_value(contact, ["Description", "Наименование", "ФИО", "ПолноеНаименование"])
+            )
+            signer_position = signer_position or self._clean_reference_text(
+                self._first_row_value(contact, ["Должность", "ДолжностьПредставителя", "ДолжностьКонтактногоЛица"])
+            )
+
+        values: dict[str, str] = {}
+        if signer_name:
+            values["signer_name"] = signer_name
+            values["contact_person"] = signer_name
+        if signer_position:
+            values["signer_position"] = signer_position
+        if signer_basis:
+            values["signer_basis"] = signer_basis
+        return values
+
     def _format_counterparty_row(self, row: dict[str, Any]) -> dict[str, Any]:
         name = self._first_row_value(row, ["Description", "НаименованиеПолное"], "Без названия")
         full_name = self._first_row_value(row, ["НаименованиеПолное", "ПолноеНаименование", "Description"], name)
@@ -791,6 +883,7 @@ class OneCClient:
         }
         result.update(self._extract_counterparty_contact_values(row))
         result.update(self._extract_counterparty_bank_values(row))
+        result.update(self._extract_counterparty_signer_values(row))
         return result
 
     def _build_counterparty_update_payload(self, ref_key: str, card: dict[str, Any]) -> dict[str, Any]:

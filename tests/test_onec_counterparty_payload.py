@@ -353,6 +353,49 @@ class OneCCounterpartyPayloadTest(unittest.TestCase):
         self.assertEqual(row["bank_account"], "40802810226110001854")
         self.assertEqual(row["correspondent_account"], "30101810500000000207")
 
+    def test_list_counterparties_reads_signer_fields(self) -> None:
+        class SignerFieldsOneCClient(FakeODataOneCClient):
+            def _request(
+                self,
+                method: str,
+                endpoint_or_url: str,
+                payload: dict[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                self.calls.append((method, endpoint_or_url, payload))
+                decoded_endpoint = unquote(endpoint_or_url)
+                if method == "GET" and (
+                    endpoint_or_url.startswith(f"{CP}?") or f"/{CP}?" in decoded_endpoint
+                ):
+                    return {
+                        "value": [
+                            {
+                                "Ref_Key": "counterparty-ref",
+                                "Description": "ООО АГРОЗУМ",
+                                "НаименованиеПолное": "Общество с ограниченной ответственностью АГРОЗУМ",
+                                "ЮридическоеФизическоеЛицо": "ЮридическоеЛицо",
+                                "ИНН": "9713019723",
+                                "КПП": "771301001",
+                                "Руководитель": "Иванов Иван Иванович",
+                                "ДолжностьРуководителя": "Генеральный директор",
+                                "ОснованиеПолномочий": "Устава",
+                                CONTACT_INFO: [],
+                            }
+                        ]
+                    }
+                if method == "GET" and endpoint_or_url.startswith(CONTACT_KINDS):
+                    return {"value": []}
+                return super()._request(method, endpoint_or_url, payload)
+
+        client = SignerFieldsOneCClient()
+
+        rows = client.list_counterparties()
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["signer_name"], "Иванов Иван Иванович")
+        self.assertEqual(row["signer_position"], "Генеральный директор")
+        self.assertEqual(row["signer_basis"], "Устава")
+
     def test_list_counterparties_extracts_bik_from_bank_presentation_and_infers_ip(self) -> None:
         class BankPresentationOneCClient(FakeODataOneCClient):
             def _request(
