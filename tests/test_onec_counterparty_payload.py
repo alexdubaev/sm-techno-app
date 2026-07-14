@@ -200,6 +200,28 @@ class OneCCounterpartyPayloadTest(unittest.TestCase):
         self.assertEqual(bank_posts[0]["Owner"], "counterparty-ref")
         self.assertEqual(bank_posts[0]["Owner_Type"], f"StandardODATA.{CP}")
 
+    def test_create_counterparty_uses_separate_bank_bik_and_name(self) -> None:
+        client = FakeODataOneCClient()
+        card = {
+            **VALID_CARD,
+            "bank_name_or_bik": "",
+            "bank_name": "PAO Sberbank",
+            "bank_bik": "044525225",
+            "correspondent_account": "30101810400000000225",
+        }
+
+        client.create_counterparty(card)
+
+        bank_posts = [
+            payload
+            for method, endpoint, payload in client.calls
+            if method == "POST" and endpoint.startswith(f"{BANK_ACCOUNTS}?")
+        ]
+        self.assertEqual(len(bank_posts), 1)
+        self.assertEqual(bank_posts[0][ACCOUNT_NUMBER], "40702810900000000001")
+        self.assertEqual(bank_posts[0][BANK_KEY], "bank-ref")
+        self.assertIn("PAO Sberbank", bank_posts[0]["Description"])
+
     def test_list_counterparties_reads_contact_info_and_default_bank_account(self) -> None:
         class RichReadOneCClient(FakeODataOneCClient):
             def _request(

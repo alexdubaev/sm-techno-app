@@ -456,7 +456,8 @@ class OneCClient:
                 add("Поставщик", ["Поставщик"], True, required=True)
             add("Недействителен", ["Недействителен", "ПометкаУдаления"], bool(card.get("is_inactive")), required=False)
         else:
-            add("Банк", ["БИК", "Банк", "БанкНаименование", "ОсновнойБанк"], card.get("bank_name_or_bik"), required=False)
+            bank_value = card.get("bank_bik") or card.get("bank_name_or_bik") or card.get("bank_name")
+            add("Банк", ["БИК", "Банк", "БанкНаименование", "ОсновнойБанк"], bank_value, required=False)
             add("Номер счета", ["НомерСчета", "РасчетныйСчет", "ОсновнойБанковскийСчет"], card.get("bank_account"), required=False)
             add("Телефон", ["Телефон", "ОсновнойТелефон"], card.get("phone"), required=False)
             add("E-mail", ["Email", "E-mail", "ЭлектроннаяПочта", "АдресЭлектроннойПочты"], card.get("email"), required=False)
@@ -519,13 +520,13 @@ class OneCClient:
         account_number = str(card.get("bank_account") or "").strip()
         if not account_number:
             return ""
-        bank_name_or_bik = str(card.get("bank_name_or_bik") or "").strip()
-        if not bank_name_or_bik:
+        bank_lookup = str(card.get("bank_bik") or card.get("bank_name_or_bik") or card.get("bank_name") or "").strip()
+        if not bank_lookup:
             raise OneCClientError("Для банковского счета укажите БИК или название банка.")
 
-        bank = self._find_bank_by_name_or_bik(bank_name_or_bik)
+        bank = self._find_bank_by_name_or_bik(bank_lookup)
         if not bank or not bank.get("Ref_Key"):
-            raise OneCClientError(f"В 1С не найден банк по значению '{bank_name_or_bik}'.")
+            raise OneCClientError(f"В 1С не найден банк по значению '{bank_lookup}'.")
 
         account_properties = self._list_entity_properties("Catalog_БанковскиеСчета")
         required = {"Owner", "Owner_Type", "НомерСчета", "Банк_Key"}
@@ -545,7 +546,7 @@ class OneCClient:
         if existing and existing.get("Ref_Key"):
             return str(existing["Ref_Key"])
 
-        bank_description = str(bank.get("Description") or bank_name_or_bik).strip()
+        bank_description = str(card.get("bank_name") or bank.get("Description") or bank_lookup).strip()
         payload: dict[str, Any] = {
             "Owner": ref_key,
             "Owner_Type": "StandardODATA.Catalog_Контрагенты",
@@ -553,6 +554,14 @@ class OneCClient:
             "НомерСчета": account_number,
             "Банк_Key": bank["Ref_Key"],
         }
+        correspondent_account = str(card.get("correspondent_account") or "").strip()
+        if correspondent_account:
+            correspondent_field = self._first_available_property(
+                account_properties,
+                ["КоррСчет", "КорреспондентскийСчет", "КоррСчетБанка", "КорреспондентскийСчетБанка"],
+            )
+            if correspondent_field:
+                payload[correspondent_field] = correspondent_account
         if "ВидСчета" in account_properties:
             payload["ВидСчета"] = "Расчетный"
         if "ВалютаДенежныхСредств_Key" in account_properties:
