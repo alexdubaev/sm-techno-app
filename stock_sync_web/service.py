@@ -98,7 +98,7 @@ class WebStockSyncService:
             if not resolved_username:
                 resolved_username = str(user.get("onec_username") or "").strip()
             if not resolved_password:
-                resolved_password = str(user.get("onec_password") or "")
+                resolved_password = self.db.get_onec_password(user_id)
 
         if not resolved_username:
             raise ValueError(
@@ -197,7 +197,7 @@ class WebStockSyncService:
             user_id,
             full_name=existing_user.get("full_name") or "" if full_name is None else full_name,
             onec_username=existing_user.get("onec_username") or "" if onec_username is None else onec_username,
-            onec_password=existing_user.get("onec_password") or "" if onec_password is None else onec_password,
+            onec_password=onec_password,
         )
         self.db.update_user_account(user_id, role=role, is_active=is_active)
 
@@ -222,7 +222,7 @@ class WebStockSyncService:
             user_id,
             full_name=full_name,
             onec_username=onec_username,
-            onec_password=existing_user.get("onec_password") or "" if onec_password is None else onec_password,
+            onec_password=onec_password,
         )
         user = self.get_user(user_id)
         if not user:

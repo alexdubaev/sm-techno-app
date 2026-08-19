@@ -20,6 +20,7 @@ $edgeAppUrl = "$frontendUrl/"
 $browserProfileDir = Join-Path $env:LOCALAPPDATA "SMTechnoBrowserApp"
 $startedBackend = $false
 $startedFrontend = $false
+$backendProcess = $null
 if (-not (Test-Path $pythonPath)) {
     throw "Python not found: $pythonPath"
 }
@@ -140,6 +141,18 @@ function Get-AppBrowserProcesses {
     })
 }
 
+function Stop-StartedBackend {
+    if (-not $startedBackend -or -not $backendProcess) {
+        return
+    }
+    try {
+        Stop-Process -Id $backendProcess.Id -Force -ErrorAction Stop
+        Write-Host "Stopped backend because frontend startup failed."
+    } catch {
+        Write-Warning "Failed to stop backend started by this script."
+    }
+}
+
 $windowStyle = if ($ShowServerWindows) { "Normal" } else { "Hidden" }
 
 if ($SkipBrowser) {
@@ -153,7 +166,7 @@ Write-Host ""
 
 if (-not (Test-PortListening -Port 8000)) {
     Write-Host "Starting backend on $backendUrl"
-    Start-Process -FilePath $powershellPath `
+    $backendProcess = Start-Process -FilePath $powershellPath `
         -ArgumentList @(
             "-NoLogo",
             "-NoProfile",
@@ -163,7 +176,8 @@ if (-not (Test-PortListening -Port 8000)) {
             (Join-Path $rootPath "scripts\run_backend_service.ps1")
         ) `
         -WorkingDirectory $rootPath `
-        -WindowStyle $windowStyle | Out-Null
+        -WindowStyle $windowStyle `
+        -PassThru
     $startedBackend = $true
 } else {
     Write-Host "Backend already running on port 8000"
@@ -192,6 +206,7 @@ if (-not (Wait-ForUrl -Url $backendHealthUrl -MaxSeconds 20)) {
 }
 
 if (-not (Wait-ForUrl -Url $frontendUrl -MaxSeconds 45)) {
+    Stop-StartedBackend
     throw "Frontend did not answer in time: $frontendUrl"
 }
 

@@ -319,7 +319,15 @@ def _normalize_header(value: Any) -> str:
 def read_stock_import_bundle(path: str | Path) -> dict[str, list[dict[str, Any]]]:
     file_path = Path(path)
     if file_path.suffix.lower() == ".csv":
-        frame = pd.read_csv(file_path)
+        read_error: UnicodeDecodeError | None = None
+        for encoding in ("utf-8", "utf-8-sig", "cp1251"):
+            try:
+                frame = pd.read_csv(file_path, encoding=encoding)
+                break
+            except UnicodeDecodeError as exc:
+                read_error = exc
+        else:
+            raise ValueError("Не удалось прочитать CSV: используйте UTF-8 или Windows-1251.") from read_error
         is_storage_mapping = False
     else:
         sheet_name, is_storage_mapping = _select_excel_sheet(file_path)

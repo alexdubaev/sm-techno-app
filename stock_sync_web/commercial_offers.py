@@ -7,8 +7,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 from openpyxl.worksheet.cell_range import CellRange
@@ -117,7 +119,10 @@ def _find_header_row(ws: Worksheet, max_scan_rows: int = 30) -> tuple[int, dict[
 
 
 def read_source_offer_lines(source_path: Path | str) -> list[CommercialOfferLineInput]:
-    workbook = load_workbook(source_path, data_only=True)
+    try:
+        workbook = load_workbook(source_path, data_only=True)
+    except (BadZipFile, InvalidFileException, OSError) as exc:
+        raise ValueError("Не удалось открыть Excel-файл КП. Проверьте, что файл не повреждён.") from exc
     ws = workbook[workbook.sheetnames[0]]
     header_row, mapping = _find_header_row(ws)
 

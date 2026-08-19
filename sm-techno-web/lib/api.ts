@@ -98,11 +98,11 @@ export type AppUserPayload = {
 
 export type AppUserUpdatePayload = {
   fullName: string;
-  appPassword: string;
+  appPassword?: string;
   role: "admin" | "user";
   isActive: boolean;
   onecUsername: string;
-  onecPassword: string;
+  onecPassword?: string;
 };
 
 export type CreateClientPayload = {

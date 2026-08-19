@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -16,14 +17,21 @@ from stock_sync_web.service import WebStockSyncService
 
 
 APP_TITLE = "SM Techno Stock Sync API"
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 SERVICE = WebStockSyncService()
 SERVICE.bootstrap()
+
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("SM_TECHNO_ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",")
+    if origin.strip()
+]
 
 app = FastAPI(title=APP_TITLE, version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -423,9 +431,6 @@ def _serialize_order_details(bundle: dict[str, Any]) -> dict[str, Any]:
 
 def _serialize_user(
     row: dict[str, Any],
-    *,
-    include_onec_password: bool = False,
-    include_app_password: bool = False,
 ) -> dict[str, Any]:
     data = {
         "id": int(row["id"]),
@@ -433,14 +438,11 @@ def _serialize_user(
         "role": row.get("role") or "user",
         "fullName": row.get("full_name") or "",
         "onecUsername": row.get("onec_username") or "",
+        "hasOnecPassword": bool(row.get("has_onec_password") or row.get("onec_password")),
         "isActive": bool(row.get("is_active", 1)),
         "createdAt": row.get("created_at") or "",
         "updatedAt": row.get("updated_at") or "",
     }
-    if include_app_password:
-        data["appPassword"] = row.get("app_password") or ""
-    if include_onec_password:
-        data["onecPassword"] = row.get("onec_password") or ""
     return data
 
 
@@ -560,6 +562,13 @@ def _download_headers(filename: str) -> dict[str, str]:
     }
 
 
+async def _read_upload_with_limit(file: UploadFile) -> bytes:
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Размер файла не должен превышать 25 МБ.")
+    return content
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -604,7 +613,6 @@ def meta(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str,
         "appTitle": "СМ ТЕХНО — локальный прайс и заказы",
         "priceLoaded": catalog["summary"]["catalog_count"] > 0,
         "catalogCount": catalog["summary"]["catalog_count"],
-        "databasePath": str(Path(SERVICE.db.db_path).resolve()),
     }
 
 
@@ -650,7 +658,7 @@ def save_system_settings(
 def list_users(current_user: dict[str, Any] = Depends(_get_admin_user)) -> dict[str, Any]:
     return {
         "items": [
-            _serialize_user(row, include_onec_password=True, include_app_password=True)
+            _serialize_user(row)
             for row in SERVICE.list_users()
         ]
     }
@@ -684,7 +692,7 @@ def create_user(
     created_user = SERVICE.get_user(user_id)
     if not created_user:
         raise HTTPException(status_code=500, detail="РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СЃРѕР·РґР°РЅ, РЅРѕ РЅРµ РЅР°Р№РґРµРЅ РїРѕСЃР»Рµ СЃРѕС…СЂР°РЅРµРЅРёСЏ.")
-    return {"user": _serialize_user(created_user, include_onec_password=True, include_app_password=True)}
+    return {"user": _serialize_user(created_user)}
 
 
 @app.patch("/api/users/{user_id}")
@@ -698,7 +706,11 @@ def update_user_account(
     app_password = str(payload.get("appPassword") or payload.get("app_password") or payload.get("newPassword") or payload.get("new_password") or "")
     full_name = str(payload.get("fullName") or payload.get("full_name") or "").strip()
     onec_username = str(payload.get("onecUsername") or payload.get("onec_username") or "").strip()
-    onec_password = str(payload.get("onecPassword") or payload.get("onec_password") or "")
+    onec_password = (
+        str(payload.get("onecPassword") or payload.get("onec_password") or "")
+        if "onecPassword" in payload or "onec_password" in payload
+        else None
+    )
 
     try:
         active_admins = [
@@ -729,7 +741,7 @@ def update_user_account(
     updated_user = SERVICE.get_user(user_id)
     if not updated_user:
         raise HTTPException(status_code=404, detail="РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ РїРѕСЃР»Рµ РѕР±РЅРѕРІР»РµРЅРёСЏ.")
-    return {"user": _serialize_user(updated_user, include_onec_password=True, include_app_password=True)}
+    return {"user": _serialize_user(updated_user)}
 
 
 @app.delete("/api/users/{user_id}")
@@ -905,7 +917,7 @@ async def create_commercial_offer_from_excel(
     suffix = Path(file.filename or "commercial_offer.xlsx").suffix or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         temp_path = Path(tmp.name)
-        tmp.write(await file.read())
+        tmp.write(await _read_upload_with_limit(file))
     try:
         try:
             bundle = SERVICE.create_commercial_offer_from_excel(
@@ -1283,7 +1295,7 @@ async def price_import(
     suffix = Path(file.filename or "stock_import.xlsx").suffix or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         temp_path = Path(tmp.name)
-        tmp.write(await file.read())
+        tmp.write(await _read_upload_with_limit(file))
     try:
         try:
             result = SERVICE.import_stock_excel(temp_path)

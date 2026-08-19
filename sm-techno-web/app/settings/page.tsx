@@ -40,10 +40,10 @@ const ROLE_LABELS: Record<AppUser["role"], string> = {
 function buildManageForm(user: AppUser | null) {
   return {
     fullName: user?.fullName ?? "",
-    appPassword: user?.appPassword ?? "",
+    appPassword: "",
     role: user?.role ?? ("user" as AppUser["role"]),
     onecUsername: user?.onecUsername ?? "",
-    onecPassword: user?.onecPassword ?? "",
+    onecPassword: "",
     isActive: user?.isActive ?? true,
   };
 }
@@ -221,7 +221,11 @@ export default function SettingsPage() {
     setMessage(null);
 
     try {
-      const updated = await updateAppUser(selectedUser.id, manageForm);
+      const updated = await updateAppUser(selectedUser.id, {
+        ...manageForm,
+        appPassword: manageForm.appPassword || undefined,
+        onecPassword: manageForm.onecPassword || undefined,
+      });
       const loadedUsers = await fetchUsers();
       syncUsersSelection(loadedUsers, updated.id);
       if (updated.id === user.id) {
@@ -533,7 +537,7 @@ export default function SettingsPage() {
                     </label>
                   </div>
 
-                  <LabeledField label="Пароль приложения">
+                  <LabeledField label="Новый пароль приложения">
                     <PasswordField
                       value={manageForm.appPassword}
                       onChange={(value) =>
@@ -556,7 +560,7 @@ export default function SettingsPage() {
                     />
                   </LabeledField>
 
-                  <LabeledField label="Пароль 1С">
+                  <LabeledField label="Новый пароль 1С">
                     <PasswordField
                       value={manageForm.onecPassword}
                       onChange={(value) =>

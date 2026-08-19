@@ -62,7 +62,6 @@ export type AppMeta = {
   appTitle: string;
   priceLoaded: boolean;
   catalogCount: number;
-  databasePath: string;
 };
 
 export type AppUser = {
@@ -70,9 +69,8 @@ export type AppUser = {
   username: string;
   role: "admin" | "user";
   fullName: string;
-  appPassword?: string;
   onecUsername: string;
-  onecPassword?: string;
+  hasOnecPassword: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

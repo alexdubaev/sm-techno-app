@@ -1,11 +1,15 @@
 ﻿from __future__ import annotations
 
+import base64
+import ctypes
 import hashlib
 import hmac
+import os
 import re
 import secrets
 import sqlite3
-from datetime import datetime
+from ctypes import wintypes
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +37,7 @@ CREATE TABLE IF NOT EXISTS app_sessions (
     token TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
@@ -141,6 +146,54 @@ CREATE TABLE IF NOT EXISTS documents (
 """
 
 
+class _DataBlob(ctypes.Structure):
+    _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_byte))]
+
+
+def _protect_onec_password(value: str) -> str:
+    if not value:
+        return ""
+    if os.name != "nt":
+        raise RuntimeError("Шифрование паролей 1С поддерживается только в Windows.")
+
+    raw = value.encode("utf-8")
+    input_buffer = ctypes.create_string_buffer(raw)
+    input_blob = _DataBlob(len(raw), ctypes.cast(input_buffer, ctypes.POINTER(ctypes.c_byte)))
+    output_blob = _DataBlob()
+    if not ctypes.windll.crypt32.CryptProtectData(
+        ctypes.byref(input_blob), None, None, None, None, 0, ctypes.byref(output_blob)
+    ):
+        raise ctypes.WinError()
+    try:
+        encrypted = ctypes.string_at(output_blob.pbData, output_blob.cbData)
+    finally:
+        ctypes.windll.kernel32.LocalFree(output_blob.pbData)
+    return "dpapi:" + base64.urlsafe_b64encode(encrypted).decode("ascii")
+
+
+def _unprotect_onec_password(value: str | None) -> str:
+    stored = str(value or "")
+    if not stored:
+        return ""
+    if not stored.startswith("dpapi:"):
+        return stored
+    if os.name != "nt":
+        raise RuntimeError("Расшифровка паролей 1С поддерживается только в Windows.")
+
+    raw = base64.urlsafe_b64decode(stored.removeprefix("dpapi:").encode("ascii"))
+    input_buffer = ctypes.create_string_buffer(raw)
+    input_blob = _DataBlob(len(raw), ctypes.cast(input_buffer, ctypes.POINTER(ctypes.c_byte)))
+    output_blob = _DataBlob()
+    if not ctypes.windll.crypt32.CryptUnprotectData(
+        ctypes.byref(input_blob), None, None, None, None, 0, ctypes.byref(output_blob)
+    ):
+        raise ctypes.WinError()
+    try:
+        return ctypes.string_at(output_blob.pbData, output_blob.cbData).decode("utf-8")
+    finally:
+        ctypes.windll.kernel32.LocalFree(output_blob.pbData)
+
+
 def _infer_crm_legal_type(record: dict[str, Any], document_name: str, full_name: str) -> str:
     value = str(record.get("legal_type") or "").strip()
     normalized = value if value in {"legal_entity", "individual_entrepreneur"} else "legal_entity"
@@ -194,6 +247,26 @@ class WebDatabase(Database):
             conn.execute("ALTER TABLE users ADD COLUMN onec_password TEXT")
         if "is_active" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+
+        session_columns = {row["name"] for row in conn.execute("PRAGMA table_info(app_sessions)").fetchall()}
+        if "expires_at" not in session_columns:
+            conn.execute("ALTER TABLE app_sessions ADD COLUMN expires_at TEXT")
+            conn.execute(
+                "UPDATE app_sessions SET expires_at = ? WHERE expires_at IS NULL OR expires_at = ''",
+                ((datetime.fromisoformat(utc_now()) + timedelta(days=7)).isoformat(timespec="seconds"),),
+            )
+
+        legacy_credentials = conn.execute(
+            "SELECT id, onec_password FROM users WHERE COALESCE(onec_password, '') != ''"
+        ).fetchall()
+        for credential in legacy_credentials:
+            stored_password = str(credential["onec_password"])
+            if not stored_password.startswith("dpapi:"):
+                conn.execute(
+                    "UPDATE users SET onec_password = ? WHERE id = ?",
+                    (_protect_onec_password(stored_password), int(credential["id"])),
+                )
+        conn.execute("UPDATE users SET app_password = NULL WHERE app_password IS NOT NULL")
 
         client_columns = {row["name"] for row in conn.execute("PRAGMA table_info(crm_clients)").fetchall()}
         client_migrations = {
@@ -375,9 +448,14 @@ class WebDatabase(Database):
             row = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()
         return int(row["total"] if row else 0)
 
-    def ensure_default_admin(self, *, username: str = "admin", password: str = "admin123") -> bool:
+    def ensure_default_admin(self, *, username: str = "admin", password: str | None = None) -> bool:
         if self.user_count() > 0:
             return False
+        password = password or os.environ.get("SM_TECHNO_INITIAL_ADMIN_PASSWORD", "")
+        if len(password) < 8:
+            raise RuntimeError(
+                "Для первого запуска задайте SM_TECHNO_INITIAL_ADMIN_PASSWORD (минимум 8 символов)."
+            )
         self.create_user(username=username, password=password, role="admin", full_name="Administrator")
         return True
 
@@ -413,11 +491,11 @@ class WebDatabase(Database):
                 (
                     normalized_username,
                     password_hash,
-                    password,
+                    None,
                     normalized_role,
                     full_name.strip() or None,
                     onec_username.strip() or None,
-                    onec_password or None,
+                    _protect_onec_password(onec_password) if onec_password else None,
                     1 if is_active else 0,
                     now,
                     now,
@@ -431,7 +509,7 @@ class WebDatabase(Database):
         *,
         full_name: str,
         onec_username: str,
-        onec_password: str,
+        onec_password: str | None,
     ) -> None:
         with self.transaction() as conn:
             conn.execute(
@@ -439,14 +517,14 @@ class WebDatabase(Database):
                 UPDATE users
                 SET full_name = ?,
                     onec_username = ?,
-                    onec_password = ?,
+                    onec_password = COALESCE(?, onec_password),
                     updated_at = ?
                 WHERE id = ?
                 """,
                 (
                     full_name.strip() or None,
                     onec_username.strip() or None,
-                    onec_password or None,
+                    _protect_onec_password(onec_password) if onec_password else None,
                     utc_now(),
                     user_id,
                 ),
@@ -478,8 +556,9 @@ class WebDatabase(Database):
                     updated_at = ?
                 WHERE id = ?
                 """,
-                (self._hash_password(new_password), new_password, utc_now(), user_id),
+                (self._hash_password(new_password), None, utc_now(), user_id),
             )
+            conn.execute("DELETE FROM app_sessions WHERE user_id = ?", (user_id,))
 
     def get_user_by_username(self, username: str) -> dict[str, Any] | None:
         normalized_username = username.strip().lower()
@@ -508,6 +587,11 @@ class WebDatabase(Database):
             ).fetchone()
         return self._normalize_user_row(dict(row)) if row else None
 
+    def get_onec_password(self, user_id: int) -> str:
+        with self.connect() as conn:
+            row = conn.execute("SELECT onec_password FROM users WHERE id = ?", (user_id,)).fetchone()
+        return _unprotect_onec_password(row["onec_password"] if row else "")
+
     def authenticate(self, username: str, password: str) -> dict[str, Any] | None:
         user = self.get_user_by_username(username)
         if not user or not user.get("is_active"):
@@ -520,13 +604,14 @@ class WebDatabase(Database):
     def create_session(self, user_id: int) -> str:
         token = secrets.token_urlsafe(32)
         now = utc_now()
+        expires_at = (datetime.fromisoformat(now) + timedelta(days=7)).isoformat(timespec="seconds")
         with self.transaction() as conn:
             conn.execute(
                 """
-                INSERT INTO app_sessions(user_id, token, created_at, last_seen_at)
-                VALUES(?, ?, ?, ?)
+                INSERT INTO app_sessions(user_id, token, created_at, last_seen_at, expires_at)
+                VALUES(?, ?, ?, ?, ?)
                 """,
-                (user_id, token, now, now),
+                (user_id, token, now, now, expires_at),
             )
         return token
 
@@ -536,6 +621,7 @@ class WebDatabase(Database):
             return None
 
         now = utc_now()
+        now_dt = datetime.fromisoformat(now)
         with self.transaction() as conn:
             row = conn.execute(
                 """
@@ -550,7 +636,9 @@ class WebDatabase(Database):
                     u.onec_password,
                     u.is_active,
                     u.created_at,
-                    u.updated_at
+                    u.updated_at,
+                    s.last_seen_at,
+                    s.expires_at
                 FROM app_sessions s
                 JOIN users u ON u.id = s.user_id
                 WHERE s.token = ?
@@ -559,6 +647,12 @@ class WebDatabase(Database):
             ).fetchone()
 
             if row is None:
+                return None
+
+            last_seen_at = datetime.fromisoformat(str(row["last_seen_at"]))
+            expires_at = datetime.fromisoformat(str(row["expires_at"]))
+            if now_dt >= expires_at or now_dt - last_seen_at > timedelta(hours=12):
+                conn.execute("DELETE FROM app_sessions WHERE token = ?", (normalized_token,))
                 return None
 
             conn.execute(
@@ -608,7 +702,9 @@ class WebDatabase(Database):
         with self.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT id, username, app_password, role, full_name, onec_username, onec_password, is_active, created_at, updated_at
+                SELECT id, username, role, full_name, onec_username,
+                       CASE WHEN COALESCE(onec_password, '') != '' THEN 1 ELSE 0 END AS has_onec_password,
+                       is_active, created_at, updated_at
                 FROM users
                 ORDER BY username COLLATE NOCASE
                 """
