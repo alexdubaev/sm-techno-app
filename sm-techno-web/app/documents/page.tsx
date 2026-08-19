@@ -67,7 +67,9 @@ export default function DocumentsPage() {
   const [documentDate, setDocumentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [clientValue, setClientValue] = useState("");
   const [clientSearch, setClientSearch] = useState("");
+  const [isClientPickerOpen, setIsClientPickerOpen] = useState(false);
   const [commercialOfferId, setCommercialOfferId] = useState("");
+  const [correspondentAccount, setCorrespondentAccount] = useState("");
   const [signerPosition, setSignerPosition] = useState("");
   const [notes, setNotes] = useState("");
   const [clients, setClients] = useState<CrmClient[]>([]);
@@ -84,6 +86,7 @@ export default function DocumentsPage() {
         if (loadedClients[0]) {
           setClientValue(buildClientValue(loadedClients[0]));
           setClientSearch(formatClientSearchValue(loadedClients[0]));
+          setCorrespondentAccount(loadedClients[0].correspondentAccount || "");
           setSignerPosition(loadedClients[0].signerPosition || "");
         }
       })
@@ -113,10 +116,15 @@ export default function DocumentsPage() {
       return [];
     }
     return REQUIRED_FIELDS[documentType].filter((field) => {
-      const value = field === "signerPosition" ? signerPosition : selectedClient[field];
+      const value =
+        field === "signerPosition"
+          ? signerPosition
+          : field === "correspondentAccount"
+            ? correspondentAccount
+            : selectedClient[field];
       return !String(value ?? "").trim();
     });
-  }, [documentType, selectedClient, signerPosition]);
+  }, [correspondentAccount, documentType, selectedClient, signerPosition]);
 
   function handleOfferChange(value: string) {
     setCommercialOfferId(value);
@@ -126,22 +134,39 @@ export default function DocumentsPage() {
     if (offerClient) {
       setClientValue(offerClientValue);
       setClientSearch(formatClientSearchValue(offerClient));
+      setCorrespondentAccount(offerClient.correspondentAccount || "");
       setSignerPosition(offerClient.signerPosition || "");
     }
   }
 
   function handleClientSearchChange(value: string) {
     setClientSearch(value);
+    setIsClientPickerOpen(true);
     if (!selectedClient || value !== formatClientSearchValue(selectedClient)) {
       setClientValue("");
+      setCorrespondentAccount("");
       setSignerPosition("");
     }
+  }
+
+  function handleClientSearchFocus() {
+    setIsClientPickerOpen(true);
+  }
+
+  function handleClientSearchClear() {
+    setClientSearch("");
+    setClientValue("");
+    setCorrespondentAccount("");
+    setSignerPosition("");
+    setIsClientPickerOpen(true);
   }
 
   function handleClientSelect(client: CrmClient) {
     setClientValue(buildClientValue(client));
     setClientSearch(formatClientSearchValue(client));
+    setCorrespondentAccount(client.correspondentAccount || "");
     setSignerPosition(client.signerPosition || "");
+    setIsClientPickerOpen(false);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -166,6 +191,7 @@ export default function DocumentsPage() {
         documentDate,
         ...clientPayload,
         commercialOfferId: documentType === "specification" ? Number(commercialOfferId) : null,
+        correspondentAccount: correspondentAccount.trim(),
         signerPosition: signerPosition.trim(),
         notes: notes.trim(),
       });
@@ -252,51 +278,71 @@ export default function DocumentsPage() {
                 </label>
               </div>
 
-              <div>
+              <div className="relative">
                 <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
                   Клиент
                 </span>
-                <input
-                  type="search"
-                  value={clientSearch}
-                  onChange={(event) => handleClientSearchChange(event.target.value)}
-                  disabled={isLoading}
-                  placeholder="Поиск по названию, ИНН или КПП"
-                  className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
-                />
-                <div className="mt-1 max-h-[176px] overflow-auto rounded-[10px] border border-[var(--border-color)] bg-white p-1">
-                  {filteredClients.length > 0 ? (
-                    <div className="grid gap-1">
-                      {filteredClients.map((client) => {
-                        const value = buildClientValue(client);
-                        const isSelected = value === clientValue;
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => handleClientSelect(client)}
-                            className={`rounded-[8px] border px-2.5 py-1.5 text-left text-[10px] transition ${
-                              isSelected
-                                ? "border-[var(--brand-yellow)] bg-[var(--brand-light)] text-[var(--brand-dark)]"
-                                : "border-transparent text-[var(--text-primary)] hover:border-[var(--border-color)] hover:bg-[var(--page-bg)]"
-                            }`}
-                          >
-                            <span className="block truncate font-semibold">
-                              {client.source === "onec" ? "1С" : "Локальный"} · {formatClientDisplayName(client)}
-                            </span>
-                            <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
-                              ИНН {client.inn || "-"} · КПП {client.kpp || "-"}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="px-2.5 py-2 text-[10px] text-[var(--text-secondary)]">
-                      Клиенты не найдены.
-                    </div>
-                  )}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={clientSearch}
+                    onChange={(event) => handleClientSearchChange(event.target.value)}
+                    onFocus={handleClientSearchFocus}
+                    onBlur={() => setIsClientPickerOpen(false)}
+                    disabled={isLoading}
+                    placeholder="Поиск по названию, ИНН или КПП"
+                    className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 pr-8 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+                  />
+                  {clientSearch ? (
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={handleClientSearchClear}
+                      className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-[14px] leading-none text-[var(--text-secondary)] transition hover:bg-[var(--page-bg)] hover:text-[var(--text-primary)]"
+                      aria-label="Очистить клиента"
+                    >
+                      ×
+                    </button>
+                  ) : null}
                 </div>
+                {isClientPickerOpen ? (
+                  <div
+                    onMouseDown={(event) => event.preventDefault()}
+                    className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-[214px] overflow-x-hidden overflow-y-auto rounded-[10px] border border-[var(--border-color)] bg-white p-1 shadow-[0_14px_30px_rgba(15,23,42,0.18)]"
+                  >
+                    {filteredClients.length > 0 ? (
+                      <div className="grid min-w-0 gap-1">
+                        {filteredClients.map((client) => {
+                          const value = buildClientValue(client);
+                          const isSelected = value === clientValue;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => handleClientSelect(client)}
+                              className={`min-w-0 w-full overflow-hidden rounded-[8px] border px-2.5 py-1.5 text-left text-[10px] transition ${
+                                isSelected
+                                  ? "border-[var(--brand-yellow)] bg-[var(--brand-light)] text-[var(--brand-dark)]"
+                                  : "border-transparent text-[var(--text-primary)] hover:border-[var(--border-color)] hover:bg-[var(--page-bg)]"
+                              }`}
+                            >
+                              <span className="block min-w-0 truncate font-semibold">
+                                {client.source === "onec" ? "1С" : "Локальный"} · {formatClientDisplayName(client)}
+                              </span>
+                              <span className="mt-0.5 block min-w-0 truncate text-[9px] text-[var(--text-secondary)]">
+                                ИНН {client.inn || "-"} · КПП {client.kpp || "-"}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="px-2.5 py-2 text-[10px] text-[var(--text-secondary)]">
+                        Клиенты не найдены.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               {documentType === "specification" ? (
@@ -343,7 +389,12 @@ export default function DocumentsPage() {
               <MetaRow label="Название банка" value={selectedClient?.bankName || (isBik(selectedClient?.bankNameOrBik) ? "-" : (selectedClient?.bankNameOrBik ?? "-"))} />
               <MetaRow label="Расчетный счет" value={selectedClient?.bankAccount || "-"} />
               <MetaRow label="БИК" value={selectedClient?.bankBik || (isBik(selectedClient?.bankNameOrBik) ? (selectedClient?.bankNameOrBik ?? "-") : "-")} />
-              <MetaRow label="Корр. счет" value={selectedClient?.correspondentAccount || "-"} />
+              <EditableMetaRow
+                label="Корр. счет"
+                setValue={setCorrespondentAccount}
+                value={correspondentAccount}
+                disabled={!selectedClient || isSubmitting}
+              />
               <SignerPositionSelect label="Должность" signerPosition={signerPosition} setSignerPosition={setSignerPosition} />
               <MetaRow label="Подписант" value={selectedClient?.signerName || "-"} />
               {documentType === "specification" ? (
@@ -452,6 +503,32 @@ function SignerPositionSelect({
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function EditableMetaRow({
+  disabled,
+  label,
+  setValue,
+  value,
+}: {
+  disabled?: boolean;
+  label: string;
+  setValue: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="block rounded-[10px] bg-[var(--page-bg)] px-2.5 py-1.5">
+      <span className="text-[9px] font-semibold uppercase tracking-[0.05em]">{label}</span>
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        disabled={disabled}
+        placeholder="Укажите корр. счет"
+        className="mt-1 h-[30px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[11px] font-medium text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] disabled:bg-[#F3F6FA] disabled:text-[var(--text-secondary)]"
+      />
     </label>
   );
 }

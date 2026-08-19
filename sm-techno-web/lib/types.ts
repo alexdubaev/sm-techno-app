@@ -50,6 +50,7 @@ export type StockCatalogResponse = {
   page: number;
   pageSize: number;
   categories: string[];
+  groups: string[];
   summary: {
     catalog_count: number;
     filtered_count: number;

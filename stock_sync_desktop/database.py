@@ -288,21 +288,32 @@ class Database:
             conn.execute("ALTER TABLE stock_movements ADD COLUMN warehouse_id INTEGER")
 
         default_warehouse_id = self._ensure_default_warehouse(conn)
-
-        conn.execute(
-            """
-            INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, updated_at)
-            SELECT sb.item_id, ?, sb.quantity, sb.updated_at
-            FROM stock_balances sb
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM item_warehouse_balances iwb
-                WHERE iwb.item_id = sb.item_id
-                  AND iwb.warehouse_id = ?
+        warehouse_balance_backfill_key = "migration.item_warehouse_balances_backfilled"
+        warehouse_balance_backfill_done = conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?",
+            (warehouse_balance_backfill_key,),
+        ).fetchone()
+        if not warehouse_balance_backfill_done:
+            has_warehouse_balances = conn.execute(
+                "SELECT 1 FROM item_warehouse_balances LIMIT 1"
+            ).fetchone()
+            if not has_warehouse_balances:
+                conn.execute(
+                    """
+                    INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, updated_at)
+                    SELECT sb.item_id, ?, sb.quantity, sb.updated_at
+                    FROM stock_balances sb
+                    """,
+                    (default_warehouse_id,),
+                )
+            conn.execute(
+                """
+                INSERT INTO app_settings(key, value)
+                VALUES(?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (warehouse_balance_backfill_key, utc_now()),
             )
-            """,
-            (default_warehouse_id, default_warehouse_id),
-        )
 
         conn.execute(
             """
@@ -328,19 +339,10 @@ class Database:
             "SELECT id FROM warehouses WHERE name = ? ORDER BY id LIMIT 1",
             (DEFAULT_WAREHOUSE_NAME,),
         ).fetchone()
-        now = utc_now()
         if row:
-            conn.execute(
-                """
-                UPDATE warehouses
-                SET is_active = 1,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (now, row["id"]),
-            )
             return int(row["id"])
 
+        now = utc_now()
         cursor = conn.execute(
             """
             INSERT INTO warehouses(name, external_code, is_active, created_at, updated_at)

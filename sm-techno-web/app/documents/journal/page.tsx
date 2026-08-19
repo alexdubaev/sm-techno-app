@@ -9,7 +9,7 @@ import {
   useResizableColumns,
   type ResizableColumnConfig,
 } from "@/components/resizable-table";
-import { downloadDocumentFile, fetchDocuments } from "@/lib/api";
+import { deleteDocument, downloadDocumentFile, fetchDocuments } from "@/lib/api";
 import type { GeneratedDocument } from "@/lib/types";
 
 const DOCUMENTS_TABLE_COLUMNS: ResizableColumnConfig[] = [
@@ -21,13 +21,15 @@ const DOCUMENTS_TABLE_COLUMNS: ResizableColumnConfig[] = [
   { key: "warnings", width: 170, minWidth: 130, maxWidth: 260 },
   { key: "author", width: 156, minWidth: 120, maxWidth: 240 },
   { key: "created", width: 124, minWidth: 106, maxWidth: 180 },
-  { key: "actions", width: 124, minWidth: 104, maxWidth: 170 },
+  { key: "actions", width: 172, minWidth: 150, maxWidth: 220 },
 ];
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
+  const [documentSearch, setDocumentSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { containerRef, getWidth, onResizeStart, tableWidth } = useResizableColumns(
     "sm-techno-documents-table-widths-v1",
@@ -44,6 +46,17 @@ export default function DocumentsPage() {
     const warnings = documents.filter((document) => document.missingFields.length > 0).length;
     return { total: documents.length, contracts, specifications, warnings };
   }, [documents]);
+  const filteredDocuments = useMemo(() => {
+    const query = normalizeDocumentSearch(documentSearch);
+    if (!query) {
+      return documents;
+    }
+    return documents.filter((document) => documentMatchesSearch(document, query));
+  }, [documentSearch, documents]);
+  const documentSearchOptions = useMemo(
+    () => documents.map((document) => buildDocumentSearchLabel(document)),
+    [documents],
+  );
 
   async function loadDocuments() {
     setIsLoading(true);
@@ -66,6 +79,23 @@ export default function DocumentsPage() {
       setError(getErrorMessage(requestError, "Не удалось скачать документ."));
     } finally {
       setDownloadingId(null);
+    }
+  }
+
+  async function handleDelete(document: GeneratedDocument) {
+    const confirmed = window.confirm(`Удалить документ ${document.number}? Это действие нельзя отменить.`);
+    if (!confirmed) {
+      return;
+    }
+    setDeletingId(document.id);
+    setError(null);
+    try {
+      await deleteDocument(document.id);
+      setDocuments((current) => current.filter((item) => item.id !== document.id));
+    } catch (requestError: unknown) {
+      setError(getErrorMessage(requestError, "Не удалось удалить документ."));
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -107,11 +137,31 @@ export default function DocumentsPage() {
           </div>
         ) : null}
 
+        <div>
+          <input
+            type="search"
+            list="document-search-options"
+            value={documentSearch}
+            onChange={(event) => setDocumentSearch(event.target.value)}
+            placeholder="Поиск по клиенту, номеру, КП или типу документа"
+            className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+          />
+          <datalist id="document-search-options">
+            {documentSearchOptions.map((option, index) => (
+              <option key={`${option}-${index}`} value={option} />
+            ))}
+          </datalist>
+        </div>
+
         <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
           <div className="overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
             {documents.length === 0 && !isLoading ? (
               <div className="px-3 py-5 text-[11px] leading-4 text-[var(--text-secondary)]">
                 Журнал пока пуст. Сформируйте первый договор или спецификацию из карточки клиента.
+              </div>
+            ) : filteredDocuments.length === 0 && !isLoading ? (
+              <div className="px-3 py-5 text-[11px] leading-4 text-[var(--text-secondary)]">
+                Документы по этому запросу не найдены.
               </div>
             ) : (
               <div ref={containerRef} className="max-h-[calc(100dvh-8rem)] overflow-auto">
@@ -135,7 +185,7 @@ export default function DocumentsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {documents.map((document) => (
+                    {filteredDocuments.map((document) => (
                       <tr key={document.id} className="border-t border-[var(--border-color)] text-[10px] text-[var(--text-primary)]">
                         <td className="px-3 py-1.5">
                           <TypeBadge type={document.documentType} />
@@ -163,14 +213,24 @@ export default function DocumentsPage() {
                         <td className="px-3 py-1.5 text-[var(--text-secondary)]">{document.createdByName || document.createdByUsername || "-"}</td>
                         <td className="px-3 py-1.5 text-[var(--text-secondary)]">{formatDateTime(document.createdAt)}</td>
                         <td className="px-3 py-1.5 text-center">
-                          <button
-                            type="button"
-                            onClick={() => void handleDownload(document.id)}
-                            disabled={downloadingId === document.id}
-                            className="app-action-button app-action-button--xs"
-                          >
-                            {downloadingId === document.id ? "..." : "DOCX"}
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void handleDownload(document.id)}
+                              disabled={downloadingId === document.id || deletingId === document.id}
+                              className="app-action-button app-action-button--xs"
+                            >
+                              {downloadingId === document.id ? "..." : "DOCX"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDelete(document)}
+                              disabled={deletingId === document.id || downloadingId === document.id}
+                              className="app-action-button app-action-button--xs"
+                            >
+                              {deletingId === document.id ? "..." : "Удалить"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -199,9 +259,42 @@ function TypeBadge({ type }: { type: GeneratedDocument["documentType"] }) {
   const isContract = type === "contract";
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-semibold ${isContract ? "bg-[#EEF2FF] text-[#3730A3]" : "bg-[var(--brand-light)] text-[var(--brand-dark)]"}`}>
-      {isContract ? "Договор" : "Спецификация"}
+      {getDocumentTypeLabel(type)}
     </span>
   );
+}
+
+function getDocumentTypeLabel(type: GeneratedDocument["documentType"]) {
+  return type === "contract" ? "Договор" : "Спецификация";
+}
+
+function buildDocumentSearchLabel(document: GeneratedDocument) {
+  return [
+    getDocumentTypeLabel(document.documentType),
+    document.number,
+    formatShortDate(document.documentDate),
+    document.clientName,
+    document.commercialOfferId ? `КП #${document.commercialOfferId}` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function normalizeDocumentSearch(value: string) {
+  return value.toLocaleLowerCase("ru-RU").replace(/\s+/g, " ").trim();
+}
+
+function documentMatchesSearch(document: GeneratedDocument, query: string) {
+  const haystack = normalizeDocumentSearch(
+    [
+      buildDocumentSearchLabel(document),
+      document.clientSource === "onec" ? "клиент из 1С" : "локальный клиент",
+      document.createdByName,
+      document.createdByUsername,
+      document.missingFields.join(" "),
+    ].join(" "),
+  );
+  return haystack.includes(query);
 }
 
 function formatShortDate(value: string) {

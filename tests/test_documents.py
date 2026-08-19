@@ -488,6 +488,42 @@ class DocumentApiTest(unittest.TestCase):
             download_response.headers["content-disposition"],
         )
 
+    def test_delete_document_removes_it_from_journal_and_downloads(self) -> None:
+        crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+
+        response = self.client.post(
+            "/api/documents",
+            json={
+                "documentType": "contract",
+                "number": "D-44",
+                "documentDate": "2026-07-14",
+                "clientSource": "local",
+                "clientId": int(crm_client["id"]),
+                "commercialOfferId": None,
+                "notes": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        document_payload = response.json()["document"]
+        document_id = int(document_payload["id"])
+        stored_document = self.db.get_document(document_id)
+        stored_path = self.service._resolve_stored_path(str(stored_document["output_path"]))
+        self.assertTrue(stored_path.exists())
+
+        delete_response = self.client.delete(f"/api/documents/{document_id}")
+
+        self.assertEqual(delete_response.status_code, 200, delete_response.text)
+        self.assertEqual(delete_response.json(), {"ok": True})
+        self.assertFalse(stored_path.exists())
+
+        list_response = self.client.get("/api/documents")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.json()["items"], [])
+
+        download_response = self.client.get(f"/api/documents/{document_id}/download")
+        self.assertEqual(download_response.status_code, 404)
+
     def test_contract_uses_signer_position_selected_in_generator(self) -> None:
         crm_client = self.db.create_crm_client_card(
             {
@@ -520,6 +556,37 @@ class DocumentApiTest(unittest.TestCase):
         self.assertEqual(download_response.status_code, 200)
         text = read_docx_text(BytesIO(download_response.content))
         self.assertIn("Генеральный директор Ivan Ivanov", text)
+
+    def test_contract_uses_correspondent_account_entered_in_generator(self) -> None:
+        crm_client = self.db.create_crm_client_card(
+            {
+                **VALID_CLIENT_CARD,
+                "correspondent_account": "",
+            }
+        )
+
+        response = self.client.post(
+            "/api/documents",
+            json={
+                "documentType": "contract",
+                "number": "D-45",
+                "documentDate": "2026-07-14",
+                "clientSource": "local",
+                "clientId": int(crm_client["id"]),
+                "commercialOfferId": None,
+                "correspondentAccount": "30101810500000000207",
+                "notes": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        document_payload = response.json()["document"]
+        self.assertNotIn("correspondent_account", document_payload["missingFields"])
+
+        download_response = self.client.get(f"/api/documents/{document_payload['id']}/download")
+        self.assertEqual(download_response.status_code, 200)
+        text = read_docx_text(BytesIO(download_response.content))
+        self.assertIn("30101810500000000207", text)
 
     def test_contract_from_onec_counterparty_uses_full_name_for_buyer_everywhere(self) -> None:
         self.service.document_template_paths["contract"] = Path("assets/templates/contract_template.docx")
@@ -573,6 +640,7 @@ def create_contract_template(path: Path) -> None:
     document.add_paragraph("Client: {{ client.document_name }}")
     document.add_paragraph("INN/KPP: {{ client.inn }} / {{ client.kpp }}")
     document.add_paragraph("OGRN: {{ client.ogrn }}")
+    document.add_paragraph("Correspondent: {{ client.correspondent_account }}")
     document.add_paragraph("Signer: {{ client.signer_position }} {{ client.signer_name }}, basis: {{ client.signer_basis }}")
     document.save(path)
 

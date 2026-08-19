@@ -1,52 +1,42 @@
 "use client";
 
-/* eslint-disable react-hooks/set-state-in-effect */
-
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ChangeEvent,
+  type DragEvent,
   type FormEvent,
-  type ReactNode,
 } from "react";
 
 import { AppShell } from "@/components/app-shell";
 import {
-  createCommercialOfferFromDraft,
   createCommercialOfferFromExcel,
   fetchClients,
 } from "@/lib/api";
-import {
-  clearCommercialOfferDraftLinesFromStorage,
-  loadCommercialOfferDraftLinesFromStorage,
-  saveCommercialOfferDraftLinesToStorage,
-} from "@/lib/storage";
-import type { CommercialOfferDraftLine, CrmClient } from "@/lib/types";
-
-type SourceMode = "draft" | "excel";
+import type { CrmClient } from "@/lib/types";
 
 const MANUAL_CLIENT_VALUE = "manual";
+const MANUAL_CLIENT_LABEL = "Новый локальный клиент";
 
 export default function NewCommercialOfferPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<SourceMode>("draft");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [clients, setClients] = useState<CrmClient[]>([]);
   const [clientValue, setClientValue] = useState(MANUAL_CLIENT_VALUE);
+  const [clientSearch, setClientSearch] = useState(MANUAL_CLIENT_LABEL);
+  const [isClientPickerOpen, setIsClientPickerOpen] = useState(false);
   const [manualClientName, setManualClientName] = useState("");
   const [notes, setNotes] = useState("");
-  const [draftLines, setDraftLines] = useState<CommercialOfferDraftLine[]>([]);
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const savedDraft = loadCommercialOfferDraftLinesFromStorage() ?? [];
-    setDraftLines(sanitizeDraftLines(savedDraft));
-
     void fetchClients()
       .then((items) => {
         setClients(items);
@@ -55,6 +45,7 @@ export default function NewCommercialOfferPage() {
         const first = firstLocal ?? firstOneC;
         if (first) {
           setClientValue(buildClientValue(first));
+          setClientSearch(formatClientSearchValue(first));
         }
       })
       .catch((requestError: unknown) => {
@@ -63,11 +54,14 @@ export default function NewCommercialOfferPage() {
       .finally(() => setIsLoadingClients(false));
   }, []);
 
-  const totals = useMemo(() => {
-    const qty = draftLines.reduce((sum, line) => sum + line.qty, 0);
-    const amount = draftLines.reduce((sum, line) => sum + line.qty * line.priceVat, 0);
-    return { lines: draftLines.length, qty, amount };
-  }, [draftLines]);
+  const filteredClients = useMemo(() => {
+    const query = normalizeClientSearch(clientSearch);
+    const source =
+      query && query !== normalizeClientSearch(MANUAL_CLIENT_LABEL)
+        ? clients.filter((client) => clientMatchesSearch(client, query))
+        : clients;
+    return source.slice(0, 50);
+  }, [clientSearch, clients]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,35 +73,18 @@ export default function NewCommercialOfferPage() {
       return;
     }
 
-    if (mode === "draft" && draftLines.length === 0) {
-      setError("В черновике КП нет позиций. Добавьте их из раздела Остатки.");
-      return;
-    }
-
-    if (mode === "excel" && !excelFile) {
+    if (!excelFile) {
       setError("Выберите Excel-файл .xlsx для создания КП.");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const result =
-        mode === "draft"
-          ? await createCommercialOfferFromDraft({
-              ...clientPayload,
-              lines: draftLines,
-              notes: notes.trim(),
-            })
-          : await createCommercialOfferFromExcel({
-              ...clientPayload,
-              file: excelFile as File,
-              notes: notes.trim(),
-            });
-
-      if (mode === "draft") {
-        clearCommercialOfferDraftLinesFromStorage();
-        setDraftLines([]);
-      }
+      const result = await createCommercialOfferFromExcel({
+        ...clientPayload,
+        file: excelFile,
+        notes: notes.trim(),
+      });
 
       router.push(`/commercial-offers/${result.offer.id}`);
     } catch (requestError: unknown) {
@@ -117,19 +94,46 @@ export default function NewCommercialOfferPage() {
     }
   }
 
-  function handleRemoveLine(lineId: string) {
-    const nextLines = draftLines.filter((line) => line.lineId !== lineId);
-    setDraftLines(nextLines);
-    saveCommercialOfferDraftLinesToStorage(nextLines);
-  }
-
-  function handleClearDraft() {
-    setDraftLines([]);
-    clearCommercialOfferDraftLinesFromStorage();
-  }
-
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     setExcelFile(event.target.files?.[0] ?? null);
+  }
+
+  function handleExcelDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const file = event.dataTransfer.files?.[0] ?? null;
+    if (file) {
+      setExcelFile(file);
+    }
+  }
+
+  function handleClientSearchChange(value: string) {
+    setClientSearch(value);
+    setIsClientPickerOpen(true);
+    if (normalizeClientSearch(value) === normalizeClientSearch(MANUAL_CLIENT_LABEL)) {
+      setClientValue(MANUAL_CLIENT_VALUE);
+      return;
+    }
+
+    const matchedClient = clients.find((client) => formatClientSearchValue(client) === value);
+    setClientValue(matchedClient ? buildClientValue(matchedClient) : "");
+  }
+
+  function handleClientSelect(client: CrmClient) {
+    setClientValue(buildClientValue(client));
+    setClientSearch(formatClientSearchValue(client));
+    setIsClientPickerOpen(false);
+  }
+
+  function handleManualClientSelect() {
+    setClientValue(MANUAL_CLIENT_VALUE);
+    setClientSearch(MANUAL_CLIENT_LABEL);
+    setIsClientPickerOpen(false);
+  }
+
+  function handleClientSearchClear() {
+    setClientValue("");
+    setClientSearch("");
+    setIsClientPickerOpen(true);
   }
 
   return (
@@ -173,24 +177,83 @@ export default function NewCommercialOfferPage() {
         <section className="grid gap-2 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.15fr)]">
           <div className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
             <div className="grid gap-2">
-              <label>
+              <div className="relative">
                 <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
                   Клиент
                 </span>
-                <select
-                  value={clientValue}
-                  onChange={(event) => setClientValue(event.target.value)}
-                  disabled={isLoadingClients}
-                  className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
-                >
-                  <option value={MANUAL_CLIENT_VALUE}>Новый локальный клиент</option>
-                  {clients.map((client) => (
-                    <option key={buildClientValue(client)} value={buildClientValue(client)}>
-                      {client.source === "onec" ? "1С" : "Локальный"} · {formatClientDisplayName(client)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={clientSearch}
+                    onChange={(event) => handleClientSearchChange(event.target.value)}
+                    onFocus={() => setIsClientPickerOpen(true)}
+                    onBlur={() => setIsClientPickerOpen(false)}
+                    disabled={isLoadingClients}
+                    placeholder="Поиск по названию, ИНН или КПП"
+                    className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 pr-8 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
+                  />
+                  {clientSearch ? (
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={handleClientSearchClear}
+                      className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full text-[14px] leading-none text-[var(--text-secondary)] transition hover:bg-[var(--page-bg)] hover:text-[var(--text-primary)]"
+                      aria-label="Очистить клиента"
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+                {isClientPickerOpen ? (
+                  <div
+                    onMouseDown={(event) => event.preventDefault()}
+                    className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-[214px] overflow-x-hidden overflow-y-auto rounded-[10px] border border-[var(--border-color)] bg-white p-1 shadow-[0_14px_30px_rgba(15,23,42,0.18)]"
+                  >
+                    <button
+                      type="button"
+                      onClick={handleManualClientSelect}
+                      className={`mb-1 w-full rounded-[8px] border px-2.5 py-1.5 text-left text-[10px] transition ${
+                        clientValue === MANUAL_CLIENT_VALUE
+                          ? "border-[var(--brand-yellow)] bg-[var(--brand-light)] text-[var(--brand-dark)]"
+                          : "border-transparent text-[var(--text-primary)] hover:border-[var(--border-color)] hover:bg-[var(--page-bg)]"
+                      }`}
+                    >
+                      <span className="block truncate font-semibold">{MANUAL_CLIENT_LABEL}</span>
+                    </button>
+                    {filteredClients.length > 0 ? (
+                      <div className="grid min-w-0 gap-1">
+                        {filteredClients.map((client) => {
+                          const value = buildClientValue(client);
+                          const isSelected = value === clientValue;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => handleClientSelect(client)}
+                              className={`min-w-0 w-full overflow-hidden rounded-[8px] border px-2.5 py-1.5 text-left text-[10px] transition ${
+                                isSelected
+                                  ? "border-[var(--brand-yellow)] bg-[var(--brand-light)] text-[var(--brand-dark)]"
+                                  : "border-transparent text-[var(--text-primary)] hover:border-[var(--border-color)] hover:bg-[var(--page-bg)]"
+                              }`}
+                            >
+                              <span className="block min-w-0 truncate font-semibold">
+                                {client.source === "onec" ? "1С" : "Локальный"} · {formatClientDisplayName(client)}
+                              </span>
+                              <span className="mt-0.5 block min-w-0 truncate text-[9px] text-[var(--text-secondary)]">
+                                ИНН {client.inn || "-"} · КПП {client.kpp || "-"}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="px-2.5 py-2 text-[10px] text-[var(--text-secondary)]">
+                        Клиенты не найдены.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
 
               {clientValue === MANUAL_CLIENT_VALUE ? (
                 <label>
@@ -223,100 +286,37 @@ export default function NewCommercialOfferPage() {
           </div>
 
           <div className="rounded-[14px] border border-[var(--border-color)] bg-white p-2">
-            <div className="mb-2 inline-flex rounded-[12px] border border-[var(--border-color)] bg-[#FBFCFE] p-0.5">
-              <ModeButton active={mode === "draft"} onClick={() => setMode("draft")}>
-                Из прайса
-              </ModeButton>
-              <ModeButton active={mode === "excel"} onClick={() => setMode("excel")}>
-                Из Excel
-              </ModeButton>
+            <div
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={handleExcelDrop}
+              className="flex min-h-[184px] flex-col items-center justify-center rounded-[12px] border border-dashed border-[var(--border-color)] bg-[var(--page-bg)] p-4 text-center transition hover:border-[var(--brand-yellow)] hover:bg-white"
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={handleFileChange}
+                className="sr-only"
+              />
+              <span className="text-[12px] font-semibold text-[var(--text-primary)]">
+                Перетащите Excel-файл .xlsx
+              </span>
+              <span className="mt-1 max-w-[54ch] text-[10px] leading-4 text-[var(--text-secondary)]">
+                Поддерживаются колонки с артикулом, наименованием, количеством, ценой, сроком и примечанием.
+              </span>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="app-action-button app-action-button--xs mt-3"
+              >
+                Выбрать файл
+              </button>
+              {excelFile ? (
+                <span className="mt-3 rounded-[10px] border border-[var(--border-color)] bg-white px-3 py-2 text-[10px] text-[var(--text-primary)]">
+                  Выбран файл: <span className="font-semibold">{excelFile.name}</span>
+                </span>
+              ) : null}
             </div>
-
-            {mode === "draft" ? (
-              <section>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
-                  <div className="flex flex-wrap gap-1">
-                    <MetricChip label="Строк" value={String(totals.lines)} />
-                    <MetricChip label="Кол-во" value={formatNumber(totals.qty)} />
-                    <MetricChip label="Сумма" value={formatMoney(totals.amount)} />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleClearDraft}
-                    disabled={draftLines.length === 0}
-                    className="app-action-button app-action-button--xs"
-                  >
-                    Очистить
-                  </button>
-                </div>
-
-                {draftLines.length === 0 ? (
-                  <div className="rounded-[12px] border border-dashed border-[var(--border-color)] bg-[var(--page-bg)] px-3 py-6 text-[11px] leading-4 text-[var(--text-secondary)]">
-                    Черновик КП пуст. Откройте Остатки и нажмите “Добавить в КП” у нужных позиций.
-                  </div>
-                ) : (
-                  <div className="max-h-[calc(100dvh-17rem)] overflow-auto rounded-[12px] border border-[var(--border-color)]">
-                    <table className="min-w-full border-collapse text-[10px]">
-                      <thead className="sticky top-0 bg-[#FAFBFD] text-left text-[var(--text-secondary)]">
-                        <tr>
-                          <th className="px-3 py-2 font-semibold">Артикул</th>
-                          <th className="px-3 py-2 font-semibold">Наименование</th>
-                          <th className="px-3 py-2 text-right font-semibold">Кол-во</th>
-                          <th className="px-3 py-2 text-right font-semibold">Цена</th>
-                          <th className="px-3 py-2 text-right font-semibold">Сумма</th>
-                          <th className="px-3 py-2 text-center font-semibold">Убрать</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {draftLines.map((line) => (
-                          <tr key={line.lineId} className="border-t border-[var(--border-color)] text-[var(--text-primary)]">
-                            <td className="px-3 py-1.5 tabular-nums text-[var(--text-secondary)]">{line.article || "-"}</td>
-                            <td className="px-3 py-1.5">
-                              <div className="line-clamp-2 text-[11px] font-medium leading-[15px]">{line.name}</div>
-                              <div className="mt-0.5 text-[9px] text-[var(--text-secondary)]">{line.warehouseName || "Склад не указан"}</div>
-                            </td>
-                            <td className="px-3 py-1.5 text-right tabular-nums">{formatNumber(line.qty)}</td>
-                            <td className="px-3 py-1.5 text-right tabular-nums">{formatMoney(line.priceVat)}</td>
-                            <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{formatMoney(line.qty * line.priceVat)}</td>
-                            <td className="px-3 py-1.5 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveLine(line.lineId)}
-                                className="app-action-button app-action-button--xs"
-                              >
-                                Убрать
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-            ) : (
-              <section className="rounded-[12px] border border-dashed border-[var(--border-color)] bg-[var(--page-bg)] p-3">
-                <label className="block">
-                  <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
-                    Excel-файл .xlsx
-                  </span>
-                  <input
-                    type="file"
-                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    onChange={handleFileChange}
-                    className="block w-full cursor-pointer rounded-[10px] border border-[var(--border-color)] bg-white px-2 py-2 text-[11px] text-[var(--text-primary)] file:mr-3 file:rounded-[9px] file:border-0 file:bg-[var(--brand-yellow)] file:px-3 file:py-1.5 file:text-[10px] file:font-semibold file:text-[var(--brand-dark)]"
-                  />
-                </label>
-                <p className="mt-2 text-[10px] leading-4 text-[var(--text-secondary)]">
-                  Поддерживаются колонки с артикулом, наименованием, количеством, ценой, сроком и примечанием. PDF на этом этапе не создается.
-                </p>
-                {excelFile ? (
-                  <div className="mt-2 rounded-[10px] border border-[var(--border-color)] bg-white px-3 py-2 text-[10px] text-[var(--text-primary)]">
-                    Выбран файл: <span className="font-semibold">{excelFile.name}</span>
-                  </div>
-                ) : null}
-              </section>
-            )}
           </div>
         </section>
       </form>
@@ -324,67 +324,39 @@ export default function NewCommercialOfferPage() {
   );
 }
 
-function ModeButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`h-7 rounded-[10px] px-3 text-[10px] font-semibold transition ${
-        active
-          ? "bg-[var(--brand-yellow)] text-[var(--brand-dark)]"
-          : "text-[var(--text-secondary)] hover:bg-white"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function MetricChip({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[9px] border border-[var(--border-color)] bg-[#FBFCFE] px-2.5 py-1.5">
-      <span className="text-[9px] text-[var(--text-secondary)]">{label}</span>
-      <span className="ml-1.5 text-[11px] font-semibold text-[var(--text-primary)]">{value}</span>
-    </div>
-  );
-}
-
-function sanitizeDraftLines(lines: CommercialOfferDraftLine[]) {
-  return lines
-    .map((line) => {
-      const itemId = Number(line.itemId);
-      const qty = Number(line.qty);
-      const priceVat = Number(line.priceVat);
-      if (!Number.isFinite(itemId) || !Number.isFinite(qty) || qty <= 0) {
-        return null;
-      }
-      return {
-        lineId: String(line.lineId || itemId),
-        itemId,
-        article: String(line.article ?? ""),
-        name: String(line.name ?? ""),
-        brand: String(line.brand ?? ""),
-        qty,
-        priceVat: Number.isFinite(priceVat) ? priceVat : 0,
-        deliveryTime: String(line.deliveryTime ?? ""),
-        note: String(line.note ?? ""),
-        warehouseId: typeof line.warehouseId === "number" ? line.warehouseId : null,
-        warehouseName: String(line.warehouseName ?? ""),
-      };
-    })
-    .filter((line): line is CommercialOfferDraftLine => line !== null);
-}
-
 function buildClientValue(client: CrmClient) {
   return `${client.source}:${client.id}`;
+}
+
+function formatClientSearchValue(client: CrmClient) {
+  const parts = [`${client.source === "onec" ? "1С" : "Локальный"} · ${formatClientDisplayName(client)}`];
+  if (client.inn) {
+    parts.push(`ИНН ${client.inn}`);
+  }
+  if (client.kpp) {
+    parts.push(`КПП ${client.kpp}`);
+  }
+  return parts.join(" · ");
+}
+
+function normalizeClientSearch(value: string) {
+  return value.toLocaleLowerCase("ru-RU").replace(/\s+/g, " ").trim();
+}
+
+function clientMatchesSearch(client: CrmClient, query: string) {
+  const haystack = normalizeClientSearch(
+    [
+      client.documentName,
+      client.fullName,
+      client.name,
+      client.inn,
+      client.kpp,
+      client.source === "onec" ? "1С" : "локальный",
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  return haystack.includes(query);
 }
 
 function resolveClientPayload(
@@ -413,21 +385,6 @@ function resolveClientPayload(
 
 function formatClientDisplayName(client: CrmClient) {
   return client.documentName || client.fullName || client.name || "-";
-}
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("ru-RU", {
-    currency: "RUB",
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-    style: "currency",
-  }).format(Number.isFinite(value) ? value : 0);
-}
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 3 }).format(
-    Number.isFinite(value) ? value : 0,
-  );
 }
 
 function getErrorMessage(error: unknown, fallback: string) {

@@ -159,6 +159,7 @@ export type CreateDocumentPayload = {
   clientSource: "onec" | "local";
   clientId: number;
   commercialOfferId?: number | null;
+  correspondentAccount?: string;
   signerPosition?: string;
   notes?: string;
 };
@@ -678,6 +679,16 @@ export async function downloadDocumentFile(documentId: number): Promise<void> {
     `/api/documents/${documentId}/download`,
     "Не удалось скачать документ.",
     "document.docx",
+  );
+}
+
+export async function deleteDocument(documentId: number): Promise<{ ok: boolean }> {
+  return requestJsonWithInit<{ ok: boolean }>(
+    `/api/documents/${documentId}`,
+    {
+      method: "DELETE",
+    },
+    "Не удалось удалить документ.",
   );
 }
 

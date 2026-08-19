@@ -32,6 +32,59 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn('placeholder="Поиск по названию, ИНН или КПП"', source)
         self.assertNotIn("setClientValue(event.target.value)", source)
 
+    def test_commercial_offer_generator_uses_searchable_client_picker_with_dropdown(self) -> None:
+        source = Path("sm-techno-web/app/commercial-offers/new/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("clientSearch", source)
+        self.assertIn("isClientPickerOpen", source)
+        self.assertIn('className="relative"', source)
+        self.assertIn("absolute left-0 right-0 top-[calc(100%+4px)]", source)
+        self.assertIn("handleClientSearchChange", source)
+        self.assertNotIn('list="commercial-offer-client-options"', source)
+        self.assertNotIn("<datalist", source)
+        self.assertNotIn("<select\n                  value={clientValue}", source)
+
+    def test_commercial_offer_generator_uses_excel_dropzone_without_source_tabs(self) -> None:
+        source = Path("sm-techno-web/app/commercial-offers/new/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("fileInputRef", source)
+        self.assertIn("handleExcelDrop", source)
+        self.assertIn("Перетащите Excel-файл", source)
+        self.assertIn("Выбрать файл", source)
+        self.assertNotIn('"draft" | "excel"', source)
+        self.assertNotIn("Из прайса", source)
+        self.assertNotIn("ModeButton", source)
+
+    def test_documents_journal_uses_single_line_search_with_dropdown(self) -> None:
+        source = Path("sm-techno-web/app/documents/journal/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("documentSearch", source)
+        self.assertIn("filteredDocuments", source)
+        self.assertIn('list="document-search-options"', source)
+        self.assertIn('<datalist id="document-search-options">', source)
+        self.assertIn("documents.map((document) => buildDocumentSearchLabel(document))", source)
+
+    def test_documents_journal_can_delete_documents(self) -> None:
+        source = Path("sm-techno-web/app/documents/journal/page.tsx").read_text(encoding="utf-8")
+        api_source = Path("sm-techno-web/lib/api.ts").read_text(encoding="utf-8")
+
+        self.assertIn("deleteDocument", source)
+        self.assertIn("deletingId", source)
+        self.assertIn("handleDelete", source)
+        self.assertIn("window.confirm", source)
+        self.assertIn("setDocuments((current) => current.filter((item) => item.id !== document.id))", source)
+        self.assertIn("export async function deleteDocument", api_source)
+        self.assertIn('method: "DELETE"', api_source)
+
+    def test_documents_generator_client_search_dropdown_does_not_resize_form(self) -> None:
+        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("isClientPickerOpen", source)
+        self.assertIn("handleClientSearchFocus", source)
+        self.assertIn("absolute left-0 right-0 top-[calc(100%+4px)]", source)
+        self.assertIn("onMouseDown={(event) => event.preventDefault()}", source)
+        self.assertNotIn('type="search"', source)
+
     def test_documents_generator_displays_document_name_before_program_name(self) -> None:
         source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
 
@@ -48,7 +101,9 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn('label="Корр. счет"', source)
         self.assertIn("selectedClient?.bankAccount", source)
         self.assertIn("selectedClient?.bankBik", source)
-        self.assertIn("selectedClient?.correspondentAccount", source)
+        self.assertIn("correspondentAccount", source)
+        self.assertIn("setCorrespondentAccount", source)
+        self.assertIn("correspondentAccount: correspondentAccount.trim()", source)
 
     def test_documents_preview_shows_signer_position(self) -> None:
         source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
@@ -78,6 +133,17 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn('href: "/documents/journal"', documents_block)
         self.assertIn('label: "Журнал документов"', documents_block)
         self.assertNotIn('label: "Журнал",', source)
+
+    def test_parent_menu_click_opens_first_visible_item_for_every_group(self) -> None:
+        source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("useRouter", source)
+        self.assertIn("const router = useRouter();", source)
+        self.assertIn("function getFirstNavItemHref(group: NavGroup)", source)
+        self.assertIn("return group.items[0]?.href ?? null;", source)
+        self.assertIn("const firstItemHref = getFirstNavItemHref(group);", source)
+        self.assertIn("router.push(firstItemHref);", source)
+        self.assertNotIn('current.expandedGroupLabel === groupLabel ? "" : groupLabel', source)
 
 
 if __name__ == "__main__":

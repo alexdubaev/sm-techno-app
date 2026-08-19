@@ -118,6 +118,7 @@ function WorkWithPriceAdminPage() {
   const [items, setItems] = useState<StockItem[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [groups, setGroups] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
   const [selectedRowWarehouseId, setSelectedRowWarehouseId] = useState<number | null>(null);
@@ -235,6 +236,7 @@ function WorkWithPriceAdminPage() {
 
     setItems(filtered);
     setCategories(response.categories);
+    setGroups(response.groups);
     setTotal(onlyUnlinked ? filtered.length : response.total);
 
     if (filtered.length === 0) {
@@ -507,6 +509,39 @@ function WorkWithPriceAdminPage() {
     setSelectedItem(item);
   };
 
+  const handleCreateSkuChange = (value: string) => {
+    const normalizedSku = normalizeSku(value);
+    setCreateForm((current) => ({ ...current, sku: value }));
+
+    if (!normalizedSku) {
+      return;
+    }
+
+    void fetchStockCatalog({
+      search: value.trim(),
+      category: "",
+      warehouseId: null,
+      onlyInStock: false,
+      page: 1,
+      pageSize: 20,
+    })
+      .then((response) => {
+        const matchedItem = response.items.find((item) => normalizeSku(item.sku) === normalizedSku);
+        if (!matchedItem?.name) {
+          return;
+        }
+
+        setCreateForm((current) =>
+          normalizeSku(current.sku) === normalizedSku
+            ? { ...current, name: matchedItem.name }
+            : current,
+        );
+      })
+      .catch(() => {
+        // Автоподстановка не должна мешать ручному добавлению при временной ошибке сети.
+      });
+  };
+
   const handleCreateItem = async () => {
     const parsed = toPayload(createForm);
     if (!parsed.ok) {
@@ -610,6 +645,7 @@ function WorkWithPriceAdminPage() {
       const result = await clearCatalog();
       setItems([]);
       setCategories([]);
+      setGroups([]);
       setSelectedId(null);
       setSelectedItem(null);
       setMessage(`Каталог очищен. Удалено: ${result.deleted}, скрыто: ${result.hidden}.`);
@@ -1520,7 +1556,7 @@ function WorkWithPriceAdminPage() {
                     <CompactField
                       label="Артикул"
                       value={createForm.sku}
-                      onChange={(value) => setCreateForm((current) => ({ ...current, sku: value }))}
+                      onChange={handleCreateSkuChange}
                     />
                     <CompactField
                       label="Наименование"
@@ -1531,6 +1567,7 @@ function WorkWithPriceAdminPage() {
                       <CompactField
                         label="Категория"
                         value={createForm.categoryName}
+                        listId="create-item-category-options"
                         onChange={(value) =>
                           setCreateForm((current) => ({ ...current, categoryName: value }))
                         }
@@ -1538,6 +1575,7 @@ function WorkWithPriceAdminPage() {
                       <CompactField
                         label="Группа"
                         value={createForm.groupName}
+                        listId="create-item-group-options"
                         onChange={(value) =>
                           setCreateForm((current) => ({ ...current, groupName: value }))
                         }
@@ -1561,6 +1599,7 @@ function WorkWithPriceAdminPage() {
                     </div>
                     <WarehouseFormEditor
                       rows={createForm.warehouses}
+                      warehouses={warehouses}
                       onChange={(rows) =>
                         setCreateForm((current) => ({
                           ...current,
@@ -1568,6 +1607,16 @@ function WorkWithPriceAdminPage() {
                         }))
                       }
                     />
+                    <datalist id="create-item-category-options">
+                      {categories.map((option) => (
+                        <option key={option} value={option} />
+                      ))}
+                    </datalist>
+                    <datalist id="create-item-group-options">
+                      {groups.map((option) => (
+                        <option key={option} value={option} />
+                      ))}
+                    </datalist>
                   </div>
 
                   {!createFormValidation.ok ? (
@@ -1733,6 +1782,10 @@ function normalizeWarehouseRows(rows: WarehouseFormState[]) {
         row.rack.trim().length > 0 ||
         row.cell.trim().length > 0,
     );
+}
+
+function normalizeSku(value: string) {
+  return value.trim().toLocaleLowerCase("ru");
 }
 
 function buildItemForm(activeWarehouseId: number | null, warehouses: Warehouse[]): ItemFormState {
@@ -1940,12 +1993,14 @@ function CompactField({
   value,
   onChange,
   inputMode = "text",
+  listId,
   disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   inputMode?: "text" | "numeric" | "decimal";
+  listId?: string;
   disabled?: boolean;
 }) {
   return (
@@ -1956,6 +2011,7 @@ function CompactField({
       <input
         value={value}
         inputMode={inputMode}
+        list={listId}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         className="h-[30px] w-full rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
@@ -2008,10 +2064,12 @@ function CompactReadonlyField({
 
 function WarehouseFormEditor({
   rows,
+  warehouses,
   onChange,
   disabled = false,
 }: {
   rows: WarehouseFormState[];
+  warehouses: Warehouse[];
   onChange: (rows: WarehouseFormState[]) => void;
   disabled?: boolean;
 }) {
@@ -2062,19 +2120,28 @@ function WarehouseFormEditor({
                 <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
                   Склад {safeRows.length > 1 ? index + 1 : ""}
                 </span>
-                <input
-                  value={row.warehouseName}
+                <select
+                  value={String(
+                    row.warehouseId ?? warehouses.find((warehouse) => warehouse.name === row.warehouseName)?.id ?? "",
+                  )}
                   disabled={disabled}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const warehouse = warehouses.find((entry) => String(entry.id) === event.target.value);
                     replaceRow(row.key, (current) => ({
                       ...current,
-                      warehouseName: event.target.value,
-                      warehouseId: current.warehouseId,
-                    }))
-                  }
-                  placeholder="Например, Основной склад"
+                      warehouseName: warehouse?.name ?? "",
+                      warehouseId: warehouse?.id ?? null,
+                    }));
+                  }}
                   className="h-[28px] w-full rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)] disabled:cursor-not-allowed disabled:bg-[#F8FAFD] disabled:text-[var(--text-secondary)]"
-                />
+                >
+                  <option value="">Выберите склад</option>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <button

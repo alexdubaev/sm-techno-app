@@ -1403,6 +1403,10 @@ class WebDatabase(Database):
             raise ValueError("Документ не найден.")
         return dict(row)
 
+    def delete_document(self, document_id: int) -> None:
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+
     def create_order(
         self,
         *,

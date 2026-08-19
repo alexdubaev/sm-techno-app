@@ -346,7 +346,7 @@ class WebStockSyncService:
         warehouse_id: int | None = None,
         only_in_stock: bool = False,
     ) -> bytes:
-        rows, _ = self._filter_catalog_rows(
+        rows, _, _ = self._filter_catalog_rows(
             search=search,
             category=category,
             warehouse_id=warehouse_id,
@@ -372,7 +372,7 @@ class WebStockSyncService:
         warehouse_id: int | None = None,
         only_in_stock: bool = False,
         split_by_warehouse: bool = True,
-    ) -> tuple[list[dict[str, Any]], list[str]]:
+    ) -> tuple[list[dict[str, Any]], list[str], list[str]]:
         source_rows = self.db.list_items(
             warehouse_id=warehouse_id,
             split_by_warehouse=split_by_warehouse,
@@ -405,7 +405,15 @@ class WebStockSyncService:
             },
             key=str.lower,
         )
-        return rows, categories
+        groups = sorted(
+            {
+                str(row.get("group_name") or "").strip()
+                for row in source_rows
+                if str(row.get("group_name") or "").strip()
+            },
+            key=str.lower,
+        )
+        return rows, categories, groups
 
     def get_stock_catalog(
         self,
@@ -417,7 +425,7 @@ class WebStockSyncService:
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        rows, categories = self._filter_catalog_rows(
+        rows, categories, groups = self._filter_catalog_rows(
             search=search,
             category=category,
             warehouse_id=warehouse_id,
@@ -441,6 +449,7 @@ class WebStockSyncService:
             "page": page,
             "page_size": page_size,
             "categories": categories,
+            "groups": groups,
             "summary": {
                 "catalog_count": len(self.db.list_items(split_by_warehouse=True)),
                 "filtered_count": total,
@@ -1073,6 +1082,12 @@ class WebStockSyncService:
             raise ValueError("Документ не найден.")
         return document
 
+    def delete_document_for_user(self, *, document_id: int, user_id: int, is_admin: bool) -> None:
+        document = self.get_document_for_user(document_id=document_id, user_id=user_id, is_admin=is_admin)
+        output_path = document.get("output_path")
+        self.db.delete_document(document_id)
+        self._delete_stored_document_file(output_path)
+
     def create_document(
         self,
         *,
@@ -1082,6 +1097,7 @@ class WebStockSyncService:
         client_source: str,
         client_id: int | None,
         commercial_offer_id: int | None,
+        correspondent_account: str,
         notes: str,
         signer_position: str,
         created_by_user_id: int,
@@ -1099,6 +1115,9 @@ class WebStockSyncService:
         normalized_date = str(document_date or "").strip()[:10] or date.today().isoformat()
         client = self._resolve_document_client(client_source=client_source, client_id=client_id)
         client_data = dict(client["client"])
+        correspondent_account = str(correspondent_account or "").strip()
+        if correspondent_account:
+            client_data["correspondent_account"] = correspondent_account
         signer_position = str(signer_position or "").strip()
         if signer_position:
             client_data["signer_position"] = signer_position
@@ -1173,6 +1192,19 @@ class WebStockSyncService:
             document_number=str(document.get("number") or document_id),
         )
         return path, filename
+
+    def _delete_stored_document_file(self, stored_path: object) -> None:
+        if not stored_path:
+            return
+        try:
+            path = self._resolve_stored_path(str(stored_path))
+        except ValueError:
+            return
+        try:
+            if path.exists() and path.is_file():
+                path.unlink()
+        except OSError:
+            return
 
     def list_orders_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
         return self.db.list_orders(user_id=user_id, include_all=is_admin)
@@ -1279,6 +1311,7 @@ class WebStockSyncService:
             "inn",
             "legal_address",
             "bank_account",
+            "correspondent_account",
             "signer_name",
             "signer_basis",
         ]

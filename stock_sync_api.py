@@ -1042,6 +1042,9 @@ def create_document(
             commercial_offer_id=_parse_optional_client_id(
                 payload.get("commercialOfferId") or payload.get("commercial_offer_id")
             ),
+            correspondent_account=str(
+                payload.get("correspondentAccount") or payload.get("correspondent_account") or ""
+            ).strip(),
             notes=str(payload.get("notes") or "").strip(),
             signer_position=str(payload.get("signerPosition") or payload.get("signer_position") or "").strip(),
             created_by_user_id=int(current_user["id"]),
@@ -1086,6 +1089,22 @@ def download_document_file(
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers=_download_headers(filename),
     )
+
+
+@app.delete("/api/documents/{document_id}")
+def delete_document(
+    document_id: int,
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        SERVICE.delete_document_for_user(
+            document_id=document_id,
+            user_id=int(current_user["id"]),
+            is_admin=str(current_user.get("role") or "") == "admin",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @app.get("/api/warehouses")
@@ -1147,6 +1166,7 @@ def stock_catalog(
         "page": catalog["page"],
         "pageSize": catalog["page_size"],
         "categories": catalog["categories"],
+        "groups": catalog["groups"],
         "summary": catalog["summary"],
     }
 
