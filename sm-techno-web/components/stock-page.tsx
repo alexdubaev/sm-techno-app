@@ -35,6 +35,7 @@ import type {
   CommercialOfferDraftLine,
   DraftLine,
   StockItem,
+  StockSortOrder,
   SystemSettings,
   Warehouse,
   WarehouseBalance,
@@ -55,6 +56,7 @@ const DEFAULT_STATE: StockPageViewState = {
   searchInput: "",
   category: "",
   onlyInStock: false,
+  sortOrder: "newest",
   activeWarehouseId: null,
   page: 1,
   pageSize: 20,
@@ -84,6 +86,7 @@ export function StockPage() {
   const [search, setSearch] = useState(DEFAULT_STATE.searchInput);
   const [category, setCategory] = useState(DEFAULT_STATE.category);
   const [onlyInStock, setOnlyInStock] = useState(DEFAULT_STATE.onlyInStock);
+  const [sortOrder, setSortOrder] = useState<StockSortOrder>(DEFAULT_STATE.sortOrder);
   const [activeWarehouseId, setActiveWarehouseId] = useState<number | null>(
     DEFAULT_STATE.activeWarehouseId,
   );
@@ -129,6 +132,9 @@ export function StockPage() {
       }
       if (typeof savedState.onlyInStock === "boolean") {
         setOnlyInStock(savedState.onlyInStock);
+      }
+      if (savedState.sortOrder === "newest" || savedState.sortOrder === "oldest") {
+        setSortOrder(savedState.sortOrder);
       }
       if (
         savedState.activeWarehouseId === null ||
@@ -182,6 +188,7 @@ export function StockPage() {
       searchInput,
       category,
       onlyInStock,
+      sortOrder,
       activeWarehouseId,
       page,
       pageSize,
@@ -195,6 +202,7 @@ export function StockPage() {
     category,
     isHydrated,
     onlyInStock,
+    sortOrder,
     page,
     pageSize,
     searchInput,
@@ -256,6 +264,7 @@ export function StockPage() {
       onlyInStock,
       page,
       pageSize,
+      sortOrder,
     })
       .then(async (response) => {
         if (cancelled) {
@@ -341,6 +350,7 @@ export function StockPage() {
     page,
     pageSize,
     search,
+    sortOrder,
     selectedCatalogRowKey,
     selectedItemId,
     selectionCleared,
@@ -864,7 +874,7 @@ export function StockPage() {
         <div className="grid gap-2.5 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
           <div className="min-w-0 space-y-2.5">
             <section className="rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(164px,210px)] lg:grid-cols-[minmax(0,1fr)_164px_132px_188px]">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(164px,210px)] lg:grid-cols-[minmax(0,1fr)_164px_164px_132px_188px]">
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
                     <SearchIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -891,6 +901,19 @@ export function StockPage() {
                       {entry}
                     </option>
                   ))}
+                </select>
+
+                <select
+                  aria-label="Сортировка товаров"
+                  value={sortOrder}
+                  onChange={(event) => {
+                    setSortOrder(event.target.value as StockSortOrder);
+                    setPage(1);
+                  }}
+                  className="h-[36px] rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[10.5px] font-medium text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
+                >
+                  <option value="newest">Сначала новые</option>
+                  <option value="oldest">Сначала старые</option>
                 </select>
 
                 <label className="flex h-[36px] items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-medium text-[var(--text-primary)] transition-all duration-200 focus-within:border-[var(--brand-yellow)] focus-within:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]">

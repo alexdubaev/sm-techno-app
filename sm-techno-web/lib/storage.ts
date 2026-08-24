@@ -16,6 +16,7 @@ export type StockPageViewState = {
   searchInput: string;
   category: string;
   onlyInStock: boolean;
+  sortOrder: "newest" | "oldest";
   activeWarehouseId: number | null;
   page: number;
   pageSize: number;

@@ -59,6 +59,7 @@ def _serialize_item(row: dict[str, Any]) -> dict[str, Any]:
         "printName": row.get("print_name") or "",
         "categoryName": row.get("category_name") or "",
         "groupName": row.get("group_name") or "",
+        "createdAt": row.get("created_at") or "",
         "quantity": quantity,
         "price": price,
         "onecKey": row.get("onec_key") or "",
@@ -1162,6 +1163,7 @@ def stock_catalog(
     only_in_stock: bool = Query(False, description="РўРѕР»СЊРєРѕ РІ РЅР°Р»РёС‡РёРё"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort_order: str = Query("newest", pattern="^(newest|oldest)$"),
     current_user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
     catalog = SERVICE.get_stock_catalog(
@@ -1171,6 +1173,7 @@ def stock_catalog(
         only_in_stock=only_in_stock,
         page=page,
         page_size=page_size,
+        sort_order=sort_order,
     )
     return {
         "items": [_serialize_item(row) for row in catalog["items"]],

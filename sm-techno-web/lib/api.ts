@@ -12,6 +12,7 @@
   OrderHistoryItem,
   Organization,
   StockCatalogResponse,
+  StockSortOrder,
   StockItem,
   SystemSettings,
   Warehouse,
@@ -305,6 +306,7 @@ export async function fetchStockCatalog(params: {
   onlyInStock: boolean;
   page: number;
   pageSize: number;
+  sortOrder?: StockSortOrder;
 }): Promise<StockCatalogResponse> {
   const query = new URLSearchParams();
 
@@ -315,6 +317,7 @@ export async function fetchStockCatalog(params: {
 
   query.set("page", String(params.page));
   query.set("page_size", String(params.pageSize));
+  query.set("sort_order", params.sortOrder ?? "newest");
 
   return requestJson<StockCatalogResponse>(`/api/stock/catalog?${query.toString()}`);
 }

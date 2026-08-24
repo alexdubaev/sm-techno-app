@@ -372,10 +372,12 @@ class WebStockSyncService:
         warehouse_id: int | None = None,
         only_in_stock: bool = False,
         split_by_warehouse: bool = True,
+        sort_order: str = "newest",
     ) -> tuple[list[dict[str, Any]], list[str], list[str]]:
         source_rows = self.db.list_items(
             warehouse_id=warehouse_id,
             split_by_warehouse=split_by_warehouse,
+            sort_order=sort_order,
         )
         rows = list(source_rows)
         search_text = search.strip().lower()
@@ -424,6 +426,7 @@ class WebStockSyncService:
         only_in_stock: bool = False,
         page: int = 1,
         page_size: int = 20,
+        sort_order: str = "newest",
     ) -> dict[str, Any]:
         rows, categories, groups = self._filter_catalog_rows(
             search=search,
@@ -431,6 +434,7 @@ class WebStockSyncService:
             warehouse_id=warehouse_id,
             only_in_stock=only_in_stock,
             split_by_warehouse=True,
+            sort_order=sort_order,
         )
         total = len(rows)
         total_quantity = round(

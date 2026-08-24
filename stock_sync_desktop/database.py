@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS items (
     unit_name TEXT,
     price REAL NOT NULL DEFAULT 0,
     is_local INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 
@@ -179,6 +180,17 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN unit_key TEXT")
         if "unit_name" not in item_columns:
             conn.execute("ALTER TABLE items ADD COLUMN unit_name TEXT")
+        if "created_at" not in item_columns:
+            conn.execute("ALTER TABLE items ADD COLUMN created_at TEXT")
+
+        conn.execute(
+            """
+            UPDATE items
+            SET created_at = COALESCE(NULLIF(created_at, ''), updated_at, ?)
+            WHERE created_at IS NULL OR created_at = ''
+            """,
+            (utc_now(),),
+        )
 
         conn.execute(
             """
@@ -845,9 +857,9 @@ class Database:
                         """
                         INSERT INTO items(
                             onec_key, sku, name, print_name, category_name, group_name,
-                            unit_key, unit_name, price, is_local, updated_at
+                            unit_key, unit_name, price, is_local, created_at, updated_at
                         )
-                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             onec_key,
@@ -860,6 +872,7 @@ class Database:
                             row.get("unit_name"),
                             row["price"],
                             1,
+                            now,
                             now,
                         ),
                     )
@@ -1010,7 +1023,15 @@ class Database:
         *,
         warehouse_id: int | None = None,
         split_by_warehouse: bool = False,
+        sort_order: str = "name",
     ) -> list[dict[str, Any]]:
+        if sort_order == "oldest":
+            item_order_by = "i.created_at ASC, i.id ASC"
+        elif sort_order == "newest":
+            item_order_by = "i.created_at DESC, i.id DESC"
+        else:
+            item_order_by = "i.name COLLATE NOCASE, i.id ASC"
+
         with self.connect() as conn:
             if split_by_warehouse:
                 params: list[Any] = []
@@ -1034,6 +1055,7 @@ class Database:
                         i.unit_key,
                         i.unit_name,
                         i.price,
+                        i.created_at,
                         COALESCE(agg.quantity, 0) AS quantity,
                         COALESCE(agg.warehouse_count, 0) AS warehouse_count,
                         COALESCE(agg.top_warehouse_name, '') AS top_warehouse_name,
@@ -1082,7 +1104,7 @@ class Database:
                     ) agg ON agg.item_id = i.id
                     WHERE i.is_local = 1
                       {item_filter}
-                    ORDER BY i.name COLLATE NOCASE, row_balances.warehouse_name COLLATE NOCASE
+                    ORDER BY {item_order_by}, row_balances.warehouse_name COLLATE NOCASE
                     """,
                     params,
                 ).fetchall()
@@ -1118,6 +1140,7 @@ class Database:
                     i.unit_key,
                     i.unit_name,
                     i.price,
+                    i.created_at,
                     COALESCE(agg.quantity, 0) AS quantity,
                     COALESCE(agg.warehouse_count, 0) AS warehouse_count,
                     COALESCE(agg.top_warehouse_name, '') AS top_warehouse_name,
@@ -1148,7 +1171,7 @@ class Database:
                 ) agg ON agg.item_id = i.id
                 WHERE i.is_local = 1
                   {item_filter}
-                ORDER BY i.name COLLATE NOCASE
+                ORDER BY {item_order_by}
                 """,
                 params,
             ).fetchall()
@@ -1364,9 +1387,9 @@ class Database:
                 cursor = conn.execute(
                     """
                     INSERT INTO items(
-                        sku, name, print_name, category_name, group_name, price, is_local, updated_at
+                        sku, name, print_name, category_name, group_name, price, is_local, created_at, updated_at
                     )
-                    VALUES(?, ?, ?, ?, ?, ?, 1, ?)
+                    VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?)
                     """,
                     (
                         normalized_sku or None,
@@ -1375,6 +1398,7 @@ class Database:
                         normalized_category_name or None,
                         normalized_group_name or None,
                         price,
+                        now,
                         now,
                     ),
                 )
@@ -1464,6 +1488,7 @@ class Database:
                     i.unit_key,
                     i.unit_name,
                     i.price,
+                    i.created_at,
                     COALESCE(agg.quantity, 0) AS quantity,
                     COALESCE(agg.warehouse_count, 0) AS warehouse_count,
                     COALESCE(agg.top_warehouse_name, '') AS top_warehouse_name,

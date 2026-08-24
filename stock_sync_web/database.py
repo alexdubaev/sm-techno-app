@@ -649,19 +649,20 @@ class WebDatabase(Database):
             if row is None:
                 return None
 
-            last_seen_at = datetime.fromisoformat(str(row["last_seen_at"]))
             expires_at = datetime.fromisoformat(str(row["expires_at"]))
-            if now_dt >= expires_at or now_dt - last_seen_at > timedelta(hours=12):
+            if now_dt >= expires_at:
                 conn.execute("DELETE FROM app_sessions WHERE token = ?", (normalized_token,))
                 return None
 
+            refreshed_expires_at = (now_dt + timedelta(days=7)).isoformat(timespec="seconds")
             conn.execute(
                 """
                 UPDATE app_sessions
-                SET last_seen_at = ?
+                SET last_seen_at = ?,
+                    expires_at = ?
                 WHERE token = ?
                 """,
-                (now, normalized_token),
+                (now, refreshed_expires_at, normalized_token),
             )
 
         user = self._normalize_user_row(dict(row))

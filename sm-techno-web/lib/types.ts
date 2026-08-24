@@ -24,6 +24,7 @@ export type StockItem = {
   printName: string;
   categoryName: string;
   groupName: string;
+  createdAt: string;
   quantity: number;
   price: number;
   onecKey: string;
@@ -43,6 +44,8 @@ export type StockItem = {
   rowLocationLabel: string;
   warehouses: WarehouseBalance[];
 };
+
+export type StockSortOrder = "newest" | "oldest";
 
 export type StockCatalogResponse = {
   items: StockItem[];
