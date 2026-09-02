@@ -2,7 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode, type SVGProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 
 import { useAuth } from "@/components/auth-provider";
@@ -157,6 +157,19 @@ function WorkWithPriceAdminPage() {
     PRICE_TABLE_COLUMNS,
   );
 
+  // Текущее выделение читается через refs, чтобы клик по строке не пересоздавал
+  // loadCatalog и не перезагружал каталог целиком.
+  const selectedIdRef = useRef<number | null>(null);
+  const selectedRowKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  useEffect(() => {
+    selectedRowKeyRef.current = selectedRowKey;
+  }, [selectedRowKey]);
+
   const loadWarehouses = useCallback(async () => {
     const rows = await fetchWarehouses();
     setWarehouses(rows);
@@ -240,8 +253,8 @@ function WorkWithPriceAdminPage() {
     setTotal(onlyUnlinked ? filtered.length : response.total);
 
     if (filtered.length === 0) {
-      if (selectedId !== null) {
-        const persisted = await fetchStockItem(selectedId);
+      if (selectedIdRef.current !== null) {
+        const persisted = await fetchStockItem(selectedIdRef.current);
         setSelectedItem(persisted);
       } else {
         setSelectedItem(null);
@@ -249,7 +262,7 @@ function WorkWithPriceAdminPage() {
       return;
     }
 
-    if (selectedId === null) {
+    if (selectedIdRef.current === null) {
       setSelectedId(filtered[0].id);
       setSelectedRowKey(getCatalogRowKey(filtered[0]));
       setSelectedRowWarehouseId(filtered[0].rowWarehouseId ?? null);
@@ -258,8 +271,8 @@ function WorkWithPriceAdminPage() {
     }
 
     const matched =
-      filtered.find((item) => getCatalogRowKey(item) === selectedRowKey) ??
-      filtered.find((item) => item.id === selectedId);
+      filtered.find((item) => getCatalogRowKey(item) === selectedRowKeyRef.current) ??
+      filtered.find((item) => item.id === selectedIdRef.current);
     if (matched) {
       setSelectedId(matched.id);
       setSelectedRowKey(getCatalogRowKey(matched));
@@ -277,7 +290,7 @@ function WorkWithPriceAdminPage() {
       return;
     }
 
-    const persisted = await fetchStockItem(selectedId);
+    const persisted = await fetchStockItem(selectedIdRef.current);
     setSelectedItem(persisted);
   }, [
     activeWarehouseId,
@@ -286,8 +299,6 @@ function WorkWithPriceAdminPage() {
     onlyUnlinked,
     page,
     pageSize,
-    selectedId,
-    selectedRowKey,
   ]);
 
   useEffect(() => {

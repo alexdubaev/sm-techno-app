@@ -2,7 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useMemo, useState, type ReactNode, type SVGProps } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -114,6 +114,24 @@ export function StockPage() {
     STOCK_TABLE_COLUMNS,
     { allowTightFit: true },
   );
+
+  // Выделение читается через refs, чтобы клик по строке не перезапускал
+  // эффект загрузки каталога целиком.
+  const selectedItemIdRef = useRef<number | null>(DEFAULT_STATE.selectedItemId);
+  const selectedCatalogRowKeyRef = useRef<string | null>(DEFAULT_STATE.selectedCatalogRowKey);
+  const selectionClearedRef = useRef(DEFAULT_STATE.selectionCleared);
+
+  useEffect(() => {
+    selectedItemIdRef.current = selectedItemId;
+  }, [selectedItemId]);
+
+  useEffect(() => {
+    selectedCatalogRowKeyRef.current = selectedCatalogRowKey;
+  }, [selectedCatalogRowKey]);
+
+  useEffect(() => {
+    selectionClearedRef.current = selectionCleared;
+  }, [selectionCleared]);
 
   useEffect(() => {
     const savedDraft = loadStockDraftLinesFromStorage();
@@ -276,8 +294,8 @@ export function StockPage() {
         setTotal(response.total);
 
         if (response.items.length === 0) {
-          if (selectedItemId !== null) {
-            const persisted = await fetchStockItem(selectedItemId);
+          if (selectedItemIdRef.current !== null) {
+            const persisted = await fetchStockItem(selectedItemIdRef.current);
             if (!cancelled) {
               setSelectedItem(persisted);
               if (!persisted) {
@@ -291,8 +309,8 @@ export function StockPage() {
           return;
         }
 
-        if (selectedItemId === null) {
-          if (selectionCleared) {
+        if (selectedItemIdRef.current === null) {
+          if (selectionClearedRef.current) {
             setSelectedItem(null);
             return;
           }
@@ -306,8 +324,9 @@ export function StockPage() {
         }
 
         const matched =
-          response.items.find((item) => getCatalogRowKey(item) === selectedCatalogRowKey) ??
-          response.items.find((item) => item.id === selectedItemId);
+          response.items.find(
+            (item) => getCatalogRowKey(item) === selectedCatalogRowKeyRef.current,
+          ) ?? response.items.find((item) => item.id === selectedItemIdRef.current);
         if (matched) {
           setSelectedItemId(matched.id);
           setSelectedCatalogRowKey(getCatalogRowKey(matched));
@@ -320,7 +339,7 @@ export function StockPage() {
           return;
         }
 
-        const persisted = await fetchStockItem(selectedItemId);
+        const persisted = await fetchStockItem(selectedItemIdRef.current);
         if (!cancelled) {
           setSelectedItem(persisted);
           if (!persisted) {
@@ -351,9 +370,6 @@ export function StockPage() {
     pageSize,
     search,
     sortOrder,
-    selectedCatalogRowKey,
-    selectedItemId,
-    selectionCleared,
   ]);
 
   const selectedWarehouseOptions = useMemo(

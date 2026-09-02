@@ -76,6 +76,41 @@ async function fetchWithRetry(
   throw new Error("Сетевой запрос не выполнен.");
 }
 
+const GET_CACHE_TTL_MS = 30_000;
+
+type GetCacheEntry = {
+  expiresAt: number;
+  data: unknown;
+};
+
+// Клиентский кэш GET-запросов: повторные переходы между разделами не
+// перезакачивают одни и те же списки. Любая мутация и ответ 401 сбрасывают
+// кэш целиком. Существует только в браузере, на сервере кэширование выключено.
+const getCache = new Map<string, GetCacheEntry>();
+const inflightGetRequests = new Map<string, Promise<unknown>>();
+
+export function invalidateApiCache() {
+  getCache.clear();
+}
+
+function canCacheGet(path: string) {
+  return typeof window !== "undefined" && !path.startsWith("/api/auth/");
+}
+
+function readGetCache<T>(url: string): T | undefined {
+  const entry = getCache.get(url);
+  if (!entry) {
+    return undefined;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    getCache.delete(url);
+    return undefined;
+  }
+
+  return entry.data as T;
+}
+
 function getApiBaseUrl() {
   if (configuredApiBaseUrl && configuredApiBaseUrl.length > 0) {
     return configuredApiBaseUrl;
@@ -234,6 +269,8 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
     }
 
     if (response.status === 401 && typeof window !== "undefined") {
+      getCache.clear();
+      inflightGetRequests.clear();
       window.dispatchEvent(new CustomEvent("sm-techno-auth-expired"));
     }
 
@@ -244,10 +281,41 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
 }
 
 async function requestJson<T>(path: string): Promise<T> {
-  const response = await fetchWithRetry(buildApiUrl(path), {
-    cache: "no-store",
-    headers: createHeaders(),
-  }, { retryTransient: true });
+  const url = buildApiUrl(path);
+
+  if (canCacheGet(path)) {
+    const cached = readGetCache<T>(url);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const inflight = inflightGetRequests.get(url) as Promise<T> | undefined;
+    if (inflight) {
+      return inflight;
+    }
+
+    const request = (async () => {
+      const response = await fetchWithRetry(
+        url,
+        { cache: "no-store", headers: createHeaders() },
+        { retryTransient: true },
+      );
+      const data = await parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
+      getCache.set(url, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
+      return data;
+    })().finally(() => {
+      inflightGetRequests.delete(url);
+    });
+
+    inflightGetRequests.set(url, request);
+    return request;
+  }
+
+  const response = await fetchWithRetry(
+    url,
+    { cache: "no-store", headers: createHeaders() },
+    { retryTransient: true },
+  );
 
   return parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
 }
@@ -264,7 +332,13 @@ async function requestJsonWithInit<T>(
     headers: createHeaders(init.headers),
   }, options);
 
-  return parseJsonResponse<T>(response, fallbackMessage);
+  const data = await parseJsonResponse<T>(response, fallbackMessage);
+
+  if ((init.method ?? "GET").toUpperCase() !== "GET") {
+    invalidateApiCache();
+  }
+
+  return data;
 }
 
 export function buildApiUrl(path: string) {
@@ -672,7 +746,12 @@ export async function createCommercialOfferFromExcel(payload: {
     headers: createHeaders(),
   });
 
-  return parseJsonResponse<CommercialOfferDetails>(response, "Не удалось сформировать КП из Excel.");
+  const result = await parseJsonResponse<CommercialOfferDetails>(
+    response,
+    "Не удалось сформировать КП из Excel.",
+  );
+  invalidateApiCache();
+  return result;
 }
 
 export async function markCommercialOfferSent(
@@ -845,7 +924,7 @@ export async function importPriceFile(file: File): Promise<{
     headers: createHeaders(),
   });
 
-  return parseJsonResponse<{
+  const result = await parseJsonResponse<{
     created: number;
     updated: number;
     locationUpdated: number;
@@ -854,6 +933,8 @@ export async function importPriceFile(file: File): Promise<{
     response,
     "Не удалось импортировать прайс.",
   );
+  invalidateApiCache();
+  return result;
 }
 
 export async function updateItemQuantity(itemId: number, quantity: number): Promise<StockItem | null> {
@@ -866,6 +947,7 @@ export async function updateItemQuantity(itemId: number, quantity: number): Prom
   });
 
   const result = await parseJsonResponse<{ item: StockItem | null }>(response, "Не удалось обновить остаток.");
+  invalidateApiCache();
   return result.item;
 }
 
@@ -879,6 +961,7 @@ export async function createLocalItem(payload: LocalItemPayload): Promise<StockI
   });
 
   const result = await parseJsonResponse<{ item: StockItem | null }>(response, "Не удалось создать позицию.");
+  invalidateApiCache();
   return result.item;
 }
 
@@ -895,6 +978,7 @@ export async function updateLocalItem(itemId: number, payload: LocalItemPayload)
     response,
     "Не удалось сохранить изменения по позиции.",
   );
+  invalidateApiCache();
   return result.item;
 }
 
@@ -904,7 +988,9 @@ export async function deleteItem(itemId: number): Promise<{ deleted: number; hid
     headers: createHeaders(),
   });
 
-  return parseJsonResponse<{ deleted: number; hidden: number }>(response, "Не удалось удалить товар.");
+  const result = await parseJsonResponse<{ deleted: number; hidden: number }>(response, "Не удалось удалить товар.");
+  invalidateApiCache();
+  return result;
 }
 
 export async function clearCatalog(): Promise<{ deleted: number; hidden: number }> {
@@ -913,7 +999,9 @@ export async function clearCatalog(): Promise<{ deleted: number; hidden: number 
     headers: createHeaders(),
   });
 
-  return parseJsonResponse<{ deleted: number; hidden: number }>(response, "Не удалось очистить каталог.");
+  const result = await parseJsonResponse<{ deleted: number; hidden: number }>(response, "Не удалось очистить каталог.");
+  invalidateApiCache();
+  return result;
 }
 
 export type { LocalItemPayload };
