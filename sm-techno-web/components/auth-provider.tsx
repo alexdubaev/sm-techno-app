@@ -11,7 +11,14 @@ import {
   type ReactNode,
 } from "react";
 
-import { ApiRequestError, fetchCurrentUser, loginAppUser, logoutAppUser } from "@/lib/api";
+import {
+  ApiRequestError,
+  fetchCurrentUser,
+  invalidateApiCache,
+  loginAppUser,
+  logoutAppUser,
+} from "@/lib/api";
+import { bootstrapAuthSession } from "@/lib/auth-session";
 import type { AppUser } from "@/lib/types";
 import {
   clearAuthSessionFromStorage,
@@ -37,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loginError, setLoginError] = useState<string | null>(null);
 
   const resetSession = useCallback((message?: string) => {
+    invalidateApiCache();
     clearCurrentUserSessionData();
     clearAuthSessionFromStorage();
     setSession(null);
@@ -55,26 +63,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (isActive) {
-        setSession(savedSession);
-      }
-
       try {
-        const user = await fetchCurrentUser();
-        if (!isActive) {
-          return;
-        }
-
-        const nextSession: StoredAuthSession = {
-          ...savedSession,
-          user,
-        };
-        saveAuthSessionToStorage(nextSession);
-        setSession(nextSession);
-      } catch (error: unknown) {
-        if (isActive && error instanceof ApiRequestError && error.status === 401) {
-          resetSession("Сессия завершилась. Войдите заново.");
-        }
+        await bootstrapAuthSession({
+          fetchCurrentUser,
+          isActive: () => isActive,
+          resetSession,
+          savedSession,
+          saveAuthSession: saveAuthSessionToStorage,
+          setSession,
+        });
       } finally {
         if (isActive) {
           setIsBooting(false);

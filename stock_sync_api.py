@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -12,12 +13,22 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from stock_sync_desktop.service import DraftLine
 from stock_sync_web.service import WebStockSyncService
 
 
 APP_TITLE = "SM Techno Stock Sync API"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+
+@dataclass
+class DraftLine:
+    item_id: int
+    quantity: float
+    price: float
+    amount: float
+    warehouse_id: int | None = None
+
+
 SERVICE = WebStockSyncService()
 SERVICE.bootstrap()
 
@@ -609,11 +620,12 @@ def logout(
 
 @app.get("/api/meta")
 def meta(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
-    catalog = SERVICE.get_stock_catalog()
+    catalog = SERVICE.get_catalog_metadata()
+    catalog_count = catalog["catalog_count"]
     return {
         "appTitle": "СМ ТЕХНО — локальный прайс и заказы",
-        "priceLoaded": catalog["summary"]["catalog_count"] > 0,
-        "catalogCount": catalog["summary"]["catalog_count"],
+        "priceLoaded": catalog_count > 0,
+        "catalogCount": catalog_count,
     }
 
 

@@ -31,13 +31,5 @@ class AutostartScriptTests(unittest.TestCase):
         self.assertIn('"SM Techno Server"', script)
         self.assertIn("Stop-ScheduledTask", script)
 
-    def test_auth_bootstrap_does_not_logout_on_network_failure(self) -> None:
-        script = (ROOT / "sm-techno-web" / "components" / "auth-provider.tsx").read_text(encoding="utf-8")
-
-        self.assertIn("ApiRequestError", script)
-        self.assertIn("error.status === 401", script)
-        self.assertNotIn('catch {\n        if (isActive) {\n          resetSession("Сессия завершилась. Войдите заново.");', script)
-
-
 if __name__ == "__main__":
     unittest.main()

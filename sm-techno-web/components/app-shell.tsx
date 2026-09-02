@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useState, type ReactNode, type SVGProps } from "react";
 
 import { useAuth } from "@/components/auth-provider";
@@ -85,7 +85,6 @@ const navGroups: NavGroup[] = [
 
 export function AppShell({ children }: ShellProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const { user, isAdmin, logout } = useAuth();
 
   const visibleNavGroups = navGroups
@@ -118,14 +117,10 @@ export function AppShell({ children }: ShellProps) {
   };
 
   const handleGroupClick = (group: NavGroup) => {
-    const firstItemHref = getFirstNavItemHref(group);
-    updateMenuState(() => ({
-      expandedGroupLabel: group.label,
-      selectedGroupLabel: group.label,
+    updateMenuState((current) => ({
+      ...current,
+      expandedGroupLabel: current.expandedGroupLabel === group.label ? "" : group.label,
     }));
-    if (firstItemHref) {
-      router.push(firstItemHref);
-    }
   };
 
   const handleItemClick = (groupLabel: string) => {
@@ -270,10 +265,6 @@ export function AppShell({ children }: ShellProps) {
 
 function isNavGroupActive(group: NavGroup, pathname: string) {
   return group.items.some((item) => isNavItemActive(item, pathname));
-}
-
-function getFirstNavItemHref(group: NavGroup) {
-  return group.items[0]?.href ?? null;
 }
 
 function normalizePathname(value: string) {

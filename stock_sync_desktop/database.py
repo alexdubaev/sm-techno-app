@@ -162,6 +162,18 @@ class Database:
             self._run_migrations(conn)
 
     def _run_migrations(self, conn: sqlite3.Connection) -> None:
+        def migration_completed(key: str) -> bool:
+            return conn.execute(
+                "SELECT 1 FROM app_settings WHERE key = ?",
+                (key,),
+            ).fetchone() is not None
+
+        def mark_migration_completed(key: str) -> None:
+            conn.execute(
+                "INSERT INTO app_settings(key, value) VALUES(?, ?)",
+                (key, utc_now()),
+            )
+
         item_columns = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(items)").fetchall()
@@ -183,22 +195,28 @@ class Database:
         if "created_at" not in item_columns:
             conn.execute("ALTER TABLE items ADD COLUMN created_at TEXT")
 
-        conn.execute(
-            """
-            UPDATE items
-            SET created_at = COALESCE(NULLIF(created_at, ''), updated_at, ?)
-            WHERE created_at IS NULL OR created_at = ''
-            """,
-            (utc_now(),),
-        )
+        created_at_backfill_key = "migration.items_created_at_backfilled"
+        if not migration_completed(created_at_backfill_key):
+            conn.execute(
+                """
+                UPDATE items
+                SET created_at = COALESCE(NULLIF(created_at, ''), updated_at, ?)
+                WHERE created_at IS NULL OR created_at = ''
+                """,
+                (utc_now(),),
+            )
+            mark_migration_completed(created_at_backfill_key)
 
-        conn.execute(
-            """
-            UPDATE items
-            SET is_local = 1
-            WHERE is_local IS NULL OR is_local NOT IN (0, 1)
-            """
-        )
+        is_local_normalized_key = "migration.items_is_local_normalized"
+        if not migration_completed(is_local_normalized_key):
+            conn.execute(
+                """
+                UPDATE items
+                SET is_local = 1
+                WHERE is_local IS NULL OR is_local NOT IN (0, 1)
+                """
+            )
+            mark_migration_completed(is_local_normalized_key)
         local_backfill_key = "migration.items_is_local_backfilled"
         local_backfill_done = conn.execute(
             "SELECT value FROM app_settings WHERE key = ?",
@@ -229,46 +247,53 @@ class Database:
                 """,
                 (local_backfill_key, utc_now()),
             )
-        conn.execute(
-            """
-            UPDATE items
-            SET print_name = name
-            WHERE COALESCE(print_name, '') = ''
-            """
-        )
-        guid_pattern = "????????-????-????-????-????????????"
-        conn.execute(
-            """
-            UPDATE items
-            SET onec_key = NULL
-            WHERE COALESCE(onec_key, '') <> ''
-              AND onec_key NOT GLOB ?
-            """,
-            (guid_pattern,),
-        )
-        conn.execute(
-            """
-            UPDATE items
-            SET onec_key = NULL
-            WHERE onec_key = '00000000-0000-0000-0000-000000000000'
-            """
-        )
-        conn.execute(
-            """
-            UPDATE items
-            SET unit_key = NULL
-            WHERE COALESCE(unit_key, '') <> ''
-              AND unit_key NOT GLOB ?
-            """,
-            (guid_pattern,),
-        )
-        conn.execute(
-            """
-            UPDATE items
-            SET unit_key = NULL
-            WHERE unit_key = '00000000-0000-0000-0000-000000000000'
-            """
-        )
+        print_name_backfill_key = "migration.items_print_name_backfilled"
+        if not migration_completed(print_name_backfill_key):
+            conn.execute(
+                """
+                UPDATE items
+                SET print_name = name
+                WHERE COALESCE(print_name, '') = ''
+                """
+            )
+            mark_migration_completed(print_name_backfill_key)
+
+        guid_normalization_key = "migration.items_guid_columns_normalized"
+        if not migration_completed(guid_normalization_key):
+            guid_pattern = "????????-????-????-????-????????????"
+            conn.execute(
+                """
+                UPDATE items
+                SET onec_key = NULL
+                WHERE COALESCE(onec_key, '') <> ''
+                  AND onec_key NOT GLOB ?
+                """,
+                (guid_pattern,),
+            )
+            conn.execute(
+                """
+                UPDATE items
+                SET onec_key = NULL
+                WHERE onec_key = '00000000-0000-0000-0000-000000000000'
+                """
+            )
+            conn.execute(
+                """
+                UPDATE items
+                SET unit_key = NULL
+                WHERE COALESCE(unit_key, '') <> ''
+                  AND unit_key NOT GLOB ?
+                """,
+                (guid_pattern,),
+            )
+            conn.execute(
+                """
+                UPDATE items
+                SET unit_key = NULL
+                WHERE unit_key = '00000000-0000-0000-0000-000000000000'
+                """
+            )
+            mark_migration_completed(guid_normalization_key)
 
         order_line_columns = {
             row["name"]
@@ -1017,6 +1042,24 @@ class Database:
                     )
                     updated += 1
         return updated
+
+    def count_catalog_rows(self) -> int:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM items i
+                LEFT JOIN (
+                    SELECT iwb.item_id, iwb.warehouse_id
+                    FROM item_warehouse_balances iwb
+                    JOIN warehouses w ON w.id = iwb.warehouse_id
+                    WHERE w.is_active = 1
+                      AND iwb.quantity > 0
+                ) row_balances ON row_balances.item_id = i.id
+                WHERE i.is_local = 1
+                """
+            ).fetchone()
+        return int(row["total"] if row else 0)
 
     def list_items(
         self,
