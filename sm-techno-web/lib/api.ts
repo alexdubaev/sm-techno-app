@@ -31,6 +31,51 @@ export class ApiRequestError extends Error {
   }
 }
 
+const transientResponseStatuses = new Set([502, 503, 504]);
+const retryDelaysMs = [500, 1500];
+
+type FetchRetryOptions = {
+  retryTransient?: boolean;
+};
+
+function waitForRetry(delayMs: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+}
+
+async function fetchWithRetry(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  { retryTransient = false }: FetchRetryOptions = {},
+): Promise<Response> {
+  const maxAttempts = retryTransient ? retryDelaysMs.length + 1 : 1;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(input, init);
+      if (
+        retryTransient &&
+        transientResponseStatuses.has(response.status) &&
+        attempt < maxAttempts - 1
+      ) {
+        await waitForRetry(retryDelaysMs[attempt]);
+        continue;
+      }
+
+      return response;
+    } catch (error: unknown) {
+      if (attempt >= maxAttempts - 1 || (error instanceof Error && error.name === "AbortError")) {
+        throw error;
+      }
+
+      await waitForRetry(retryDelaysMs[attempt]);
+    }
+  }
+
+  throw new Error("Сетевой запрос не выполнен.");
+}
+
 function getApiBaseUrl() {
   if (configuredApiBaseUrl && configuredApiBaseUrl.length > 0) {
     return configuredApiBaseUrl;
@@ -199,20 +244,25 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
 }
 
 async function requestJson<T>(path: string): Promise<T> {
-  const response = await fetch(buildApiUrl(path), {
+  const response = await fetchWithRetry(buildApiUrl(path), {
     cache: "no-store",
     headers: createHeaders(),
-  });
+  }, { retryTransient: true });
 
   return parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
 }
 
-async function requestJsonWithInit<T>(path: string, init: RequestInit, fallbackMessage: string): Promise<T> {
-  const response = await fetch(buildApiUrl(path), {
+async function requestJsonWithInit<T>(
+  path: string,
+  init: RequestInit,
+  fallbackMessage: string,
+  options?: FetchRetryOptions,
+): Promise<T> {
+  const response = await fetchWithRetry(buildApiUrl(path), {
     cache: "no-store",
     ...init,
     headers: createHeaders(init.headers),
-  });
+  }, options);
 
   return parseJsonResponse<T>(response, fallbackMessage);
 }
@@ -252,10 +302,10 @@ function parseDownloadFilename(contentDisposition: string | null, fallbackFilena
 }
 
 async function downloadApiFile(path: string, fallbackMessage: string, fallbackFilename: string) {
-  const response = await fetch(buildApiUrl(path), {
+  const response = await fetchWithRetry(buildApiUrl(path), {
     cache: "no-store",
     headers: createHeaders(),
-  });
+  }, { retryTransient: true });
 
   if (!response.ok) {
     await parseJsonResponse<never>(response, fallbackMessage);
@@ -287,6 +337,7 @@ export async function loginAppUser(payload: LoginPayload): Promise<LoginResponse
       body: JSON.stringify(payload),
     },
     "Не удалось выполнить вход.",
+    { retryTransient: true },
   );
 }
 

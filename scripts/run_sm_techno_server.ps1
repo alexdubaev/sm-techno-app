@@ -17,6 +17,7 @@ $windowsPowerShellPath = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\
 $tailscalePath = Join-Path $env:ProgramFiles "Tailscale\tailscale.exe"
 $mutexName = "Global\SMTechnoServerSupervisor"
 $pollInterval = [Math]::Max(5, $PollIntervalSeconds)
+$lastFunnelRepairAt = [DateTime]::MinValue
 
 if (-not (Test-Path -LiteralPath $backendScript)) {
     throw "Не найден скрипт запуска API: $backendScript"
@@ -195,23 +196,72 @@ function Test-FunnelConfiguration {
     return $false
 }
 
+function Get-FunnelPublicHealthUrl {
+    if (-not (Test-Path -LiteralPath $tailscalePath)) {
+        return $null
+    }
+
+    try {
+        $rawStatus = & $tailscalePath funnel status --json 2>$null | Out-String
+        if ([string]::IsNullOrWhiteSpace($rawStatus)) {
+            return $null
+        }
+
+        $status = $rawStatus | ConvertFrom-Json
+        foreach ($webEntry in $status.Web.PSObject.Properties) {
+            $handlersProperty = $webEntry.Value.PSObject.Properties["Handlers"]
+            if ($null -eq $handlersProperty) {
+                continue
+            }
+
+            $rootHandler = $handlersProperty.Value.PSObject.Properties["/"]
+            if ($null -ne $rootHandler -and $rootHandler.Value.Proxy -eq "http://127.0.0.1:8000") {
+                $hostname = $webEntry.Name -replace ":443$", ""
+                return "https://$hostname/api/health"
+            }
+        }
+    } catch {
+        return $null
+    }
+
+    return $null
+}
+
 function Ensure-Funnel {
     if (-not (Ensure-TailscaleService)) {
         return $false
     }
 
-    if (Test-FunnelConfiguration) {
+    $publicHealthUrl = Get-FunnelPublicHealthUrl
+    if ($publicHealthUrl -and (Test-UrlReady -Url $publicHealthUrl -TimeoutSeconds 5)) {
         return $true
     }
 
+    if ((Get-Date) -lt $lastFunnelRepairAt.AddMinutes(1)) {
+        return $false
+    }
+
+    $lastFunnelRepairAt = Get-Date
+    if ($publicHealthUrl) {
+        Write-Log "Tailscale Funnel public health check failed: $publicHealthUrl"
+    } else {
+        Write-Log "Tailscale Funnel route is missing or unreadable."
+    }
+
     Write-Log "Restoring Tailscale Funnel route to backend."
+    $resetResult = & $tailscalePath funnel reset 2>&1 | Out-String
+    if (-not [string]::IsNullOrWhiteSpace($resetResult)) {
+        Write-Log ($resetResult.Trim())
+    }
+
     $result = & $tailscalePath funnel --bg http://127.0.0.1:8000 2>&1 | Out-String
     if (-not [string]::IsNullOrWhiteSpace($result)) {
         Write-Log ($result.Trim())
     }
 
-    Start-Sleep -Seconds 2
-    if (Test-FunnelConfiguration) {
+    Start-Sleep -Seconds 3
+    $publicHealthUrl = Get-FunnelPublicHealthUrl
+    if ($publicHealthUrl -and (Wait-ForUrl -Url $publicHealthUrl -MaxSeconds 20)) {
         Write-Log "Tailscale Funnel is ready."
         return $true
     }

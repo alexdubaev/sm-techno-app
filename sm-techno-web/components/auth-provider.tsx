@@ -111,7 +111,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       saveAuthSessionToStorage(nextSession);
       setSession(nextSession);
     } catch (error: unknown) {
-      setLoginError(error instanceof Error && error.message.trim() ? error.message.trim() : "Не удалось выполнить вход.");
+      setLoginError(
+        error instanceof ApiRequestError
+          ? error.message
+          : "Сервис временно недоступен. Проверьте, что компьютер включён и приложение запущено, затем повторите вход.",
+      );
       throw error;
     } finally {
       setIsSubmitting(false);
