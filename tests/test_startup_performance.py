@@ -1,9 +1,12 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+
+os.environ.setdefault("SM_TECHNO_INITIAL_ADMIN_PASSWORD", "startup-test-password")
 
 import stock_sync_api
 from stock_sync_desktop.database import Database

@@ -321,20 +321,19 @@ async function requestJson<T>(path: string): Promise<T> {
     }
 
     const controller = new AbortController();
-    let request: Promise<T>;
-    request = (async () => {
+    const request = (async () => {
       const response = await fetchWithRetry(
         url,
         { cache: "no-store", headers: createHeaders(undefined, token), signal: controller.signal },
         { retryTransient: true },
       );
       const data = await parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
-      if (inflightGetRequests.get(cacheKey)?.request === request) {
+      if (inflightGetRequests.get(cacheKey)?.controller === controller) {
         getCache.set(cacheKey, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
       }
       return data;
     })().finally(() => {
-      if (inflightGetRequests.get(cacheKey)?.request === request) {
+      if (inflightGetRequests.get(cacheKey)?.controller === controller) {
         inflightGetRequests.delete(cacheKey);
       }
     });

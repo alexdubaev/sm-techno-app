@@ -18,6 +18,7 @@ import {
   loginAppUser,
   logoutAppUser,
 } from "@/lib/api";
+import { bootstrapAuthSession } from "@/lib/auth-session";
 import type { AppUser } from "@/lib/types";
 import {
   clearAuthSessionFromStorage,
@@ -62,26 +63,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if (isActive) {
-        setSession(savedSession);
-      }
-
       try {
-        const user = await fetchCurrentUser();
-        if (!isActive) {
-          return;
-        }
-
-        const nextSession: StoredAuthSession = {
-          ...savedSession,
-          user,
-        };
-        saveAuthSessionToStorage(nextSession);
-        setSession(nextSession);
-      } catch {
-        if (isActive) {
-          resetSession("Не удалось проверить сохраненную сессию. Войдите заново.");
-        }
+        await bootstrapAuthSession({
+          fetchCurrentUser,
+          isActive: () => isActive,
+          resetSession,
+          savedSession,
+          saveAuthSession: saveAuthSessionToStorage,
+          setSession,
+        });
       } finally {
         if (isActive) {
           setIsBooting(false);
