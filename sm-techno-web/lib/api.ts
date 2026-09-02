@@ -33,6 +33,7 @@ export class ApiRequestError extends Error {
 
 const transientResponseStatuses = new Set([502, 503, 504]);
 const retryDelaysMs = [500, 1500];
+const REQUEST_TIMEOUT_MS = 15_000;
 
 type FetchRetryOptions = {
   retryTransient?: boolean;
@@ -49,11 +50,22 @@ async function fetchWithRetry(
   init?: RequestInit,
   { retryTransient = false }: FetchRetryOptions = {},
 ): Promise<Response> {
-  const maxAttempts = retryTransient ? retryDelaysMs.length + 1 : 1;
+  const isSafeGet = (init?.method ?? "GET").toUpperCase() === "GET";
+  const maxAttempts = retryTransient && isSafeGet ? retryDelaysMs.length + 1 : 1;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const timeoutController = new AbortController();
+    let timedOut = false;
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      timeoutController.abort();
+    }, REQUEST_TIMEOUT_MS);
+    const signal = init?.signal
+      ? AbortSignal.any([init.signal, timeoutController.signal])
+      : timeoutController.signal;
+
     try {
-      const response = await fetch(input, init);
+      const response = await fetch(input, { ...init, signal });
       if (
         retryTransient &&
         transientResponseStatuses.has(response.status) &&
@@ -65,11 +77,17 @@ async function fetchWithRetry(
 
       return response;
     } catch (error: unknown) {
+      if (timedOut) {
+        throw new ApiRequestError("Время ожидания ответа сервера истекло. Повторите попытку.", 0);
+      }
+
       if (attempt >= maxAttempts - 1 || (error instanceof Error && error.name === "AbortError")) {
         throw error;
       }
 
       await waitForRetry(retryDelaysMs[attempt]);
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }
 
@@ -87,10 +105,18 @@ type GetCacheEntry = {
 // перезакачивают одни и те же списки. Любая мутация и ответ 401 сбрасывают
 // кэш целиком. Существует только в браузере, на сервере кэширование выключено.
 const getCache = new Map<string, GetCacheEntry>();
-const inflightGetRequests = new Map<string, Promise<unknown>>();
+type InflightGetRequest = {
+  request: Promise<unknown>;
+  controller: AbortController;
+};
+const inflightGetRequests = new Map<string, InflightGetRequest>();
 
 export function invalidateApiCache() {
   getCache.clear();
+  for (const { controller } of inflightGetRequests.values()) {
+    controller.abort();
+  }
+  inflightGetRequests.clear();
 }
 
 function canCacheGet(path: string) {
@@ -125,9 +151,8 @@ function getApiBaseUrl() {
   return "http://127.0.0.1:8000";
 }
 
-function createHeaders(existing?: HeadersInit) {
+function createHeaders(existing?: HeadersInit, token = loadAuthTokenFromStorage()) {
   const headers = new Headers(existing);
-  const token = loadAuthTokenFromStorage();
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
   }
@@ -269,8 +294,7 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
     }
 
     if (response.status === 401 && typeof window !== "undefined") {
-      getCache.clear();
-      inflightGetRequests.clear();
+      invalidateApiCache();
       window.dispatchEvent(new CustomEvent("sm-techno-auth-expired"));
     }
 
@@ -284,30 +308,38 @@ async function requestJson<T>(path: string): Promise<T> {
   const url = buildApiUrl(path);
 
   if (canCacheGet(path)) {
-    const cached = readGetCache<T>(url);
+    const token = loadAuthTokenFromStorage();
+    const cacheKey = `${token}:${url}`;
+    const cached = readGetCache<T>(cacheKey);
     if (cached !== undefined) {
       return cached;
     }
 
-    const inflight = inflightGetRequests.get(url) as Promise<T> | undefined;
+    const inflight = inflightGetRequests.get(cacheKey)?.request as Promise<T> | undefined;
     if (inflight) {
       return inflight;
     }
 
-    const request = (async () => {
+    const controller = new AbortController();
+    let request: Promise<T>;
+    request = (async () => {
       const response = await fetchWithRetry(
         url,
-        { cache: "no-store", headers: createHeaders() },
+        { cache: "no-store", headers: createHeaders(undefined, token), signal: controller.signal },
         { retryTransient: true },
       );
       const data = await parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
-      getCache.set(url, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
+      if (inflightGetRequests.get(cacheKey)?.request === request) {
+        getCache.set(cacheKey, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
+      }
       return data;
     })().finally(() => {
-      inflightGetRequests.delete(url);
+      if (inflightGetRequests.get(cacheKey)?.request === request) {
+        inflightGetRequests.delete(cacheKey);
+      }
     });
 
-    inflightGetRequests.set(url, request);
+    inflightGetRequests.set(cacheKey, { request, controller });
     return request;
   }
 
@@ -740,7 +772,7 @@ export async function createCommercialOfferFromExcel(payload: {
   body.append("notes", payload.notes ?? "");
   body.append("file", payload.file);
 
-  const response = await fetch(buildApiUrl("/api/commercial-offers/from-excel"), {
+  const response = await fetchWithRetry(buildApiUrl("/api/commercial-offers/from-excel"), {
     method: "POST",
     body,
     headers: createHeaders(),
@@ -918,7 +950,7 @@ export async function importPriceFile(file: File): Promise<{
   const body = new FormData();
   body.append("file", file);
 
-  const response = await fetch(buildApiUrl("/api/price/import"), {
+  const response = await fetchWithRetry(buildApiUrl("/api/price/import"), {
     method: "POST",
     body,
     headers: createHeaders(),
@@ -938,7 +970,7 @@ export async function importPriceFile(file: File): Promise<{
 }
 
 export async function updateItemQuantity(itemId: number, quantity: number): Promise<StockItem | null> {
-  const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}/quantity`), {
+  const response = await fetchWithRetry(buildApiUrl(`/api/stock/items/${itemId}/quantity`), {
     method: "POST",
     headers: createHeaders({
       "Content-Type": "application/json",
@@ -952,7 +984,7 @@ export async function updateItemQuantity(itemId: number, quantity: number): Prom
 }
 
 export async function createLocalItem(payload: LocalItemPayload): Promise<StockItem | null> {
-  const response = await fetch(buildApiUrl("/api/stock/items"), {
+  const response = await fetchWithRetry(buildApiUrl("/api/stock/items"), {
     method: "POST",
     headers: createHeaders({
       "Content-Type": "application/json",
@@ -966,7 +998,7 @@ export async function createLocalItem(payload: LocalItemPayload): Promise<StockI
 }
 
 export async function updateLocalItem(itemId: number, payload: LocalItemPayload): Promise<StockItem | null> {
-  const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}`), {
+  const response = await fetchWithRetry(buildApiUrl(`/api/stock/items/${itemId}`), {
     method: "PATCH",
     headers: createHeaders({
       "Content-Type": "application/json",
@@ -983,7 +1015,7 @@ export async function updateLocalItem(itemId: number, payload: LocalItemPayload)
 }
 
 export async function deleteItem(itemId: number): Promise<{ deleted: number; hidden: number }> {
-  const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}`), {
+  const response = await fetchWithRetry(buildApiUrl(`/api/stock/items/${itemId}`), {
     method: "DELETE",
     headers: createHeaders(),
   });
@@ -994,7 +1026,7 @@ export async function deleteItem(itemId: number): Promise<{ deleted: number; hid
 }
 
 export async function clearCatalog(): Promise<{ deleted: number; hidden: number }> {
-  const response = await fetch(buildApiUrl("/api/price/catalog"), {
+  const response = await fetchWithRetry(buildApiUrl("/api/price/catalog"), {
     method: "DELETE",
     headers: createHeaders(),
   });
