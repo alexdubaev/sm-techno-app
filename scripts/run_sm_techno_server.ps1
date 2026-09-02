@@ -106,44 +106,75 @@ function Start-ManagedScript {
         -WindowStyle Hidden | Out-Null
 }
 
-function Ensure-Backend {
+function Start-BackendIfNeeded {
     if (Test-UrlReady -Url $backendHealthUrl) {
-        return $true
+        return [PSCustomObject]@{ Ready = $true; Wait = $false }
     }
 
     if (Test-PortListening -Port 8000) {
         Write-Log "Backend port 8000 is occupied, but health check failed."
-        return $false
+        return [PSCustomObject]@{ Ready = $false; Wait = $false }
     }
 
     Start-ManagedScript -ScriptPath $backendScript -Label "backend"
-    if (Wait-ForUrl -Url $backendHealthUrl -MaxSeconds 30) {
-        Write-Log "Backend is ready."
-        return $true
-    }
-
-    Write-Log "Backend did not become ready."
-    return $false
+    return [PSCustomObject]@{ Ready = $false; Wait = $true }
 }
 
-function Ensure-Frontend {
+function Start-FrontendIfNeeded {
     if (Test-UrlReady -Url $frontendUrl) {
-        return $true
+        return [PSCustomObject]@{ Ready = $true; Wait = $false }
     }
 
     if (Test-PortListening -Port 3000) {
         Write-Log "Frontend port 3000 is occupied, but health check failed."
-        return $false
+        return [PSCustomObject]@{ Ready = $false; Wait = $false }
     }
 
     Start-ManagedScript -ScriptPath $frontendScript -Label "frontend"
-    if (Wait-ForUrl -Url $frontendUrl -MaxSeconds 60) {
-        Write-Log "Frontend is ready."
-        return $true
+    return [PSCustomObject]@{ Ready = $false; Wait = $true }
+}
+
+function Wait-ForLocalServices {
+    param(
+        [bool]$BackendReady,
+        [bool]$BackendWait,
+        [bool]$FrontendReady,
+        [bool]$FrontendWait
+    )
+
+    $backendWasWaiting = $BackendWait
+    $frontendWasWaiting = $FrontendWait
+    $backendDeadline = (Get-Date).AddSeconds(30)
+    $frontendDeadline = (Get-Date).AddSeconds(60)
+    while (($BackendWait -and -not $BackendReady) -or ($FrontendWait -and -not $FrontendReady)) {
+        if ($BackendWait -and -not $BackendReady) {
+            $BackendReady = Test-UrlReady -Url $backendHealthUrl
+            if (-not $BackendReady -and (Get-Date) -ge $backendDeadline) {
+                $BackendWait = $false
+                Write-Log "Backend did not become ready."
+            }
+        }
+
+        if ($FrontendWait -and -not $FrontendReady) {
+            $FrontendReady = Test-UrlReady -Url $frontendUrl
+            if (-not $FrontendReady -and (Get-Date) -ge $frontendDeadline) {
+                $FrontendWait = $false
+                Write-Log "Frontend did not become ready."
+            }
+        }
+
+        if (($BackendWait -and -not $BackendReady) -or ($FrontendWait -and -not $FrontendReady)) {
+            Start-Sleep -Milliseconds 700
+        }
     }
 
-    Write-Log "Frontend did not become ready."
-    return $false
+    if ($BackendReady -and $backendWasWaiting) {
+        Write-Log "Backend is ready."
+    }
+    if ($FrontendReady -and $frontendWasWaiting) {
+        Write-Log "Frontend is ready."
+    }
+    return [PSCustomObject]@{ BackendReady = $BackendReady; FrontendReady = $FrontendReady }
 }
 
 function Ensure-TailscaleService {
@@ -283,8 +314,15 @@ $exitCode = 0
 
 try {
     do {
-        $backendReady = Ensure-Backend
-        $frontendReady = Ensure-Frontend
+        $backendStartup = Start-BackendIfNeeded
+        $frontendStartup = Start-FrontendIfNeeded
+        $localReadiness = Wait-ForLocalServices `
+            -BackendReady $backendStartup.Ready `
+            -BackendWait $backendStartup.Wait `
+            -FrontendReady $frontendStartup.Ready `
+            -FrontendWait $frontendStartup.Wait
+        $backendReady = $localReadiness.BackendReady
+        $frontendReady = $localReadiness.FrontendReady
         $funnelReady = $backendReady -and (Ensure-Funnel)
         $ready = $backendReady -and $frontendReady -and $funnelReady
 

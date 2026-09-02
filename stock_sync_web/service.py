@@ -9,25 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from stock_sync_web.commercial_offers import (
-    CommercialOfferLineInput,
-    generate_commercial_offer_workbook,
-    read_source_offer_lines,
-)
-from stock_sync_web.documents import (
-    DocumentLineInput,
-    build_document_context,
-    find_missing_client_fields,
-    generate_document_docx,
-)
-from stock_sync_desktop.excel_tools import (
-    create_import_template,
-    export_client_price,
-    export_stock_snapshot,
-    read_stock_import_bundle,
-)
 from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounterpartySyncError
-from stock_sync_desktop.service import DEFAULT_SETTINGS, DraftLine
 from stock_sync_web.database import WebDatabase
 
 CLIENT_PRICE_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templates" / "client_price_template.xlsx"
@@ -68,6 +50,8 @@ class WebStockSyncService:
         return self.db.ensure_default_admin()
 
     def get_system_settings(self) -> dict[str, str]:
+        from stock_sync_desktop.service import DEFAULT_SETTINGS
+
         current = DEFAULT_SETTINGS.copy()
         current.update(self.db.get_settings())
         current["username"] = ""
@@ -305,6 +289,8 @@ class WebStockSyncService:
         return self.db.upsert_items(client.list_items())
 
     def import_stock_excel(self, path: str | Path) -> dict[str, int]:
+        from stock_sync_desktop.excel_tools import read_stock_import_bundle
+
         import_bundle = read_stock_import_bundle(path)
         created = 0
         updated = 0
@@ -321,6 +307,8 @@ class WebStockSyncService:
         }
 
     def create_template_bytes(self) -> bytes:
+        from stock_sync_desktop.excel_tools import create_import_template
+
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             temp_path = Path(tmp.name)
         try:
@@ -330,6 +318,8 @@ class WebStockSyncService:
             temp_path.unlink(missing_ok=True)
 
     def export_stock_snapshot_bytes(self) -> bytes:
+        from stock_sync_desktop.excel_tools import export_stock_snapshot
+
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             temp_path = Path(tmp.name)
         try:
@@ -346,6 +336,8 @@ class WebStockSyncService:
         warehouse_id: int | None = None,
         only_in_stock: bool = False,
     ) -> bytes:
+        from stock_sync_desktop.excel_tools import export_client_price
+
         rows, _, _ = self._filter_catalog_rows(
             search=search,
             category=category,
@@ -460,6 +452,9 @@ class WebStockSyncService:
                 "filtered_quantity": total_quantity,
             },
         }
+
+    def get_catalog_metadata(self) -> dict[str, int]:
+        return {"catalog_count": self.db.count_catalog_rows()}
 
     def get_item(self, item_id: int) -> dict[str, Any] | None:
         return self.db.get_item_by_id(item_id)
@@ -938,6 +933,11 @@ class WebStockSyncService:
     ) -> dict[str, Any]:
         if not original_filename.lower().endswith(".xlsx"):
             raise ValueError("Загрузите файл Excel в формате .xlsx.")
+        from stock_sync_web.commercial_offers import (
+            generate_commercial_offer_workbook,
+            read_source_offer_lines,
+        )
+
         lines = read_source_offer_lines(source_path)
         offer_number = Path(original_filename).stem.strip()
         if not offer_number:
@@ -988,6 +988,8 @@ class WebStockSyncService:
         lines: list[dict[str, Any]],
         created_by_user_id: int | None,
     ) -> dict[str, Any]:
+        from stock_sync_web.commercial_offers import generate_commercial_offer_workbook
+
         parsed_lines = self._parse_draft_offer_lines(lines)
         client = self._resolve_commercial_offer_client(
             client_source=client_source,
@@ -1107,6 +1109,12 @@ class WebStockSyncService:
         created_by_user_id: int,
         is_admin: bool,
     ) -> dict[str, Any]:
+        from stock_sync_web.documents import (
+            build_document_context,
+            find_missing_client_fields,
+            generate_document_docx,
+        )
+
         normalized_type = str(document_type or "").strip().lower()
         if normalized_type not in {"contract", "specification"}:
             raise ValueError("Выберите тип документа: договор или спецификация.")
@@ -1324,7 +1332,9 @@ class WebStockSyncService:
         return common
 
     @staticmethod
-    def _commercial_offer_lines_to_document_lines(lines: list[dict[str, Any]]) -> list[DocumentLineInput]:
+    def _commercial_offer_lines_to_document_lines(lines: list[dict[str, Any]]) -> list[Any]:
+        from stock_sync_web.documents import DocumentLineInput
+
         parsed: list[DocumentLineInput] = []
         for index, row in enumerate(lines, start=1):
             parsed.append(
@@ -1340,7 +1350,9 @@ class WebStockSyncService:
             raise ValueError("В выбранном КП нет строк для спецификации.")
         return parsed
 
-    def _parse_draft_offer_lines(self, lines: list[dict[str, Any]]) -> list[CommercialOfferLineInput]:
+    def _parse_draft_offer_lines(self, lines: list[dict[str, Any]]) -> list[Any]:
+        from stock_sync_web.commercial_offers import CommercialOfferLineInput
+
         parsed: list[CommercialOfferLineInput] = []
         for raw_line in lines:
             if not isinstance(raw_line, dict):
@@ -1384,7 +1396,7 @@ class WebStockSyncService:
         return parsed
 
     @staticmethod
-    def _line_to_db(line: CommercialOfferLineInput) -> dict[str, Any]:
+    def _line_to_db(line: Any) -> dict[str, Any]:
         amount = line.amount_vat
         if amount is None and line.qty is not None and line.price_vat is not None:
             amount = line.qty * line.price_vat
@@ -1506,7 +1518,7 @@ class WebStockSyncService:
     def delete_all_local_items(self) -> dict[str, int]:
         return self.db.delete_all_local_items()
 
-    def create_and_sync_order(self, *, actor_user_id: int | None, onec_username: str, onec_password: str, counterparty_id: int, contract_id: int | None, organization_key: str | None, order_date: str, comment: str, draft_lines: list[DraftLine]) -> tuple[int, dict[str, Any]]:
+    def create_and_sync_order(self, *, actor_user_id: int | None, onec_username: str, onec_password: str, counterparty_id: int, contract_id: int | None, organization_key: str | None, order_date: str, comment: str, draft_lines: list[Any]) -> tuple[int, dict[str, Any]]:
         if not draft_lines:
             raise ValueError("Добавь хотя бы одну строку в заказ.")
         bundle_lines = [
