@@ -23,7 +23,7 @@ SERVICE.bootstrap()
 
 ALLOWED_ORIGINS = [
     origin.strip()
-    for origin in os.environ.get("SM_TECHNO_ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000").split(",")
+    for origin in os.environ.get("SM_TECHNO_ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3001,http://localhost:3001,https://sm-techno-stock.alexdubaev.chatgpt.site").split(",")
     if origin.strip()
 ]
 
