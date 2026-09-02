@@ -237,11 +237,11 @@ function Ensure-Funnel {
         return $true
     }
 
-    if ((Get-Date) -lt $lastFunnelRepairAt.AddMinutes(1)) {
+    if ((Get-Date) -lt $script:lastFunnelRepairAt.AddMinutes(1)) {
         return $false
     }
 
-    $lastFunnelRepairAt = Get-Date
+    $script:lastFunnelRepairAt = Get-Date
     if ($publicHealthUrl) {
         Write-Log "Tailscale Funnel public health check failed: $publicHealthUrl"
     } else {

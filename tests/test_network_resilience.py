@@ -22,6 +22,7 @@ class NetworkResilienceTests(unittest.TestCase):
         self.assertIn("Get-FunnelPublicHealthUrl", script)
         self.assertIn("api/health", script)
         self.assertIn("funnel reset", script)
+        self.assertIn("$script:lastFunnelRepairAt", script)
 
 
 if __name__ == "__main__":
