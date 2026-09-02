@@ -161,6 +161,8 @@ function WorkWithPriceAdminPage() {
   // loadCatalog и не перезагружал каталог целиком.
   const selectedIdRef = useRef<number | null>(null);
   const selectedRowKeyRef = useRef<string | null>(null);
+  const catalogRequestIdRef = useRef(0);
+  const detailRequestIdRef = useRef(0);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -231,6 +233,8 @@ function WorkWithPriceAdminPage() {
   }, [activeRowMenu, items]);
 
   const loadCatalog = useCallback(async () => {
+    const catalogRequestId = ++catalogRequestIdRef.current;
+    detailRequestIdRef.current += 1;
     setIsLoading(true);
     setError(null);
 
@@ -243,6 +247,10 @@ function WorkWithPriceAdminPage() {
       pageSize: onlyUnlinked ? 500 : pageSize,
     });
 
+    if (catalogRequestId !== catalogRequestIdRef.current) {
+      return;
+    }
+
     const filtered = onlyUnlinked
       ? response.items.filter((item) => !item.isLinkedToOneC)
       : response.items;
@@ -254,7 +262,14 @@ function WorkWithPriceAdminPage() {
 
     if (filtered.length === 0) {
       if (selectedIdRef.current !== null) {
+        const detailRequestId = ++detailRequestIdRef.current;
         const persisted = await fetchStockItem(selectedIdRef.current);
+        if (
+          catalogRequestId !== catalogRequestIdRef.current ||
+          detailRequestId !== detailRequestIdRef.current
+        ) {
+          return;
+        }
         setSelectedItem(persisted);
       } else {
         setSelectedItem(null);
@@ -290,7 +305,14 @@ function WorkWithPriceAdminPage() {
       return;
     }
 
+    const detailRequestId = ++detailRequestIdRef.current;
     const persisted = await fetchStockItem(selectedIdRef.current);
+    if (
+      catalogRequestId !== catalogRequestIdRef.current ||
+      detailRequestId !== detailRequestIdRef.current
+    ) {
+      return;
+    }
     setSelectedItem(persisted);
   }, [
     activeWarehouseId,
@@ -373,9 +395,10 @@ function WorkWithPriceAdminPage() {
         cancelled = true;
       };
     }
+    const detailRequestId = ++detailRequestIdRef.current;
     void fetchStockItem(selectedId)
       .then((item) => {
-        if (!cancelled && item) {
+        if (!cancelled && detailRequestId === detailRequestIdRef.current && item) {
           setSelectedItem(item);
         }
       })
@@ -756,8 +779,11 @@ function WorkWithPriceAdminPage() {
       setMessage("Склад удален.");
       await Promise.all([loadWarehouses(), loadCatalog()]);
       if (selectedId !== null) {
+        const detailRequestId = ++detailRequestIdRef.current;
         const refreshedItem = await fetchStockItem(selectedId);
-        setSelectedItem(refreshedItem);
+        if (detailRequestId === detailRequestIdRef.current) {
+          setSelectedItem(refreshedItem);
+        }
       }
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : "Не удалось удалить склад.");
@@ -767,6 +793,7 @@ function WorkWithPriceAdminPage() {
   };
 
   const handleSelectItem = (item: StockItem) => {
+    detailRequestIdRef.current += 1;
     setSelectedId(item.id);
     setSelectedRowKey(getCatalogRowKey(item));
     setSelectedRowWarehouseId(item.rowWarehouseId ?? null);
@@ -799,8 +826,9 @@ function WorkWithPriceAdminPage() {
     handleSelectItem(item);
     setStockAction({ itemId: item.id, mode });
     try {
+      const detailRequestId = ++detailRequestIdRef.current;
       const detailedItem = await fetchStockItem(item.id);
-      if (detailedItem) {
+      if (detailRequestId === detailRequestIdRef.current && detailedItem) {
         setSelectedItem(detailedItem);
       }
     } catch {

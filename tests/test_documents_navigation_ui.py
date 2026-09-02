@@ -134,16 +134,36 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn('label: "Журнал документов"', documents_block)
         self.assertNotIn('label: "Журнал",', source)
 
-    def test_parent_menu_click_opens_first_visible_item_for_every_group(self) -> None:
+    def test_parent_menu_click_only_toggles_its_group_without_navigation(self) -> None:
         source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
 
-        self.assertIn("useRouter", source)
-        self.assertIn("const router = useRouter();", source)
-        self.assertIn("function getFirstNavItemHref(group: NavGroup)", source)
-        self.assertIn("return group.items[0]?.href ?? null;", source)
-        self.assertIn("const firstItemHref = getFirstNavItemHref(group);", source)
-        self.assertIn("router.push(firstItemHref);", source)
-        self.assertNotIn('current.expandedGroupLabel === groupLabel ? "" : groupLabel', source)
+        self.assertNotIn("useRouter", source)
+        self.assertNotIn("router.push", source)
+        self.assertIn(
+            'expandedGroupLabel: current.expandedGroupLabel === group.label ? "" : group.label',
+            source,
+        )
+
+    def test_stock_load_waits_for_persisted_state_and_ignores_stale_detail_results(self) -> None:
+        source = Path("sm-techno-web/components/stock-page.tsx").read_text(encoding="utf-8")
+
+        catalog_load = source.index("void fetchStockCatalog")
+        catalog_effect = source[source.rfind("useEffect(() => {", 0, catalog_load):catalog_load]
+        self.assertIn("if (!isHydrated) {\n      return;\n    }", catalog_effect)
+        self.assertIn("const detailRequestIdRef = useRef(0);", source)
+        self.assertIn("const detailRequestId = ++detailRequestIdRef.current;", source)
+        self.assertIn("detailRequestId === detailRequestIdRef.current", source)
+        self.assertIn(".catch(() => {\n        // Keep the lightweight catalog row when details cannot be refreshed.\n      });", source)
+
+    def test_price_catalog_and_detail_requests_ignore_superseded_responses(self) -> None:
+        source = Path("sm-techno-web/app/work-with-price/page.tsx").read_text(encoding="utf-8")
+
+        self.assertIn("const catalogRequestIdRef = useRef(0);", source)
+        self.assertIn("const catalogRequestId = ++catalogRequestIdRef.current;", source)
+        self.assertIn("catalogRequestId !== catalogRequestIdRef.current", source)
+        self.assertIn("const detailRequestIdRef = useRef(0);", source)
+        self.assertIn("const detailRequestId = ++detailRequestIdRef.current;", source)
+        self.assertIn("detailRequestId === detailRequestIdRef.current", source)
 
 
 if __name__ == "__main__":
