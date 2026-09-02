@@ -6,11 +6,22 @@ $frontendUrl = "http://127.0.0.1:3000"
 $edgeAppId = "dpngjijhjgjcjelhmhoihafabpbjgfen"
 $edgeAppUrl = "$frontendUrl/"
 $browserProfileDir = Join-Path $env:LOCALAPPDATA "SMTechnoBrowserApp"
+$serverTaskName = "SM Techno Server"
 
 Write-Host "========================================="
 Write-Host "  SM Techno - stop backend and frontend"
 Write-Host "========================================="
 Write-Host ""
+
+$serverTask = Get-ScheduledTask -TaskName $serverTaskName -ErrorAction SilentlyContinue
+if ($serverTask) {
+    try {
+        Stop-ScheduledTask -TaskName $serverTaskName -ErrorAction Stop
+        Write-Host "Stopped scheduled server supervisor '$serverTaskName'."
+    } catch {
+        Write-Warning "Failed to stop scheduled server supervisor '$serverTaskName'. Run stop_all.bat as administrator if services restart."
+    }
+}
 
 $ports = @(3000, 8000)
 foreach ($port in $ports) {

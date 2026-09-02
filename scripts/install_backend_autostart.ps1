@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$Remove
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -12,16 +14,28 @@ if (-not $isAdministrator) {
 }
 
 $rootPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$backendScript = Join-Path $rootPath "scripts\run_backend_service.ps1"
-$taskName = "SM Techno Backend"
+$serverScript = Join-Path $rootPath "scripts\run_sm_techno_server.ps1"
+$taskName = "SM Techno Server"
+$legacyTaskName = "SM Techno Backend"
 
-if (-not (Test-Path -LiteralPath $backendScript)) {
-    throw "Не найден скрипт запуска API: $backendScript"
+if (-not (Test-Path -LiteralPath $serverScript)) {
+    throw "Не найден supervisor SM Techno: $serverScript"
 }
 
+if ($Remove) {
+    foreach ($name in @($taskName, $legacyTaskName)) {
+        if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
+            Unregister-ScheduledTask -TaskName $name -Confirm:$false
+            Write-Host "Задача '$name' удалена."
+        }
+    }
+    exit 0
+}
+
+$powershellPath = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
 $taskAction = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$backendScript`""
+    -Execute $powershellPath `
+    -Argument "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$serverScript`""
 $taskTrigger = New-ScheduledTaskTrigger -AtStartup
 $taskPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 $taskSettings = New-ScheduledTaskSettingsSet `
@@ -29,9 +43,13 @@ $taskSettings = New-ScheduledTaskSettingsSet `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
     -MultipleInstances IgnoreNew `
-    -RestartCount 3 `
+    -RestartCount 10 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit (New-TimeSpan -Days 0)
+
+if (Get-ScheduledTask -TaskName $legacyTaskName -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $legacyTaskName -Confirm:$false
+}
 
 Register-ScheduledTask `
     -TaskName $taskName `
@@ -39,7 +57,7 @@ Register-ScheduledTask `
     -Trigger $taskTrigger `
     -Principal $taskPrincipal `
     -Settings $taskSettings `
-    -Description "Запускает API SM Techno для сайта через Tailscale Funnel." `
+    -Description "Запускает и контролирует backend, frontend и Tailscale Funnel SM Techno." `
     -Force | Out-Null
 
-Write-Host "Задача '$taskName' настроена: API будет запускаться при старте Windows."
+Write-Host "Задача '$taskName' настроена: backend, frontend и Tailscale Funnel будут запускаться при старте Windows."

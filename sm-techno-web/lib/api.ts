@@ -21,6 +21,16 @@ import { loadAuthTokenFromStorage } from "@/lib/storage";
 
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
+export class ApiRequestError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+  }
+}
+
 function getApiBaseUrl() {
   if (configuredApiBaseUrl && configuredApiBaseUrl.length > 0) {
     return configuredApiBaseUrl;
@@ -182,7 +192,7 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
       window.dispatchEvent(new CustomEvent("sm-techno-auth-expired"));
     }
 
-    throw new Error(message);
+    throw new ApiRequestError(message, response.status);
   }
 
   return (await response.json()) as T;

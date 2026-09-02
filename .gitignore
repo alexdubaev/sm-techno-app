@@ -8,6 +8,7 @@ node_modules/
 .streamlit/
 *.log
 *.tmp
+.sm-techno-server.lock
 stock_sync.db
 *.db
 *.db-shm

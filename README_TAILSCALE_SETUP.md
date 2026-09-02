@@ -24,6 +24,28 @@
 3. Если Windows покажет запрос брандмауэра:
    - разрешите доступ для частных сетей
 
+## Автозапуск после перезагрузки Windows
+
+Откройте PowerShell от имени администратора и один раз выполните:
+
+```powershell
+cd D:\codex\sm-techno-app
+.\scripts\install_backend_autostart.ps1
+```
+
+После этого Windows будет автоматически запускать и контролировать backend, frontend и Funnel. Проверка состояния:
+
+```powershell
+Get-ScheduledTask -TaskName "SM Techno Server"
+Get-Content D:\codex\sm-techno-app\logs\sm-techno-server.log -Tail 50
+```
+
+Удаление задания автозапуска:
+
+```powershell
+.\scripts\install_backend_autostart.ps1 -Remove
+```
+
 ## Что поставить на втором компьютере
 
 1. Установите Tailscale:

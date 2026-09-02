@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { fetchCurrentUser, loginAppUser, logoutAppUser } from "@/lib/api";
+import { ApiRequestError, fetchCurrentUser, loginAppUser, logoutAppUser } from "@/lib/api";
 import type { AppUser } from "@/lib/types";
 import {
   clearAuthSessionFromStorage,
@@ -71,8 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
         saveAuthSessionToStorage(nextSession);
         setSession(nextSession);
-      } catch {
-        if (isActive) {
+      } catch (error: unknown) {
+        if (isActive && error instanceof ApiRequestError && error.status === 401) {
           resetSession("Сессия завершилась. Войдите заново.");
         }
       } finally {
