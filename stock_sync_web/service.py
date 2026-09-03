@@ -662,7 +662,7 @@ class WebStockSyncService:
         remote_check_error = ""
         try:
             onec_client = self.build_user_client(user_id=actor_user_id)
-            existing_counterparty = onec_client.find_counterparty_by_inn(card["inn"])
+            existing_counterparty = self._find_counterparty_by_identity(onec_client, card)
         except Exception as exc:
             existing_counterparty = None
             remote_check_error = str(exc)
@@ -785,6 +785,17 @@ class WebStockSyncService:
         if existing_counterparty and int(existing_counterparty["id"]) != int(allowed_counterparty_id or 0):
             raise ValueError(f"Контрагент с ИНН {inn} уже есть в справочнике 1С: {existing_counterparty.get('name') or existing_counterparty['onec_key']}.")
 
+    @staticmethod
+    def _find_counterparty_by_identity(
+        onec_client: OneCClient,
+        card: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        return onec_client.find_counterparty_by_identity(
+            legal_type=str(card.get("legal_type") or ""),
+            inn=str(card.get("inn") or ""),
+            kpp=str(card.get("kpp") or ""),
+        )
+
     def _send_crm_client_to_onec(
         self,
         client_id: int,
@@ -804,7 +815,7 @@ class WebStockSyncService:
             allowed_counterparty_id=linked_counterparty_id,
         )
         onec_client = onec_client or self.build_user_client(user_id=actor_user_id)
-        existing_counterparty = None if remote_duplicate_checked else onec_client.find_counterparty_by_inn(str(row.get("inn") or ""))
+        existing_counterparty = None if remote_duplicate_checked else self._find_counterparty_by_identity(onec_client, row)
         if existing_counterparty and not self._remote_counterparty_matches_link(existing_counterparty, linked_counterparty_id):
             raise ValueError(
                 f"В 1С уже есть контрагент с ИНН {row.get('inn')}: "

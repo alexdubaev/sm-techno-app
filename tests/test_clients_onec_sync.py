@@ -45,6 +45,15 @@ class FakeOneCClient:
         self.find_by_inn_calls.append(inn)
         return None
 
+    def find_counterparty_by_identity(
+        self,
+        *,
+        legal_type: str,
+        inn: str,
+        kpp: str = "",
+    ) -> dict[str, Any] | None:
+        return self.find_counterparty_by_inn(inn)
+
     def create_counterparty(self, card: dict[str, Any]) -> dict[str, Any]:
         self.created_cards.append(dict(card))
         return {
@@ -71,6 +80,31 @@ class DuplicateOneCClient(FakeOneCClient):
             "НаименованиеПолное": "ООО Уже есть",
             "ИНН": inn,
             "КПП": "770701001",
+        }
+
+
+class IdentityOnlyDuplicateOneCClient(FakeOneCClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.identity_calls: list[tuple[str, str, str]] = []
+
+    def find_counterparty_by_inn(self, inn: str) -> dict[str, Any] | None:
+        raise AssertionError("CRM must not use an INN-only duplicate lookup for a legal entity")
+
+    def find_counterparty_by_identity(
+        self,
+        *,
+        legal_type: str,
+        inn: str,
+        kpp: str = "",
+    ) -> dict[str, Any] | None:
+        self.identity_calls.append((legal_type, inn, kpp))
+        return {
+            "Ref_Key": "33333333-3333-3333-3333-333333333333",
+            "Description": "ООО Уже есть",
+            "НаименованиеПолное": "ООО Уже есть",
+            "ИНН": inn,
+            "КПП": kpp,
         }
 
 
@@ -395,6 +429,19 @@ class ClientOneCSyncTest(unittest.TestCase):
         self.assertIn("уже есть", response.json()["detail"])
         self.assertEqual(self.db.list_crm_clients(), [])
         self.assertEqual(duplicate.created_cards, [])
+
+    def test_remote_duplicate_check_uses_legal_entity_inn_and_kpp(self) -> None:
+        duplicate = IdentityOnlyDuplicateOneCClient()
+        self.service.build_user_client = lambda **_: duplicate  # type: ignore[method-assign]
+
+        response = self.client.post("/api/clients", json=VALID_CLIENT_PAYLOAD)
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual(
+            [("legal_entity", "7707083893", "770701001")],
+            duplicate.identity_calls,
+        )
+        self.assertEqual([], self.db.list_crm_clients())
 
 
 if __name__ == "__main__":

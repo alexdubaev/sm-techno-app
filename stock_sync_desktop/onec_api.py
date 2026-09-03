@@ -965,6 +965,32 @@ class OneCClient:
             filter_expr=f"ИНН eq '{escaped_inn}'",
         )
 
+    def find_counterparty_by_identity(
+        self,
+        *,
+        legal_type: str,
+        inn: str,
+        kpp: str = "",
+    ) -> dict[str, Any] | None:
+        """Find an existing counterparty using the CRM duplicate identity rule."""
+        normalized_inn = inn.strip()
+        normalized_kpp = kpp.strip()
+        if not normalized_inn:
+            return None
+        if legal_type not in {"legal_entity", "individual_entrepreneur"}:
+            raise OneCClientError("Неизвестный вид контрагента для поиска совпадения.")
+        if legal_type == "legal_entity" and not normalized_kpp:
+            return None
+
+        filters = [f"ИНН eq '{self._escape_odata_string(normalized_inn)}'"]
+        if legal_type == "legal_entity":
+            filters.append(f"КПП eq '{self._escape_odata_string(normalized_kpp)}'")
+        return self._fetch_first(
+            "Catalog_Контрагенты",
+            select_fields=["Ref_Key", "Description", "НаименованиеПолное", "ИНН", "КПП"],
+            filter_expr=" and ".join(filters),
+        )
+
     def update_counterparty(self, ref_key: str, payload: dict[str, Any]) -> dict[str, Any]:
         endpoint = f"Catalog_Контрагенты(guid'{ref_key}')?$format=json"
         return self._request("PATCH", endpoint, payload)

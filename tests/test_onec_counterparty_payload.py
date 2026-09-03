@@ -163,6 +163,36 @@ class FakeODataOneCClient(OneCClient):
 
 
 class OneCCounterpartyPayloadTest(unittest.TestCase):
+    def test_find_counterparty_by_identity_uses_kpp_only_for_legal_entity(self) -> None:
+        class IdentityLookupOneCClient(FakeODataOneCClient):
+            def _request(
+                self,
+                method: str,
+                endpoint_or_url: str,
+                payload: dict[str, Any] | None = None,
+            ) -> dict[str, Any]:
+                self.calls.append((method, endpoint_or_url, payload))
+                if method == "GET" and endpoint_or_url.startswith(f"{CP}?"):
+                    return {"value": [{"Ref_Key": "matched-counterparty"}]}
+                return super()._request(method, endpoint_or_url, payload)
+
+        client = IdentityLookupOneCClient()
+
+        legal = client.find_counterparty_by_identity(
+            legal_type="legal_entity", inn="7707083893", kpp="770701001"
+        )
+        legal_endpoint = unquote(client.calls[-1][1])
+        individual = client.find_counterparty_by_identity(
+            legal_type="individual_entrepreneur", inn="340301024150", kpp="ignored"
+        )
+        individual_endpoint = unquote(client.calls[-1][1])
+
+        self.assertEqual("matched-counterparty", legal["Ref_Key"])
+        self.assertIn("ИНН eq '7707083893' and КПП eq '770701001'", legal_endpoint)
+        self.assertEqual("matched-counterparty", individual["Ref_Key"])
+        self.assertIn("ИНН eq '340301024150'", individual_endpoint)
+        self.assertNotIn("КПП eq", individual_endpoint)
+
     def test_list_counterparties_uses_document_name_from_full_name_field(self) -> None:
         class DocumentNameOneCClient(FakeODataOneCClient):
             def _request(
