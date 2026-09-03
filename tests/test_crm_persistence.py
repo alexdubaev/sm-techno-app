@@ -226,6 +226,19 @@ class CrmPersistenceTest(unittest.TestCase):
                 before_client_id=None, after_client_id=None, expected_order_version=0,
             )
 
+    def test_admin_can_remove_only_linked_clients_personal_assignment(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
+        with self.assertRaisesRegex(ValueError, "связан"):
+            self.repo.remove_assignment_for_admin(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"])
+
+        with self.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (101, 'onec-101', 'Связанная компания', '2026-09-04T00:00:00')")
+            conn.execute("UPDATE crm_clients SET linked_counterparty_id = 101, sync_status = 'synced' WHERE id = ?", (self.client["id"],))
+        self.repo.remove_assignment_for_admin(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"])
+
+        self.assertIsNone(self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"]))
+
     def test_old_client_schema_migrates_idempotently_without_losing_document_foreign_key(self) -> None:
         path = Path(self.temp_dir.name) / "legacy.db"
         with sqlite3.connect(path) as conn:

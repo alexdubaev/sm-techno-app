@@ -486,6 +486,18 @@ class CrmRepository:
             conn.execute("UPDATE crm_reminders SET status = 'cancelled', cancelled_at = ?, updated_at = ? WHERE owner_user_id = ? AND crm_client_id = ? AND status = 'active'", (now, now, owner_id, client_id))
             self._audit(conn, actor_id, owner_id, client_id, "archive_assignment", reason)
 
+    def remove_assignment_for_admin(self, *, actor_id: int, owner_id: int, client_id: int) -> None:
+        """Leave a shared 1C company in the primary list while retaining personal history."""
+        with self.db.transaction() as conn:
+            self._require_admin(conn, actor_id)
+            client = self._require_row(conn, "SELECT linked_counterparty_id FROM crm_clients WHERE id = ?", (client_id,), "Клиент не найден.")
+            if client["linked_counterparty_id"] is None:
+                raise ValueError("Только связанный с 1С клиент можно оставить в основной вкладке.")
+            assignment = self._require_row(conn, "SELECT id FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NULL", (owner_id, client_id), "Активное назначение не найдено.")
+            conn.execute("DELETE FROM crm_row_preferences WHERE owner_user_id = ? AND crm_client_id = ?", (owner_id, client_id))
+            conn.execute("DELETE FROM crm_assignments WHERE id = ?", (assignment["id"],))
+            self._audit(conn, actor_id, owner_id, client_id, "remove_assignment", "")
+
     def restore_assignment(self, *, actor_id: int, owner_id: int, client_id: int) -> None:
         now = utc_now()
         with self.db.transaction() as conn:

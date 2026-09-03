@@ -150,6 +150,21 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(1, response.json()["orderVersion"])
         self.assertEqual([first["client"]["id"], third["client"]["id"], second["client"]["id"]], response.json()["clientIds"])
 
+    def test_admin_can_leave_linked_client_only_in_primary_list(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Связанная компания"}).json()
+        client_id = created["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (501, 'onec-501', 'Связанная компания', '2026-09-04T00:00:00')")
+            conn.execute("UPDATE crm_clients SET linked_counterparty_id = 501, sync_status = 'synced' WHERE id = ?", (client_id,))
+
+        self.as_user(self.admin_id, "admin")
+        response = self.client.delete(f"/api/crm/clients/{client_id}/assignment?ownerId={self.owner_id}")
+
+        self.assertEqual(200, response.status_code)
+        self.as_user(self.owner_id)
+        detail = self.client.get(f"/api/crm/clients/{client_id}")
+        self.assertIsNone(detail.json()["client"]["assignment"])
+
 
 if __name__ == "__main__":
     unittest.main()
