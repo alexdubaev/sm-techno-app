@@ -973,11 +973,13 @@ class WebDatabase(Database):
             ).fetchone()
             if not job:
                 return None
-            conn.execute(
+            claimed_update = conn.execute(
                 """UPDATE crm_sync_jobs SET status = 'running', claimed_at = ?,
-                   attempt_count = attempt_count + 1, updated_at = ? WHERE id = ?""",
+                   attempt_count = attempt_count + 1, updated_at = ? WHERE id = ? AND status = 'pending'""",
                 (now, now, job["id"]),
             )
+            if claimed_update.rowcount != 1:
+                return None
             claimed = conn.execute("SELECT * FROM crm_sync_jobs WHERE id = ?", (job["id"],)).fetchone()
         return dict(claimed) if claimed else None
 
@@ -991,11 +993,17 @@ class WebDatabase(Database):
                 "UPDATE crm_sync_jobs SET status = 'blocked_capability', updated_at = ? WHERE id = ?",
                 (now, job_id),
             )
-            conn.execute(
-                """UPDATE crm_clients SET sync_status = 'blocked_capability', sync_error = ?,
-                   updated_at = ? WHERE id = ?""",
-                (message, now, job["crm_client_id"]),
-            )
+            newer_pending = conn.execute(
+                """SELECT id FROM crm_sync_jobs
+                   WHERE crm_client_id = ? AND id != ? AND status = 'pending' LIMIT 1""",
+                (job["crm_client_id"], job_id),
+            ).fetchone()
+            if not newer_pending:
+                conn.execute(
+                    """UPDATE crm_clients SET sync_status = 'blocked_capability', sync_error = ?,
+                       updated_at = ? WHERE id = ?""",
+                    (message, now, job["crm_client_id"]),
+                )
 
     def get_counterparty_by_onec_key(self, onec_key: str) -> dict[str, Any] | None:
         normalized_key = onec_key.strip()

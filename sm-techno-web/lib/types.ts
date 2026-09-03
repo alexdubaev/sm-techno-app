@@ -188,6 +188,7 @@ export type CrmWorkspaceClient = {
   createdAt: string;
   updatedAt: string;
   assignment: CrmAssignment | null;
+  rowPreference?: CrmRowPreference | null;
 };
 
 export type CrmRowPreference = {
@@ -196,6 +197,33 @@ export type CrmRowPreference = {
   colorKey: string | null;
   position: number;
   orderVersion: number;
+};
+
+export type CrmContact = {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  isPrimary: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CrmEvent = {
+  id: number;
+  kind: string;
+  body: string;
+  authorUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CrmReminder = {
+  id: number;
+  clientId: number;
+  dueAt: string;
+  status: string;
+  createdAt: string;
 };
 
 export type Contract = {

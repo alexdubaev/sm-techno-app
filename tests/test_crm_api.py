@@ -250,7 +250,7 @@ class CrmApiTest(unittest.TestCase):
         )
         second = self.client.patch(
             f"/api/crm/clients/{client_id}",
-            json={"documentName": "Очередь лид 2", "expectedVersion": 2},
+            json={"email": "latest@example.test", "expectedVersion": 2},
         )
         with self.service.db.connect() as conn:
             jobs = conn.execute(
@@ -266,7 +266,8 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(self.owner_id, jobs[0]["author_user_id"])
         self.assertEqual("update", jobs[0]["operation"])
         self.assertEqual("pending", jobs[0]["status"])
-        self.assertEqual("Очередь лид 2", json.loads(jobs[0]["payload"])["document_name"])
+        self.assertEqual("Очередь лид 1", json.loads(jobs[0]["payload"])["document_name"])
+        self.assertEqual("latest@example.test", json.loads(jobs[0]["payload"])["email"])
         self.assertEqual("pending", card["sync_status"])
 
     def test_due_sync_worker_blocks_automatic_update_without_proven_conditional_write(self) -> None:
@@ -298,6 +299,23 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("blocked_capability", card["sync_status"])
         self.assertIn("условной записи", card["sync_error"])
 
+    def test_new_edit_stays_pending_when_an_older_claimed_job_finishes(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Гонка очереди"}).json()
+        client_id = created["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (803, 'onec-803', 'Гонка очереди', '2026-09-04T00:00:00')")
+            conn.execute("UPDATE crm_clients SET linked_counterparty_id = 803, sync_status = 'synced' WHERE id = ?", (client_id,))
+        self.client.patch(f"/api/crm/clients/{client_id}", json={"email": "first@example.test", "expectedVersion": 1})
+        claimed = self.service.db.claim_next_crm_sync_job()
+        self.client.patch(f"/api/crm/clients/{client_id}", json={"phone": "70000000000", "expectedVersion": 2})
+        self.service.db.block_crm_sync_job(int(claimed["id"]), message="Старая попытка")
+        with self.service.db.connect() as conn:
+            jobs = conn.execute("SELECT status FROM crm_sync_jobs WHERE crm_client_id = ? ORDER BY id", (client_id,)).fetchall()
+            card = conn.execute("SELECT sync_status FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+
+        self.assertEqual(["blocked_capability", "pending"], [job["status"] for job in jobs])
+        self.assertEqual("pending", card["sync_status"])
+
     def test_export_returns_only_the_current_owner_crm_workbook(self) -> None:
         self.client.post("/api/crm/clients", json={"documentName": "Экспорт владельца", "inn": "001234567890"})
         self.as_user(self.other_id)
@@ -312,6 +330,14 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(["Клиенты", "Контакты"], workbook.sheetnames)
         self.assertEqual("Экспорт владельца", workbook["Клиенты"]["A2"].value)
         self.assertEqual(2, workbook["Клиенты"].max_row)
+
+    def test_local_crm_card_can_only_be_sent_to_onec_explicitly_after_validation(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Лид без ИНН"}).json()
+
+        response = self.client.post(f"/api/crm/clients/{created['client']['id']}/send-to-onec")
+
+        self.assertEqual(400, response.status_code)
+        self.assertIn("ИНН", response.json()["detail"])
 
     def test_local_lead_update_without_identity_does_not_enqueue_onec_sync(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Локальный без ИНН"}).json()

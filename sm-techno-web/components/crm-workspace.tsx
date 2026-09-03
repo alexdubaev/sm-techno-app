@@ -3,13 +3,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import {
+  downloadCrmExportFile,
+  createCrmContact,
   createCrmClient,
+  createCrmEvent,
+  createCrmReminder,
   fetchCrmClients,
+  fetchCrmContacts,
+  fetchCrmEvents,
+  fetchCrmReminders,
   fetchCrmTabs,
   moveCrmClient,
   saveCrmRowPreference,
 } from "@/lib/api";
-import type { CrmTab, CrmWorkspaceClient } from "@/lib/types";
+import type { CrmContact, CrmEvent, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/types";
 
 type ActiveTab = "primary" | number;
 type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "sync_error";
@@ -47,10 +54,11 @@ export function CrmWorkspace() {
   const [clients, setClients] = useState<CrmWorkspaceClient[]>([]);
   const [search, setSearch] = useState("");
   const [syncFilter, setSyncFilter] = useState<SyncFilter>("all");
-  const [colors, setColors] = useState<Record<number, string | null>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<CrmWorkspaceClient | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -163,14 +171,34 @@ export function CrmWorkspace() {
 
   const setRowColor = async (client: CrmWorkspaceClient, colorKey: string | null) => {
     if (activeTab === "primary") return;
-    const previous = colors[client.id] ?? null;
-    setColors((current) => ({ ...current, [client.id]: colorKey }));
+    const previous = client.rowPreference ?? null;
+    setClients((current) => current.map((item) => item.id === client.id ? {
+      ...item,
+      rowPreference: { tabId: activeTab, clientId: client.id, colorKey, position: previous?.position ?? 0, orderVersion: previous?.orderVersion ?? 0 },
+    } : item));
     try {
       await saveCrmRowPreference(client.id, { tabId: activeTab, colorKey, position: 0 });
       setNotice("Оформление строки сохранено.");
     } catch (cause) {
-      setColors((current) => ({ ...current, [client.id]: previous }));
+      setClients((current) => current.map((item) => item.id === client.id ? { ...item, rowPreference: previous } : item));
       setError(errorMessage(cause, "Не удалось сохранить цвет. Изменение отменено."));
+    }
+  };
+
+  const exportCrm = async (scope: "all" | "tab") => {
+    if (scope === "tab" && activeTab === "primary") {
+      setError("Для вкладки «Клиенты 1С» доступна только выгрузка всех клиентов.");
+      return;
+    }
+    setIsExporting(true);
+    setError(null);
+    try {
+      await downloadCrmExportFile({ scope, tabId: scope === "tab" ? activeTab : undefined });
+      setNotice(scope === "tab" ? "Выгрузка текущей вкладки началась." : "Выгрузка всех клиентов началась.");
+    } catch (cause) {
+      setError(errorMessage(cause, "Не удалось выгрузить CRM в Excel."));
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -183,6 +211,13 @@ export function CrmWorkspace() {
           <p className="mt-1 text-[12px] text-[var(--text-secondary)]">Клиенты, личные вкладки и быстрые действия менеджера.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <details className="relative">
+            <summary className="flex h-10 cursor-pointer list-none items-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">{isExporting ? "Выгружаем…" : "Выгрузить Excel"}</summary>
+            <div className="absolute right-0 z-20 mt-1 grid w-52 gap-1 rounded-[12px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]">
+              <button type="button" disabled={isExporting} onClick={() => void exportCrm("all")} className="rounded-[8px] px-2 py-2 text-left text-[11px] font-semibold hover:bg-[#F6F8FB] disabled:opacity-60">Все клиенты</button>
+              <button type="button" disabled={isExporting || activeTab === "primary"} onClick={() => void exportCrm("tab")} className="rounded-[8px] px-2 py-2 text-left text-[11px] font-semibold hover:bg-[#F6F8FB] disabled:opacity-60">Текущая вкладка</button>
+            </div>
+          </details>
           <button type="button" onClick={() => void loadWorkspace(activeTab, { silent: true })} disabled={isRefreshing} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:opacity-60">
             {isRefreshing ? "Обновляем…" : "Обновить"}
           </button>
@@ -220,12 +255,13 @@ export function CrmWorkspace() {
             </div>
             {error ? <Message tone="error">{error}</Message> : null}
             {notice ? <Message tone="success">{notice}</Message> : null}
-            {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} colors={colors} tabs={tabs} onColor={setRowColor} onMove={moveClient} onOpenAssignment={chooseTab} />}
+            {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} onColor={setRowColor} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
           </div>
         </div>
       </div>
 
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
+      {selectedClient ? <ClientDetailDialog client={selectedClient} onClose={() => setSelectedClient(null)} /> : null}
     </section>
   );
 }
@@ -234,11 +270,11 @@ function TabButton({ active, label, onClick }: { active: boolean; label: string;
   return <button type="button" onClick={onClick} className={`h-10 shrink-0 rounded-[11px] px-3 text-left text-[12px] font-semibold transition xl:w-full ${active ? "bg-[var(--brand-dark)] text-white shadow-[0_6px_14px_rgba(7,22,46,0.16)]" : "text-[var(--text-primary)] hover:bg-[#F6F8FB]"}`}>{label}</button>;
 }
 
-function ClientList({ activeTab, clients, colors, tabs, onColor, onMove, onOpenAssignment }: { activeTab: ActiveTab; clients: CrmWorkspaceClient[]; colors: Record<number, string | null>; tabs: CrmTab[]; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void }) {
+function ClientList({ activeTab, clients, tabs, onColor, onMove, onOpenAssignment, onOpenClient }: { activeTab: ActiveTab; clients: CrmWorkspaceClient[]; tabs: CrmTab[]; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void }) {
   if (!clients.length) return <div className="py-12 text-center"><p className="text-[14px] font-semibold">Клиентов пока нет</p><p className="mt-1 text-[12px] text-[var(--text-secondary)]">Добавьте локального клиента или выберите компанию из «Клиенты 1С».</p></div>;
   return <>
-    <div className="mt-4 hidden overflow-x-auto lg:block"><table className="w-full min-w-[930px] border-separate border-spacing-0 text-left"><thead><tr className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-secondary)]"><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Компания</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Контакты</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Город</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Синхронизация</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Действия</th></tr></thead><tbody>{clients.map((client) => <ClientTableRow key={client.id} activeTab={activeTab} client={client} color={colors[client.id] ?? null} tabs={tabs} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} />)}</tbody></table></div>
-    <div className="mt-4 grid gap-2 lg:hidden">{clients.map((client) => <ClientCard key={client.id} activeTab={activeTab} client={client} color={colors[client.id] ?? null} tabs={tabs} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} />)}</div>
+    <div className="mt-4 hidden overflow-x-auto lg:block"><table className="w-full min-w-[930px] border-separate border-spacing-0 text-left"><thead><tr className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-secondary)]"><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Компания</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Контакты</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Город</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Синхронизация</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Действия</th></tr></thead><tbody>{clients.map((client) => <ClientTableRow key={client.id} activeTab={activeTab} client={client} color={client.rowPreference?.colorKey ?? null} tabs={tabs} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} />)}</tbody></table></div>
+    <div className="mt-4 grid gap-2 lg:hidden">{clients.map((client) => <ClientCard key={client.id} activeTab={activeTab} client={client} color={client.rowPreference?.colorKey ?? null} tabs={tabs} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} />)}</div>
   </>;
 }
 
@@ -246,14 +282,99 @@ function ClientTableRow(props: RowProps) { const { client, color } = props; retu
 
 function ClientCard(props: RowProps) { const { client, color } = props; return <article style={color ? { backgroundColor: colorByKey.get(color) } : undefined} className="rounded-[14px] border border-[var(--border-color)] px-3 py-3"><div className="flex items-start justify-between gap-3"><Company client={client} onOpenAssignment={props.onOpenAssignment} /><Status status={client.syncStatus} /></div><div className="mt-3 grid gap-2 text-[11px] text-[var(--text-secondary)]"><Contact client={client} /><span>{client.city || "Город не указан"}</span></div><div className="mt-3"><Actions {...props} /></div></article>; }
 
-type RowProps = { activeTab: ActiveTab; client: CrmWorkspaceClient; color: string | null; tabs: CrmTab[]; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void };
+type RowProps = { activeTab: ActiveTab; client: CrmWorkspaceClient; color: string | null; tabs: CrmTab[]; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void };
 
 function Company({ client, onOpenAssignment }: { client: CrmWorkspaceClient; onOpenAssignment: (tab: ActiveTab) => void }) { return <div><div className="font-semibold">{client.documentName || client.fullName || client.name}</div><div className="mt-1 flex flex-wrap items-center gap-1.5"><span className="text-[10px] text-[var(--text-secondary)]">ИНН {client.inn || "не указан"}</span>{client.linkedCounterpartyId ? <button type="button" onClick={() => onOpenAssignment(client.assignment?.tabId ?? "primary")} className="rounded-full border border-[var(--border-color)] bg-white/75 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand-dark)] hover:bg-white">{client.assignment?.tabName || "Без вкладки"}</button> : null}</div></div>; }
 function Contact({ client }: { client: CrmWorkspaceClient }) { return <div className="space-y-0.5"><div>{client.phone || "Телефон не указан"}</div><div className="text-[11px] text-[var(--text-secondary)]">{client.email || "Почта не указана"}</div></div>; }
 function Status({ status }: { status: CrmWorkspaceClient["syncStatus"] }) { const labels = { synced: "1С", local: "Локальный", pending: "Ожидает отправки", blocked_capability: "Отправка заблокирована", sync_error: "Ошибка", archived: "В архиве" }; const tone = status === "synced" ? "bg-[#DCFCE7] text-[#166534]" : status === "pending" ? "bg-[#FEF3C7] text-[#92400E]" : status === "sync_error" || status === "blocked_capability" ? "bg-[#FEE2E2] text-[#B91C1C]" : "bg-[#F1F5F9] text-[#475569]"; return <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${tone}`}>{labels[status]}</span>; }
-function Actions({ activeTab, client, color, tabs, onColor, onMove }: RowProps) { const canColor = activeTab !== "primary"; return <div className="flex flex-wrap items-center gap-1.5"><select aria-label={`Переместить ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-8 max-w-[136px] rounded-[8px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">Переместить…</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select>{canColor ? <details className="relative"><summary className="flex h-8 cursor-pointer list-none items-center rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет строки</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details> : null}</div>; }
+function Actions({ activeTab, client, color, tabs, onColor, onMove, onOpenClient }: RowProps) { const canColor = activeTab !== "primary"; return <div className="flex flex-wrap items-center gap-1.5"><button type="button" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold hover:bg-[#F6F8FB]">Открыть</button><select aria-label={`Переместить ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-8 max-w-[136px] rounded-[8px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">Переместить…</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select>{canColor ? <details className="relative"><summary className="flex h-8 cursor-pointer list-none items-center rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет строки</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details> : null}</div>; }
 function LoadingRows() { return <div className="mt-4 space-y-2" aria-label="Загрузка клиентов">{[1, 2, 3, 4].map((row) => <div key={row} className="h-16 animate-pulse rounded-[12px] bg-[#F3F6FA]" />)}</div>; }
 function Message({ children, tone }: { children: string; tone: "error" | "success" }) { return <div className={`mt-3 rounded-[10px] border px-3 py-2 text-[11px] ${tone === "error" ? "border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBE6CA] bg-[#F0FDF4] text-[#166534]"}`}>{children}</div>; }
 function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: ReturnType<typeof emptyClientForm>; isSaving: boolean; onChange: (form: ReturnType<typeof emptyClientForm>) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { const update = (key: keyof ReturnType<typeof emptyClientForm>, value: string) => onChange({ ...form, [key]: value }); return <div role="dialog" aria-modal="true" aria-labelledby="crm-new-client-title" className="fixed inset-0 z-50 flex items-end bg-[#07162e]/35 p-2 sm:items-center sm:justify-center sm:p-4"><form onSubmit={onSubmit} className="w-full max-w-[620px] rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><h2 id="crm-new-client-title" className="text-[19px] font-bold tracking-[-0.03em]">Новый локальный клиент</h2><p className="mt-1 text-[11px] text-[var(--text-secondary)]">Будет сохранён локально во вкладке «В работе» без отправки в 1С.</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Наименование компании *" value={form.documentName} onChange={(value) => update("documentName", value)} autoFocus /><Field label="Город" value={form.city} onChange={(value) => update("city", value)} /><Field label="Контактное лицо" value={form.contactPerson} onChange={(value) => update("contactPerson", value)} /><Field label="Телефон" value={form.phone} onChange={(value) => update("phone", value)} type="tel" /><Field label="Почта" value={form.email} onChange={(value) => update("email", value)} type="email" /><label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Комментарий</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-10 rounded-[10px] border border-[var(--border-color)] px-3 py-2 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-10 rounded-[11px] px-3 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Отмена</button><button type="submit" disabled={isSaving} className="app-action-button h-10 rounded-[11px] px-4 text-[12px]">{isSaving ? "Сохраняем…" : "Добавить клиента"}</button></div></form></div>; }
+
+function ClientDetailDialog({ client, onClose }: { client: CrmWorkspaceClient; onClose: () => void }) {
+  const [contacts, setContacts] = useState<CrmContact[]>([]);
+  const [events, setEvents] = useState<CrmEvent[]>([]);
+  const [reminders, setReminders] = useState<CrmReminder[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | null>(null);
+  const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", isPrimary: false });
+  const [eventForm, setEventForm] = useState({ kind: "comment", body: "" });
+  const [reminderDueAt, setReminderDueAt] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setIsLoading(true);
+    setError(null);
+    void Promise.all([fetchCrmContacts(client.id), fetchCrmEvents(client.id), fetchCrmReminders()])
+      .then(([nextContacts, nextEvents, nextReminders]) => {
+        if (!active) return;
+        setContacts(nextContacts);
+        setEvents(nextEvents);
+        setReminders(nextReminders.filter((reminder) => reminder.clientId === client.id));
+      })
+      .catch((cause) => {
+        if (active) setError(errorMessage(cause, "Не удалось загрузить карточку клиента."));
+      })
+      .finally(() => { if (active) setIsLoading(false); });
+    return () => { active = false; };
+  }, [client.id]);
+
+  const saveContact = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!contactForm.name.trim()) { setError("Укажите имя контакта."); return; }
+    const temporary: CrmContact = { id: -Date.now(), name: contactForm.name.trim(), phone: contactForm.phone.trim(), email: contactForm.email.trim(), isPrimary: contactForm.isPrimary, createdAt: "", updatedAt: "" };
+    setContacts((current) => [...current, temporary]);
+    setIsSaving("contact"); setError(null);
+    try {
+      const saved = await createCrmContact(client.id, temporary);
+      setContacts((current) => current.map((item) => item.id === temporary.id ? saved : item));
+      setContactForm({ name: "", phone: "", email: "", isPrimary: false });
+    } catch (cause) {
+      setContacts((current) => current.filter((item) => item.id !== temporary.id));
+      setError(errorMessage(cause, "Не удалось добавить контакт. Изменение отменено."));
+    } finally { setIsSaving(null); }
+  };
+
+  const saveEvent = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!eventForm.body.trim()) { setError("Введите описание события."); return; }
+    const temporary: CrmEvent = { id: -Date.now(), kind: eventForm.kind, body: eventForm.body.trim(), authorUserId: null, createdAt: new Date().toISOString(), updatedAt: "" };
+    setEvents((current) => [...current, temporary]);
+    setIsSaving("event"); setError(null);
+    try {
+      const saved = await createCrmEvent(client.id, { kind: temporary.kind, body: temporary.body });
+      setEvents((current) => current.map((item) => item.id === temporary.id ? saved : item));
+      setEventForm({ kind: "comment", body: "" });
+    } catch (cause) {
+      setEvents((current) => current.filter((item) => item.id !== temporary.id));
+      setError(errorMessage(cause, "Не удалось добавить событие. Изменение отменено."));
+    } finally { setIsSaving(null); }
+  };
+
+  const saveReminder = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!reminderDueAt) { setError("Укажите дату и время напоминания."); return; }
+    const temporary: CrmReminder = { id: -Date.now(), clientId: client.id, dueAt: reminderDueAt, status: "active", createdAt: new Date().toISOString() };
+    setReminders((current) => [...current, temporary]);
+    setIsSaving("reminder"); setError(null);
+    try {
+      const saved = await createCrmReminder(client.id, { dueAt: reminderDueAt });
+      setReminders((current) => current.map((item) => item.id === temporary.id ? saved : item));
+      setReminderDueAt("");
+    } catch (cause) {
+      setReminders((current) => current.filter((item) => item.id !== temporary.id));
+      setError(errorMessage(cause, "Не удалось добавить напоминание. Изменение отменено."));
+    } finally { setIsSaving(null); }
+  };
+
+  return <div role="dialog" aria-modal="true" aria-labelledby="crm-client-detail-title" className="fixed inset-0 z-50 overflow-y-auto bg-[#07162e]/35 p-2 sm:p-5"><div className="mx-auto my-3 w-full max-w-5xl rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">Карточка клиента</p><h2 id="crm-client-detail-title" className="mt-1 text-[20px] font-bold tracking-[-0.03em]">{client.documentName || client.fullName || client.name}</h2><p className="mt-1 text-[12px] text-[var(--text-secondary)]">{[client.city, client.inn && `ИНН ${client.inn}`, client.website].filter(Boolean).join(" · ") || "Реквизиты не указаны"}</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div>{error ? <Message tone="error">{error}</Message> : null}{isLoading ? <div className="mt-5"><LoadingRows /></div> : <div className="mt-5 grid gap-4 lg:grid-cols-3"><DetailSection title="Контакты"><form onSubmit={saveContact} className="grid gap-2"><Field label="Имя *" value={contactForm.name} onChange={(name) => setContactForm((form) => ({ ...form, name }))} /><Field label="Телефон" value={contactForm.phone} onChange={(phone) => setContactForm((form) => ({ ...form, phone }))} type="tel" /><Field label="Почта" value={contactForm.email} onChange={(email) => setContactForm((form) => ({ ...form, email }))} type="email" /><label className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><input type="checkbox" checked={contactForm.isPrimary} onChange={(event) => setContactForm((form) => ({ ...form, isPrimary: event.target.checked }))} />Основной контакт</label><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "contact" ? "Сохраняем…" : "Добавить контакт"}</button></form><DetailEmpty items={contacts} empty="Контактов пока нет." render={(contact) => <div key={contact.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{contact.name}{contact.isPrimary ? " · основной" : ""}</div><div className="mt-0.5 text-[var(--text-secondary)]">{[contact.phone, contact.email].filter(Boolean).join(" · ") || "Контакты не указаны"}</div></div>} /></DetailSection><DetailSection title="История"><form onSubmit={saveEvent} className="grid gap-2"><select value={eventForm.kind} onChange={(event) => setEventForm((form) => ({ ...form, kind: event.target.value }))} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px]"><option value="comment">Комментарий</option><option value="call">Звонок</option><option value="meeting">Встреча</option><option value="email">Письмо</option></select><textarea value={eventForm.body} onChange={(event) => setEventForm((form) => ({ ...form, body: event.target.value }))} placeholder="Что произошло?" className="min-h-20 rounded-[9px] border border-[var(--border-color)] px-2 py-2 text-[11px] outline-none focus:border-[var(--brand-yellow)]" /><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "event" ? "Сохраняем…" : "Добавить событие"}</button></form><DetailEmpty items={events} empty="История пока пуста." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{eventLabel(item.kind)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.body}</div></div>} /></DetailSection><DetailSection title="Напоминания"><form onSubmit={saveReminder} className="grid gap-2"><label className="flex flex-col gap-1 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Дата и время</span><input type="datetime-local" value={reminderDueAt} onChange={(event) => setReminderDueAt(event.target.value)} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px] font-normal" /></label><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "reminder" ? "Сохраняем…" : "Добавить напоминание"}</button></form><DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatDate(reminder.dueAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div></div>} /></DetailSection></div>}</div></div>;
+}
+
+function DetailSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="rounded-[14px] border border-[var(--border-color)] p-3"><h3 className="text-[13px] font-bold">{title}</h3><div className="mt-3 grid gap-3">{children}</div></section>; }
+function DetailEmpty<T extends { id: number }>({ items, empty, render }: { items: T[]; empty: string; render: (item: T) => React.ReactNode }) { return <div className="grid gap-2">{items.length ? items.map(render) : <p className="text-[11px] text-[var(--text-secondary)]">{empty}</p>}</div>; }
+function eventLabel(kind: string) { return ({ comment: "Комментарий", call: "Звонок", meeting: "Встреча", email: "Письмо" } as Record<string, string>)[kind] ?? kind; }
+function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value || "Только что" : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }); }
 function Field({ label, value, onChange, type = "text", autoFocus = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; autoFocus?: boolean }) { return <label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>{label}</span><input autoFocus={autoFocus} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label>; }
 function errorMessage(cause: unknown, fallback: string) { return cause instanceof Error && cause.message.trim() ? cause.message : fallback; }

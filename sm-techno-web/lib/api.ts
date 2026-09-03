@@ -7,6 +7,9 @@
   Contract,
   Counterparty,
   CrmAssignment,
+  CrmContact,
+  CrmEvent,
+  CrmReminder,
   CrmClient,
   CrmRowPreference,
   CrmTab,
@@ -742,6 +745,90 @@ export async function fetchCrmClients(query: CrmClientsQuery = {}): Promise<CrmW
     `/api/crm/clients${buildCrmQuery(query)}`,
   );
   return result.items;
+}
+
+export async function downloadCrmExportFile(params: {
+  scope: "all" | "tab";
+  tabId?: number;
+  ownerId?: number;
+}): Promise<void> {
+  await downloadApiFile(
+    `/api/crm/export${buildCrmQuery({ scope: params.scope, tabId: params.tabId, ownerId: params.ownerId })}`,
+    "Не удалось выгрузить CRM в Excel.",
+    "crm_export.xlsx",
+  );
+}
+
+export async function fetchCrmContacts(clientId: number, ownerId?: number): Promise<CrmContact[]> {
+  const result = await requestJson<{ items: CrmContact[] }>(
+    `/api/crm/clients/${clientId}/contacts${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function createCrmContact(
+  clientId: number,
+  payload: { name: string; email: string; phone: string; isPrimary: boolean },
+  ownerId?: number,
+): Promise<CrmContact> {
+  const result = await requestJsonWithInit<{ contact: CrmContact }>(
+    `/api/crm/clients/${clientId}/contacts${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось добавить контакт.",
+  );
+  return result.contact;
+}
+
+export async function fetchCrmEvents(clientId: number, ownerId?: number): Promise<CrmEvent[]> {
+  const result = await requestJson<{ items: CrmEvent[] }>(
+    `/api/crm/clients/${clientId}/events${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function createCrmEvent(
+  clientId: number,
+  payload: { kind: string; body: string },
+  ownerId?: number,
+): Promise<CrmEvent> {
+  const result = await requestJsonWithInit<{ event: CrmEvent }>(
+    `/api/crm/clients/${clientId}/events${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось добавить событие.",
+  );
+  return result.event;
+}
+
+export async function fetchCrmReminders(ownerId?: number): Promise<CrmReminder[]> {
+  const result = await requestJson<{ items: CrmReminder[] }>(
+    `/api/crm/reminders${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function createCrmReminder(
+  clientId: number,
+  payload: { dueAt: string },
+  ownerId?: number,
+): Promise<CrmReminder> {
+  const result = await requestJsonWithInit<{ reminder: CrmReminder }>(
+    `/api/crm/clients/${clientId}/reminders${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось добавить напоминание.",
+  );
+  return result.reminder;
 }
 
 export async function createCrmClient(

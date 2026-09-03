@@ -311,16 +311,21 @@ class CrmRepository:
                 sync_payload["source_version"] = next_version
                 now = utc_now()
                 pending_job = conn.execute(
-                    """SELECT id FROM crm_sync_jobs
-                       WHERE crm_client_id = ? AND status IN ('pending', 'running')
+                    """SELECT id, payload FROM crm_sync_jobs
+                       WHERE crm_client_id = ? AND status = 'pending'
                        ORDER BY id LIMIT 1""",
                     (client_id,),
                 ).fetchone()
                 if pending_job:
+                    try:
+                        pending_payload = json.loads(str(pending_job["payload"] or "{}"))
+                    except json.JSONDecodeError:
+                        pending_payload = {}
+                    pending_payload.update(sync_payload)
                     conn.execute(
                         """UPDATE crm_sync_jobs SET author_user_id = ?, operation = 'update', payload = ?,
                            status = 'pending', available_at = ?, claimed_at = NULL, updated_at = ? WHERE id = ?""",
-                        (actor_id, json.dumps(sync_payload, ensure_ascii=False, sort_keys=True), now, now, pending_job["id"]),
+                        (actor_id, json.dumps(pending_payload, ensure_ascii=False, sort_keys=True), now, now, pending_job["id"]),
                     )
                 else:
                     conn.execute(

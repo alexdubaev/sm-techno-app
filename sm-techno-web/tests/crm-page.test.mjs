@@ -29,3 +29,25 @@ test("CRM surface is reachable from navigation and exposes the core workspace", 
   assert.match(api, /\/api\/crm\/tabs/);
   assert.match(api, /\/api\/crm\/clients/);
 });
+
+test("CRM workspace exposes export and client-detail actions backed by the CRM API", async () => {
+  const [workspace, api, types] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+    readFile(crmTypesUrl, "utf8"),
+  ]);
+
+  assert.match(workspace, /Выгрузить Excel/);
+  assert.match(workspace, /Карточка клиента/);
+  assert.match(workspace, /Контакты/);
+  assert.match(workspace, /История/);
+  assert.match(workspace, /Напоминания/);
+  assert.match(workspace, /rowPreference\?\.colorKey/);
+  assert.match(api, /\/api\/crm\/export/);
+  assert.match(api, /\/contacts/);
+  assert.match(api, /\/events/);
+  assert.match(api, /\/reminders/);
+  assert.match(types, /CrmContact/);
+  assert.match(types, /CrmEvent/);
+  assert.match(types, /CrmReminder/);
+});
