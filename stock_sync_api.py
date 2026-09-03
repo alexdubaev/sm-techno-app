@@ -548,6 +548,16 @@ def _serialize_crm_assignment(row: dict[str, Any], tab: dict[str, Any] | None = 
     return {"id": int(row["id"]), "tabId": int(row["tab_id"]), "tabName": (tab or {}).get("name") or "", "archivedAt": row.get("archived_at")}
 
 
+def _serialize_crm_link_candidate(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "onecKey": row.get("onec_key") or "",
+        "name": row.get("name") or "",
+        "inn": row.get("inn") or "",
+        "kpp": row.get("kpp") or "",
+    }
+
+
 def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         counterparty_id = int(payload.get("counterpartyId"))
@@ -1241,6 +1251,22 @@ def confirm_existing_onec_link(
             "ownerId": resolved_owner_id,
             "client": _serialize_crm_client(card, assignment, tab, version=version),
         }
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/clients/{client_id}/link-candidates")
+def list_existing_onec_link_candidates(
+    client_id: int,
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        candidates = repo.list_link_candidates_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        return {"items": [_serialize_crm_link_candidate(candidate) for candidate in candidates]}
     except Exception as exc:
         _crm_error(exc)
 

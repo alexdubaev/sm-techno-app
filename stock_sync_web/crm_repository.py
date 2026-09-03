@@ -408,6 +408,39 @@ class CrmRepository:
             raise ValueError("Клиент не найден.")
         return card, next_version
 
+    def list_link_candidates_for_actor(
+        self, *, actor_id: int, owner_id: int, client_id: int
+    ) -> list[dict[str, Any]]:
+        """Return imported 1C counterparties that exactly match a local lead's legal identity."""
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            client = self._require_row(
+                conn,
+                """SELECT crm_owner_user_id, linked_counterparty_id, legal_type, inn, kpp
+                   FROM crm_clients WHERE id = ?""",
+                (client_id,),
+                "Клиент не найден.",
+            )
+            if int(client["crm_owner_user_id"] or 0) != int(owner_id):
+                raise ValueError("Локальный клиент не принадлежит выбранной CRM.")
+            if client["linked_counterparty_id"] is not None:
+                return []
+            inn = str(client["inn"] or "").strip()
+            kpp = str(client["kpp"] or "").strip()
+            if not inn:
+                return []
+            query = """SELECT id, onec_key, name, inn, kpp FROM counterparties
+                       WHERE TRIM(COALESCE(onec_key, '')) <> ''
+                         AND TRIM(COALESCE(inn, '')) = ?"""
+            params: list[Any] = [inn]
+            if str(client["legal_type"] or "") == "legal_entity":
+                if not kpp:
+                    return []
+                query += " AND TRIM(COALESCE(kpp, '')) = ?"
+                params.append(kpp)
+            query += " ORDER BY name COLLATE NOCASE, id"
+            return [dict(row) for row in conn.execute(query, params).fetchall()]
+
     def create_tab_for_actor(self, *, actor_id: int, owner_id: int, name: str) -> dict[str, Any]:
         self._require_owner_access(actor_id, owner_id)
         return self._create_tab(owner_id, name)

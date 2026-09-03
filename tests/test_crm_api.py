@@ -383,6 +383,30 @@ class CrmApiTest(unittest.TestCase):
         audit = self.client.get(f"/api/crm/clients/{client_id}/audit")
         self.assertEqual("link_existing_counterparty", audit.json()["items"][-1]["action"])
 
+    def test_link_candidates_show_only_same_legal_identity(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Лид для проверки", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, inn, kpp, updated_at) "
+                "VALUES (902, 'onec-902', 'Точное совпадение', '7707083893', '770701001', '2026-09-04T00:00:00')"
+            )
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, inn, kpp, updated_at) "
+                "VALUES (903, 'onec-903', 'Другая КПП', '7707083893', '770799999', '2026-09-04T00:00:00')"
+            )
+
+        response = self.client.get(f"/api/crm/clients/{client_id}/link-candidates")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(
+            [{"id": 902, "onecKey": "onec-902", "name": "Точное совпадение", "inn": "7707083893", "kpp": "770701001"}],
+            response.json()["items"],
+        )
+
     def test_link_confirmation_keeps_owner_context_server_guarded(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
