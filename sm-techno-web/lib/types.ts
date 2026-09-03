@@ -183,7 +183,7 @@ export type CrmWorkspaceClient = {
   phone: string;
   notes: string;
   linkedCounterpartyId: number | null;
-  syncStatus: "local" | "synced" | "sync_error";
+  syncStatus: "local" | "synced" | "sync_error" | "pending" | "blocked_capability" | "archived";
   syncError: string;
   createdAt: string;
   updatedAt: string;
