@@ -309,6 +309,13 @@ class WebStockSyncService:
                 return "blocked"
             created = onec_client.create_counterparty(card)
         except OneCClientError as exc:
+            if self._is_onec_access_denied(exc):
+                self.db.block_crm_sync_job(
+                    job_id,
+                    message=f"Доступ 1С автора заявки отклонён: {exc}",
+                    status="blocked_credentials",
+                )
+                return "blocked"
             recovered = self._find_counterparty_by_identity(onec_client, card)
             if recovered:
                 self._complete_crm_create_job(job_id, client_id, recovered, card)
@@ -863,6 +870,11 @@ class WebStockSyncService:
             inn=str(card.get("inn") or ""),
             kpp=str(card.get("kpp") or ""),
         )
+
+    @staticmethod
+    def _is_onec_access_denied(exc: OneCClientError) -> bool:
+        message = str(exc).casefold()
+        return "http 401" in message or "http 403" in message
 
     def _send_crm_client_to_onec(
         self,

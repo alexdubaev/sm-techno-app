@@ -445,6 +445,32 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("pending", card["sync_status"])
         self.assertIsNone(card["sync_error"])
 
+    def test_create_worker_blocks_revoked_submitter_onec_access(self) -> None:
+        class RevokedAccessOneC:
+            def find_counterparty_by_identity(self, **_: object) -> dict[str, object] | None:
+                raise OneCClientError("1С вернула HTTP 401: доступ отозван")
+
+            def create_counterparty(self, _: dict[str, object]) -> dict[str, object]:
+                raise AssertionError("Создание без действующего доступа 1С запрещено")
+
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Лид с отозванным доступом", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        self.service.build_user_client = lambda **_: RevokedAccessOneC()  # type: ignore[method-assign]
+
+        result = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute("SELECT status FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchone()
+            card = conn.execute("SELECT sync_status, sync_error FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+
+        self.assertEqual({"processed": 1, "blocked": 1}, result)
+        self.assertEqual("blocked_credentials", job["status"])
+        self.assertEqual("blocked_credentials", card["sync_status"])
+        self.assertIn("доступ", card["sync_error"].casefold())
+
     def test_create_worker_recovers_an_unknown_post_without_a_second_create(self) -> None:
         class UnknownPostOneC:
             def __init__(self) -> None:
