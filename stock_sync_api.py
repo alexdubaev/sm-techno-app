@@ -1093,6 +1093,29 @@ def delete_crm_tab(
         _crm_error(exc)
 
 
+@app.post("/api/crm/tabs/{tab_id}/reorder")
+def reorder_crm_tab(
+    tab_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        result = repo.reorder_client_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            tab_id=tab_id,
+            client_id=int(payload.get("clientId")),
+            before_client_id=int(payload["beforeClientId"]) if payload.get("beforeClientId") is not None else None,
+            after_client_id=int(payload["afterClientId"]) if payload.get("afterClientId") is not None else None,
+            expected_order_version=int(payload.get("expectedOrderVersion")),
+        )
+        return {"clientIds": result["client_ids"], "orderVersion": result["order_version"]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
 @app.get("/api/crm/clients")
 def list_crm_clients(
     owner_id: int | None = Query(None, alias="ownerId"),

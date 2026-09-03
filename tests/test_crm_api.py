@@ -130,6 +130,26 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("blue", response.json()["preference"]["colorKey"])
         self.assertEqual(5, response.json()["preference"]["position"])
 
+    def test_owner_can_reorder_between_neighbors_with_version(self) -> None:
+        first = self.client.post("/api/crm/clients", json={"documentName": "Первый"}).json()
+        second = self.client.post("/api/crm/clients", json={"documentName": "Второй"}).json()
+        third = self.client.post("/api/crm/clients", json={"documentName": "Третий"}).json()
+        tab_id = first["assignment"]["tabId"]
+
+        response = self.client.post(
+            f"/api/crm/tabs/{tab_id}/reorder",
+            json={
+                "clientId": third["client"]["id"],
+                "beforeClientId": second["client"]["id"],
+                "afterClientId": first["client"]["id"],
+                "expectedOrderVersion": 0,
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(1, response.json()["orderVersion"])
+        self.assertEqual([first["client"]["id"], third["client"]["id"], second["client"]["id"]], response.json()["clientIds"])
+
 
 if __name__ == "__main__":
     unittest.main()

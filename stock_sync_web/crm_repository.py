@@ -414,6 +414,69 @@ class CrmRepository:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self._get_row_preference(owner_id, tab_id, client_id)
 
+    def reorder_client_for_actor(
+        self,
+        *,
+        actor_id: int,
+        owner_id: int,
+        tab_id: int,
+        client_id: int,
+        before_client_id: int | None,
+        after_client_id: int | None,
+        expected_order_version: int,
+    ) -> dict[str, Any]:
+        """Atomically place a row between two validated neighbors in one personal tab."""
+        with self.db.transaction() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            self._require_row(conn, "SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена.")
+            rows = conn.execute(
+                """SELECT a.crm_client_id, COALESCE(p.color_key, NULL) AS color_key, COALESCE(p.position, 0) AS position,
+                          COALESCE(p.order_version, 0) AS order_version
+                   FROM crm_assignments a
+                   LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id
+                   WHERE a.owner_user_id = ? AND a.tab_id = ? AND a.archived_at IS NULL
+                   ORDER BY COALESCE(p.position, 0), a.crm_client_id""",
+                (owner_id, tab_id),
+            ).fetchall()
+            by_id = {int(row["crm_client_id"]): row for row in rows}
+            if client_id not in by_id:
+                raise ValueError("Клиент не назначен в указанную вкладку.")
+            version = max((int(row["order_version"]) for row in rows), default=0)
+            if int(expected_order_version) != version:
+                raise ValueError("Конфликт версии порядка. Загрузите актуальный список.")
+            if before_client_id == client_id or after_client_id == client_id or before_client_id == after_client_id:
+                raise ValueError("Некорректные соседи для перемещения.")
+            ordered_ids = [int(row["crm_client_id"]) for row in rows if int(row["crm_client_id"]) != client_id]
+            for neighbor_id in (before_client_id, after_client_id):
+                if neighbor_id is not None and neighbor_id not in ordered_ids:
+                    raise ValueError("Соседняя строка не принадлежит указанной вкладке.")
+            if before_client_id is not None and after_client_id is not None:
+                before_index = ordered_ids.index(before_client_id)
+                after_index = ordered_ids.index(after_client_id)
+                if after_index + 1 != before_index:
+                    raise ValueError("Соседние строки больше не образуют место вставки.")
+                insert_at = before_index
+            elif before_client_id is not None:
+                insert_at = ordered_ids.index(before_client_id)
+            elif after_client_id is not None:
+                insert_at = ordered_ids.index(after_client_id) + 1
+            else:
+                insert_at = len(ordered_ids)
+            ordered_ids.insert(insert_at, client_id)
+            next_version = version + 1
+            now = utc_now()
+            for position, ordered_client_id in enumerate(ordered_ids, start=1):
+                color_key = by_id[ordered_client_id]["color_key"]
+                conn.execute(
+                    """INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, order_version, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO UPDATE SET
+                         color_key = excluded.color_key, position = excluded.position,
+                         order_version = excluded.order_version, updated_at = excluded.updated_at""",
+                    (owner_id, tab_id, ordered_client_id, color_key, position * 1000, next_version, now),
+                )
+        return {"client_ids": ordered_ids, "order_version": next_version}
+
     def archive_assignment(self, *, actor_id: int, owner_id: int, client_id: int, reason: str) -> None:
         now = utc_now()
         with self.db.transaction() as conn:

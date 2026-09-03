@@ -206,6 +206,26 @@ class CrmPersistenceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "назначен"):
             self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=another_tab["id"], client_id=self.client["id"], color_key="blue", position=1)
 
+    def test_reorder_uses_neighbor_ids_and_rejects_stale_version(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        second = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Второй"})
+        third = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Третий"})
+        for client in (self.client, second, third):
+            self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=client["id"], tab_id=work["id"])
+
+        result = self.repo.reorder_client_for_actor(
+            actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=third["id"],
+            before_client_id=second["id"], after_client_id=self.client["id"], expected_order_version=0,
+        )
+
+        self.assertEqual(1, result["order_version"])
+        self.assertEqual([self.client["id"], third["id"], second["id"]], result["client_ids"])
+        with self.assertRaisesRegex(ValueError, "Конфликт"):
+            self.repo.reorder_client_for_actor(
+                actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=second["id"],
+                before_client_id=None, after_client_id=None, expected_order_version=0,
+            )
+
     def test_old_client_schema_migrates_idempotently_without_losing_document_foreign_key(self) -> None:
         path = Path(self.temp_dir.name) / "legacy.db"
         with sqlite3.connect(path) as conn:
