@@ -19,30 +19,19 @@ export async function bootstrapAuthSession({
   saveAuthSession,
   setSession,
 }: BootstrapAuthSessionOptions): Promise<void> {
-  if (!isActive()) {
-    return;
-  }
+  if (!isActive()) return;
 
   setSession(savedSession);
 
   try {
     const user = await fetchCurrentUser();
-    if (!isActive()) {
-      return;
-    }
+    if (!isActive()) return;
 
-    const nextSession: StoredAuthSession = {
-      ...savedSession,
-      user,
-    };
+    const nextSession: StoredAuthSession = { ...savedSession, user };
     saveAuthSession(nextSession);
     setSession(nextSession);
   } catch (error: unknown) {
-    if (
-      isActive()
-      && error instanceof ApiRequestError
-      && (error.status === 0 || error.status === 401)
-    ) {
+    if (isActive() && error instanceof ApiRequestError && (error.status === 0 || error.status === 401)) {
       resetSession("Не удалось проверить сохраненную сессию. Войдите заново.");
     }
   }

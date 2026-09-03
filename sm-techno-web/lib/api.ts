@@ -19,7 +19,6 @@
 } from "@/lib/types";
 import { loadAuthTokenFromStorage } from "@/lib/storage";
 
-const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
 
 export class ApiRequestError extends Error {
   readonly status: number;
@@ -105,18 +104,10 @@ type GetCacheEntry = {
 // перезакачивают одни и те же списки. Любая мутация и ответ 401 сбрасывают
 // кэш целиком. Существует только в браузере, на сервере кэширование выключено.
 const getCache = new Map<string, GetCacheEntry>();
-type InflightGetRequest = {
-  request: Promise<unknown>;
-  controller: AbortController;
-};
-const inflightGetRequests = new Map<string, InflightGetRequest>();
+const inflightGetRequests = new Map<string, Promise<unknown>>();
 
 export function invalidateApiCache() {
   getCache.clear();
-  for (const { controller } of inflightGetRequests.values()) {
-    controller.abort();
-  }
-  inflightGetRequests.clear();
 }
 
 function canCacheGet(path: string) {
@@ -137,22 +128,9 @@ function readGetCache<T>(url: string): T | undefined {
   return entry.data as T;
 }
 
-function getApiBaseUrl() {
-  if (configuredApiBaseUrl && configuredApiBaseUrl.length > 0) {
-    return configuredApiBaseUrl;
-  }
-
-  if (typeof window !== "undefined") {
-    const protocol = window.location.protocol || "http:";
-    const hostname = window.location.hostname || "127.0.0.1";
-    return `${protocol}//${hostname}:8000`;
-  }
-
-  return "http://127.0.0.1:8000";
-}
-
-function createHeaders(existing?: HeadersInit, token = loadAuthTokenFromStorage()) {
+function createHeaders(existing?: HeadersInit) {
   const headers = new Headers(existing);
+  const token = loadAuthTokenFromStorage();
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
   }
@@ -294,7 +272,8 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
     }
 
     if (response.status === 401 && typeof window !== "undefined") {
-      invalidateApiCache();
+      getCache.clear();
+      inflightGetRequests.clear();
       window.dispatchEvent(new CustomEvent("sm-techno-auth-expired"));
     }
 
@@ -308,37 +287,30 @@ async function requestJson<T>(path: string): Promise<T> {
   const url = buildApiUrl(path);
 
   if (canCacheGet(path)) {
-    const token = loadAuthTokenFromStorage();
-    const cacheKey = `${token}:${url}`;
-    const cached = readGetCache<T>(cacheKey);
+    const cached = readGetCache<T>(url);
     if (cached !== undefined) {
       return cached;
     }
 
-    const inflight = inflightGetRequests.get(cacheKey)?.request as Promise<T> | undefined;
+    const inflight = inflightGetRequests.get(url) as Promise<T> | undefined;
     if (inflight) {
       return inflight;
     }
 
-    const controller = new AbortController();
     const request = (async () => {
       const response = await fetchWithRetry(
         url,
-        { cache: "no-store", headers: createHeaders(undefined, token), signal: controller.signal },
+        { cache: "no-store", headers: createHeaders() },
         { retryTransient: true },
       );
       const data = await parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
-      if (inflightGetRequests.get(cacheKey)?.controller === controller) {
-        getCache.set(cacheKey, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
-      }
+      getCache.set(url, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
       return data;
     })().finally(() => {
-      if (inflightGetRequests.get(cacheKey)?.controller === controller) {
-        inflightGetRequests.delete(cacheKey);
-      }
+      inflightGetRequests.delete(url);
     });
 
-    inflightGetRequests.set(cacheKey, { request, controller });
+    inflightGetRequests.set(url, request);
     return request;
   }
 
@@ -373,7 +345,10 @@ async function requestJsonWithInit<T>(
 }
 
 export function buildApiUrl(path: string) {
-  return `${getApiBaseUrl()}${path}`;
+  // The browser always uses the published Sites origin. The server-side route
+  // forwards /api/* requests to the private application server, so an external
+  // device never needs direct access to its Tailscale address.
+  return path;
 }
 
 function buildClientPriceFilename() {
@@ -771,7 +746,7 @@ export async function createCommercialOfferFromExcel(payload: {
   body.append("notes", payload.notes ?? "");
   body.append("file", payload.file);
 
-  const response = await fetchWithRetry(buildApiUrl("/api/commercial-offers/from-excel"), {
+  const response = await fetch(buildApiUrl("/api/commercial-offers/from-excel"), {
     method: "POST",
     body,
     headers: createHeaders(),
@@ -949,7 +924,7 @@ export async function importPriceFile(file: File): Promise<{
   const body = new FormData();
   body.append("file", file);
 
-  const response = await fetchWithRetry(buildApiUrl("/api/price/import"), {
+  const response = await fetch(buildApiUrl("/api/price/import"), {
     method: "POST",
     body,
     headers: createHeaders(),
@@ -969,7 +944,7 @@ export async function importPriceFile(file: File): Promise<{
 }
 
 export async function updateItemQuantity(itemId: number, quantity: number): Promise<StockItem | null> {
-  const response = await fetchWithRetry(buildApiUrl(`/api/stock/items/${itemId}/quantity`), {
+  const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}/quantity`), {
     method: "POST",
     headers: createHeaders({
       "Content-Type": "application/json",
@@ -983,7 +958,7 @@ export async function updateItemQuantity(itemId: number, quantity: number): Prom
 }
 
 export async function createLocalItem(payload: LocalItemPayload): Promise<StockItem | null> {
-  const response = await fetchWithRetry(buildApiUrl("/api/stock/items"), {
+  const response = await fetch(buildApiUrl("/api/stock/items"), {
     method: "POST",
     headers: createHeaders({
       "Content-Type": "application/json",
@@ -997,7 +972,7 @@ export async function createLocalItem(payload: LocalItemPayload): Promise<StockI
 }
 
 export async function updateLocalItem(itemId: number, payload: LocalItemPayload): Promise<StockItem | null> {
-  const response = await fetchWithRetry(buildApiUrl(`/api/stock/items/${itemId}`), {
+  const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}`), {
     method: "PATCH",
     headers: createHeaders({
       "Content-Type": "application/json",
@@ -1014,7 +989,7 @@ export async function updateLocalItem(itemId: number, payload: LocalItemPayload)
 }
 
 export async function deleteItem(itemId: number): Promise<{ deleted: number; hidden: number }> {
-  const response = await fetchWithRetry(buildApiUrl(`/api/stock/items/${itemId}`), {
+  const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}`), {
     method: "DELETE",
     headers: createHeaders(),
   });
@@ -1025,7 +1000,7 @@ export async function deleteItem(itemId: number): Promise<{ deleted: number; hid
 }
 
 export async function clearCatalog(): Promise<{ deleted: number; hidden: number }> {
-  const response = await fetchWithRetry(buildApiUrl("/api/price/catalog"), {
+  const response = await fetch(buildApiUrl("/api/price/catalog"), {
     method: "DELETE",
     headers: createHeaders(),
   });

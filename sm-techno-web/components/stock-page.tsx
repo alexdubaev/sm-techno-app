@@ -2,7 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -120,7 +120,6 @@ export function StockPage() {
   const selectedItemIdRef = useRef<number | null>(DEFAULT_STATE.selectedItemId);
   const selectedCatalogRowKeyRef = useRef<string | null>(DEFAULT_STATE.selectedCatalogRowKey);
   const selectionClearedRef = useRef(DEFAULT_STATE.selectionCleared);
-  const detailRequestIdRef = useRef(0);
 
   useEffect(() => {
     selectedItemIdRef.current = selectedItemId;
@@ -270,29 +269,8 @@ export function StockPage() {
     }
   }, [activeWarehouseId, warehouses]);
 
-  const loadSelectedItemDetails = useCallback((itemId: number, onMissing?: () => void) => {
-    const detailRequestId = ++detailRequestIdRef.current;
-
-    void fetchStockItem(itemId)
-      .then((detailedItem) => {
-        if (detailRequestId === detailRequestIdRef.current && detailedItem) {
-          setSelectedItem(detailedItem);
-        } else if (detailRequestId === detailRequestIdRef.current) {
-          onMissing?.();
-        }
-      })
-      .catch(() => {
-        // Keep the lightweight catalog row when details cannot be refreshed.
-      });
-  }, []);
-
   useEffect(() => {
-    if (!isHydrated) {
-      return;
-    }
-
     let cancelled = false;
-    detailRequestIdRef.current += 1;
 
     setIsLoading(true);
     setError(null);
@@ -317,13 +295,14 @@ export function StockPage() {
 
         if (response.items.length === 0) {
           if (selectedItemIdRef.current !== null) {
-            loadSelectedItemDetails(selectedItemIdRef.current, () => {
-              if (!cancelled) {
-                setSelectedItem(null);
+            const persisted = await fetchStockItem(selectedItemIdRef.current);
+            if (!cancelled) {
+              setSelectedItem(persisted);
+              if (!persisted) {
                 setSelectedItemId(null);
                 setSelectedCatalogRowKey(null);
               }
-            });
+            }
           } else {
             setSelectedItem(null);
           }
@@ -352,17 +331,22 @@ export function StockPage() {
           setSelectedItemId(matched.id);
           setSelectedCatalogRowKey(getCatalogRowKey(matched));
           setSelectedItem(matched);
-          loadSelectedItemDetails(matched.id);
+          void fetchStockItem(matched.id).then((detailedItem) => {
+            if (!cancelled && detailedItem) {
+              setSelectedItem(detailedItem);
+            }
+          });
           return;
         }
 
-        loadSelectedItemDetails(selectedItemIdRef.current, () => {
-          if (!cancelled) {
-            setSelectedItem(null);
+        const persisted = await fetchStockItem(selectedItemIdRef.current);
+        if (!cancelled) {
+          setSelectedItem(persisted);
+          if (!persisted) {
             setSelectedItemId(null);
             setSelectedCatalogRowKey(null);
           }
-        });
+        }
       })
       .catch(() => {
         if (!cancelled) {
@@ -377,7 +361,6 @@ export function StockPage() {
 
     return () => {
       cancelled = true;
-      detailRequestIdRef.current += 1;
     };
   }, [
     activeWarehouseId,
@@ -387,8 +370,6 @@ export function StockPage() {
     pageSize,
     search,
     sortOrder,
-    isHydrated,
-    loadSelectedItemDetails,
   ]);
 
   const selectedWarehouseOptions = useMemo(
@@ -596,7 +577,11 @@ export function StockPage() {
     setSelectedWarehouseId(item.rowWarehouseId ?? activeWarehouseId);
     setSelectionCleared(false);
 
-    loadSelectedItemDetails(item.id);
+    void fetchStockItem(item.id).then((detailedItem) => {
+      if (detailedItem) {
+        setSelectedItem(detailedItem);
+      }
+    });
   };
 
   const clearSelection = () => {
