@@ -20,7 +20,7 @@ class AutostartScriptTests(unittest.TestCase):
 
         self.assertIn("127.0.0.1:8000/api/health", script)
         self.assertIn("127.0.0.1:3000", script)
-        self.assertIn("funnel --bg http://127.0.0.1:8000", script)
+        self.assertIn('Invoke-TailscaleCommand -Arguments @("funnel", "--bg", "http://127.0.0.1:8000")', script)
         self.assertIn("WaitOne(0)", script)
         self.assertIn("$mutexAcquired", script)
         self.assertIn("Start-Sleep", script)
