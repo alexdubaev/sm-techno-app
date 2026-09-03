@@ -43,6 +43,7 @@ test("CRM workspace exposes export and client-detail actions backed by the CRM A
   assert.match(workspace, /История/);
   assert.match(workspace, /Напоминания/);
   assert.match(workspace, /rowPreference\?\.colorKey/);
+  assert.match(workspace, /ClientDetailDialog client=\{selectedClient\} ownerId=\{ownerId\}/);
   assert.match(api, /\/api\/crm\/export/);
   assert.match(api, /\/contacts/);
   assert.match(api, /\/events/);
@@ -50,4 +51,20 @@ test("CRM workspace exposes export and client-detail actions backed by the CRM A
   assert.match(types, /CrmContact/);
   assert.match(types, /CrmEvent/);
   assert.match(types, /CrmReminder/);
+});
+
+test("administrator CRM workspace keeps the selected owner explicit across actions", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /useAuth/);
+  assert.match(workspace, /fetchUsers/);
+  assert.match(workspace, /CRM сотрудника/);
+  assert.match(workspace, /fetchCrmTabs\(ownerId\)/);
+  assert.match(workspace, /fetchCrmClients\(tab === "primary" \? \{ ownerId, primaryOnly: true \}/);
+  assert.match(workspace, /moveCrmClient\(client\.id, targetTabId, ownerId\)/);
+  assert.match(workspace, /saveCrmRowPreference\(client\.id, \{ tabId: activeTab, colorKey, position: 0 \}, ownerId\)/);
+  assert.match(workspace, /downloadCrmExportFile\(\{ scope, tabId: scope === "tab" \? activeTab : undefined, ownerId \}\)/);
+  assert.match(workspace, /fetchCrmContacts\(client\.id, ownerId\)/);
+  assert.match(workspace, /fetchCrmEvents\(client\.id, ownerId\)/);
+  assert.match(workspace, /fetchCrmReminders\(ownerId\)/);
 });

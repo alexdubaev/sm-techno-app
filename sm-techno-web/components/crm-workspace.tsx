@@ -13,10 +13,12 @@ import {
   fetchCrmEvents,
   fetchCrmReminders,
   fetchCrmTabs,
+  fetchUsers,
   moveCrmClient,
   saveCrmRowPreference,
 } from "@/lib/api";
-import type { CrmContact, CrmEvent, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/types";
+import { useAuth } from "@/components/auth-provider";
+import type { AppUser, CrmContact, CrmEvent, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/types";
 
 type ActiveTab = "primary" | number;
 type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "sync_error";
@@ -49,6 +51,9 @@ function emptyClientForm() {
 }
 
 export function CrmWorkspace() {
+  const { user, isAdmin } = useAuth();
+  const [owners, setOwners] = useState<AppUser[]>([]);
+  const [ownerId, setOwnerId] = useState(user.id);
   const [tabs, setTabs] = useState<CrmTab[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>("primary");
   const [clients, setClients] = useState<CrmWorkspaceClient[]>([]);
@@ -65,6 +70,19 @@ export function CrmWorkspace() {
   const [form, setForm] = useState(emptyClientForm);
   const requestId = useRef(0);
 
+  useEffect(() => {
+    let active = true;
+    if (!isAdmin) {
+      setOwners([user]);
+      setOwnerId(user.id);
+      return () => { active = false; };
+    }
+    void fetchUsers()
+      .then((items) => { if (active) setOwners(items); })
+      .catch((cause) => { if (active) setError(errorMessage(cause, "Не удалось загрузить список сотрудников.")); });
+    return () => { active = false; };
+  }, [isAdmin, user]);
+
   const loadWorkspace = useCallback(async (tab: ActiveTab, { silent = false } = {}) => {
     const id = ++requestId.current;
     if (silent) setIsRefreshing(true);
@@ -73,8 +91,8 @@ export function CrmWorkspace() {
 
     try {
       const [nextTabs, nextClients] = await Promise.all([
-        fetchCrmTabs(),
-        fetchCrmClients(tab === "primary" ? { primaryOnly: true } : { tabId: tab }),
+        fetchCrmTabs(ownerId),
+        fetchCrmClients(tab === "primary" ? { ownerId, primaryOnly: true } : { ownerId, tabId: tab }),
       ]);
       if (id !== requestId.current) return;
       setTabs(nextTabs);
@@ -87,11 +105,11 @@ export function CrmWorkspace() {
         setIsRefreshing(false);
       }
     }
-  }, []);
+  }, [ownerId]);
 
   useEffect(() => {
     void loadWorkspace(activeTab);
-  }, [activeTab, loadWorkspace]);
+  }, [activeTab, loadWorkspace, ownerId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => void loadWorkspace(activeTab, { silent: true }), 5 * 60_000);
@@ -133,7 +151,7 @@ export function CrmWorkspace() {
         email: form.email.trim(),
         phone: form.phone.trim(),
         notes: form.notes.trim(),
-      });
+      }, ownerId);
       setForm(emptyClientForm());
       setIsAdding(false);
       setNotice("Клиент добавлен во вкладку «В работе».");
@@ -160,7 +178,7 @@ export function CrmWorkspace() {
       ),
     );
     try {
-      await moveCrmClient(client.id, targetTabId);
+      await moveCrmClient(client.id, targetTabId, ownerId);
       setNotice(`Клиент перемещён во вкладку «${target.name}».`);
       await loadWorkspace(activeTab, { silent: true });
     } catch (cause) {
@@ -177,7 +195,7 @@ export function CrmWorkspace() {
       rowPreference: { tabId: activeTab, clientId: client.id, colorKey, position: previous?.position ?? 0, orderVersion: previous?.orderVersion ?? 0 },
     } : item));
     try {
-      await saveCrmRowPreference(client.id, { tabId: activeTab, colorKey, position: 0 });
+      await saveCrmRowPreference(client.id, { tabId: activeTab, colorKey, position: 0 }, ownerId);
       setNotice("Оформление строки сохранено.");
     } catch (cause) {
       setClients((current) => current.map((item) => item.id === client.id ? { ...item, rowPreference: previous } : item));
@@ -193,7 +211,7 @@ export function CrmWorkspace() {
     setIsExporting(true);
     setError(null);
     try {
-      await downloadCrmExportFile({ scope, tabId: scope === "tab" ? activeTab : undefined });
+      await downloadCrmExportFile({ scope, tabId: scope === "tab" ? activeTab : undefined, ownerId });
       setNotice(scope === "tab" ? "Выгрузка текущей вкладки началась." : "Выгрузка всех клиентов началась.");
     } catch (cause) {
       setError(errorMessage(cause, "Не удалось выгрузить CRM в Excel."));
@@ -211,6 +229,7 @@ export function CrmWorkspace() {
           <p className="mt-1 text-[12px] text-[var(--text-secondary)]">Клиенты, личные вкладки и быстрые действия менеджера.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { requestId.current += 1; setSelectedClient(null); setActiveTab("primary"); setOwnerId(Number(event.target.value)); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
           <details className="relative">
             <summary className="flex h-10 cursor-pointer list-none items-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">{isExporting ? "Выгружаем…" : "Выгрузить Excel"}</summary>
             <div className="absolute right-0 z-20 mt-1 grid w-52 gap-1 rounded-[12px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]">
@@ -261,7 +280,7 @@ export function CrmWorkspace() {
       </div>
 
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
-      {selectedClient ? <ClientDetailDialog client={selectedClient} onClose={() => setSelectedClient(null)} /> : null}
+      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} onClose={() => setSelectedClient(null)} /> : null}
     </section>
   );
 }
@@ -292,7 +311,7 @@ function LoadingRows() { return <div className="mt-4 space-y-2" aria-label="За
 function Message({ children, tone }: { children: string; tone: "error" | "success" }) { return <div className={`mt-3 rounded-[10px] border px-3 py-2 text-[11px] ${tone === "error" ? "border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBE6CA] bg-[#F0FDF4] text-[#166534]"}`}>{children}</div>; }
 function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: ReturnType<typeof emptyClientForm>; isSaving: boolean; onChange: (form: ReturnType<typeof emptyClientForm>) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { const update = (key: keyof ReturnType<typeof emptyClientForm>, value: string) => onChange({ ...form, [key]: value }); return <div role="dialog" aria-modal="true" aria-labelledby="crm-new-client-title" className="fixed inset-0 z-50 flex items-end bg-[#07162e]/35 p-2 sm:items-center sm:justify-center sm:p-4"><form onSubmit={onSubmit} className="w-full max-w-[620px] rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><h2 id="crm-new-client-title" className="text-[19px] font-bold tracking-[-0.03em]">Новый локальный клиент</h2><p className="mt-1 text-[11px] text-[var(--text-secondary)]">Будет сохранён локально во вкладке «В работе» без отправки в 1С.</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Наименование компании *" value={form.documentName} onChange={(value) => update("documentName", value)} autoFocus /><Field label="Город" value={form.city} onChange={(value) => update("city", value)} /><Field label="Контактное лицо" value={form.contactPerson} onChange={(value) => update("contactPerson", value)} /><Field label="Телефон" value={form.phone} onChange={(value) => update("phone", value)} type="tel" /><Field label="Почта" value={form.email} onChange={(value) => update("email", value)} type="email" /><label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Комментарий</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-10 rounded-[10px] border border-[var(--border-color)] px-3 py-2 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-10 rounded-[11px] px-3 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Отмена</button><button type="submit" disabled={isSaving} className="app-action-button h-10 rounded-[11px] px-4 text-[12px]">{isSaving ? "Сохраняем…" : "Добавить клиента"}</button></div></form></div>; }
 
-function ClientDetailDialog({ client, onClose }: { client: CrmWorkspaceClient; onClose: () => void }) {
+function ClientDetailDialog({ client, ownerId, onClose }: { client: CrmWorkspaceClient; ownerId: number; onClose: () => void }) {
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [events, setEvents] = useState<CrmEvent[]>([]);
   const [reminders, setReminders] = useState<CrmReminder[]>([]);
@@ -307,7 +326,7 @@ function ClientDetailDialog({ client, onClose }: { client: CrmWorkspaceClient; o
     let active = true;
     setIsLoading(true);
     setError(null);
-    void Promise.all([fetchCrmContacts(client.id), fetchCrmEvents(client.id), fetchCrmReminders()])
+    void Promise.all([fetchCrmContacts(client.id, ownerId), fetchCrmEvents(client.id, ownerId), fetchCrmReminders(ownerId)])
       .then(([nextContacts, nextEvents, nextReminders]) => {
         if (!active) return;
         setContacts(nextContacts);
@@ -319,7 +338,7 @@ function ClientDetailDialog({ client, onClose }: { client: CrmWorkspaceClient; o
       })
       .finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
-  }, [client.id]);
+  }, [client.id, ownerId]);
 
   const saveContact = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -328,7 +347,7 @@ function ClientDetailDialog({ client, onClose }: { client: CrmWorkspaceClient; o
     setContacts((current) => [...current, temporary]);
     setIsSaving("contact"); setError(null);
     try {
-      const saved = await createCrmContact(client.id, temporary);
+      const saved = await createCrmContact(client.id, temporary, ownerId);
       setContacts((current) => current.map((item) => item.id === temporary.id ? saved : item));
       setContactForm({ name: "", phone: "", email: "", isPrimary: false });
     } catch (cause) {
@@ -344,7 +363,7 @@ function ClientDetailDialog({ client, onClose }: { client: CrmWorkspaceClient; o
     setEvents((current) => [...current, temporary]);
     setIsSaving("event"); setError(null);
     try {
-      const saved = await createCrmEvent(client.id, { kind: temporary.kind, body: temporary.body });
+      const saved = await createCrmEvent(client.id, { kind: temporary.kind, body: temporary.body }, ownerId);
       setEvents((current) => current.map((item) => item.id === temporary.id ? saved : item));
       setEventForm({ kind: "comment", body: "" });
     } catch (cause) {
@@ -360,7 +379,7 @@ function ClientDetailDialog({ client, onClose }: { client: CrmWorkspaceClient; o
     setReminders((current) => [...current, temporary]);
     setIsSaving("reminder"); setError(null);
     try {
-      const saved = await createCrmReminder(client.id, { dueAt: reminderDueAt });
+      const saved = await createCrmReminder(client.id, { dueAt: reminderDueAt }, ownerId);
       setReminders((current) => current.map((item) => item.id === temporary.id ? saved : item));
       setReminderDueAt("");
     } catch (cause) {
