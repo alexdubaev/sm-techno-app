@@ -516,7 +516,7 @@ def _crm_owner(repo: CrmRepository, current_user: dict[str, Any], requested_owne
     raise AssertionError("unreachable")
 
 
-def _serialize_crm_client(row: dict[str, Any], assignment: dict[str, Any] | None = None, tab: dict[str, Any] | None = None, *, version: int | None = None) -> dict[str, Any]:
+def _serialize_crm_client(row: dict[str, Any], assignment: dict[str, Any] | None = None, tab: dict[str, Any] | None = None, *, version: int | None = None, row_preference: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
         "name": row.get("name") or "",
@@ -536,6 +536,7 @@ def _serialize_crm_client(row: dict[str, Any], assignment: dict[str, Any] | None
         "createdAt": row.get("created_at") or "",
         "updatedAt": row.get("updated_at") or "",
         "assignment": _serialize_crm_assignment(assignment, tab) if assignment else None,
+        "rowPreference": _serialize_crm_row_preference(row_preference) if row_preference else None,
     }
 
 
@@ -1134,7 +1135,8 @@ def list_crm_clients(
             assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
             tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
             version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
-            items.append(_serialize_crm_client(card, assignment, tab, version=version))
+            preference = repo.get_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"]), client_id=int(card["id"])) if assignment else None
+            items.append(_serialize_crm_client(card, assignment, tab, version=version, row_preference=preference))
         return {"ownerId": resolved_owner_id, "items": items}
     except Exception as exc:
         _crm_error(exc)
@@ -1171,7 +1173,8 @@ def get_crm_client(
         assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
         tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
         version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
-        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab, version=version)}
+        preference = repo.get_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"]), client_id=client_id) if assignment else None
+        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab, version=version, row_preference=preference)}
     except Exception as exc:
         _crm_error(exc)
 
