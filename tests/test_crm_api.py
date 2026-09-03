@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
+from io import BytesIO
 
 os.environ.setdefault("SM_TECHNO_INITIAL_ADMIN_PASSWORD", "crm-api-test-password")
 
@@ -293,6 +295,21 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("blocked_capability", job["status"])
         self.assertEqual("blocked_capability", card["sync_status"])
         self.assertIn("условной записи", card["sync_error"])
+
+    def test_export_returns_only_the_current_owner_crm_workbook(self) -> None:
+        self.client.post("/api/crm/clients", json={"documentName": "Экспорт владельца", "inn": "001234567890"})
+        self.as_user(self.other_id)
+        self.client.post("/api/crm/clients", json={"documentName": "Чужой экспорт"})
+        self.as_user(self.owner_id)
+
+        response = self.client.get("/api/crm/export?scope=all")
+        workbook = load_workbook(BytesIO(response.content))
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("attachment", response.headers["content-disposition"])
+        self.assertEqual(["Клиенты", "Контакты"], workbook.sheetnames)
+        self.assertEqual("Экспорт владельца", workbook["Клиенты"]["A2"].value)
+        self.assertEqual(2, workbook["Клиенты"].max_row)
 
     def test_local_lead_update_without_identity_does_not_enqueue_onec_sync(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Локальный без ИНН"}).json()

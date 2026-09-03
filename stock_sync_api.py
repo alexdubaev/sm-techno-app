@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from stock_sync_web.service import WebStockSyncService
+from stock_sync_web.crm_export import build_crm_export_xlsx
 from stock_sync_web.crm_repository import CrmRepository
 
 
@@ -1198,6 +1199,52 @@ def update_crm_client(
         assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
         tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
         return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab, version=version)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/export")
+def export_crm_clients(
+    scope: str = Query("all"),
+    tab_id: int | None = Query(None, alias="tabId"),
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> StreamingResponse:
+    try:
+        normalized_scope = scope.strip().lower()
+        if normalized_scope not in {"all", "tab"}:
+            raise ValueError("Область выгрузки должна быть all или tab.")
+        if normalized_scope == "tab" and tab_id is None:
+            raise ValueError("Для выгрузки вкладки укажите tabId.")
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        cards = repo.list_cards_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            tab_id=tab_id if normalized_scope == "tab" else None,
+        )
+        export_rows: list[dict[str, Any]] = []
+        contact_rows: list[dict[str, Any]] = []
+        for card in cards:
+            client_id = int(card["id"])
+            assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+            tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
+            contacts = repo.list_contacts_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+            primary = next((contact for contact in contacts if contact.get("is_primary")), None)
+            row = dict(card)
+            row["tab_name"] = (tab or {}).get("name") or "Без вкладки"
+            row["contact_name"] = (primary or {}).get("name") or ""
+            row["phone"] = (primary or {}).get("phone") or row.get("phone") or ""
+            row["email"] = (primary or {}).get("email") or row.get("email") or ""
+            export_rows.append(row)
+            for contact in contacts:
+                contact_rows.append({**contact, "client_id": client_id, "company_name": row["document_name"]})
+        content = build_crm_export_xlsx(client_rows=export_rows, contact_rows=contact_rows)
+        filename = f"crm_{normalized_scope}_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+        return StreamingResponse(
+            iter([content]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=_download_headers(filename),
+        )
     except Exception as exc:
         _crm_error(exc)
 
