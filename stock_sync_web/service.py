@@ -246,6 +246,28 @@ class WebStockSyncService:
         self.db.upsert_crm_clients_from_counterparties(rows)
         return count
 
+    def run_due_crm_sync_jobs(self, *, limit: int = 20) -> dict[str, int]:
+        """Advance the durable CRM outbox only when safe 1C writes are available.
+
+        The current OData client has no proven ETag/If-Match contract, so an
+        automatic update is deliberately blocked rather than risking a silent
+        overwrite in 1C. A later capability probe can replace this branch with
+        the worker's conditional remote write.
+        """
+        processed = 0
+        blocked = 0
+        for _ in range(max(0, int(limit))):
+            job = self.db.claim_next_crm_sync_job()
+            if not job:
+                break
+            processed += 1
+            self.db.block_crm_sync_job(
+                int(job["id"]),
+                message="Автоматическая отправка отключена: публикация 1С не подтвердила поддержку условной записи.",
+            )
+            blocked += 1
+        return {"processed": processed, "blocked": blocked}
+
     def sync_contracts(
         self,
         *,

@@ -961,6 +961,42 @@ class WebDatabase(Database):
             ).fetchone()
         return dict(row) if row else None
 
+    def claim_next_crm_sync_job(self) -> dict[str, Any] | None:
+        """Claim one due outbox job without holding a database transaction during I/O."""
+        now = utc_now()
+        with self.transaction() as conn:
+            job = conn.execute(
+                """SELECT * FROM crm_sync_jobs
+                   WHERE status = 'pending' AND available_at <= ?
+                   ORDER BY available_at, id LIMIT 1""",
+                (now,),
+            ).fetchone()
+            if not job:
+                return None
+            conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'running', claimed_at = ?,
+                   attempt_count = attempt_count + 1, updated_at = ? WHERE id = ?""",
+                (now, now, job["id"]),
+            )
+            claimed = conn.execute("SELECT * FROM crm_sync_jobs WHERE id = ?", (job["id"],)).fetchone()
+        return dict(claimed) if claimed else None
+
+    def block_crm_sync_job(self, job_id: int, *, message: str) -> None:
+        now = utc_now()
+        with self.transaction() as conn:
+            job = conn.execute("SELECT crm_client_id FROM crm_sync_jobs WHERE id = ?", (job_id,)).fetchone()
+            if not job:
+                raise ValueError("Задание синхронизации не найдено.")
+            conn.execute(
+                "UPDATE crm_sync_jobs SET status = 'blocked_capability', updated_at = ? WHERE id = ?",
+                (now, job_id),
+            )
+            conn.execute(
+                """UPDATE crm_clients SET sync_status = 'blocked_capability', sync_error = ?,
+                   updated_at = ? WHERE id = ?""",
+                (message, now, job["crm_client_id"]),
+            )
+
     def get_counterparty_by_onec_key(self, onec_key: str) -> dict[str, Any] | None:
         normalized_key = onec_key.strip()
         if not normalized_key:

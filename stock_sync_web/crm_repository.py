@@ -304,7 +304,10 @@ class CrmRepository:
                 (next_version, utc_now(), client_id),
             )
             sync_payload = {key: changes[key] for key in changes if key in sync_fields}
-            if sync_payload:
+            linked_card = conn.execute(
+                "SELECT linked_counterparty_id FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+            if sync_payload and linked_card and linked_card["linked_counterparty_id"] is not None:
                 sync_payload["source_version"] = next_version
                 now = utc_now()
                 pending_job = conn.execute(

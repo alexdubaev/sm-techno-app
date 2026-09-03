@@ -228,6 +228,17 @@ class CrmApiTest(unittest.TestCase):
     def test_card_update_coalesces_one_pending_sync_job_for_shared_fields(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Очередь лид"}).json()
         client_id = created["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (801, 'onec-801', 'Очередь лид', '2026-09-04T00:00:00')")
+            conn.execute("UPDATE crm_clients SET linked_counterparty_id = 801, sync_status = 'synced' WHERE id = ?", (client_id,))
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (502, 'onec-502', 'Очередь лид', '2026-09-04T00:00:00')"
+            )
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = 502, sync_status = 'synced' WHERE id = ?",
+                (client_id,),
+            )
 
         first = self.client.patch(
             f"/api/crm/clients/{client_id}",
@@ -253,6 +264,35 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("pending", jobs[0]["status"])
         self.assertEqual("Очередь лид 2", json.loads(jobs[0]["payload"])["document_name"])
         self.assertEqual("pending", card["sync_status"])
+
+    def test_due_sync_worker_blocks_automatic_update_without_proven_conditional_write(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Безопасная очередь"}).json()
+        client_id = created["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (802, 'onec-802', 'Безопасная очередь', '2026-09-04T00:00:00')")
+            conn.execute("UPDATE crm_clients SET linked_counterparty_id = 802, sync_status = 'synced' WHERE id = ?", (client_id,))
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (503, 'onec-503', 'Безопасная очередь', '2026-09-04T00:00:00')"
+            )
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = 503, sync_status = 'synced' WHERE id = ?",
+                (client_id,),
+            )
+        self.client.patch(
+            f"/api/crm/clients/{client_id}",
+            json={"documentName": "Безопасная очередь 2", "expectedVersion": 1},
+        )
+
+        result = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute("SELECT status FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchone()
+            card = conn.execute("SELECT sync_status, sync_error FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+
+        self.assertEqual({"processed": 1, "blocked": 1}, result)
+        self.assertEqual("blocked_capability", job["status"])
+        self.assertEqual("blocked_capability", card["sync_status"])
+        self.assertIn("условной записи", card["sync_error"])
 
     def test_local_lead_update_without_identity_does_not_enqueue_onec_sync(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Локальный без ИНН"}).json()

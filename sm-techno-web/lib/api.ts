@@ -6,7 +6,11 @@
   CommercialOfferDraftLine,
   Contract,
   Counterparty,
+  CrmAssignment,
   CrmClient,
+  CrmRowPreference,
+  CrmTab,
+  CrmWorkspaceClient,
   GeneratedDocument,
   OrderDetails,
   OrderHistoryItem,
@@ -236,6 +240,26 @@ export type ClientSyncResult = {
 export type CreateClientResponse = {
   client: CrmClient;
   sync: ClientSyncResult;
+};
+
+export type CrmCreateClientPayload = {
+  documentName: string;
+  fullName?: string;
+  inn?: string;
+  kpp?: string;
+  city?: string;
+  website?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+  contactPerson?: string;
+  legalType?: "legal_entity" | "individual_entrepreneur";
+};
+
+export type CrmClientsQuery = {
+  ownerId?: number;
+  tabId?: number;
+  primaryOnly?: boolean;
 };
 
 export type CreateCommercialOfferPayload = {
@@ -693,6 +717,81 @@ export async function createClient(payload: CreateClientPayload): Promise<Create
     },
     "Не удалось сохранить клиента.",
   );
+}
+
+function buildCrmQuery(params: Record<string, string | number | boolean | undefined>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      query.set(key, String(value));
+    }
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return suffix;
+}
+
+export async function fetchCrmTabs(ownerId?: number): Promise<CrmTab[]> {
+  const result = await requestJson<{ items: CrmTab[] }>(
+    `/api/crm/tabs${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function fetchCrmClients(query: CrmClientsQuery = {}): Promise<CrmWorkspaceClient[]> {
+  const result = await requestJson<{ items: CrmWorkspaceClient[] }>(
+    `/api/crm/clients${buildCrmQuery(query)}`,
+  );
+  return result.items;
+}
+
+export async function createCrmClient(
+  payload: CrmCreateClientPayload,
+  ownerId?: number,
+): Promise<CrmWorkspaceClient> {
+  const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось добавить клиента в CRM.",
+  );
+  return result.client;
+}
+
+export async function moveCrmClient(
+  clientId: number,
+  tabId: number,
+  ownerId?: number,
+): Promise<CrmAssignment> {
+  const result = await requestJsonWithInit<{ assignment: CrmAssignment }>(
+    `/api/crm/clients/${clientId}/move${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tabId }),
+    },
+    "Не удалось переместить клиента.",
+  );
+  return result.assignment;
+}
+
+export async function saveCrmRowPreference(
+  clientId: number,
+  payload: { tabId: number; colorKey: string | null; position: number },
+  ownerId?: number,
+): Promise<CrmRowPreference> {
+  const result = await requestJsonWithInit<{ preference: CrmRowPreference }>(
+    `/api/crm/clients/${clientId}/row-preference${buildCrmQuery({ ownerId })}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить оформление строки.",
+  );
+  return result.preference;
 }
 
 export async function sendClientToOneC(clientId: number): Promise<CreateClientResponse> {

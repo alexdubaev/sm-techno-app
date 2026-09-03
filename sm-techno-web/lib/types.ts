@@ -156,6 +156,48 @@ export type CrmClient = {
   isLinkedToOneC: boolean;
 };
 
+export type CrmTab = {
+  id: number;
+  name: string;
+  systemKind: "work" | "custom";
+  sortOrder: number;
+};
+
+export type CrmAssignment = {
+  id: number;
+  tabId: number;
+  tabName: string;
+  archivedAt: string | null;
+};
+
+export type CrmWorkspaceClient = {
+  id: number;
+  name: string;
+  documentName: string;
+  fullName: string;
+  inn: string;
+  kpp: string;
+  city: string;
+  website: string;
+  email: string;
+  phone: string;
+  notes: string;
+  linkedCounterpartyId: number | null;
+  syncStatus: "local" | "synced" | "sync_error";
+  syncError: string;
+  createdAt: string;
+  updatedAt: string;
+  assignment: CrmAssignment | null;
+};
+
+export type CrmRowPreference = {
+  tabId: number;
+  clientId: number;
+  colorKey: string | null;
+  position: number;
+  orderVersion: number;
+};
+
 export type Contract = {
   id: number;
   onecKey: string;
