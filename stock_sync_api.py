@@ -1206,6 +1206,45 @@ def update_crm_client(
         _crm_error(exc)
 
 
+@app.post("/api/crm/clients/{client_id}/link-existing")
+def confirm_existing_onec_link(
+    client_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        counterparty_id = int(payload.get("counterpartyId"))
+        expected_version = int(payload.get("expectedVersion"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Укажите контрагента и ожидаемую версию карточки.") from exc
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        card, version = repo.confirm_link_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            counterparty_id=counterparty_id,
+            expected_version=expected_version,
+        )
+        assignment = repo.get_assignment_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        tab = (
+            repo.get_tab_for_actor(
+                actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])
+            )
+            if assignment
+            else None
+        )
+        return {
+            "ownerId": resolved_owner_id,
+            "client": _serialize_crm_client(card, assignment, tab, version=version),
+        }
+    except Exception as exc:
+        _crm_error(exc)
+
+
 @app.post("/api/crm/clients/{client_id}/send-to-onec")
 def send_crm_client_to_onec(
     client_id: int,

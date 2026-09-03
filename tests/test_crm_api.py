@@ -359,6 +359,50 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(400, response.status_code)
         self.assertIn("ИНН", response.json()["detail"])
 
+    def test_owner_can_confirm_matching_existing_onec_counterparty(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Лид для связывания", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, inn, kpp, updated_at) "
+                "VALUES (901, 'onec-901', 'Найденная компания', '7707083893', '770701001', '2026-09-04T00:00:00')"
+            )
+
+        response = self.client.post(
+            f"/api/crm/clients/{client_id}/link-existing",
+            json={"counterpartyId": 901, "expectedVersion": 1},
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(901, response.json()["client"]["linkedCounterpartyId"])
+        self.assertEqual("synced", response.json()["client"]["syncStatus"])
+        self.assertEqual(2, response.json()["client"]["version"])
+        audit = self.client.get(f"/api/crm/clients/{client_id}/audit")
+        self.assertEqual("link_existing_counterparty", audit.json()["items"][-1]["action"])
+
+    def test_link_confirmation_keeps_owner_context_server_guarded(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Закрытый кандидат", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+
+        denied = self.client.post(
+            f"/api/crm/clients/{client_id}/link-existing?ownerId={self.other_id}",
+            json={"counterpartyId": 901, "expectedVersion": 1},
+        )
+        self.as_user(self.admin_id, "admin")
+        missing_context = self.client.post(
+            f"/api/crm/clients/{client_id}/link-existing",
+            json={"counterpartyId": 901, "expectedVersion": 1},
+        )
+
+        self.assertEqual(403, denied.status_code)
+        self.assertEqual(400, missing_context.status_code)
+
     def test_local_lead_update_without_identity_does_not_enqueue_onec_sync(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Локальный без ИНН"}).json()
         client_id = created["client"]["id"]
