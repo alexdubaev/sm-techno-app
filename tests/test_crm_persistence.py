@@ -15,8 +15,8 @@ class CrmPersistenceTest(unittest.TestCase):
         self.db = WebDatabase(Path(self.temp_dir.name) / "crm.db")
         self.owner_id = self.db.create_user(username="owner", password="password", role="user")
         self.admin_id = self.db.create_user(username="admin", password="password", role="admin")
-        self.client = self.db.create_crm_client_card({"document_name": "Потенциальный клиент"})
         self.repo = CrmRepository(self.db)
+        self.client = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Потенциальный клиент"})
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -44,73 +44,101 @@ class CrmPersistenceTest(unittest.TestCase):
     def test_tab_deletion_reassigns_clients_atomically(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
         follow_up = self.repo.create_tab(self.owner_id, "Перезвонить")
-        assignment = self.repo.assign_client(self.owner_id, self.client["id"], follow_up["id"])
+        assignment = self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=follow_up["id"])
 
         self.repo.delete_tab(self.owner_id, follow_up["id"], work["id"])
 
-        current = self.repo.get_assignment(self.owner_id, self.client["id"])
+        current = self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])
         self.assertEqual(work["id"], current["tab_id"])
         self.assertEqual(assignment["id"], current["id"])
         self.assertIsNone(self.repo.get_tab(self.owner_id, follow_up["id"]))
 
     def test_personal_data_is_owner_scoped_and_admin_can_explicitly_view_owner(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
-        self.repo.assign_client(self.owner_id, self.client["id"], work["id"])
-        self.repo.add_contact(self.owner_id, self.client["id"], name="Ирина", email="i@example.test", is_primary=True)
-        self.repo.add_event(self.owner_id, self.client["id"], kind="comment", body="Перезвонить")
-        reminder = self.repo.add_reminder(self.owner_id, self.client["id"], due_at="2026-09-04T10:00:00")
-        self.repo.set_row_preference(self.owner_id, work["id"], self.client["id"], color_key="blue", position=10)
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
+        self.repo.add_contact_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], name="Ирина", email="i@example.test", is_primary=True)
+        self.repo.add_event_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], kind="comment", body="Перезвонить")
+        reminder = self.repo.add_reminder_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], due_at="2026-09-04T10:00:00")
+        self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key="blue", position=10)
 
         with self.assertRaisesRegex(PermissionError, "чуж"):
             self.repo.resolve_owner(actor_id=self.admin_id, actor_is_admin=False, requested_owner_id=self.owner_id)
         self.assertEqual(self.owner_id, self.repo.resolve_owner(actor_id=self.admin_id, actor_is_admin=True, requested_owner_id=self.owner_id))
-        self.assertEqual("Ирина", self.repo.list_contacts(self.owner_id, self.client["id"])[0]["name"])
-        self.assertEqual("Перезвонить", self.repo.list_events(self.owner_id, self.client["id"])[0]["body"])
-        self.assertEqual(reminder["id"], self.repo.list_reminders(self.owner_id)[0]["id"])
-        self.assertEqual("blue", self.repo.get_row_preference(self.owner_id, work["id"], self.client["id"])["color_key"])
+        self.assertEqual("Ирина", self.repo.list_contacts_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])[0]["name"])
+        self.assertEqual("Перезвонить", self.repo.list_events_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])[0]["body"])
+        self.assertEqual(reminder["id"], self.repo.list_reminders_for_actor(actor_id=self.owner_id, owner_id=self.owner_id)[0]["id"])
+        self.assertEqual("blue", self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"])["color_key"])
 
     def test_archive_is_reversible_and_audited_without_touching_client(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
-        self.repo.assign_client(self.owner_id, self.client["id"], work["id"])
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
 
         self.repo.archive_assignment(
             actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"], reason="Дубликат",
         )
-        self.assertIsNone(self.repo.get_assignment(self.owner_id, self.client["id"]))
+        self.assertIsNone(self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"]))
         self.assertIsNotNone(self.db.get_crm_client(self.client["id"]))
         self.repo.restore_assignment(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"])
 
-        self.assertEqual(work["id"], self.repo.get_assignment(self.owner_id, self.client["id"])["tab_id"])
+        self.assertEqual(work["id"], self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])["tab_id"])
         actions = self.repo.list_audit_actions(owner_id=self.owner_id, client_id=self.client["id"])
         self.assertEqual(["archive_assignment", "restore_assignment"], [row["action"] for row in actions])
 
     def test_deleted_tab_keeps_archived_assignment_restorable_in_replacement(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
         custom = self.repo.create_tab(self.owner_id, "Отказ")
-        self.repo.assign_client(self.owner_id, self.client["id"], custom["id"])
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=custom["id"])
         self.repo.archive_assignment(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"], reason="Неактуально")
 
         self.repo.delete_tab(self.owner_id, custom["id"], work["id"])
         self.repo.restore_assignment(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"])
 
-        self.assertEqual(work["id"], self.repo.get_assignment(self.owner_id, self.client["id"])["tab_id"])
+        self.assertEqual(work["id"], self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])["tab_id"])
 
     def test_only_admin_can_archive_or_restore_assignment(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
-        self.repo.assign_client(self.owner_id, self.client["id"], work["id"])
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
 
         with self.assertRaisesRegex(PermissionError, "администратор"):
             self.repo.archive_assignment(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], reason="Нет")
 
     def test_local_client_is_private_and_cannot_be_guessed_by_another_owner(self) -> None:
         other = self.db.create_user(username="other", password="password", role="user")
-        self.repo.claim_local_client(self.owner_id, self.client["id"])
+        self.client = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Личный лид"})
         other_work = self.repo.ensure_work_tab(other)
 
         with self.assertRaisesRegex(PermissionError, "доступ"):
             self.repo.assign_client_for_actor(actor_id=other, owner_id=other, client_id=self.client["id"], tab_id=other_work["id"])
         with self.assertRaisesRegex(PermissionError, "доступ"):
             self.repo.list_contacts_for_actor(actor_id=other, owner_id=self.owner_id, client_id=self.client["id"])
+
+    def test_new_local_card_is_owned_at_creation_and_unowned_legacy_card_needs_admin_claim(self) -> None:
+        other = self.db.create_user(username="other2", password="password", role="user")
+        created = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Новый лид"})
+        self.assertEqual(self.owner_id, created["crm_owner_user_id"])
+        with self.assertRaisesRegex(PermissionError, "доступ"):
+            self.repo.claim_local_client(other, created["id"])
+        legacy = self.db.create_crm_client_card({"document_name": "Старый лид"})
+        with self.assertRaisesRegex(PermissionError, "администратор"):
+            self.repo.claim_local_client(self.owner_id, legacy["id"])
+        self.repo.claim_local_client(self.admin_id, legacy["id"])
+        self.assertEqual(self.admin_id, self.db.get_crm_client(legacy["id"])["crm_owner_user_id"])
+
+    def test_all_personal_operations_require_actor_and_allow_admin_owner_context(self) -> None:
+        other = self.db.create_user(username="other3", password="password", role="user")
+        client = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Защищённый лид"})
+        work = self.repo.ensure_work_tab(self.owner_id)
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=client["id"], tab_id=work["id"])
+        with self.assertRaises(PermissionError):
+            self.repo.add_contact_for_actor(actor_id=other, owner_id=self.owner_id, client_id=client["id"], name="X")
+        with self.assertRaises(PermissionError):
+            self.repo.add_event_for_actor(actor_id=other, owner_id=self.owner_id, client_id=client["id"], kind="comment", body="X")
+        with self.assertRaises(PermissionError):
+            self.repo.add_reminder_for_actor(actor_id=other, owner_id=self.owner_id, client_id=client["id"], due_at="2026-10-01")
+        with self.assertRaises(PermissionError):
+            self.repo.set_row_preference_for_actor(actor_id=other, owner_id=self.owner_id, tab_id=work["id"], client_id=client["id"], color_key="blue", position=1)
+        self.repo.add_contact_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, client_id=client["id"], name="Admin")
+        self.assertEqual("Admin", self.repo.list_contacts_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, client_id=client["id"])[0]["name"])
 
     def test_work_tabs_are_backfilled_and_reserved_names_are_case_insensitive(self) -> None:
         newcomer = self.db.create_user(username="newcomer", password="password", role="user")
@@ -124,12 +152,12 @@ class CrmPersistenceTest(unittest.TestCase):
         work = self.repo.ensure_work_tab(self.owner_id)
         target = self.repo.create_tab(self.owner_id, "Перезвонить")
         self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
-        self.repo.set_row_preference(self.owner_id, work["id"], self.client["id"], color_key="blue", position=10)
+        self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key="blue", position=10)
 
         self.repo.move_client(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=target["id"])
 
-        self.assertEqual("blue", self.repo.get_row_preference(self.owner_id, target["id"], self.client["id"])["color_key"])
-        event = self.repo.list_events(self.owner_id, self.client["id"])[0]
+        self.assertEqual("blue", self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=target["id"], client_id=self.client["id"])["color_key"])
+        event = self.repo.list_events_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])[0]
         self.assertEqual("move", event["kind"])
         self.assertEqual(self.owner_id, event["author_user_id"])
         self.assertIn("В работе", event["body"])

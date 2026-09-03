@@ -936,6 +936,7 @@ class WebDatabase(Database):
                 signer_name,
                 signer_basis,
                 notes,
+                crm_owner_user_id,
                 linked_counterparty_id,
                 sync_status,
                 sync_error,
@@ -1014,7 +1015,7 @@ class WebDatabase(Database):
             ).fetchone()
         return dict(row) if row else None
 
-    def create_crm_client_card(self, values: dict[str, Any]) -> dict[str, Any]:
+    def create_crm_client_card(self, values: dict[str, Any], *, owner_user_id: int | None = None) -> dict[str, Any]:
         document_name = str(values.get("document_name") or "").strip()
         if not document_name:
             raise ValueError("Укажите наименование для документов.")
@@ -1052,11 +1053,12 @@ class WebDatabase(Database):
                     signer_name,
                     signer_basis,
                     notes,
+                    crm_owner_user_id,
                     sync_status,
                     created_at,
                     updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)
                 """,
                 (
                     document_name,
@@ -1087,6 +1089,7 @@ class WebDatabase(Database):
                     values.get("signer_name") or None,
                     values.get("signer_basis") or None,
                     values.get("notes") or None,
+                    owner_user_id,
                     now,
                     now,
                 ),

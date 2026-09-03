@@ -52,8 +52,11 @@ class CrmRepository:
 
     def _require_client_access(self, conn: sqlite3.Connection, actor_id: int, client_id: int) -> sqlite3.Row:
         client = self._require_row(conn, "SELECT id, linked_counterparty_id, crm_owner_user_id FROM crm_clients WHERE id = ?", (client_id,), "Клиент не найден.")
-        if client["linked_counterparty_id"] is None and client["crm_owner_user_id"] not in (None, actor_id) and not self._is_admin(conn, actor_id):
-            raise PermissionError("Нет доступа к личному клиенту.")
+        if client["linked_counterparty_id"] is None:
+            if client["crm_owner_user_id"] is None and not self._is_admin(conn, actor_id):
+                raise PermissionError("Нет доступа к личному клиенту.")
+            if client["crm_owner_user_id"] not in (None, actor_id) and not self._is_admin(conn, actor_id):
+                raise PermissionError("Нет доступа к личному клиенту.")
         return client
 
     @staticmethod
@@ -88,9 +91,20 @@ class CrmRepository:
             client = self._require_row(conn, "SELECT linked_counterparty_id, crm_owner_user_id FROM crm_clients WHERE id = ?", (client_id,), "Клиент не найден.")
             if client["linked_counterparty_id"] is not None:
                 raise ValueError("Связанный с 1С клиент не является личным лидом.")
-            if client["crm_owner_user_id"] not in (None, owner_id):
+            if client["crm_owner_user_id"] is None and not self._is_admin(conn, owner_id):
+                raise PermissionError("Назначить старый лид может только администратор.")
+            if client["crm_owner_user_id"] not in (None, owner_id) and not self._is_admin(conn, owner_id):
                 raise PermissionError("Нет доступа к личному клиенту.")
             conn.execute("UPDATE crm_clients SET crm_owner_user_id = ?, updated_at = ? WHERE id = ?", (owner_id, utc_now(), client_id))
+
+    def create_local_client(self, *, actor_id: int, values: dict[str, Any]) -> dict[str, Any]:
+        """Create a local lead with its authenticated owner in the card insert."""
+        return self.db.create_crm_client_card(values, owner_user_id=actor_id)
+
+    def _require_personal_access(self, conn: sqlite3.Connection, actor_id: int, owner_id: int, client_id: int) -> None:
+        self._require_client_access(conn, actor_id, client_id)
+        if actor_id != owner_id and not self._is_admin(conn, actor_id):
+            raise PermissionError("Нельзя открывать чужую CRM.")
 
     def get_tab(self, owner_id: int, tab_id: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:
@@ -151,9 +165,6 @@ class CrmRepository:
             conn.execute("UPDATE crm_assignments SET tab_id = ?, updated_at = ? WHERE owner_user_id = ? AND tab_id = ?", (replacement_tab_id, utc_now(), owner_id, tab_id))
             conn.execute("DELETE FROM crm_tabs WHERE id = ?", (tab_id,))
 
-    def assign_client(self, owner_id: int, client_id: int, tab_id: int) -> dict[str, Any]:
-        return self.assign_client_for_actor(actor_id=owner_id, owner_id=owner_id, client_id=client_id, tab_id=tab_id)
-
     def assign_client_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, tab_id: int) -> dict[str, Any]:
         if actor_id != owner_id and not self._actor_is_admin(actor_id):
             raise PermissionError("Нельзя изменять чужую CRM.")
@@ -199,12 +210,13 @@ class CrmRepository:
             row = conn.execute("SELECT * FROM crm_assignments WHERE id = ?", (current["id"],)).fetchone()
         return dict(row)
 
-    def get_assignment(self, owner_id: int, client_id: int) -> dict[str, Any] | None:
+    def get_assignment_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
             row = conn.execute("SELECT * FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NULL", (owner_id, client_id)).fetchone()
         return dict(row) if row else None
 
-    def add_contact(self, owner_id: int, client_id: int, *, name: str, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
+    def _add_contact(self, owner_id: int, client_id: int, *, name: str, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
         if not name.strip():
             raise ValueError("Укажите имя контактного лица.")
         now = utc_now()
@@ -215,19 +227,22 @@ class CrmRepository:
             row = conn.execute("SELECT * FROM crm_contacts WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return dict(row)
 
-    def list_contacts(self, owner_id: int, client_id: int) -> list[dict[str, Any]]:
+    def add_contact_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, name: str, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+        return self._add_contact(owner_id, client_id, name=name, email=email, phone=phone, is_primary=is_primary)
+
+    def _list_contacts(self, owner_id: int, client_id: int) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute("SELECT * FROM crm_contacts WHERE owner_user_id = ? AND crm_client_id = ? ORDER BY is_primary DESC, id", (owner_id, client_id)).fetchall()
         return [dict(row) for row in rows]
 
     def list_contacts_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
-            self._require_client_access(conn, actor_id, client_id)
-            if actor_id != owner_id and not self._is_admin(conn, actor_id):
-                raise PermissionError("Нельзя открывать чужую CRM.")
-        return self.list_contacts(owner_id, client_id)
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+        return self._list_contacts(owner_id, client_id)
 
-    def add_event(self, owner_id: int, client_id: int, *, kind: str, body: str, author_user_id: int | None = None) -> dict[str, Any]:
+    def _add_event(self, owner_id: int, client_id: int, *, kind: str, body: str, author_user_id: int | None = None) -> dict[str, Any]:
         if not body.strip():
             raise ValueError("Событие не может быть пустым.")
         now = utc_now()
@@ -236,34 +251,65 @@ class CrmRepository:
             row = conn.execute("SELECT * FROM crm_events WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return dict(row)
 
-    def list_events(self, owner_id: int, client_id: int) -> list[dict[str, Any]]:
+    def add_event_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, kind: str, body: str) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+        return self._add_event(owner_id, client_id, kind=kind, body=body, author_user_id=actor_id)
+
+    def _list_events(self, owner_id: int, client_id: int) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute("SELECT * FROM crm_events WHERE owner_user_id = ? AND crm_client_id = ? ORDER BY created_at, id", (owner_id, client_id)).fetchall()
         return [dict(row) for row in rows]
 
-    def add_reminder(self, owner_id: int, client_id: int, *, due_at: str) -> dict[str, Any]:
+    def list_events_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+        return self._list_events(owner_id, client_id)
+
+    def _add_reminder(self, owner_id: int, client_id: int, *, due_at: str) -> dict[str, Any]:
         now = utc_now()
         with self.db.transaction() as conn:
             cursor = conn.execute("INSERT INTO crm_reminders(owner_user_id, crm_client_id, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, due_at, now, now))
             row = conn.execute("SELECT * FROM crm_reminders WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return dict(row)
 
-    def list_reminders(self, owner_id: int) -> list[dict[str, Any]]:
+    def add_reminder_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, due_at: str) -> dict[str, Any]:
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+        return self._add_reminder(owner_id, client_id, due_at=due_at)
+
+    def _list_reminders(self, owner_id: int) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute("SELECT * FROM crm_reminders WHERE owner_user_id = ? AND status = 'active' ORDER BY due_at, id", (owner_id,)).fetchall()
         return [dict(row) for row in rows]
 
-    def set_row_preference(self, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None, position: int) -> None:
+    def list_reminders_for_actor(self, *, actor_id: int, owner_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            if actor_id != owner_id and not self._is_admin(conn, actor_id):
+                raise PermissionError("Нельзя открывать чужую CRM.")
+        return self._list_reminders(owner_id)
+
+    def _set_row_preference(self, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None, position: int) -> None:
         with self.db.transaction() as conn:
             self._require_row(conn, "SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена.")
             conn.execute("""INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?)
                             ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO UPDATE SET color_key = excluded.color_key, position = excluded.position, order_version = crm_row_preferences.order_version + 1, updated_at = excluded.updated_at""", (owner_id, tab_id, client_id, color_key, position, utc_now()))
 
-    def get_row_preference(self, owner_id: int, tab_id: int, client_id: int) -> dict[str, Any] | None:
+    def set_row_preference_for_actor(self, *, actor_id: int, owner_id: int, tab_id: int, client_id: int, color_key: str | None, position: int) -> None:
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+        self._set_row_preference(owner_id, tab_id, client_id, color_key=color_key, position=position)
+
+    def _get_row_preference(self, owner_id: int, tab_id: int, client_id: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             row = conn.execute("SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, tab_id, client_id)).fetchone()
         return dict(row) if row else None
+
+    def get_row_preference_for_actor(self, *, actor_id: int, owner_id: int, tab_id: int, client_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+        return self._get_row_preference(owner_id, tab_id, client_id)
 
     def archive_assignment(self, *, actor_id: int, owner_id: int, client_id: int, reason: str) -> None:
         now = utc_now()
