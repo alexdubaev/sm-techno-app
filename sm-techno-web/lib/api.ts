@@ -893,6 +893,18 @@ export async function retryCrmOnecCreate(
   return result.client;
 }
 
+export async function sendCrmClientToOneC(
+  clientId: number,
+  ownerId?: number,
+): Promise<CrmWorkspaceClient> {
+  const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients/${clientId}/send-to-onec${buildCrmQuery({ ownerId })}`,
+    { method: "POST" },
+    "Не удалось поставить создание в 1С в очередь.",
+  );
+  return result.client;
+}
+
 export async function moveCrmClient(
   clientId: number,
   tabId: number,

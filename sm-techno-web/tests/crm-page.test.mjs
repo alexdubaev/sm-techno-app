@@ -118,3 +118,16 @@ test("CRM detail makes credential-blocked 1C creation visible and retries only a
   assert.match(api, /\/retry-onec/);
   assert.match(types, /"blocked_credentials"/);
 });
+
+test("CRM detail queues a new 1C creation only through explicit confirmation", async () => {
+  const [workspace, api] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+  ]);
+
+  assert.match(workspace, /Создать в 1С/);
+  assert.match(workspace, /Подтверждение создания в 1С/);
+  assert.match(workspace, /поставлена в очередь/);
+  assert.match(workspace, /sendCrmClientToOneC\(currentClient\.id, ownerId\)/);
+  assert.match(api, /\/api\/crm\/clients\/\$\{clientId\}\/send-to-onec/);
+});
