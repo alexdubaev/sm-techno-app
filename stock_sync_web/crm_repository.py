@@ -343,6 +343,71 @@ class CrmRepository:
             raise ValueError("Клиент не найден.")
         return card, next_version
 
+    def confirm_link_for_actor(
+        self,
+        *,
+        actor_id: int,
+        owner_id: int,
+        client_id: int,
+        counterparty_id: int,
+        expected_version: int,
+    ) -> tuple[dict[str, Any], int]:
+        """Link one local lead to an imported, identity-matching 1C counterparty."""
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            client = self._require_row(
+                conn,
+                """SELECT crm_owner_user_id, linked_counterparty_id, legal_type, inn, kpp
+                   FROM crm_clients WHERE id = ?""",
+                (client_id,),
+                "Клиент не найден.",
+            )
+            if client["linked_counterparty_id"] is not None:
+                raise ValueError("Клиент уже связан с контрагентом 1С.")
+            if int(client["crm_owner_user_id"] or 0) != int(owner_id):
+                raise ValueError("Локальный клиент не принадлежит выбранной CRM.")
+            current_version = self._ensure_card_version(conn, client_id)
+            if int(expected_version) != current_version:
+                raise ValueError("Конфликт версии карточки. Загрузите актуальные данные.")
+            counterparty = self._require_row(
+                conn,
+                "SELECT id, onec_key, inn, kpp FROM counterparties WHERE id = ?",
+                (counterparty_id,),
+                "Контрагент 1С не найден.",
+            )
+            if not str(counterparty["onec_key"] or "").strip():
+                raise ValueError("У контрагента 1С отсутствует постоянный идентификатор.")
+
+            client_inn = str(client["inn"] or "").strip()
+            client_kpp = str(client["kpp"] or "").strip()
+            if client_inn != str(counterparty["inn"] or "").strip():
+                raise ValueError("ИНН локального клиента не совпадает с контрагентом 1С.")
+            if str(client["legal_type"] or "") == "legal_entity" and client_kpp != str(counterparty["kpp"] or "").strip():
+                raise ValueError("КПП локального клиента не совпадает с контрагентом 1С.")
+            existing_link = conn.execute(
+                "SELECT id FROM crm_clients WHERE linked_counterparty_id = ? AND id != ?",
+                (counterparty_id, client_id),
+            ).fetchone()
+            if existing_link:
+                raise ValueError("Контрагент 1С уже связан с другой CRM-карточкой.")
+
+            next_version = current_version + 1
+            conn.execute(
+                """UPDATE crm_clients SET linked_counterparty_id = ?, sync_status = 'synced',
+                   sync_error = NULL, onec_synced_at = ?, updated_at = ? WHERE id = ?""",
+                (counterparty_id, now, now, client_id),
+            )
+            conn.execute(
+                "UPDATE crm_sync_state SET version = ?, updated_at = ? WHERE crm_client_id = ?",
+                (next_version, now, client_id),
+            )
+            self._audit(conn, actor_id, owner_id, client_id, "link_existing_counterparty", str(counterparty["onec_key"]))
+        card = self.db.get_crm_client(client_id)
+        if not card:
+            raise ValueError("Клиент не найден.")
+        return card, next_version
+
     def create_tab_for_actor(self, *, actor_id: int, owner_id: int, name: str) -> dict[str, Any]:
         self._require_owner_access(actor_id, owner_id)
         return self._create_tab(owner_id, name)

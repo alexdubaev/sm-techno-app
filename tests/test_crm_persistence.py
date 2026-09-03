@@ -271,6 +271,77 @@ class CrmPersistenceTest(unittest.TestCase):
         self.assertEqual("Локальная правка", card["document_name"])
         self.assertEqual("pending", card["sync_status"])
 
+    def test_confirmed_link_rejects_same_inn_with_different_kpp(self) -> None:
+        candidate = self.repo.create_local_client(
+            actor_id=self.owner_id,
+            values={
+                "document_name": "ООО Проверка связи",
+                "legal_type": "legal_entity",
+                "inn": "7707083893",
+                "kpp": "770701001",
+            },
+        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, inn, kpp, updated_at) VALUES (901, 'onec-901', 'Другая КПП', '7707083893', '770799999', '2026-09-04T00:00:00')"
+            )
+
+        with self.assertRaisesRegex(ValueError, "КПП"):
+            self.repo.confirm_link_for_actor(
+                actor_id=self.owner_id,
+                owner_id=self.owner_id,
+                client_id=candidate["id"],
+                counterparty_id=901,
+                expected_version=1,
+            )
+
+        self.assertIsNone(self.db.get_crm_client(candidate["id"])["linked_counterparty_id"])
+
+    def test_confirmed_link_preserves_local_history_and_records_audit(self) -> None:
+        candidate = self.repo.create_local_client(
+            actor_id=self.owner_id,
+            values={
+                "document_name": "ООО Подтверждённая связь",
+                "legal_type": "legal_entity",
+                "inn": "7707083893",
+                "kpp": "770701001",
+            },
+        )
+        self.repo.add_contact_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=candidate["id"],
+            name="Личный контакт",
+        )
+        self.repo.add_event_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=candidate["id"],
+            kind="comment",
+            body="Личная история остаётся в CRM",
+        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, inn, kpp, updated_at) VALUES (902, 'onec-902', 'ООО Подтверждённая связь', '7707083893', '770701001', '2026-09-04T00:00:00')"
+            )
+
+        linked, version = self.repo.confirm_link_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=candidate["id"],
+            counterparty_id=902,
+            expected_version=1,
+        )
+
+        self.assertEqual(902, linked["linked_counterparty_id"])
+        self.assertEqual("synced", linked["sync_status"])
+        self.assertEqual(2, version)
+        self.assertEqual(1, len(self.repo.list_contacts_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=candidate["id"])))
+        self.assertEqual(1, len(self.repo.list_events_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=candidate["id"])))
+        audit = self.repo.list_audit_actions_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=candidate["id"])
+        self.assertEqual("link_existing_counterparty", audit[-1]["action"])
+        self.assertEqual("onec-902", audit[-1]["reason"])
+
     def test_old_client_schema_migrates_idempotently_without_losing_document_foreign_key(self) -> None:
         path = Path(self.temp_dir.name) / "legacy.db"
         with sqlite3.connect(path) as conn:
