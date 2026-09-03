@@ -445,6 +445,22 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("pending", card["sync_status"])
         self.assertIsNone(card["sync_error"])
 
+    def test_non_submitter_cannot_retry_a_blocked_credential_create_job(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Чужая заявка", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.service.save_system_settings({"base_url": "https://onec.example.test"})
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        self.assertEqual({"processed": 1, "blocked": 1}, self.service.run_due_crm_sync_jobs())
+
+        self.as_user(self.admin_id, "admin")
+        response = self.client.post(f"/api/crm/clients/{client_id}/retry-onec?ownerId={self.owner_id}")
+
+        self.assertEqual(403, response.status_code)
+        self.assertIn("только автор", response.json()["detail"].casefold())
+
     def test_create_worker_blocks_revoked_submitter_onec_access(self) -> None:
         class RevokedAccessOneC:
             def find_counterparty_by_identity(self, **_: object) -> dict[str, object] | None:
