@@ -456,6 +456,46 @@ class CrmRepository:
             raise ValueError("Клиент не найден.")
         return result, version
 
+    def retry_onec_create_for_actor(
+        self,
+        *,
+        actor_id: int,
+        owner_id: int,
+        client_id: int,
+    ) -> tuple[dict[str, Any], int]:
+        """Explicitly requeue the submitter's create job after credentials are fixed."""
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            version = self._ensure_card_version(conn, client_id)
+            job = self._require_row(
+                conn,
+                """SELECT id, author_user_id, status FROM crm_sync_jobs
+                   WHERE crm_client_id = ? AND operation = 'create'
+                   ORDER BY id DESC LIMIT 1""",
+                (client_id,),
+                "Задание создания в 1С не найдено.",
+            )
+            if int(job["author_user_id"]) != int(actor_id):
+                raise PermissionError("Повторить создание в 1С может только автор заявки.")
+            if str(job["status"] or "") != "blocked_credentials":
+                raise ValueError("Повтор доступен только после исправления учётных данных автора заявки.")
+            conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'pending', available_at = ?, claimed_at = NULL,
+                   updated_at = ? WHERE id = ?""",
+                (now, now, int(job["id"])),
+            )
+            conn.execute(
+                """UPDATE crm_clients SET sync_status = 'pending', sync_error = NULL,
+                   updated_at = ? WHERE id = ?""",
+                (now, client_id),
+            )
+            self._audit(conn, actor_id, owner_id, client_id, "retry_onec_create", "")
+        result = self.db.get_crm_client(client_id)
+        if not result:
+            raise ValueError("Клиент не найден.")
+        return result, version
+
     def list_link_candidates_for_actor(
         self, *, actor_id: int, owner_id: int, client_id: int
     ) -> list[dict[str, Any]]:

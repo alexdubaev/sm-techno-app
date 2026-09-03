@@ -1295,6 +1295,38 @@ def send_crm_client_to_onec(
         _crm_error(exc)
 
 
+@app.post("/api/crm/clients/{client_id}/retry-onec")
+def retry_crm_client_onec_create(
+    client_id: int,
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        card, version = repo.retry_onec_create_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+        )
+        assignment = repo.get_assignment_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        tab = (
+            repo.get_tab_for_actor(
+                actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])
+            )
+            if assignment
+            else None
+        )
+        return JSONResponse(status_code=202, content={
+            "ownerId": resolved_owner_id,
+            "client": _serialize_crm_client(card, assignment, tab, version=version),
+            "sync": {"status": "queued", "message": "Заявка на создание в 1С снова поставлена в очередь."},
+        })
+    except Exception as exc:
+        _crm_error(exc)
+
+
 @app.get("/api/crm/export")
 def export_crm_clients(
     scope: str = Query("all"),

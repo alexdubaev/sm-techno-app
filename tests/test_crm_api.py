@@ -412,6 +412,39 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("blocked_credentials", card["sync_status"])
         self.assertIn("учётные данные", card["sync_error"].casefold())
 
+    def test_submitter_can_explicitly_retry_a_blocked_credential_create_job(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Повторный лид", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.service.save_system_settings({"base_url": "https://onec.example.test"})
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        self.assertEqual({"processed": 1, "blocked": 1}, self.service.run_due_crm_sync_jobs())
+        self.service.update_user_profile(
+            user_id=self.owner_id,
+            full_name="Владелец",
+            onec_username="owner-onec",
+            onec_password="owner-password",
+        )
+
+        response = self.client.post(f"/api/crm/clients/{client_id}/retry-onec")
+        with self.service.db.connect() as conn:
+            job = conn.execute(
+                "SELECT author_user_id, status, claimed_at FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)
+            ).fetchone()
+            card = conn.execute(
+                "SELECT sync_status, sync_error FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+
+        self.assertEqual(202, response.status_code, response.text)
+        self.assertEqual("queued", response.json()["sync"]["status"])
+        self.assertEqual(self.owner_id, job["author_user_id"])
+        self.assertEqual("pending", job["status"])
+        self.assertIsNone(job["claimed_at"])
+        self.assertEqual("pending", card["sync_status"])
+        self.assertIsNone(card["sync_error"])
+
     def test_create_worker_recovers_an_unknown_post_without_a_second_create(self) -> None:
         class UnknownPostOneC:
             def __init__(self) -> None:
