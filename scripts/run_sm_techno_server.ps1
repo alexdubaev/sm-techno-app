@@ -193,13 +193,41 @@ function Ensure-TailscaleService {
     return $true
 }
 
+function Invoke-TailscaleCommand {
+    param([string[]]$Arguments)
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Tailscale can briefly return errors such as "netMap is nil" while
+        # reconnecting after Windows starts. That must mark the tunnel as
+        # unavailable for this poll, not terminate the supervisor itself.
+        $ErrorActionPreference = "Continue"
+        $output = & $tailscalePath @Arguments 2>&1 | Out-String
+        return [PSCustomObject]@{
+            ExitCode = $LASTEXITCODE
+            Output = $output.Trim()
+        }
+    } catch {
+        return [PSCustomObject]@{
+            ExitCode = 1
+            Output = $_.Exception.Message
+        }
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
 function Test-FunnelConfiguration {
     if (-not (Test-Path -LiteralPath $tailscalePath)) {
         return $false
     }
 
     try {
-        $rawStatus = & $tailscalePath funnel status --json 2>$null | Out-String
+        $command = Invoke-TailscaleCommand -Arguments @("funnel", "status", "--json")
+        if ($command.ExitCode -ne 0) {
+            return $false
+        }
+        $rawStatus = $command.Output
         if ([string]::IsNullOrWhiteSpace($rawStatus)) {
             return $false
         }
@@ -233,7 +261,11 @@ function Get-FunnelPublicHealthUrl {
     }
 
     try {
-        $rawStatus = & $tailscalePath funnel status --json 2>$null | Out-String
+        $command = Invoke-TailscaleCommand -Arguments @("funnel", "status", "--json")
+        if ($command.ExitCode -ne 0) {
+            return $null
+        }
+        $rawStatus = $command.Output
         if ([string]::IsNullOrWhiteSpace($rawStatus)) {
             return $null
         }
@@ -279,15 +311,14 @@ function Ensure-Funnel {
         Write-Log "Tailscale Funnel route is missing or unreadable."
     }
 
-    Write-Log "Restoring Tailscale Funnel route to backend."
-    $resetResult = & $tailscalePath funnel reset 2>&1 | Out-String
-    if (-not [string]::IsNullOrWhiteSpace($resetResult)) {
-        Write-Log ($resetResult.Trim())
+    Write-Log "Ensuring Tailscale Funnel route to backend."
+    $command = Invoke-TailscaleCommand -Arguments @("funnel", "--bg", "http://127.0.0.1:8000")
+    if (-not [string]::IsNullOrWhiteSpace($command.Output)) {
+        Write-Log $command.Output
     }
-
-    $result = & $tailscalePath funnel --bg http://127.0.0.1:8000 2>&1 | Out-String
-    if (-not [string]::IsNullOrWhiteSpace($result)) {
-        Write-Log ($result.Trim())
+    if ($command.ExitCode -ne 0) {
+        Write-Log "Tailscale Funnel update was deferred; it will be retried on the next poll."
+        return $false
     }
 
     Start-Sleep -Seconds 3

@@ -30,12 +30,14 @@ class NetworkResilienceTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertIn("Client network resilience runtime checks passed.", result.stdout)
 
-    def test_supervisor_checks_public_funnel_health_and_can_restore_the_route(self) -> None:
+    def test_supervisor_retries_transient_tailscale_failures_without_resetting_the_route(self) -> None:
         script = (ROOT / "scripts" / "run_sm_techno_server.ps1").read_text(encoding="utf-8")
 
         self.assertIn("Get-FunnelPublicHealthUrl", script)
         self.assertIn("api/health", script)
-        self.assertIn("funnel reset", script)
+        self.assertIn("function Invoke-TailscaleCommand", script)
+        self.assertIn('$ErrorActionPreference = "Continue"', script)
+        self.assertNotIn("funnel reset", script)
         self.assertIn("$script:lastFunnelRepairAt", script)
 
 
