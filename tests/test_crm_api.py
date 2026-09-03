@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+import tempfile
+import unittest
+import os
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+os.environ.setdefault("SM_TECHNO_INITIAL_ADMIN_PASSWORD", "crm-api-test-password")
+
+import stock_sync_api
+from stock_sync_web.crm_repository import CrmRepository
+from stock_sync_web.database import WebDatabase
+from stock_sync_web.service import WebStockSyncService
+
+
+class CrmApiTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.service = WebStockSyncService(db=WebDatabase(Path(self.temp_dir.name) / "crm-api.db"))
+        self.service.bootstrap()
+        self.owner_id = self.service.db.create_user(username="owner", password="password", role="user")
+        self.other_id = self.service.db.create_user(username="other", password="password", role="user")
+        self.admin_id = self.service.db.create_user(username="admin-api", password="password", role="admin")
+        self.original_service = stock_sync_api.SERVICE
+        stock_sync_api.SERVICE = self.service
+        self.current_user = {"id": self.owner_id, "role": "user", "username": "owner"}
+        stock_sync_api.app.dependency_overrides[stock_sync_api._get_current_user] = lambda: self.current_user
+        self.client = TestClient(stock_sync_api.app)
+
+    def tearDown(self) -> None:
+        self.client.close()
+        stock_sync_api.app.dependency_overrides.clear()
+        stock_sync_api.SERVICE = self.original_service
+        self.temp_dir.cleanup()
+
+    def as_user(self, user_id: int, role: str = "user") -> None:
+        self.current_user = {"id": user_id, "role": role, "username": "test"}
+
+    def test_local_card_is_created_in_own_work_tab_without_onec(self) -> None:
+        response = self.client.post("/api/crm/clients", json={"documentName": "Новый лид"})
+
+        self.assertEqual(201, response.status_code)
+        data = response.json()
+        self.assertEqual("Новый лид", data["client"]["documentName"])
+        self.assertEqual("local", data["client"]["syncStatus"])
+        self.assertEqual("В работе", data["assignment"]["tabName"])
+        self.assertIsNone(data["client"]["linkedCounterpartyId"])
+
+    def test_non_admin_cannot_supply_another_owner_context(self) -> None:
+        response = self.client.get(f"/api/crm/tabs?ownerId={self.other_id}")
+
+        self.assertEqual(403, response.status_code)
+
+    def test_admin_must_explicitly_choose_owner_and_can_read_its_workspace(self) -> None:
+        repo = CrmRepository(self.service.db)
+        card = repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Лид владельца"})
+        work = repo.ensure_work_tab_for_actor(actor_id=self.owner_id, owner_id=self.owner_id)
+        repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=card["id"], tab_id=work["id"])
+        self.as_user(self.admin_id, "admin")
+
+        missing_context = self.client.get("/api/crm/tabs")
+        response = self.client.get(f"/api/crm/tabs?ownerId={self.owner_id}")
+
+        self.assertEqual(400, missing_context.status_code)
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(self.owner_id, response.json()["ownerId"])
+        self.assertEqual("В работе", response.json()["items"][0]["name"])
+
+    def test_personal_operations_and_admin_archive_are_server_guarded(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Лид"}).json()
+        client_id = created["client"]["id"]
+        tab_id = created["assignment"]["tabId"]
+        contact = self.client.post(f"/api/crm/clients/{client_id}/contacts", json={"name": "Ирина", "isPrimary": True})
+        event = self.client.post(f"/api/crm/clients/{client_id}/events", json={"kind": "call", "body": "Позвонили"})
+        reminder = self.client.post(f"/api/crm/clients/{client_id}/reminders", json={"dueAt": "2026-09-05T10:00:00"})
+        denied = self.client.post(f"/api/crm/clients/{client_id}/archive", json={"reason": "Нет"})
+
+        self.assertEqual(201, contact.status_code)
+        self.assertEqual(201, event.status_code)
+        self.assertEqual(201, reminder.status_code)
+        self.assertEqual(403, denied.status_code)
+        self.as_user(self.admin_id, "admin")
+        archived = self.client.post(f"/api/crm/clients/{client_id}/archive?ownerId={self.owner_id}", json={"reason": "Дубликат"})
+        audit = self.client.get(f"/api/crm/clients/{client_id}/audit?ownerId={self.owner_id}")
+
+        self.assertEqual(200, archived.status_code)
+        self.assertEqual(200, audit.status_code)
+        self.assertEqual(self.admin_id, audit.json()["items"][0]["actorUserId"])
+        self.assertEqual(self.owner_id, audit.json()["items"][0]["ownerUserId"])
+        self.assertEqual(tab_id, created["assignment"]["tabId"])
+
+    def test_owner_can_create_personal_tab_and_move_local_lead(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Лид для переноса"}).json()
+        client_id = created["client"]["id"]
+
+        tab_response = self.client.post("/api/crm/tabs", json={"name": "Перезвонить"})
+
+        self.assertEqual(201, tab_response.status_code)
+        tab = tab_response.json()["tab"]
+        moved = self.client.post(f"/api/crm/clients/{client_id}/move", json={"tabId": tab["id"]})
+
+        self.assertEqual(200, moved.status_code)
+        self.assertEqual("Перезвонить", moved.json()["assignment"]["tabName"])
+
+    def test_local_lead_is_not_readable_by_another_user_and_admin_needs_context(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Закрытый лид"}).json()
+        client_id = created["client"]["id"]
+
+        self.as_user(self.other_id)
+        denied = self.client.get(f"/api/crm/clients/{client_id}")
+        self.assertEqual(403, denied.status_code)
+
+        self.as_user(self.admin_id, "admin")
+        missing_context = self.client.get(f"/api/crm/clients/{client_id}")
+        self.assertEqual(400, missing_context.status_code)
+
+
+if __name__ == "__main__":
+    unittest.main()

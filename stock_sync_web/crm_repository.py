@@ -182,6 +182,64 @@ class CrmRepository:
         self._require_owner_access(actor_id, owner_id)
         return self._get_tab(owner_id, tab_id)
 
+    def list_tabs_for_actor(self, *, actor_id: int, owner_id: int) -> list[dict[str, Any]]:
+        """Return only the target owner's personal tabs, after the actor guard."""
+        self._require_owner_access(actor_id, owner_id)
+        self._ensure_work_tab(owner_id)
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM crm_tabs WHERE owner_user_id = ? ORDER BY sort_order, id", (owner_id,)
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_cards_for_actor(
+        self, *, actor_id: int, owner_id: int, tab_id: int | None = None, primary_only: bool = False
+    ) -> list[dict[str, Any]]:
+        """List shared 1C cards or one owner's assigned cards without leaking personal data."""
+        self._require_owner_access(actor_id, owner_id)
+        if bool(tab_id) and primary_only:
+            raise ValueError("Нельзя одновременно выбрать основную и личную вкладку.")
+        with self.db.connect() as conn:
+            if tab_id is not None:
+                self._require_row(
+                    conn, "SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена."
+                )
+                rows = conn.execute(
+                    self.db._crm_client_select()
+                    + " JOIN crm_assignments a ON a.crm_client_id = crm_clients.id"
+                    + " JOIN crm_tabs t ON t.id = a.tab_id"
+                    + " LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id"
+                    + " WHERE a.owner_user_id = ? AND a.tab_id = ? AND a.archived_at IS NULL"
+                    + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
+                    (owner_id, tab_id),
+                ).fetchall()
+            elif primary_only:
+                rows = conn.execute(
+                    self.db._crm_client_select()
+                    + " LEFT JOIN crm_assignments a ON a.crm_client_id = crm_clients.id AND a.owner_user_id = ? AND a.archived_at IS NULL"
+                    + " LEFT JOIN crm_tabs t ON t.id = a.tab_id"
+                    + " LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id"
+                    + " WHERE crm_clients.linked_counterparty_id IS NOT NULL"
+                    + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
+                    (owner_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    self.db._crm_client_select()
+                    + " JOIN crm_assignments a ON a.crm_client_id = crm_clients.id"
+                    + " JOIN crm_tabs t ON t.id = a.tab_id"
+                    + " LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id"
+                    + " WHERE a.owner_user_id = ? AND a.archived_at IS NULL"
+                    + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
+                    (owner_id,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_card_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+        return self.db.get_crm_client(client_id)
+
     def create_tab_for_actor(self, *, actor_id: int, owner_id: int, name: str) -> dict[str, Any]:
         self._require_owner_access(actor_id, owner_id)
         return self._create_tab(owner_id, name)
