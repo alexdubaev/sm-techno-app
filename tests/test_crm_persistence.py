@@ -254,6 +254,21 @@ class CrmPersistenceTest(unittest.TestCase):
         self.assertEqual("local", restored["sync_status"])
         self.assertEqual(work["id"], self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])["tab_id"])
 
+    def test_onec_pull_does_not_overwrite_linked_card_waiting_for_safe_sync(self) -> None:
+        with self.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (701, 'onec-701', '1С имя', '2026-09-04T00:00:00')")
+            conn.execute(
+                """UPDATE crm_clients SET linked_counterparty_id = 701, document_name = 'Локальная правка',
+                   name = 'Локальная правка', sync_status = 'pending' WHERE id = ?""",
+                (self.client["id"],),
+            )
+
+        self.db.upsert_crm_clients_from_counterparties([{"onec_key": "onec-701", "document_name": "Новое имя из 1С"}])
+
+        card = self.db.get_crm_client(self.client["id"])
+        self.assertEqual("Локальная правка", card["document_name"])
+        self.assertEqual("pending", card["sync_status"])
+
     def test_old_client_schema_migrates_idempotently_without_losing_document_foreign_key(self) -> None:
         path = Path(self.temp_dir.name) / "legacy.db"
         with sqlite3.connect(path) as conn:
