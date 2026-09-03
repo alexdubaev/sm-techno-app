@@ -211,31 +211,31 @@ class CrmRepository:
                     conn, "SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена."
                 )
                 rows = conn.execute(
-                    self.db._crm_client_select()
+                    "SELECT crm_clients.* FROM crm_clients"
                     + " JOIN crm_assignments a ON a.crm_client_id = crm_clients.id"
                     + " JOIN crm_tabs t ON t.id = a.tab_id"
                     + " LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id"
-                    + " WHERE a.owner_user_id = ? AND a.tab_id = ? AND a.archived_at IS NULL"
+                    + " WHERE a.owner_user_id = ? AND a.tab_id = ? AND a.archived_at IS NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
                     + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
                     (owner_id, tab_id),
                 ).fetchall()
             elif primary_only:
                 rows = conn.execute(
-                    self.db._crm_client_select()
+                    "SELECT crm_clients.* FROM crm_clients"
                     + " LEFT JOIN crm_assignments a ON a.crm_client_id = crm_clients.id AND a.owner_user_id = ? AND a.archived_at IS NULL"
                     + " LEFT JOIN crm_tabs t ON t.id = a.tab_id"
                     + " LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id"
-                    + " WHERE crm_clients.linked_counterparty_id IS NOT NULL"
+                    + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
                     + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
                     (owner_id,),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    self.db._crm_client_select()
+                    "SELECT crm_clients.* FROM crm_clients"
                     + " JOIN crm_assignments a ON a.crm_client_id = crm_clients.id"
                     + " JOIN crm_tabs t ON t.id = a.tab_id"
                     + " LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id"
-                    + " WHERE a.owner_user_id = ? AND a.archived_at IS NULL"
+                    + " WHERE a.owner_user_id = ? AND a.archived_at IS NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
                     + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
                     (owner_id,),
                 ).fetchall()

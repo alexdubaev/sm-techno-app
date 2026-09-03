@@ -185,6 +185,18 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(200, restored.status_code)
         self.assertEqual("local", self.service.db.get_crm_client(client_id)["sync_status"])
 
+    def test_active_lists_exclude_inactive_card_with_legacy_active_assignment(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Неактивный лид"}).json()
+        client_id = created["client"]["id"]
+        tab_id = created["assignment"]["tabId"]
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE crm_clients SET is_inactive = 1, sync_status = 'archived' WHERE id = ?", (client_id,))
+
+        response = self.client.get(f"/api/crm/clients?tabId={tab_id}")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual([], response.json()["items"])
+
 
 if __name__ == "__main__":
     unittest.main()
