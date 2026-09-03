@@ -192,15 +192,35 @@ class CrmApiTest(unittest.TestCase):
 
         self.as_user(self.admin_id, "admin")
         missing_context = self.client.post(f"/api/crm/clients/{client_id}/local-archive", json={"reason": "Дубликат"})
-        archived = self.client.post(f"/api/crm/clients/{client_id}/local-archive?ownerId={self.owner_id}", json={"reason": "Дубликат"})
+        stale_archive = self.client.post(
+            f"/api/crm/clients/{client_id}/local-archive?ownerId={self.owner_id}",
+            json={"reason": "Дубликат", "expectedVersion": 0},
+        )
 
         self.assertEqual(400, missing_context.status_code)
+        self.assertEqual(409, stale_archive.status_code)
+        self.assertEqual("local", self.service.db.get_crm_client(client_id)["sync_status"])
+        archived = self.client.post(
+            f"/api/crm/clients/{client_id}/local-archive?ownerId={self.owner_id}",
+            json={"reason": "Дубликат", "expectedVersion": 1},
+        )
         self.assertEqual(200, archived.status_code)
+        self.assertEqual(2, archived.json()["version"])
         self.assertEqual("archived", self.service.db.get_crm_client(client_id)["sync_status"])
 
-        restored = self.client.post(f"/api/crm/clients/{client_id}/local-restore?ownerId={self.owner_id}")
+        stale_restore = self.client.post(
+            f"/api/crm/clients/{client_id}/local-restore?ownerId={self.owner_id}",
+            json={"expectedVersion": 1},
+        )
 
+        self.assertEqual(409, stale_restore.status_code)
+        self.assertEqual("archived", self.service.db.get_crm_client(client_id)["sync_status"])
+        restored = self.client.post(
+            f"/api/crm/clients/{client_id}/local-restore?ownerId={self.owner_id}",
+            json={"expectedVersion": 2},
+        )
         self.assertEqual(200, restored.status_code)
+        self.assertEqual(3, restored.json()["version"])
         self.assertEqual("local", self.service.db.get_crm_client(client_id)["sync_status"])
 
     def test_card_update_rejects_stale_version_without_overwriting_data(self) -> None:

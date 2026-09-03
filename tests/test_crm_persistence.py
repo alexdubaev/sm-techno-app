@@ -243,14 +243,16 @@ class CrmPersistenceTest(unittest.TestCase):
         work = self.repo.ensure_work_tab(self.owner_id)
         self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
 
-        self.repo.archive_local_client(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"], reason="Дубликат")
+        archived_version = self.repo.archive_local_client(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"], reason="Дубликат", expected_version=1)
 
         archived = self.db.get_crm_client(self.client["id"])
         self.assertEqual("archived", archived["sync_status"])
         self.assertIsNone(self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"]))
 
-        self.repo.restore_local_client(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"])
+        restored_version = self.repo.restore_local_client(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"], expected_version=2)
         restored = self.db.get_crm_client(self.client["id"])
+        self.assertEqual(2, archived_version)
+        self.assertEqual(3, restored_version)
         self.assertEqual("local", restored["sync_status"])
         self.assertEqual(work["id"], self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])["tab_id"])
 
