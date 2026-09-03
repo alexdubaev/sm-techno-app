@@ -198,6 +198,32 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(200, restored.status_code)
         self.assertEqual("local", self.service.db.get_crm_client(client_id)["sync_status"])
 
+    def test_card_update_rejects_stale_version_without_overwriting_data(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Версионный лид"}).json()
+        client_id = created["client"]["id"]
+
+        initial = self.client.get(f"/api/crm/clients/{client_id}")
+        updated = self.client.patch(
+            f"/api/crm/clients/{client_id}",
+            json={"documentName": "Актуальное название", "expectedVersion": 1},
+        )
+        stale = self.client.patch(
+            f"/api/crm/clients/{client_id}",
+            json={"documentName": "Устаревшее название", "expectedVersion": 1},
+        )
+
+        self.assertEqual(200, initial.status_code)
+        self.assertEqual(1, initial.json()["client"]["version"])
+        self.assertEqual(200, updated.status_code)
+        self.assertEqual("Актуальное название", updated.json()["client"]["documentName"])
+        self.assertEqual(2, updated.json()["client"]["version"])
+        self.assertEqual(409, stale.status_code)
+        self.assertIn("Конфликт версии", stale.json()["detail"])
+        self.assertEqual(
+            "Актуальное название",
+            self.client.get(f"/api/crm/clients/{client_id}").json()["client"]["documentName"],
+        )
+
     def test_active_lists_exclude_inactive_card_with_legacy_active_assignment(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Неактивный лид"}).json()
         client_id = created["client"]["id"]

@@ -515,7 +515,7 @@ def _crm_owner(repo: CrmRepository, current_user: dict[str, Any], requested_owne
     raise AssertionError("unreachable")
 
 
-def _serialize_crm_client(row: dict[str, Any], assignment: dict[str, Any] | None = None, tab: dict[str, Any] | None = None) -> dict[str, Any]:
+def _serialize_crm_client(row: dict[str, Any], assignment: dict[str, Any] | None = None, tab: dict[str, Any] | None = None, *, version: int | None = None) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
         "name": row.get("name") or "",
@@ -531,6 +531,7 @@ def _serialize_crm_client(row: dict[str, Any], assignment: dict[str, Any] | None
         "linkedCounterpartyId": row.get("linked_counterparty_id"),
         "syncStatus": row.get("sync_status") or "local",
         "syncError": row.get("sync_error") or "",
+        "version": int(version if version is not None else row.get("version") or 1),
         "createdAt": row.get("created_at") or "",
         "updatedAt": row.get("updated_at") or "",
         "assignment": _serialize_crm_assignment(assignment, tab) if assignment else None,
@@ -1131,7 +1132,8 @@ def list_crm_clients(
         for card in repo.list_cards_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, primary_only=primary_only):
             assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
             tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
-            items.append(_serialize_crm_client(card, assignment, tab))
+            version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
+            items.append(_serialize_crm_client(card, assignment, tab, version=version))
         return {"ownerId": resolved_owner_id, "items": items}
     except Exception as exc:
         _crm_error(exc)
@@ -1148,7 +1150,8 @@ def create_crm_client(
         card = repo.create_local_client(actor_id=resolved_owner_id, values=_crm_client_values(payload))
         work_tab = repo.ensure_work_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id)
         assignment = repo.assign_client_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]), tab_id=int(work_tab["id"]))
-        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, work_tab), "assignment": _serialize_crm_assignment(assignment, work_tab)}
+        version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
+        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, work_tab, version=version), "assignment": _serialize_crm_assignment(assignment, work_tab)}
     except Exception as exc:
         _crm_error(exc)
 
@@ -1166,7 +1169,35 @@ def get_crm_client(
             raise ValueError("Клиент не найден.")
         assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
         tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
-        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab)}
+        version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab, version=version)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.patch("/api/crm/clients/{client_id}")
+def update_crm_client(
+    client_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        expected_version = int(payload.get("expectedVersion"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Укажите ожидаемую версию карточки.")
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        card, version = repo.update_card_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            values=_crm_client_values(payload),
+            expected_version=expected_version,
+        )
+        assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
+        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab, version=version)}
     except Exception as exc:
         _crm_error(exc)
 

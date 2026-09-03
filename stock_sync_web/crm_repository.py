@@ -246,6 +246,63 @@ class CrmRepository:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self.db.get_crm_client(client_id)
 
+    @staticmethod
+    def _ensure_card_version(conn: sqlite3.Connection, client_id: int) -> int:
+        conn.execute(
+            """INSERT INTO crm_sync_state(crm_client_id, version, updated_at)
+               VALUES (?, 1, ?) ON CONFLICT(crm_client_id) DO NOTHING""",
+            (client_id, utc_now()),
+        )
+        row = conn.execute("SELECT version FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)).fetchone()
+        return int(row["version"])
+
+    def get_card_version_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> int:
+        with self.db.transaction() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            return self._ensure_card_version(conn, client_id)
+
+    def update_card_for_actor(
+        self,
+        *,
+        actor_id: int,
+        owner_id: int,
+        client_id: int,
+        values: dict[str, Any],
+        expected_version: int,
+    ) -> tuple[dict[str, Any], int]:
+        allowed = {
+            "document_name", "full_name", "inn", "kpp", "city", "website",
+            "email", "phone", "notes", "contact_person", "legal_type",
+        }
+        changes = {key: value for key, value in values.items() if key in allowed}
+        if not changes:
+            raise ValueError("Укажите данные карточки для изменения.")
+        if "document_name" in changes:
+            changes["document_name"] = str(changes["document_name"] or "").strip()
+            if not changes["document_name"]:
+                raise ValueError("Укажите наименование для документов.")
+            changes["name"] = changes["document_name"]
+
+        with self.db.transaction() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            current_version = self._ensure_card_version(conn, client_id)
+            if int(expected_version) != current_version:
+                raise ValueError("Конфликт версии карточки. Загрузите актуальные данные.")
+            assignments = [f"{column} = ?" for column in changes]
+            parameters = [changes[column] for column in changes]
+            assignments.append("updated_at = ?")
+            parameters.extend([utc_now(), client_id])
+            conn.execute(f"UPDATE crm_clients SET {', '.join(assignments)} WHERE id = ?", parameters)
+            next_version = current_version + 1
+            conn.execute(
+                "UPDATE crm_sync_state SET version = ?, updated_at = ? WHERE crm_client_id = ?",
+                (next_version, utc_now(), client_id),
+            )
+        card = self.db.get_crm_client(client_id)
+        if not card:
+            raise ValueError("Клиент не найден.")
+        return card, next_version
+
     def create_tab_for_actor(self, *, actor_id: int, owner_id: int, name: str) -> dict[str, Any]:
         self._require_owner_access(actor_id, owner_id)
         return self._create_tab(owner_id, name)
