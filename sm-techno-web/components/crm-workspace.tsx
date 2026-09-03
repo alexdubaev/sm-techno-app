@@ -25,6 +25,7 @@ import {
   sendCrmClientToOneC,
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import type { AppUser, CrmAuditAction, CrmContact, CrmEvent, CrmLinkCandidate, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/types";
 
 type ActiveTab = "primary" | number;
@@ -461,6 +462,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
       setNotice("Заявка на создание в 1С снова поставлена в очередь.");
       onChanged();
     } catch (cause) {
+      setIsRetryConfirmationOpen(false);
       setError(errorMessage(cause, "Не удалось повторно поставить создание в 1С в очередь."));
     } finally { setIsSaving(null); }
   };
@@ -474,6 +476,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
       setNotice("Заявка на создание в 1С поставлена в очередь.");
       onChanged();
     } catch (cause) {
+      setIsCreateConfirmationOpen(false);
       setError(errorMessage(cause, "Не удалось поставить создание в 1С в очередь."));
     } finally { setIsSaving(null); }
   };
@@ -529,8 +532,38 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
                 {linkCandidate ? <div role="alertdialog" aria-label="Подтверждение связи с 1С" className="grid gap-2 rounded-[10px] border border-[#F0D98A] bg-[#FFF9E8] p-3 text-[11px]"><p>Связать «{currentClient.documentName || currentClient.name}» с контрагентом 1С «{linkCandidate.name}»?</p><dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-[10px] text-[var(--text-secondary)]"><dt>ИНН</dt><dd>{linkCandidate.inn}</dd>{linkCandidate.kpp ? <><dt>КПП</dt><dd>{linkCandidate.kpp}</dd></> : null}<dt>Ключ 1С</dt><dd>{linkCandidate.onecKey}</dd></dl><div className="flex gap-2"><button type="button" onClick={() => setLinkCandidate(null)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void confirmExistingLink()} disabled={isSaving !== null} className="app-action-button h-8 rounded-[8px] px-3 text-[11px]">{isSaving === "link" ? "Связываем…" : "Подтвердить связь с 1С"}</button></div></div> : null}
               </DetailSection>
             ) : null}
-            {canQueueOnecCreate ? <DetailSection title="Создание в 1С"><p className="text-[11px] text-[var(--text-secondary)]">Создание не отправляется автоматически: после подтверждения заявка будет поставлена в очередь и проверит реквизиты на сервере.</p><button type="button" onClick={() => setIsCreateConfirmationOpen(true)} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">Создать в 1С</button>{isCreateConfirmationOpen ? <div role="alertdialog" aria-label="Подтверждение создания в 1С" className="grid gap-2 rounded-[10px] border border-[#F0D98A] bg-[#FFF9E8] p-3 text-[11px]"><p>Поставить создание «{currentClient.documentName || currentClient.name}» в очередь 1С? Проверка совпадений и отправка выполняются серверной очередью от имени текущего submitter’а.</p><div className="flex gap-2"><button type="button" onClick={() => setIsCreateConfirmationOpen(false)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void queueOnecCreate()} disabled={isSaving !== null} className="app-action-button h-8 rounded-[8px] px-3 text-[11px]">{isSaving === "queue" ? "Ставим в очередь…" : "Подтвердить создание"}</button></div></div> : null}</DetailSection> : null}
-            {currentClient.syncStatus === "blocked_credentials" ? <DetailSection title="Отправка в 1С требует исправления"><p className="text-[11px] text-[var(--text-secondary)]">Исправьте учётные данные 1С для исходного submitter’а, затем повторите действие. {currentClient.syncError || "Создание не будет отправлено автоматически."}</p><button type="button" onClick={() => setIsRetryConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F0D98A] bg-[#FFF9E8] px-3 text-[11px] font-semibold text-[#92400E]">Повторить отправку в 1С</button>{isRetryConfirmationOpen ? <div role="alertdialog" aria-label="Подтверждение повторной отправки в 1С" className="grid gap-2 rounded-[10px] border border-[#F0D98A] bg-[#FFF9E8] p-3 text-[11px]"><p>Повторить создание «{currentClient.documentName || currentClient.name}» после исправления учётных данных? Очередь будет использовать только исправленные данные исходной учётной записи 1С, без подстановки данных другого сотрудника.</p><div className="flex gap-2"><button type="button" onClick={() => setIsRetryConfirmationOpen(false)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void retryBlockedOnecCreate()} disabled={isSaving !== null} className="app-action-button h-8 rounded-[8px] px-3 text-[11px]">{isSaving === "retry" ? "Ставим в очередь…" : "Подтвердить повтор"}</button></div></div> : null}</DetailSection> : null}
+            {canQueueOnecCreate ? <DetailSection title="Создание в 1С">
+              <p className="text-[11px] text-[var(--text-secondary)]">Создание не отправляется автоматически: после подтверждения заявка будет поставлена в очередь и проверит реквизиты на сервере.</p>
+              <button type="button" onClick={() => setIsCreateConfirmationOpen(true)} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">Создать в 1С</button>
+              <AlertDialog open={isCreateConfirmationOpen} onOpenChange={setIsCreateConfirmationOpen}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Подтверждение создания в 1С</AlertDialogTitle>
+                    <AlertDialogDescription>Поставить создание «{currentClient.documentName || currentClient.name}» в очередь 1С? Проверка совпадений и отправка выполняются серверной очередью от имени текущего submitter’а.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Отмена</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => void queueOnecCreate()} disabled={isSaving !== null}>{isSaving === "queue" ? "Ставим в очередь…" : "Подтвердить создание"}</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </DetailSection> : null}
+            {currentClient.syncStatus === "blocked_credentials" ? <DetailSection title="Отправка в 1С требует исправления">
+              <p className="text-[11px] text-[var(--text-secondary)]">Исправьте учётные данные 1С для исходного submitter’а, затем повторите действие. {currentClient.syncError || "Создание не будет отправлено автоматически."}</p>
+              <button type="button" onClick={() => setIsRetryConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F0D98A] bg-[#FFF9E8] px-3 text-[11px] font-semibold text-[#92400E]">Повторить отправку в 1С</button>
+              <AlertDialog open={isRetryConfirmationOpen} onOpenChange={setIsRetryConfirmationOpen}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Подтверждение повторной отправки в 1С</AlertDialogTitle>
+                    <AlertDialogDescription>Повторить создание «{currentClient.documentName || currentClient.name}» после исправления учётных данных? Очередь будет использовать только исправленные данные исходной учётной записи 1С, без подстановки данных другого сотрудника.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Отмена</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => void retryBlockedOnecCreate()} disabled={isSaving !== null}>{isSaving === "retry" ? "Ставим в очередь…" : "Подтвердить повтор"}</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </DetailSection> : null}
             {canManageLocalClient ? <DetailSection title="Административные действия"><p className="text-[11px] text-[var(--text-secondary)]">CRM сотрудника: {ownerName}</p>{currentClient.syncStatus === "archived" ? <button type="button" onClick={() => void restoreLocalClient()} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "restore" ? "Восстанавливаем…" : "Восстановить локального клиента"}</button> : <><button type="button" onClick={() => setIsArchiveConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 text-[11px] font-semibold text-[#B91C1C]">Архивировать локального клиента</button>{isArchiveConfirmationOpen ? <div role="alertdialog" aria-label="Подтверждение архивации" className="grid gap-2 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] p-3 text-[11px]"><p>Подтвердите архивирование «{currentClient.documentName || currentClient.name}» в CRM сотрудника «{ownerName}». Активные напоминания будут отменены, история сохранится.</p><label className="grid gap-1"><span className="font-semibold">Причина</span><textarea value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} className="min-h-16 rounded-[8px] border border-[#F4B9B9] bg-white px-2 py-1.5" /></label><div className="flex gap-2"><button type="button" onClick={() => setIsArchiveConfirmationOpen(false)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void archiveLocalClient()} disabled={isSaving !== null} className="h-8 rounded-[8px] bg-[#B91C1C] px-3 font-semibold text-white">{isSaving === "archive" ? "Архивируем…" : "Подтвердить архивирование"}</button></div></div>}</>}</DetailSection> : null}
             <DetailSection title="Журнал действий"><DetailEmpty items={audit} empty="Административных действий пока нет." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{auditActionLabel(item.action)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.reason || "Без комментария"}</div></div>} /></DetailSection>
           </div>

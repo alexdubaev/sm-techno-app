@@ -131,3 +131,15 @@ test("CRM detail queues a new 1C creation only through explicit confirmation", a
   assert.match(workspace, /sendCrmClientToOneC\(currentClient\.id, ownerId\)/);
   assert.match(api, /\/api\/crm\/clients\/\$\{clientId\}\/send-to-onec/);
 });
+
+test("CRM 1C create and retry confirmations use the shared accessible alert dialog", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /from "@\/components\/ui\/alert-dialog"/);
+  assert.match(workspace, /<AlertDialog open=\{isCreateConfirmationOpen\}/);
+  assert.match(workspace, /<AlertDialog open=\{isRetryConfirmationOpen\}/);
+  assert.match(workspace, /<AlertDialogAction onClick=\{\(\) => void queueOnecCreate\(\)\}/);
+  assert.match(workspace, /<AlertDialogAction onClick=\{\(\) => void retryBlockedOnecCreate\(\)\}/);
+  assert.match(workspace, /setIsCreateConfirmationOpen\(false\);\s+setError\(errorMessage\(cause, "Не удалось поставить создание в 1С в очередь\."\)\);/);
+  assert.match(workspace, /setIsRetryConfirmationOpen\(false\);\s+setError\(errorMessage\(cause, "Не удалось повторно поставить создание в 1С в очередь\."\)\);/);
+});
