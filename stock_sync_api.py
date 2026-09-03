@@ -494,6 +494,8 @@ def _crm_error(exc: Exception) -> None:
     message = str(exc)
     if "не найден" in message.lower():
         raise HTTPException(status_code=404, detail=message) from exc
+    if "конфликт" in message.lower():
+        raise HTTPException(status_code=409, detail=message) from exc
     raise HTTPException(status_code=400, detail=message) from exc
 
 

@@ -150,6 +150,19 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(1, response.json()["orderVersion"])
         self.assertEqual([first["client"]["id"], third["client"]["id"], second["client"]["id"]], response.json()["clientIds"])
 
+        stale = self.client.post(
+            f"/api/crm/tabs/{tab_id}/reorder",
+            json={
+                "clientId": second["client"]["id"],
+                "beforeClientId": None,
+                "afterClientId": None,
+                "expectedOrderVersion": 0,
+            },
+        )
+
+        self.assertEqual(409, stale.status_code)
+        self.assertIn("Конфликт версии", stale.json()["detail"])
+
     def test_admin_can_leave_linked_client_only_in_primary_list(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Связанная компания"}).json()
         client_id = created["client"]["id"]
