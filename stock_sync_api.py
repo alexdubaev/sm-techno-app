@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from stock_sync_web.service import WebStockSyncService
 from stock_sync_web.crm_export import build_crm_export_xlsx
@@ -1279,22 +1279,18 @@ def send_crm_client_to_onec(
 ) -> dict[str, Any]:
     try:
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        # Authorize in the CRM context before entering the legacy transport
-        # path, which intentionally remains the single 1C implementation.
-        existing_card = repo.get_card_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
-        if not str((existing_card or {}).get("inn") or "").strip():
-            raise ValueError("Укажите ИНН перед отправкой в 1С.")
-        if str((existing_card or {}).get("legal_type") or "legal_entity") == "legal_entity" and not str((existing_card or {}).get("kpp") or "").strip():
-            raise ValueError("Укажите КПП юридического лица перед отправкой в 1С.")
-        card, sync = SERVICE.send_client_to_onec(client_id, actor_user_id=actor_id)
+        card, version = repo.enqueue_onec_create_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+        )
         assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
         tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
-        version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
-        return {
+        return JSONResponse(status_code=202, content={
             "ownerId": resolved_owner_id,
             "client": _serialize_crm_client(card, assignment, tab, version=version),
-            "sync": sync,
-        }
+            "sync": {"status": "queued", "message": "Заявка на создание в 1С поставлена в очередь."},
+        })
     except Exception as exc:
         _crm_error(exc)
 

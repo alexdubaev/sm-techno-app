@@ -408,6 +408,54 @@ class CrmRepository:
             raise ValueError("Клиент не найден.")
         return card, next_version
 
+    def enqueue_onec_create_for_actor(
+        self,
+        *,
+        actor_id: int,
+        owner_id: int,
+        client_id: int,
+    ) -> tuple[dict[str, Any], int]:
+        """Persist an explicit local-lead creation request without contacting 1C."""
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            card = self._require_row(
+                conn,
+                "SELECT linked_counterparty_id, inn, kpp, legal_type FROM crm_clients WHERE id = ?",
+                (client_id,),
+                "Клиент не найден.",
+            )
+            if card["linked_counterparty_id"] is not None:
+                raise ValueError("Клиент уже связан с контрагентом 1С.")
+            if not str(card["inn"] or "").strip():
+                raise ValueError("Укажите ИНН перед отправкой в 1С.")
+            if str(card["legal_type"] or "legal_entity") == "legal_entity" and not str(card["kpp"] or "").strip():
+                raise ValueError("Укажите КПП юридического лица перед отправкой в 1С.")
+            version = self._ensure_card_version(conn, client_id)
+            pending = conn.execute(
+                """SELECT id FROM crm_sync_jobs
+                   WHERE crm_client_id = ? AND operation = 'create' AND status IN ('pending', 'running')
+                   ORDER BY id LIMIT 1""",
+                (client_id,),
+            ).fetchone()
+            if not pending:
+                conn.execute(
+                    """INSERT INTO crm_sync_jobs(crm_client_id, author_user_id, operation, payload, status,
+                       attempt_count, available_at, created_at, updated_at)
+                       VALUES (?, ?, 'create', ?, 'pending', 0, ?, ?, ?)""",
+                    (client_id, actor_id, json.dumps({"source_version": version}), now, now, now),
+                )
+                self._audit(conn, actor_id, owner_id, client_id, "enqueue_onec_create", "")
+            conn.execute(
+                """UPDATE crm_clients SET sync_status = 'pending', sync_error = NULL, updated_at = ?
+                   WHERE id = ?""",
+                (now, client_id),
+            )
+        result = self.db.get_crm_client(client_id)
+        if not result:
+            raise ValueError("Клиент не найден.")
+        return result, version
+
     def list_link_candidates_for_actor(
         self, *, actor_id: int, owner_id: int, client_id: int
     ) -> list[dict[str, Any]]:

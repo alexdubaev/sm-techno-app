@@ -359,6 +359,28 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(400, response.status_code)
         self.assertIn("ИНН", response.json()["detail"])
 
+    def test_explicit_onec_create_persists_a_job_without_calling_onec(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Очередной лид", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+
+        response = self.client.post(f"/api/crm/clients/{client_id}/send-to-onec")
+        with self.service.db.connect() as conn:
+            job = conn.execute(
+                "SELECT operation, author_user_id, status FROM crm_sync_jobs WHERE crm_client_id = ?",
+                (client_id,),
+            ).fetchone()
+
+        self.assertEqual(202, response.status_code, response.text)
+        self.assertEqual("queued", response.json()["sync"]["status"])
+        self.assertEqual("pending", response.json()["client"]["syncStatus"])
+        self.assertIsNotNone(job)
+        self.assertEqual("create", job["operation"])
+        self.assertEqual(self.owner_id, job["author_user_id"])
+        self.assertEqual("pending", job["status"])
+
     def test_owner_can_confirm_matching_existing_onec_counterparty(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
