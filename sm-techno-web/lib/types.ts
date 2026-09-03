@@ -192,6 +192,14 @@ export type CrmWorkspaceClient = {
   rowPreference?: CrmRowPreference | null;
 };
 
+export type CrmLinkCandidate = {
+  id: number;
+  onecKey: string;
+  name: string;
+  inn: string;
+  kpp: string;
+};
+
 export type CrmRowPreference = {
   tabId: number;
   clientId: number;

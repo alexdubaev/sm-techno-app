@@ -10,6 +10,7 @@
   CrmAuditAction,
   CrmContact,
   CrmEvent,
+  CrmLinkCandidate,
   CrmReminder,
   CrmClient,
   CrmRowPreference,
@@ -851,6 +852,31 @@ export async function createCrmClient(
       body: JSON.stringify(payload),
     },
     "Не удалось добавить клиента в CRM.",
+  );
+  return result.client;
+}
+
+export async function fetchCrmLinkCandidates(clientId: number, ownerId?: number): Promise<CrmLinkCandidate[]> {
+  const result = await requestJson<{ items: CrmLinkCandidate[] }>(
+    `/api/crm/clients/${clientId}/link-candidates${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function confirmCrmExistingLink(
+  clientId: number,
+  counterpartyId: number,
+  expectedVersion: number,
+  ownerId?: number,
+): Promise<CrmWorkspaceClient> {
+  const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients/${clientId}/link-existing${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ counterpartyId, expectedVersion }),
+    },
+    "Не удалось подтвердить связь с 1С.",
   );
   return result.client;
 }

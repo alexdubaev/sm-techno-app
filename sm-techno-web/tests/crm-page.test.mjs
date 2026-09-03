@@ -87,3 +87,18 @@ test("administrator can confirm versioned local-card archive and review its audi
   assert.match(types, /CrmAuditAction/);
   assert.match(types, /version: number/);
 });
+
+test("CRM detail shows exact 1C candidates and requires a deliberate versioned link confirmation", async () => {
+  const [workspace, api, types] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+    readFile(crmTypesUrl, "utf8"),
+  ]);
+
+  assert.match(workspace, /Найденные в 1С совпадения/);
+  assert.match(workspace, /Подтвердить связь с 1С/);
+  assert.match(workspace, /confirmCrmExistingLink\(currentClient\.id, linkCandidate\.id, currentClient\.version, ownerId\)/);
+  assert.match(api, /\/link-candidates/);
+  assert.match(api, /\/link-existing/);
+  assert.match(types, /CrmLinkCandidate/);
+});
