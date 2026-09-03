@@ -984,15 +984,23 @@ class WebDatabase(Database):
             claimed = conn.execute("SELECT * FROM crm_sync_jobs WHERE id = ?", (job["id"],)).fetchone()
         return dict(claimed) if claimed else None
 
-    def block_crm_sync_job(self, job_id: int, *, message: str) -> None:
+    def block_crm_sync_job(
+        self,
+        job_id: int,
+        *,
+        message: str,
+        status: str = "blocked_capability",
+    ) -> None:
+        if status not in {"blocked_capability", "blocked_duplicate"}:
+            raise ValueError("Недопустимый статус задания синхронизации.")
         now = utc_now()
         with self.transaction() as conn:
             job = conn.execute("SELECT crm_client_id FROM crm_sync_jobs WHERE id = ?", (job_id,)).fetchone()
             if not job:
                 raise ValueError("Задание синхронизации не найдено.")
             conn.execute(
-                "UPDATE crm_sync_jobs SET status = 'blocked_capability', updated_at = ? WHERE id = ?",
-                (now, job_id),
+                "UPDATE crm_sync_jobs SET status = ?, updated_at = ? WHERE id = ?",
+                (status, now, job_id),
             )
             newer_pending = conn.execute(
                 """SELECT id FROM crm_sync_jobs
@@ -1001,9 +1009,9 @@ class WebDatabase(Database):
             ).fetchone()
             if not newer_pending:
                 conn.execute(
-                    """UPDATE crm_clients SET sync_status = 'blocked_capability', sync_error = ?,
+                    """UPDATE crm_clients SET sync_status = ?, sync_error = ?,
                        updated_at = ? WHERE id = ?""",
-                    (message, now, job["crm_client_id"]),
+                    (status, message, now, job["crm_client_id"]),
                 )
 
     def retry_crm_sync_job(self, job_id: int, *, message: str, payload: dict[str, Any]) -> None:

@@ -296,6 +296,7 @@ class WebStockSyncService:
                 self.db.block_crm_sync_job(
                     job_id,
                     message="В 1С уже найден контрагент с такими реквизитами. Подтвердите связывание вручную.",
+                    status="blocked_duplicate",
                 )
                 return "blocked"
             created = onec_client.create_counterparty(card)

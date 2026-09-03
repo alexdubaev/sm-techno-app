@@ -429,6 +429,44 @@ class CrmApiTest(unittest.TestCase):
         self.assertIsNotNone(card["linked_counterparty_id"])
         self.assertEqual("synced", card["sync_status"])
 
+    def test_create_worker_blocks_a_preexisting_identity_for_manual_linking(self) -> None:
+        class ExistingOneC:
+            def __init__(self) -> None:
+                self.create_calls = 0
+
+            def find_counterparty_by_identity(self, **_: object) -> dict[str, object]:
+                return {
+                    "Ref_Key": "existing-crm-queue-1",
+                    "Description": "Уже существует",
+                    "НаименованиеПолное": "Уже существует",
+                    "ИНН": "7707083893",
+                    "КПП": "770701001",
+                }
+
+            def create_counterparty(self, _: dict[str, object]) -> dict[str, object]:
+                self.create_calls += 1
+                raise AssertionError("Создание при найденном совпадении запрещено")
+
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Лид с совпадением", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        fake_onec = ExistingOneC()
+        self.service.build_user_client = lambda **_: fake_onec  # type: ignore[method-assign]
+
+        result = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute("SELECT status FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchone()
+            card = conn.execute("SELECT linked_counterparty_id, sync_status FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+
+        self.assertEqual({"processed": 1, "blocked": 1}, result)
+        self.assertEqual(0, fake_onec.create_calls)
+        self.assertEqual("blocked_duplicate", job["status"])
+        self.assertIsNone(card["linked_counterparty_id"])
+        self.assertEqual("blocked_duplicate", card["sync_status"])
+
     def test_owner_can_confirm_matching_existing_onec_counterparty(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
