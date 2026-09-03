@@ -382,6 +382,36 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(self.owner_id, job["author_user_id"])
         self.assertEqual("pending", job["status"])
 
+    def test_create_worker_blocks_missing_submitter_onec_credentials_without_fallback(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Лид без учётных данных", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.service.save_system_settings({"base_url": "https://onec.example.test"})
+        self.service.update_user_profile(
+            user_id=self.admin_id,
+            full_name="Администратор",
+            onec_username="admin-onec",
+            onec_password="admin-password",
+        )
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+
+        result = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute(
+                "SELECT author_user_id, status FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)
+            ).fetchone()
+            card = conn.execute(
+                "SELECT sync_status, sync_error FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+
+        self.assertEqual({"processed": 1, "blocked": 1}, result)
+        self.assertEqual(self.owner_id, job["author_user_id"])
+        self.assertEqual("blocked_credentials", job["status"])
+        self.assertEqual("blocked_credentials", card["sync_status"])
+        self.assertIn("учётные данные", card["sync_error"].casefold())
+
     def test_create_worker_recovers_an_unknown_post_without_a_second_create(self) -> None:
         class UnknownPostOneC:
             def __init__(self) -> None:

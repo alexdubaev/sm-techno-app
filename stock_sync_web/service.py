@@ -288,6 +288,14 @@ class WebStockSyncService:
             payload = {}
         try:
             onec_client = self.build_user_client(user_id=int(job["author_user_id"]))
+        except ValueError as exc:
+            self.db.block_crm_sync_job(
+                job_id,
+                message=f"Учётные данные 1С автора заявки недоступны: {exc}",
+                status="blocked_credentials",
+            )
+            return "blocked"
+        try:
             existing = self._find_counterparty_by_identity(onec_client, card)
             if existing:
                 if payload.get("post_uncertain"):
