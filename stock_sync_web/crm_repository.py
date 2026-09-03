@@ -7,6 +7,7 @@ by :mod:`stock_sync_web.database` and the existing service layer.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any
 
@@ -274,6 +275,10 @@ class CrmRepository:
             "document_name", "full_name", "inn", "kpp", "city", "website",
             "email", "phone", "notes", "contact_person", "legal_type",
         }
+        sync_fields = {
+            "document_name", "full_name", "inn", "kpp", "city", "website",
+            "email", "phone", "legal_type",
+        }
         changes = {key: value for key, value in values.items() if key in allowed}
         if not changes:
             raise ValueError("Укажите данные карточки для изменения.")
@@ -298,6 +303,33 @@ class CrmRepository:
                 "UPDATE crm_sync_state SET version = ?, updated_at = ? WHERE crm_client_id = ?",
                 (next_version, utc_now(), client_id),
             )
+            sync_payload = {key: changes[key] for key in changes if key in sync_fields}
+            if sync_payload:
+                sync_payload["source_version"] = next_version
+                now = utc_now()
+                pending_job = conn.execute(
+                    """SELECT id FROM crm_sync_jobs
+                       WHERE crm_client_id = ? AND status IN ('pending', 'running')
+                       ORDER BY id LIMIT 1""",
+                    (client_id,),
+                ).fetchone()
+                if pending_job:
+                    conn.execute(
+                        """UPDATE crm_sync_jobs SET author_user_id = ?, operation = 'update', payload = ?,
+                           status = 'pending', available_at = ?, claimed_at = NULL, updated_at = ? WHERE id = ?""",
+                        (actor_id, json.dumps(sync_payload, ensure_ascii=False, sort_keys=True), now, now, pending_job["id"]),
+                    )
+                else:
+                    conn.execute(
+                        """INSERT INTO crm_sync_jobs(crm_client_id, author_user_id, operation, payload, status,
+                           attempt_count, available_at, created_at, updated_at)
+                           VALUES (?, ?, 'update', ?, 'pending', 0, ?, ?, ?)""",
+                        (client_id, actor_id, json.dumps(sync_payload, ensure_ascii=False, sort_keys=True), now, now, now),
+                    )
+                conn.execute(
+                    "UPDATE crm_clients SET sync_status = 'pending', sync_error = NULL, updated_at = ? WHERE id = ?",
+                    (now, client_id),
+                )
         card = self.db.get_crm_client(client_id)
         if not card:
             raise ValueError("Клиент не найден.")

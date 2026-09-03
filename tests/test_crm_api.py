@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 import os
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -223,6 +224,55 @@ class CrmApiTest(unittest.TestCase):
             "Актуальное название",
             self.client.get(f"/api/crm/clients/{client_id}").json()["client"]["documentName"],
         )
+
+    def test_card_update_coalesces_one_pending_sync_job_for_shared_fields(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Очередь лид"}).json()
+        client_id = created["client"]["id"]
+
+        first = self.client.patch(
+            f"/api/crm/clients/{client_id}",
+            json={"documentName": "Очередь лид 1", "expectedVersion": 1},
+        )
+        second = self.client.patch(
+            f"/api/crm/clients/{client_id}",
+            json={"documentName": "Очередь лид 2", "expectedVersion": 2},
+        )
+        with self.service.db.connect() as conn:
+            jobs = conn.execute(
+                "SELECT crm_client_id, author_user_id, operation, payload, status FROM crm_sync_jobs WHERE crm_client_id = ?",
+                (client_id,),
+            ).fetchall()
+            card = conn.execute("SELECT sync_status FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+
+        self.assertEqual(200, first.status_code)
+        self.assertEqual(200, second.status_code)
+        self.assertEqual(1, len(jobs))
+        self.assertEqual(client_id, jobs[0]["crm_client_id"])
+        self.assertEqual(self.owner_id, jobs[0]["author_user_id"])
+        self.assertEqual("update", jobs[0]["operation"])
+        self.assertEqual("pending", jobs[0]["status"])
+        self.assertEqual("Очередь лид 2", json.loads(jobs[0]["payload"])["document_name"])
+        self.assertEqual("pending", card["sync_status"])
+
+    def test_local_lead_update_without_identity_does_not_enqueue_onec_sync(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Локальный без ИНН"}).json()
+        client_id = created["client"]["id"]
+
+        response = self.client.patch(
+            f"/api/crm/clients/{client_id}",
+            json={"documentName": "Локальный без ИНН: уточнён", "expectedVersion": 1},
+        )
+        with self.service.db.connect() as conn:
+            jobs = conn.execute(
+                "SELECT id FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)
+            ).fetchall()
+            card = conn.execute(
+                "SELECT sync_status FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual([], jobs)
+        self.assertEqual("local", card["sync_status"])
 
     def test_active_lists_exclude_inactive_card_with_legacy_active_assignment(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Неактивный лид"}).json()
