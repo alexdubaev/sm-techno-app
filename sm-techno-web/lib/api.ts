@@ -7,6 +7,7 @@
   Contract,
   Counterparty,
   CrmAssignment,
+  CrmAuditAction,
   CrmContact,
   CrmEvent,
   CrmReminder,
@@ -790,6 +791,13 @@ export async function fetchCrmEvents(clientId: number, ownerId?: number): Promis
   return result.items;
 }
 
+export async function fetchCrmAudit(clientId: number, ownerId?: number): Promise<CrmAuditAction[]> {
+  const result = await requestJson<{ items: CrmAuditAction[] }>(
+    `/api/crm/clients/${clientId}/audit${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
 export async function createCrmEvent(
   clientId: number,
   payload: { kind: string; body: string },
@@ -879,6 +887,30 @@ export async function saveCrmRowPreference(
     "Не удалось сохранить оформление строки.",
   );
   return result.preference;
+}
+
+export async function archiveLocalCrmClient(
+  clientId: number,
+  payload: { reason: string; expectedVersion: number },
+  ownerId?: number,
+): Promise<{ version: number }> {
+  return requestJsonWithInit<{ ok: true; version: number }>(
+    `/api/crm/clients/${clientId}/local-archive${buildCrmQuery({ ownerId })}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+    "Не удалось архивировать локального клиента.",
+  );
+}
+
+export async function restoreLocalCrmClient(
+  clientId: number,
+  payload: { expectedVersion: number },
+  ownerId?: number,
+): Promise<{ version: number }> {
+  return requestJsonWithInit<{ ok: true; version: number }>(
+    `/api/crm/clients/${clientId}/local-restore${buildCrmQuery({ ownerId })}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+    "Не удалось восстановить локального клиента.",
+  );
 }
 
 export async function sendClientToOneC(clientId: number): Promise<CreateClientResponse> {

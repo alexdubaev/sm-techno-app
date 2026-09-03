@@ -3,22 +3,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import {
+  archiveLocalCrmClient,
   downloadCrmExportFile,
   createCrmContact,
   createCrmClient,
   createCrmEvent,
   createCrmReminder,
   fetchCrmClients,
+  fetchCrmAudit,
   fetchCrmContacts,
   fetchCrmEvents,
   fetchCrmReminders,
   fetchCrmTabs,
   fetchUsers,
   moveCrmClient,
+  restoreLocalCrmClient,
   saveCrmRowPreference,
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
-import type { AppUser, CrmContact, CrmEvent, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/types";
+import type { AppUser, CrmAuditAction, CrmContact, CrmEvent, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/types";
 
 type ActiveTab = "primary" | number;
 type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "sync_error";
@@ -280,7 +283,7 @@ export function CrmWorkspace() {
       </div>
 
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
-      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} onClose={() => setSelectedClient(null)} /> : null}
+      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} onChanged={() => void loadWorkspace(activeTab, { silent: true })} onClose={() => setSelectedClient(null)} /> : null}
     </section>
   );
 }
@@ -311,34 +314,45 @@ function LoadingRows() { return <div className="mt-4 space-y-2" aria-label="За
 function Message({ children, tone }: { children: string; tone: "error" | "success" }) { return <div className={`mt-3 rounded-[10px] border px-3 py-2 text-[11px] ${tone === "error" ? "border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBE6CA] bg-[#F0FDF4] text-[#166534]"}`}>{children}</div>; }
 function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: ReturnType<typeof emptyClientForm>; isSaving: boolean; onChange: (form: ReturnType<typeof emptyClientForm>) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { const update = (key: keyof ReturnType<typeof emptyClientForm>, value: string) => onChange({ ...form, [key]: value }); return <div role="dialog" aria-modal="true" aria-labelledby="crm-new-client-title" className="fixed inset-0 z-50 flex items-end bg-[#07162e]/35 p-2 sm:items-center sm:justify-center sm:p-4"><form onSubmit={onSubmit} className="w-full max-w-[620px] rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><h2 id="crm-new-client-title" className="text-[19px] font-bold tracking-[-0.03em]">Новый локальный клиент</h2><p className="mt-1 text-[11px] text-[var(--text-secondary)]">Будет сохранён локально во вкладке «В работе» без отправки в 1С.</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Наименование компании *" value={form.documentName} onChange={(value) => update("documentName", value)} autoFocus /><Field label="Город" value={form.city} onChange={(value) => update("city", value)} /><Field label="Контактное лицо" value={form.contactPerson} onChange={(value) => update("contactPerson", value)} /><Field label="Телефон" value={form.phone} onChange={(value) => update("phone", value)} type="tel" /><Field label="Почта" value={form.email} onChange={(value) => update("email", value)} type="email" /><label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Комментарий</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-10 rounded-[10px] border border-[var(--border-color)] px-3 py-2 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-10 rounded-[11px] px-3 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Отмена</button><button type="submit" disabled={isSaving} className="app-action-button h-10 rounded-[11px] px-4 text-[12px]">{isSaving ? "Сохраняем…" : "Добавить клиента"}</button></div></form></div>; }
 
-function ClientDetailDialog({ client, ownerId, onClose }: { client: CrmWorkspaceClient; ownerId: number; onClose: () => void }) {
+function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, onClose }: { client: CrmWorkspaceClient; ownerId: number; ownerName: string; isAdmin: boolean; onChanged: () => void; onClose: () => void }) {
+  const [currentClient, setCurrentClient] = useState(client);
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [events, setEvents] = useState<CrmEvent[]>([]);
   const [reminders, setReminders] = useState<CrmReminder[]>([]);
+  const [audit, setAudit] = useState<CrmAuditAction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | null>(null);
+  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "archive" | "restore" | null>(null);
   const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", isPrimary: false });
   const [eventForm, setEventForm] = useState({ kind: "comment", body: "" });
   const [reminderDueAt, setReminderDueAt] = useState("");
+  const [archiveReason, setArchiveReason] = useState("");
+  const [isArchiveConfirmationOpen, setIsArchiveConfirmationOpen] = useState(false);
+
+  useEffect(() => { setCurrentClient(client); setIsArchiveConfirmationOpen(false); }, [client]);
+
+  const refreshAudit = useCallback(async () => {
+    setAudit(await fetchCrmAudit(currentClient.id, ownerId));
+  }, [currentClient.id, ownerId]);
 
   useEffect(() => {
     let active = true;
     setIsLoading(true);
     setError(null);
-    void Promise.all([fetchCrmContacts(client.id, ownerId), fetchCrmEvents(client.id, ownerId), fetchCrmReminders(ownerId)])
-      .then(([nextContacts, nextEvents, nextReminders]) => {
+    void Promise.all([fetchCrmContacts(currentClient.id, ownerId), fetchCrmEvents(currentClient.id, ownerId), fetchCrmReminders(ownerId), fetchCrmAudit(currentClient.id, ownerId)])
+      .then(([nextContacts, nextEvents, nextReminders, nextAudit]) => {
         if (!active) return;
         setContacts(nextContacts);
         setEvents(nextEvents);
         setReminders(nextReminders.filter((reminder) => reminder.clientId === client.id));
+        setAudit(nextAudit);
       })
       .catch((cause) => {
         if (active) setError(errorMessage(cause, "Не удалось загрузить карточку клиента."));
       })
       .finally(() => { if (active) setIsLoading(false); });
     return () => { active = false; };
-  }, [client.id, ownerId]);
+  }, [currentClient.id, ownerId]);
 
   const saveContact = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -388,12 +402,40 @@ function ClientDetailDialog({ client, ownerId, onClose }: { client: CrmWorkspace
     } finally { setIsSaving(null); }
   };
 
-  return <div role="dialog" aria-modal="true" aria-labelledby="crm-client-detail-title" className="fixed inset-0 z-50 overflow-y-auto bg-[#07162e]/35 p-2 sm:p-5"><div className="mx-auto my-3 w-full max-w-5xl rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">Карточка клиента</p><h2 id="crm-client-detail-title" className="mt-1 text-[20px] font-bold tracking-[-0.03em]">{client.documentName || client.fullName || client.name}</h2><p className="mt-1 text-[12px] text-[var(--text-secondary)]">{[client.city, client.inn && `ИНН ${client.inn}`, client.website].filter(Boolean).join(" · ") || "Реквизиты не указаны"}</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div>{error ? <Message tone="error">{error}</Message> : null}{isLoading ? <div className="mt-5"><LoadingRows /></div> : <div className="mt-5 grid gap-4 lg:grid-cols-3"><DetailSection title="Контакты"><form onSubmit={saveContact} className="grid gap-2"><Field label="Имя *" value={contactForm.name} onChange={(name) => setContactForm((form) => ({ ...form, name }))} /><Field label="Телефон" value={contactForm.phone} onChange={(phone) => setContactForm((form) => ({ ...form, phone }))} type="tel" /><Field label="Почта" value={contactForm.email} onChange={(email) => setContactForm((form) => ({ ...form, email }))} type="email" /><label className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><input type="checkbox" checked={contactForm.isPrimary} onChange={(event) => setContactForm((form) => ({ ...form, isPrimary: event.target.checked }))} />Основной контакт</label><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "contact" ? "Сохраняем…" : "Добавить контакт"}</button></form><DetailEmpty items={contacts} empty="Контактов пока нет." render={(contact) => <div key={contact.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{contact.name}{contact.isPrimary ? " · основной" : ""}</div><div className="mt-0.5 text-[var(--text-secondary)]">{[contact.phone, contact.email].filter(Boolean).join(" · ") || "Контакты не указаны"}</div></div>} /></DetailSection><DetailSection title="История"><form onSubmit={saveEvent} className="grid gap-2"><select value={eventForm.kind} onChange={(event) => setEventForm((form) => ({ ...form, kind: event.target.value }))} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px]"><option value="comment">Комментарий</option><option value="call">Звонок</option><option value="meeting">Встреча</option><option value="email">Письмо</option></select><textarea value={eventForm.body} onChange={(event) => setEventForm((form) => ({ ...form, body: event.target.value }))} placeholder="Что произошло?" className="min-h-20 rounded-[9px] border border-[var(--border-color)] px-2 py-2 text-[11px] outline-none focus:border-[var(--brand-yellow)]" /><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "event" ? "Сохраняем…" : "Добавить событие"}</button></form><DetailEmpty items={events} empty="История пока пуста." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{eventLabel(item.kind)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.body}</div></div>} /></DetailSection><DetailSection title="Напоминания"><form onSubmit={saveReminder} className="grid gap-2"><label className="flex flex-col gap-1 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Дата и время</span><input type="datetime-local" value={reminderDueAt} onChange={(event) => setReminderDueAt(event.target.value)} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px] font-normal" /></label><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "reminder" ? "Сохраняем…" : "Добавить напоминание"}</button></form><DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatDate(reminder.dueAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div></div>} /></DetailSection></div>}</div></div>;
+  const archiveLocalClient = async () => {
+    setIsSaving("archive"); setError(null);
+    try {
+      const result = await archiveLocalCrmClient(currentClient.id, { reason: archiveReason.trim(), expectedVersion: currentClient.version }, ownerId);
+      setCurrentClient((item) => ({ ...item, syncStatus: "archived", syncError: archiveReason.trim(), version: result.version }));
+      setIsArchiveConfirmationOpen(false);
+      await refreshAudit();
+      onChanged();
+    } catch (cause) {
+      setError(errorMessage(cause, "Не удалось архивировать локального клиента. Изменение отменено."));
+    } finally { setIsSaving(null); }
+  };
+
+  const restoreLocalClient = async () => {
+    setIsSaving("restore"); setError(null);
+    try {
+      const result = await restoreLocalCrmClient(currentClient.id, { expectedVersion: currentClient.version }, ownerId);
+      setCurrentClient((item) => ({ ...item, syncStatus: "local", syncError: "", version: result.version }));
+      await refreshAudit();
+      onChanged();
+    } catch (cause) {
+      setError(errorMessage(cause, "Не удалось восстановить локального клиента. Изменение отменено."));
+    } finally { setIsSaving(null); }
+  };
+
+  const canManageLocalClient = isAdmin && currentClient.linkedCounterpartyId === null;
+
+  return <div role="dialog" aria-modal="true" aria-labelledby="crm-client-detail-title" className="fixed inset-0 z-50 overflow-y-auto bg-[#07162e]/35 p-2 sm:p-5"><div className="mx-auto my-3 w-full max-w-5xl rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">Карточка клиента</p><h2 id="crm-client-detail-title" className="mt-1 text-[20px] font-bold tracking-[-0.03em]">{currentClient.documentName || currentClient.fullName || currentClient.name}</h2><p className="mt-1 text-[12px] text-[var(--text-secondary)]">{[currentClient.city, currentClient.inn && `ИНН ${currentClient.inn}`, currentClient.website].filter(Boolean).join(" · ") || "Реквизиты не указаны"}</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div>{error ? <Message tone="error">{error}</Message> : null}{isLoading ? <div className="mt-5"><LoadingRows /></div> : <div className="mt-5 grid gap-4 lg:grid-cols-3"><DetailSection title="Контакты"><form onSubmit={saveContact} className="grid gap-2"><Field label="Имя *" value={contactForm.name} onChange={(name) => setContactForm((form) => ({ ...form, name }))} /><Field label="Телефон" value={contactForm.phone} onChange={(phone) => setContactForm((form) => ({ ...form, phone }))} type="tel" /><Field label="Почта" value={contactForm.email} onChange={(email) => setContactForm((form) => ({ ...form, email }))} type="email" /><label className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><input type="checkbox" checked={contactForm.isPrimary} onChange={(event) => setContactForm((form) => ({ ...form, isPrimary: event.target.checked }))} />Основной контакт</label><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "contact" ? "Сохраняем…" : "Добавить контакт"}</button></form><DetailEmpty items={contacts} empty="Контактов пока нет." render={(contact) => <div key={contact.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{contact.name}{contact.isPrimary ? " · основной" : ""}</div><div className="mt-0.5 text-[var(--text-secondary)]">{[contact.phone, contact.email].filter(Boolean).join(" · ") || "Контакты не указаны"}</div></div>} /></DetailSection><DetailSection title="История"><form onSubmit={saveEvent} className="grid gap-2"><select value={eventForm.kind} onChange={(event) => setEventForm((form) => ({ ...form, kind: event.target.value }))} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px]"><option value="comment">Комментарий</option><option value="call">Звонок</option><option value="meeting">Встреча</option><option value="email">Письмо</option></select><textarea value={eventForm.body} onChange={(event) => setEventForm((form) => ({ ...form, body: event.target.value }))} placeholder="Что произошло?" className="min-h-20 rounded-[9px] border border-[var(--border-color)] px-2 py-2 text-[11px] outline-none focus:border-[var(--brand-yellow)]" /><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "event" ? "Сохраняем…" : "Добавить событие"}</button></form><DetailEmpty items={events} empty="История пока пуста." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{eventLabel(item.kind)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.body}</div></div>} /></DetailSection><DetailSection title="Напоминания"><form onSubmit={saveReminder} className="grid gap-2"><label className="flex flex-col gap-1 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Дата и время</span><input type="datetime-local" value={reminderDueAt} onChange={(event) => setReminderDueAt(event.target.value)} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px] font-normal" /></label><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "reminder" ? "Сохраняем…" : "Добавить напоминание"}</button></form><DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatDate(reminder.dueAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div></div>} /></DetailSection>{canManageLocalClient ? <DetailSection title="Административные действия"><p className="text-[11px] text-[var(--text-secondary)]">CRM сотрудника: {ownerName}</p>{currentClient.syncStatus === "archived" ? <button type="button" onClick={() => void restoreLocalClient()} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "restore" ? "Восстанавливаем…" : "Восстановить локального клиента"}</button> : <><button type="button" onClick={() => setIsArchiveConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 text-[11px] font-semibold text-[#B91C1C]">Архивировать локального клиента</button>{isArchiveConfirmationOpen ? <div role="alertdialog" aria-label="Подтверждение архивации" className="grid gap-2 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] p-3 text-[11px]"><p>Подтвердите архивирование «{currentClient.documentName || currentClient.name}» в CRM сотрудника «{ownerName}». Активные напоминания будут отменены, история сохранится.</p><label className="grid gap-1"><span className="font-semibold">Причина</span><textarea value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} className="min-h-16 rounded-[8px] border border-[#F4B9B9] bg-white px-2 py-1.5" /></label><div className="flex gap-2"><button type="button" onClick={() => setIsArchiveConfirmationOpen(false)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void archiveLocalClient()} disabled={isSaving !== null} className="h-8 rounded-[8px] bg-[#B91C1C] px-3 font-semibold text-white">{isSaving === "archive" ? "Архивируем…" : "Подтвердить архивирование"}</button></div></div>}</>}</DetailSection> : null}<DetailSection title="Журнал действий"><DetailEmpty items={audit} empty="Административных действий пока нет." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{auditActionLabel(item.action)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.reason || "Без комментария"}</div></div>} /></DetailSection></div>}</div></div>;
 }
 
 function DetailSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="rounded-[14px] border border-[var(--border-color)] p-3"><h3 className="text-[13px] font-bold">{title}</h3><div className="mt-3 grid gap-3">{children}</div></section>; }
 function DetailEmpty<T extends { id: number }>({ items, empty, render }: { items: T[]; empty: string; render: (item: T) => React.ReactNode }) { return <div className="grid gap-2">{items.length ? items.map(render) : <p className="text-[11px] text-[var(--text-secondary)]">{empty}</p>}</div>; }
 function eventLabel(kind: string) { return ({ comment: "Комментарий", call: "Звонок", meeting: "Встреча", email: "Письмо" } as Record<string, string>)[kind] ?? kind; }
+function auditActionLabel(action: string) { return ({ archive_local_client: "Локальный клиент архивирован", restore_local_client: "Локальный клиент восстановлен", archive_assignment: "Назначение архивировано", restore_assignment: "Назначение восстановлено" } as Record<string, string>)[action] ?? action; }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value || "Только что" : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }); }
 function Field({ label, value, onChange, type = "text", autoFocus = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; autoFocus?: boolean }) { return <label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>{label}</span><input autoFocus={autoFocus} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label>; }
 function errorMessage(cause: unknown, fallback: string) { return cause instanceof Error && cause.message.trim() ? cause.message : fallback; }

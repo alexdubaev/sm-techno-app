@@ -172,6 +172,7 @@ export type CrmAssignment = {
 
 export type CrmWorkspaceClient = {
   id: number;
+  version: number;
   name: string;
   documentName: string;
   fullName: string;
@@ -216,6 +217,16 @@ export type CrmEvent = {
   authorUserId: number | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type CrmAuditAction = {
+  id: number;
+  actorUserId: number;
+  ownerUserId: number;
+  clientId: number;
+  action: string;
+  reason: string;
+  createdAt: string;
 };
 
 export type CrmReminder = {

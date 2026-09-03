@@ -64,7 +64,26 @@ test("administrator CRM workspace keeps the selected owner explicit across actio
   assert.match(workspace, /moveCrmClient\(client\.id, targetTabId, ownerId\)/);
   assert.match(workspace, /saveCrmRowPreference\(client\.id, \{ tabId: activeTab, colorKey, position: 0 \}, ownerId\)/);
   assert.match(workspace, /downloadCrmExportFile\(\{ scope, tabId: scope === "tab" \? activeTab : undefined, ownerId \}\)/);
-  assert.match(workspace, /fetchCrmContacts\(client\.id, ownerId\)/);
-  assert.match(workspace, /fetchCrmEvents\(client\.id, ownerId\)/);
+  assert.match(workspace, /fetchCrmContacts\(currentClient\.id, ownerId\)/);
+  assert.match(workspace, /fetchCrmEvents\(currentClient\.id, ownerId\)/);
   assert.match(workspace, /fetchCrmReminders\(ownerId\)/);
+});
+
+test("administrator can confirm versioned local-card archive and review its audit trail", async () => {
+  const [workspace, api, types] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+    readFile(crmTypesUrl, "utf8"),
+  ]);
+
+  assert.match(workspace, /Архивировать локального клиента/);
+  assert.match(workspace, /CRM сотрудника/);
+  assert.match(workspace, /expectedVersion: currentClient\.version/);
+  assert.match(workspace, /fetchCrmAudit\(currentClient\.id, ownerId\)/);
+  assert.match(workspace, /archive_local_client/);
+  assert.match(api, /\/local-archive/);
+  assert.match(api, /\/local-restore/);
+  assert.match(api, /expectedVersion: number/);
+  assert.match(types, /CrmAuditAction/);
+  assert.match(types, /version: number/);
 });
