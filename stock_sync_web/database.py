@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS crm_clients (
     signer_name TEXT,
     signer_basis TEXT,
     notes TEXT,
+    crm_owner_user_id INTEGER,
     linked_counterparty_id INTEGER,
     sync_status TEXT NOT NULL DEFAULT 'local',
     sync_error TEXT,
@@ -78,6 +79,7 @@ CREATE TABLE IF NOT EXISTS crm_clients (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY(linked_counterparty_id) REFERENCES counterparties(id)
+    ,FOREIGN KEY(crm_owner_user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS commercial_offers (
@@ -165,7 +167,7 @@ CREATE TABLE IF NOT EXISTS crm_assignments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL,
     crm_client_id INTEGER NOT NULL,
-    tab_id INTEGER,
+    tab_id INTEGER NOT NULL,
     archived_at TEXT,
     archived_by_user_id INTEGER,
     archive_reason TEXT,
@@ -425,6 +427,7 @@ class WebDatabase(Database):
             "sync_status": "ALTER TABLE crm_clients ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'local'",
             "sync_error": "ALTER TABLE crm_clients ADD COLUMN sync_error TEXT",
             "onec_synced_at": "ALTER TABLE crm_clients ADD COLUMN onec_synced_at TEXT",
+            "crm_owner_user_id": "ALTER TABLE crm_clients ADD COLUMN crm_owner_user_id INTEGER",
         }
         for column_name, ddl in client_migrations.items():
             if column_name not in client_columns:
@@ -474,14 +477,57 @@ class WebDatabase(Database):
 
         self._backfill_crm_client_inferred_fields(conn)
 
+        # Existing accounts get their immutable personal workspace during the
+        # idempotent migration; new accounts are handled by create_user().
+        now = utc_now()
+        conn.execute(
+            """INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at)
+               SELECT u.id, 'В работе', 'work', 0, ?, ? FROM users u
+               WHERE NOT EXISTS (SELECT 1 FROM crm_tabs t WHERE t.owner_user_id = u.id AND t.system_kind = 'work')""",
+            (now, now),
+        )
+        conn.execute(
+            """UPDATE crm_assignments
+               SET tab_id = (SELECT id FROM crm_tabs t WHERE t.owner_user_id = crm_assignments.owner_user_id AND t.system_kind = 'work')
+               WHERE tab_id IS NULL"""
+        )
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_name ON crm_clients(name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_inn ON crm_clients(inn)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_sync_status ON crm_clients(sync_status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_owner ON crm_clients(crm_owner_user_id)")
+        duplicate_link = conn.execute("SELECT 1 FROM crm_clients WHERE linked_counterparty_id IS NOT NULL GROUP BY linked_counterparty_id HAVING COUNT(*) > 1 LIMIT 1").fetchone()
+        if not duplicate_link:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_clients_linked_counterparty_unique ON crm_clients(linked_counterparty_id) WHERE linked_counterparty_id IS NOT NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_assignments_owner_tab ON crm_assignments(owner_user_id, tab_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_contacts_owner_client ON crm_contacts(owner_user_id, crm_client_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_events_owner_client ON crm_events(owner_user_id, crm_client_id, created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_reminders_owner_status_due ON crm_reminders(owner_user_id, status, due_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_sync_jobs_status_available ON crm_sync_jobs(status, available_at)")
+        conn.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_crm_assignment_tab_owner_insert
+            BEFORE INSERT ON crm_assignments
+            FOR EACH ROW WHEN NEW.tab_id IS NULL OR NOT EXISTS (
+                SELECT 1 FROM crm_tabs WHERE id = NEW.tab_id AND owner_user_id = NEW.owner_user_id
+            ) BEGIN SELECT RAISE(ABORT, 'CRM assignment tab must belong to owner'); END;
+            CREATE TRIGGER IF NOT EXISTS trg_crm_assignment_tab_owner_update
+            BEFORE UPDATE OF tab_id, owner_user_id ON crm_assignments
+            FOR EACH ROW WHEN NEW.tab_id IS NULL OR NOT EXISTS (
+                SELECT 1 FROM crm_tabs WHERE id = NEW.tab_id AND owner_user_id = NEW.owner_user_id
+            ) BEGIN SELECT RAISE(ABORT, 'CRM assignment tab must belong to owner'); END;
+            CREATE TRIGGER IF NOT EXISTS trg_crm_preference_tab_owner_insert
+            BEFORE INSERT ON crm_row_preferences
+            FOR EACH ROW WHEN NOT EXISTS (
+                SELECT 1 FROM crm_tabs WHERE id = NEW.tab_id AND owner_user_id = NEW.owner_user_id
+            ) BEGIN SELECT RAISE(ABORT, 'CRM preference tab must belong to owner'); END;
+            CREATE TRIGGER IF NOT EXISTS trg_crm_preference_tab_owner_update
+            BEFORE UPDATE OF tab_id, owner_user_id ON crm_row_preferences
+            FOR EACH ROW WHEN NOT EXISTS (
+                SELECT 1 FROM crm_tabs WHERE id = NEW.tab_id AND owner_user_id = NEW.owner_user_id
+            ) BEGIN SELECT RAISE(ABORT, 'CRM preference tab must belong to owner'); END;
+            """
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_created ON commercial_offers(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_owner ON commercial_offers(created_by_user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offer_lines_offer ON commercial_offer_lines(offer_id)")
@@ -636,6 +682,11 @@ class WebDatabase(Database):
                     now,
                     now,
                 ),
+            )
+            conn.execute(
+                """INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at)
+                   VALUES (?, 'В работе', 'work', 0, ?, ?)""",
+                (int(cursor.lastrowid), now, now),
             )
         return int(cursor.lastrowid)
 

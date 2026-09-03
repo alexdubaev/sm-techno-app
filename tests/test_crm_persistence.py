@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
 from stock_sync_web.crm_repository import CrmRepository
@@ -100,6 +101,51 @@ class CrmPersistenceTest(unittest.TestCase):
 
         with self.assertRaisesRegex(PermissionError, "администратор"):
             self.repo.archive_assignment(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], reason="Нет")
+
+    def test_local_client_is_private_and_cannot_be_guessed_by_another_owner(self) -> None:
+        other = self.db.create_user(username="other", password="password", role="user")
+        self.repo.claim_local_client(self.owner_id, self.client["id"])
+        other_work = self.repo.ensure_work_tab(other)
+
+        with self.assertRaisesRegex(PermissionError, "доступ"):
+            self.repo.assign_client_for_actor(actor_id=other, owner_id=other, client_id=self.client["id"], tab_id=other_work["id"])
+        with self.assertRaisesRegex(PermissionError, "доступ"):
+            self.repo.list_contacts_for_actor(actor_id=other, owner_id=self.owner_id, client_id=self.client["id"])
+
+    def test_work_tabs_are_backfilled_and_reserved_names_are_case_insensitive(self) -> None:
+        newcomer = self.db.create_user(username="newcomer", password="password", role="user")
+        work = self.repo.get_work_tab(newcomer)
+        self.assertIsNotNone(work)
+        for reserved in ("в РАБОТЕ", "КЛИЕНТЫ 1С"):
+            with self.assertRaises(ValueError):
+                self.repo.create_tab(newcomer, reserved)
+
+    def test_move_preserves_color_and_records_actor_and_tab_transition(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        target = self.repo.create_tab(self.owner_id, "Перезвонить")
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
+        self.repo.set_row_preference(self.owner_id, work["id"], self.client["id"], color_key="blue", position=10)
+
+        self.repo.move_client(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=target["id"])
+
+        self.assertEqual("blue", self.repo.get_row_preference(self.owner_id, target["id"], self.client["id"])["color_key"])
+        event = self.repo.list_events(self.owner_id, self.client["id"])[0]
+        self.assertEqual("move", event["kind"])
+        self.assertEqual(self.owner_id, event["author_user_id"])
+        self.assertIn("В работе", event["body"])
+        self.assertIn("Перезвонить", event["body"])
+
+    def test_old_client_schema_migrates_idempotently_without_losing_document_foreign_key(self) -> None:
+        path = Path(self.temp_dir.name) / "legacy.db"
+        with sqlite3.connect(path) as conn:
+            conn.execute("CREATE TABLE crm_clients (id INTEGER PRIMARY KEY, name TEXT NOT NULL, contact_person TEXT, email TEXT, phone TEXT, notes TEXT, linked_counterparty_id INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+            conn.execute("INSERT INTO crm_clients VALUES (41, 'Старый клиент', NULL, NULL, NULL, NULL, NULL, '2026-01-01', '2026-01-01')")
+
+        migrated = WebDatabase(path)
+        migrated.initialize()
+        self.assertEqual(41, migrated.get_crm_client(41)["id"])
+        with migrated.connect() as conn:
+            self.assertIn("crm_owner_user_id", {row["name"] for row in conn.execute("PRAGMA table_info(crm_clients)")})
 
 
 if __name__ == "__main__":
