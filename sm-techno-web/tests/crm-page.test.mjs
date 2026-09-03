@@ -102,3 +102,19 @@ test("CRM detail shows exact 1C candidates and requires a deliberate versioned l
   assert.match(api, /\/link-existing/);
   assert.match(types, /CrmLinkCandidate/);
 });
+
+test("CRM detail makes credential-blocked 1C creation visible and retries only after confirmation", async () => {
+  const [workspace, api, types] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+    readFile(crmTypesUrl, "utf8"),
+  ]);
+
+  assert.match(workspace, /blocked_credentials/);
+  assert.match(workspace, /Исправьте учётные данные 1С/);
+  assert.match(workspace, /Подтверждение повторной отправки в 1С/);
+  assert.match(workspace, /исходной учётной записи 1С/);
+  assert.match(workspace, /retryCrmOnecCreate\(currentClient\.id, ownerId\)/);
+  assert.match(api, /\/retry-onec/);
+  assert.match(types, /"blocked_credentials"/);
+});
