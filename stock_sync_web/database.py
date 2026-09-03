@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS crm_clients (
     bank_account TEXT,
     correspondent_account TEXT,
     contact_person TEXT,
+    city TEXT,
+    website TEXT,
     email TEXT,
     email_note TEXT,
     phone TEXT,
@@ -142,6 +144,133 @@ CREATE TABLE IF NOT EXISTS documents (
     FOREIGN KEY(counterparty_id) REFERENCES counterparties(id),
     FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
     FOREIGN KEY(commercial_offer_id) REFERENCES commercial_offers(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_tabs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    system_kind TEXT NOT NULL DEFAULT 'custom' CHECK(system_kind IN ('work', 'custom')),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    UNIQUE(owner_user_id, name)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_tabs_one_work_per_owner
+ON crm_tabs(owner_user_id) WHERE system_kind = 'work';
+
+CREATE TABLE IF NOT EXISTS crm_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    tab_id INTEGER,
+    archived_at TEXT,
+    archived_by_user_id INTEGER,
+    archive_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(tab_id) REFERENCES crm_tabs(id),
+    FOREIGN KEY(archived_by_user_id) REFERENCES users(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_assignments_one_active_per_owner_client
+ON crm_assignments(owner_user_id, crm_client_id) WHERE archived_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS crm_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT,
+    phone TEXT,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    author_user_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(author_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    due_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'completed', 'cancelled')),
+    completed_at TEXT,
+    cancelled_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_row_preferences (
+    owner_user_id INTEGER NOT NULL,
+    tab_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    color_key TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    order_version INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(owner_user_id, tab_id, crm_client_id),
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(tab_id) REFERENCES crm_tabs(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_audit_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id INTEGER NOT NULL,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER,
+    action TEXT NOT NULL,
+    reason TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(actor_user_id) REFERENCES users(id),
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_sync_state (
+    crm_client_id INTEGER PRIMARY KEY,
+    version INTEGER NOT NULL DEFAULT 1,
+    last_synced_snapshot TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_sync_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    crm_client_id INTEGER NOT NULL,
+    author_user_id INTEGER NOT NULL,
+    operation TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    available_at TEXT NOT NULL,
+    claimed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(author_user_id) REFERENCES users(id)
 );
 """
 
@@ -285,6 +414,8 @@ class WebDatabase(Database):
             "correspondent_account": "ALTER TABLE crm_clients ADD COLUMN correspondent_account TEXT",
             "email_note": "ALTER TABLE crm_clients ADD COLUMN email_note TEXT",
             "phone_note": "ALTER TABLE crm_clients ADD COLUMN phone_note TEXT",
+            "city": "ALTER TABLE crm_clients ADD COLUMN city TEXT",
+            "website": "ALTER TABLE crm_clients ADD COLUMN website TEXT",
             "legal_address": "ALTER TABLE crm_clients ADD COLUMN legal_address TEXT",
             "actual_address": "ALTER TABLE crm_clients ADD COLUMN actual_address TEXT",
             "ogrn": "ALTER TABLE crm_clients ADD COLUMN ogrn TEXT",
@@ -346,6 +477,11 @@ class WebDatabase(Database):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_name ON crm_clients(name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_inn ON crm_clients(inn)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_sync_status ON crm_clients(sync_status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_assignments_owner_tab ON crm_assignments(owner_user_id, tab_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_contacts_owner_client ON crm_contacts(owner_user_id, crm_client_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_events_owner_client ON crm_events(owner_user_id, crm_client_id, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_reminders_owner_status_due ON crm_reminders(owner_user_id, status, due_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_sync_jobs_status_available ON crm_sync_jobs(status, available_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_created ON commercial_offers(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_owner ON commercial_offers(created_by_user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offer_lines_offer ON commercial_offer_lines(offer_id)")
@@ -736,6 +872,8 @@ class WebDatabase(Database):
                 bank_account,
                 correspondent_account,
                 contact_person,
+                city,
+                website,
                 email,
                 email_note,
                 phone,
@@ -850,6 +988,8 @@ class WebDatabase(Database):
                     bank_account,
                     correspondent_account,
                     contact_person,
+                    city,
+                    website,
                     email,
                     email_note,
                     phone,
@@ -865,7 +1005,7 @@ class WebDatabase(Database):
                     created_at,
                     updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)
                 """,
                 (
                     document_name,
@@ -883,6 +1023,8 @@ class WebDatabase(Database):
                     values.get("bank_account") or None,
                     values.get("correspondent_account") or None,
                     values.get("contact_person") or None,
+                    values.get("city") or None,
+                    values.get("website") or None,
                     values.get("email") or None,
                     values.get("email_note") or None,
                     values.get("phone") or None,

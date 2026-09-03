@@ -1,0 +1,228 @@
+"""Persistence primitives for the personal CRM workspace.
+
+This module deliberately owns only data that did not exist in the legacy client
+registry.  Company cards, users, sessions and 1C synchronization remain owned
+by :mod:`stock_sync_web.database` and the existing service layer.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from typing import Any
+
+from stock_sync_desktop.database import utc_now
+from stock_sync_web.database import WebDatabase
+
+
+class CrmRepository:
+    """Transactional storage for a user's CRM-only data.
+
+    Route/service code must first resolve the requested owner with
+    :meth:`resolve_owner`; the repository never derives it from a client-supplied
+    tab or assignment identifier.
+    """
+
+    def __init__(self, db: WebDatabase) -> None:
+        self.db = db
+
+    @staticmethod
+    def resolve_owner(*, actor_id: int, actor_is_admin: bool, requested_owner_id: int | None) -> int:
+        owner_id = int(requested_owner_id or actor_id)
+        if owner_id != int(actor_id) and not actor_is_admin:
+            raise PermissionError("Нельзя открывать чужую CRM.")
+        return owner_id
+
+    @staticmethod
+    def _require_row(conn: sqlite3.Connection, query: str, params: tuple[Any, ...], message: str) -> sqlite3.Row:
+        row = conn.execute(query, params).fetchone()
+        if not row:
+            raise ValueError(message)
+        return row
+
+    @staticmethod
+    def _require_admin(conn: sqlite3.Connection, actor_id: int) -> None:
+        actor = conn.execute("SELECT role FROM users WHERE id = ?", (actor_id,)).fetchone()
+        if not actor or str(actor["role"] or "") != "admin":
+            raise PermissionError("Действие доступно только администратору.")
+
+    def ensure_work_tab(self, owner_id: int) -> dict[str, Any]:
+        now = utc_now()
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                "SELECT * FROM crm_tabs WHERE owner_user_id = ? AND system_kind = 'work'", (owner_id,)
+            ).fetchone()
+            if not row:
+                cursor = conn.execute(
+                    """INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at)
+                       VALUES (?, 'В работе', 'work', 0, ?, ?)""",
+                    (owner_id, now, now),
+                )
+                row = conn.execute("SELECT * FROM crm_tabs WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return dict(row)
+
+    def get_tab(self, owner_id: int, tab_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT * FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id)).fetchone()
+        return dict(row) if row else None
+
+    def create_tab(self, owner_id: int, name: str) -> dict[str, Any]:
+        normalized = name.strip()
+        if not normalized or normalized == "В работе":
+            raise ValueError("Укажите уникальное название пользовательской вкладки.")
+        now = utc_now()
+        with self.db.transaction() as conn:
+            max_order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) AS value FROM crm_tabs WHERE owner_user_id = ?", (owner_id,)).fetchone()["value"]
+            try:
+                cursor = conn.execute(
+                    """INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at)
+                       VALUES (?, ?, 'custom', ?, ?, ?)""",
+                    (owner_id, normalized, int(max_order) + 1, now, now),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Вкладка с таким названием уже существует.") from exc
+            row = conn.execute("SELECT * FROM crm_tabs WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return dict(row)
+
+    def rename_tab(self, owner_id: int, tab_id: int, name: str) -> None:
+        normalized = name.strip()
+        with self.db.transaction() as conn:
+            tab = self._require_row(conn, "SELECT * FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена.")
+            if tab["system_kind"] != "custom":
+                raise ValueError("Нельзя переименовать постоянную вкладку.")
+            if not normalized or normalized == "В работе":
+                raise ValueError("Укажите уникальное название пользовательской вкладки.")
+            try:
+                conn.execute("UPDATE crm_tabs SET name = ?, updated_at = ? WHERE id = ?", (normalized, utc_now(), tab_id))
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Вкладка с таким названием уже существует.") from exc
+
+    def delete_tab(self, owner_id: int, tab_id: int, replacement_tab_id: int) -> None:
+        """Move all active assignments and their presentation atomically, then delete a custom tab."""
+        with self.db.transaction() as conn:
+            source = self._require_row(conn, "SELECT * FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена.")
+            if source["system_kind"] != "custom":
+                raise ValueError("Нельзя удалить постоянную вкладку.")
+            replacement = self._require_row(conn, "SELECT * FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (replacement_tab_id, owner_id), "Целевая вкладка не найдена.")
+            if source["id"] == replacement["id"]:
+                raise ValueError("Выберите другую вкладку для переноса клиентов.")
+            preferences = conn.execute(
+                "SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ?", (owner_id, tab_id)
+            ).fetchall()
+            for preference in preferences:
+                conn.execute(
+                    """INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, order_version, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO NOTHING""",
+                    (owner_id, replacement_tab_id, preference["crm_client_id"], preference["color_key"], preference["position"], preference["order_version"], utc_now()),
+                )
+            conn.execute("DELETE FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ?", (owner_id, tab_id))
+            # Archived assignments retain their former placement for restoration,
+            # but cannot retain a foreign key to a tab being removed.  The chosen
+            # replacement is therefore also their safe restoration destination.
+            conn.execute("UPDATE crm_assignments SET tab_id = ?, updated_at = ? WHERE owner_user_id = ? AND tab_id = ?", (replacement_tab_id, utc_now(), owner_id, tab_id))
+            conn.execute("DELETE FROM crm_tabs WHERE id = ?", (tab_id,))
+
+    def assign_client(self, owner_id: int, client_id: int, tab_id: int) -> dict[str, Any]:
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_row(conn, "SELECT id FROM crm_clients WHERE id = ?", (client_id,), "Клиент не найден.")
+            self._require_row(conn, "SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Целевая вкладка не найдена.")
+            archived = conn.execute("SELECT id FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NOT NULL", (owner_id, client_id)).fetchone()
+            if archived:
+                raise ValueError("Назначение архивировано и должно быть восстановлено администратором.")
+            row = conn.execute("SELECT * FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NULL", (owner_id, client_id)).fetchone()
+            if row:
+                conn.execute("UPDATE crm_assignments SET tab_id = ?, updated_at = ? WHERE id = ?", (tab_id, now, row["id"]))
+                row = conn.execute("SELECT * FROM crm_assignments WHERE id = ?", (row["id"],)).fetchone()
+            else:
+                cursor = conn.execute("INSERT INTO crm_assignments(owner_user_id, crm_client_id, tab_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, tab_id, now, now))
+                row = conn.execute("SELECT * FROM crm_assignments WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return dict(row)
+
+    def get_assignment(self, owner_id: int, client_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT * FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NULL", (owner_id, client_id)).fetchone()
+        return dict(row) if row else None
+
+    def add_contact(self, owner_id: int, client_id: int, *, name: str, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
+        if not name.strip():
+            raise ValueError("Укажите имя контактного лица.")
+        now = utc_now()
+        with self.db.transaction() as conn:
+            if is_primary:
+                conn.execute("UPDATE crm_contacts SET is_primary = 0, updated_at = ? WHERE owner_user_id = ? AND crm_client_id = ?", (now, owner_id, client_id))
+            cursor = conn.execute("INSERT INTO crm_contacts(owner_user_id, crm_client_id, name, email, phone, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (owner_id, client_id, name.strip(), email.strip() or None, phone.strip() or None, 1 if is_primary else 0, now, now))
+            row = conn.execute("SELECT * FROM crm_contacts WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return dict(row)
+
+    def list_contacts(self, owner_id: int, client_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute("SELECT * FROM crm_contacts WHERE owner_user_id = ? AND crm_client_id = ? ORDER BY is_primary DESC, id", (owner_id, client_id)).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_event(self, owner_id: int, client_id: int, *, kind: str, body: str, author_user_id: int | None = None) -> dict[str, Any]:
+        if not body.strip():
+            raise ValueError("Событие не может быть пустым.")
+        now = utc_now()
+        with self.db.transaction() as conn:
+            cursor = conn.execute("INSERT INTO crm_events(owner_user_id, crm_client_id, author_user_id, kind, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (owner_id, client_id, author_user_id or owner_id, kind, body.strip(), now, now))
+            row = conn.execute("SELECT * FROM crm_events WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return dict(row)
+
+    def list_events(self, owner_id: int, client_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute("SELECT * FROM crm_events WHERE owner_user_id = ? AND crm_client_id = ? ORDER BY created_at, id", (owner_id, client_id)).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_reminder(self, owner_id: int, client_id: int, *, due_at: str) -> dict[str, Any]:
+        now = utc_now()
+        with self.db.transaction() as conn:
+            cursor = conn.execute("INSERT INTO crm_reminders(owner_user_id, crm_client_id, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, due_at, now, now))
+            row = conn.execute("SELECT * FROM crm_reminders WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        return dict(row)
+
+    def list_reminders(self, owner_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute("SELECT * FROM crm_reminders WHERE owner_user_id = ? AND status = 'active' ORDER BY due_at, id", (owner_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def set_row_preference(self, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None, position: int) -> None:
+        with self.db.transaction() as conn:
+            self._require_row(conn, "SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена.")
+            conn.execute("""INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO UPDATE SET color_key = excluded.color_key, position = excluded.position, order_version = crm_row_preferences.order_version + 1, updated_at = excluded.updated_at""", (owner_id, tab_id, client_id, color_key, position, utc_now()))
+
+    def get_row_preference(self, owner_id: int, tab_id: int, client_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, tab_id, client_id)).fetchone()
+        return dict(row) if row else None
+
+    def archive_assignment(self, *, actor_id: int, owner_id: int, client_id: int, reason: str) -> None:
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_admin(conn, actor_id)
+            assignment = self._require_row(conn, "SELECT * FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NULL", (owner_id, client_id), "Активное назначение не найдено.")
+            conn.execute("UPDATE crm_assignments SET archived_at = ?, archived_by_user_id = ?, archive_reason = ?, updated_at = ? WHERE id = ?", (now, actor_id, reason.strip() or None, now, assignment["id"]))
+            conn.execute("UPDATE crm_reminders SET status = 'cancelled', cancelled_at = ?, updated_at = ? WHERE owner_user_id = ? AND crm_client_id = ? AND status = 'active'", (now, now, owner_id, client_id))
+            self._audit(conn, actor_id, owner_id, client_id, "archive_assignment", reason)
+
+    def restore_assignment(self, *, actor_id: int, owner_id: int, client_id: int) -> None:
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_admin(conn, actor_id)
+            assignment = self._require_row(conn, "SELECT * FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NOT NULL ORDER BY id DESC LIMIT 1", (owner_id, client_id), "Архивное назначение не найдено.")
+            target_tab_id = assignment["tab_id"]
+            target = conn.execute("SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (target_tab_id, owner_id)).fetchone()
+            if not target:
+                target_tab_id = self.ensure_work_tab(owner_id)["id"]
+            conn.execute("UPDATE crm_assignments SET tab_id = ?, archived_at = NULL, archived_by_user_id = NULL, archive_reason = NULL, updated_at = ? WHERE id = ?", (target_tab_id, now, assignment["id"]))
+            self._audit(conn, actor_id, owner_id, client_id, "restore_assignment", "")
+
+    def _audit(self, conn: sqlite3.Connection, actor_id: int, owner_id: int, client_id: int, action: str, reason: str) -> None:
+        conn.execute("INSERT INTO crm_audit_actions(actor_user_id, owner_user_id, crm_client_id, action, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)", (actor_id, owner_id, client_id, action, reason.strip() or None, utc_now()))
+
+    def list_audit_actions(self, *, owner_id: int, client_id: int) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute("SELECT * FROM crm_audit_actions WHERE owner_user_id = ? AND crm_client_id = ? ORDER BY id", (owner_id, client_id)).fetchall()
+        return [dict(row) for row in rows]
