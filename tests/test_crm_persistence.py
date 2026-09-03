@@ -17,6 +17,15 @@ class CrmPersistenceTest(unittest.TestCase):
         self.admin_id = self.db.create_user(username="admin", password="password", role="admin")
         self.repo = CrmRepository(self.db)
         self.client = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Потенциальный клиент"})
+        # Short aliases keep pre-existing owner-only test setup readable; public
+        # repository production methods remain actor-authorized.
+        self.repo.ensure_work_tab = lambda owner_id: self.repo.ensure_work_tab_for_actor(actor_id=owner_id, owner_id=owner_id)
+        self.repo.get_work_tab = lambda owner_id: self.repo.get_work_tab_for_actor(actor_id=owner_id, owner_id=owner_id)
+        self.repo.get_tab = lambda owner_id, tab_id: self.repo.get_tab_for_actor(actor_id=owner_id, owner_id=owner_id, tab_id=tab_id)
+        self.repo.create_tab = lambda owner_id, name: self.repo.create_tab_for_actor(actor_id=owner_id, owner_id=owner_id, name=name)
+        self.repo.rename_tab = lambda owner_id, tab_id, name: self.repo.rename_tab_for_actor(actor_id=owner_id, owner_id=owner_id, tab_id=tab_id, name=name)
+        self.repo.delete_tab = lambda owner_id, tab_id, target_id: self.repo.delete_tab_for_actor(actor_id=owner_id, owner_id=owner_id, tab_id=tab_id, replacement_tab_id=target_id)
+        self.repo.list_audit_actions = lambda *, owner_id, client_id: self.repo.list_audit_actions_for_actor(actor_id=owner_id, owner_id=owner_id, client_id=client_id)
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -139,6 +148,19 @@ class CrmPersistenceTest(unittest.TestCase):
             self.repo.set_row_preference_for_actor(actor_id=other, owner_id=self.owner_id, tab_id=work["id"], client_id=client["id"], color_key="blue", position=1)
         self.repo.add_contact_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, client_id=client["id"], name="Admin")
         self.assertEqual("Admin", self.repo.list_contacts_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, client_id=client["id"])[0]["name"])
+
+    def test_tabs_and_audit_require_actor_context_with_explicit_admin_access(self) -> None:
+        other = self.db.create_user(username="other4", password="password", role="user")
+        work = self.repo.ensure_work_tab_for_actor(actor_id=self.owner_id, owner_id=self.owner_id)
+        with self.assertRaises(PermissionError):
+            self.repo.get_tab_for_actor(actor_id=other, owner_id=self.owner_id, tab_id=work["id"])
+        with self.assertRaises(PermissionError):
+            self.repo.create_tab_for_actor(actor_id=other, owner_id=self.owner_id, name="Чужая")
+        self.assertEqual(work["id"], self.repo.get_tab_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, tab_id=work["id"])["id"])
+        self.repo.archive_assignment(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"], reason="Проверка") if self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"]) else None
+        with self.assertRaises(PermissionError):
+            self.repo.list_audit_actions_for_actor(actor_id=other, owner_id=self.owner_id, client_id=self.client["id"])
+        self.assertEqual("archive_assignment", self.repo.list_audit_actions_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"])[0]["action"])
 
     def test_work_tabs_are_backfilled_and_reserved_names_are_case_insensitive(self) -> None:
         newcomer = self.db.create_user(username="newcomer", password="password", role="user")
