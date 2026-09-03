@@ -1264,6 +1264,26 @@ def archive_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | 
         _crm_error(exc)
 
 
+@app.post("/api/crm/clients/{client_id}/local-archive")
+def archive_local_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.archive_local_client(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, reason=str(payload.get("reason") or ""))
+        return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/local-restore")
+def restore_local_crm_client(client_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.restore_local_client(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
 @app.delete("/api/crm/clients/{client_id}/assignment")
 def remove_crm_assignment(client_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool]:
     try:

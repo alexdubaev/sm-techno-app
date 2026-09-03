@@ -498,6 +498,36 @@ class CrmRepository:
             conn.execute("DELETE FROM crm_assignments WHERE id = ?", (assignment["id"],))
             self._audit(conn, actor_id, owner_id, client_id, "remove_assignment", "")
 
+    def archive_local_client(self, *, actor_id: int, owner_id: int, client_id: int, reason: str) -> None:
+        """Archive a local lead reversibly without deleting its document identity or history."""
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_admin(conn, actor_id)
+            client = self._require_row(conn, "SELECT linked_counterparty_id, crm_owner_user_id FROM crm_clients WHERE id = ?", (client_id,), "Клиент не найден.")
+            if client["linked_counterparty_id"] is not None:
+                raise ValueError("Связанного с 1С клиента нельзя архивировать как локальный лид.")
+            if int(client["crm_owner_user_id"] or 0) != int(owner_id):
+                raise ValueError("Локальный клиент не принадлежит выбранной CRM.")
+            assignment = self._require_row(conn, "SELECT id FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NULL", (owner_id, client_id), "Активное назначение не найдено.")
+            conn.execute("UPDATE crm_assignments SET archived_at = ?, archived_by_user_id = ?, archive_reason = ?, updated_at = ? WHERE id = ?", (now, actor_id, reason.strip() or None, now, assignment["id"]))
+            conn.execute("UPDATE crm_reminders SET status = 'cancelled', cancelled_at = ?, updated_at = ? WHERE owner_user_id = ? AND crm_client_id = ? AND status = 'active'", (now, now, owner_id, client_id))
+            conn.execute("UPDATE crm_clients SET is_inactive = 1, sync_status = 'archived', sync_error = ?, updated_at = ? WHERE id = ?", (reason.strip() or None, now, client_id))
+            self._audit(conn, actor_id, owner_id, client_id, "archive_local_client", reason)
+
+    def restore_local_client(self, *, actor_id: int, owner_id: int, client_id: int) -> None:
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_admin(conn, actor_id)
+            client = self._require_row(conn, "SELECT linked_counterparty_id, crm_owner_user_id, sync_status FROM crm_clients WHERE id = ?", (client_id,), "Клиент не найден.")
+            if client["linked_counterparty_id"] is not None or int(client["crm_owner_user_id"] or 0) != int(owner_id):
+                raise ValueError("Локальный клиент не принадлежит выбранной CRM.")
+            assignment = self._require_row(conn, "SELECT * FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NOT NULL ORDER BY id DESC LIMIT 1", (owner_id, client_id), "Архивный локальный клиент не найден.")
+            target = conn.execute("SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (assignment["tab_id"], owner_id)).fetchone()
+            target_tab_id = int(target["id"]) if target else int(self._ensure_work_tab(owner_id)["id"])
+            conn.execute("UPDATE crm_assignments SET tab_id = ?, archived_at = NULL, archived_by_user_id = NULL, archive_reason = NULL, updated_at = ? WHERE id = ?", (target_tab_id, now, assignment["id"]))
+            conn.execute("UPDATE crm_clients SET is_inactive = 0, sync_status = 'local', sync_error = NULL, updated_at = ? WHERE id = ?", (now, client_id))
+            self._audit(conn, actor_id, owner_id, client_id, "restore_local_client", "")
+
     def restore_assignment(self, *, actor_id: int, owner_id: int, client_id: int) -> None:
         now = utc_now()
         with self.db.transaction() as conn:

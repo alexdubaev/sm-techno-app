@@ -239,6 +239,21 @@ class CrmPersistenceTest(unittest.TestCase):
 
         self.assertIsNone(self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"]))
 
+    def test_admin_can_archive_and_restore_local_card(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
+
+        self.repo.archive_local_client(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"], reason="Дубликат")
+
+        archived = self.db.get_crm_client(self.client["id"])
+        self.assertEqual("archived", archived["sync_status"])
+        self.assertIsNone(self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"]))
+
+        self.repo.restore_local_client(actor_id=self.admin_id, owner_id=self.owner_id, client_id=self.client["id"])
+        restored = self.db.get_crm_client(self.client["id"])
+        self.assertEqual("local", restored["sync_status"])
+        self.assertEqual(work["id"], self.repo.get_assignment_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])["tab_id"])
+
     def test_old_client_schema_migrates_idempotently_without_losing_document_foreign_key(self) -> None:
         path = Path(self.temp_dir.name) / "legacy.db"
         with sqlite3.connect(path) as conn:

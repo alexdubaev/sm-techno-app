@@ -165,6 +165,26 @@ class CrmApiTest(unittest.TestCase):
         detail = self.client.get(f"/api/crm/clients/{client_id}")
         self.assertIsNone(detail.json()["client"]["assignment"])
 
+    def test_only_admin_can_archive_and_restore_local_card_in_selected_workspace(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Лид на архив"}).json()
+        client_id = created["client"]["id"]
+
+        denied = self.client.post(f"/api/crm/clients/{client_id}/local-archive", json={"reason": "Дубликат"})
+        self.assertEqual(403, denied.status_code)
+
+        self.as_user(self.admin_id, "admin")
+        missing_context = self.client.post(f"/api/crm/clients/{client_id}/local-archive", json={"reason": "Дубликат"})
+        archived = self.client.post(f"/api/crm/clients/{client_id}/local-archive?ownerId={self.owner_id}", json={"reason": "Дубликат"})
+
+        self.assertEqual(400, missing_context.status_code)
+        self.assertEqual(200, archived.status_code)
+        self.assertEqual("archived", self.service.db.get_crm_client(client_id)["sync_status"])
+
+        restored = self.client.post(f"/api/crm/clients/{client_id}/local-restore?ownerId={self.owner_id}")
+
+        self.assertEqual(200, restored.status_code)
+        self.assertEqual("local", self.service.db.get_crm_client(client_id)["sync_status"])
+
 
 if __name__ == "__main__":
     unittest.main()
