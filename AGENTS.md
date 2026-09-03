@@ -14,8 +14,8 @@
 - остановка: `stop_all.bat`
 
 ### Backend
-- `.\\.venv\\Scripts\\python.exe -m uvicorn stock_sync_api:app --host 0.0.0.0 --port 8000`
-- служебный скрипт: `.\\scripts\\run_backend_service.ps1`
+- `.\.venv\Scripts\python.exe -m uvicorn stock_sync_api:app --host 0.0.0.0 --port 8000`
+- служебный скрипт: `.\scripts\run_backend_service.ps1`
 
 ### Frontend
 - `cd sm-techno-web`
