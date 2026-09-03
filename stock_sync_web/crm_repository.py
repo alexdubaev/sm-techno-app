@@ -14,6 +14,12 @@ from stock_sync_desktop.database import utc_now
 from stock_sync_web.database import WebDatabase
 
 
+CRM_COLOR_KEYS = frozenset({
+    "blue", "cyan", "teal", "green", "lime", "yellow",
+    "amber", "orange", "red", "pink", "purple", "gray",
+})
+
+
 class CrmRepository:
     """Transactional storage for a user's CRM-only data.
 
@@ -377,8 +383,18 @@ class CrmRepository:
         return self._list_reminders(owner_id)
 
     def _set_row_preference(self, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None, position: int) -> None:
+        if color_key is not None and color_key not in CRM_COLOR_KEYS:
+            raise ValueError("Выберите цвет из разрешённой палитры.")
         with self.db.transaction() as conn:
             self._require_row(conn, "SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена.")
+            assignment = self._require_row(
+                conn,
+                "SELECT tab_id FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NULL",
+                (owner_id, client_id),
+                "Активное назначение не найдено.",
+            )
+            if int(assignment["tab_id"]) != int(tab_id):
+                raise ValueError("Клиент не назначен в указанную вкладку.")
             conn.execute("""INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?)
                             ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO UPDATE SET color_key = excluded.color_key, position = excluded.position, order_version = crm_row_preferences.order_version + 1, updated_at = excluded.updated_at""", (owner_id, tab_id, client_id, color_key, position, utc_now()))

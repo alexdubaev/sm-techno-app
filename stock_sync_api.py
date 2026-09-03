@@ -1017,6 +1017,16 @@ def _serialize_crm_audit(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _serialize_crm_row_preference(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "tabId": int(row["tab_id"]),
+        "clientId": int(row["crm_client_id"]),
+        "colorKey": row.get("color_key"),
+        "position": int(row.get("position") or 0),
+        "orderVersion": int(row.get("order_version") or 0),
+    }
+
+
 def _crm_client_values(payload: dict[str, Any]) -> dict[str, Any]:
     fields = {
         "documentName": "document_name", "fullName": "full_name", "inn": "inn", "kpp": "kpp",
@@ -1201,6 +1211,22 @@ def move_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | Non
         assignment = repo.move_client(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, tab_id=tab_id)
         tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id)
         return {"assignment": _serialize_crm_assignment(assignment, tab)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.put("/api/crm/clients/{client_id}/row-preference")
+def save_crm_row_preference(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        tab_id = int(payload.get("tabId"))
+        position = int(payload.get("position", 0))
+        color_key = payload.get("colorKey")
+        if color_key is not None:
+            color_key = str(color_key)
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.set_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id, color_key=color_key, position=position)
+        preference = repo.get_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id)
+        return {"preference": _serialize_crm_row_preference(preference or {})}
     except Exception as exc:
         _crm_error(exc)
 

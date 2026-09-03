@@ -116,6 +116,20 @@ class CrmApiTest(unittest.TestCase):
         missing_context = self.client.get(f"/api/crm/clients/{client_id}")
         self.assertEqual(400, missing_context.status_code)
 
+    def test_owner_can_save_palette_preference_for_own_row(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Лид с цветом"}).json()
+        client_id = created["client"]["id"]
+        tab_id = created["assignment"]["tabId"]
+
+        response = self.client.put(
+            f"/api/crm/clients/{client_id}/row-preference",
+            json={"tabId": tab_id, "colorKey": "blue", "position": 5},
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("blue", response.json()["preference"]["colorKey"])
+        self.assertEqual(5, response.json()["preference"]["position"])
+
 
 if __name__ == "__main__":
     unittest.main()

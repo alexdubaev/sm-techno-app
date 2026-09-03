@@ -185,6 +185,27 @@ class CrmPersistenceTest(unittest.TestCase):
         self.assertIn("В работе", event["body"])
         self.assertIn("Перезвонить", event["body"])
 
+    def test_row_preference_accepts_only_palette_keys_or_reset(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
+
+        self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key="blue", position=1)
+        self.assertEqual("blue", self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"])["color_key"])
+
+        with self.assertRaisesRegex(ValueError, "палитры"):
+            self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key="not-a-color", position=1)
+
+        self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key=None, position=1)
+        self.assertIsNone(self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"])["color_key"])
+
+    def test_row_preference_must_match_clients_active_personal_tab(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        another_tab = self.repo.create_tab(self.owner_id, "Другой список")
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
+
+        with self.assertRaisesRegex(ValueError, "назначен"):
+            self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=another_tab["id"], client_id=self.client["id"], color_key="blue", position=1)
+
     def test_old_client_schema_migrates_idempotently_without_losing_document_foreign_key(self) -> None:
         path = Path(self.temp_dir.name) / "legacy.db"
         with sqlite3.connect(path) as conn:
