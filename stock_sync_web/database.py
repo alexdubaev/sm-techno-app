@@ -4,6 +4,7 @@ import base64
 import ctypes
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -1004,6 +1005,39 @@ class WebDatabase(Database):
                        updated_at = ? WHERE id = ?""",
                     (message, now, job["crm_client_id"]),
                 )
+
+    def retry_crm_sync_job(self, job_id: int, *, message: str, payload: dict[str, Any]) -> None:
+        """Return a claimed job to the durable outbox after a transient failure."""
+        now = utc_now()
+        with self.transaction() as conn:
+            job = conn.execute(
+                "SELECT crm_client_id, attempt_count FROM crm_sync_jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if not job:
+                raise ValueError("Задание синхронизации не найдено.")
+            delay_seconds = min(300, 2 ** min(int(job["attempt_count"]), 7))
+            available_at = (datetime.fromisoformat(now) + timedelta(seconds=delay_seconds)).isoformat()
+            conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'pending', payload = ?, available_at = ?,
+                   claimed_at = NULL, updated_at = ? WHERE id = ?""",
+                (json.dumps(payload, ensure_ascii=False, sort_keys=True), available_at, now, job_id),
+            )
+            conn.execute(
+                """UPDATE crm_clients SET sync_status = 'pending', sync_error = ?, updated_at = ?
+                   WHERE id = ?""",
+                (message, now, job["crm_client_id"]),
+            )
+
+    def complete_crm_sync_job(self, job_id: int) -> None:
+        now = utc_now()
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'completed', claimed_at = NULL, updated_at = ?
+                   WHERE id = ? AND status = 'running'""",
+                (now, job_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Задание синхронизации нельзя завершить.")
 
     def get_counterparty_by_onec_key(self, onec_key: str) -> dict[str, Any] | None:
         normalized_key = onec_key.strip()

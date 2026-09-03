@@ -16,6 +16,7 @@ import stock_sync_api
 from stock_sync_web.crm_repository import CrmRepository
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.service import WebStockSyncService
+from stock_sync_desktop.onec_api import OneCClientError
 
 
 class CrmApiTest(unittest.TestCase):
@@ -380,6 +381,53 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("create", job["operation"])
         self.assertEqual(self.owner_id, job["author_user_id"])
         self.assertEqual("pending", job["status"])
+
+    def test_create_worker_recovers_an_unknown_post_without_a_second_create(self) -> None:
+        class UnknownPostOneC:
+            def __init__(self) -> None:
+                self.created_cards: list[dict[str, object]] = []
+                self.remote: dict[str, object] | None = None
+                self.lookup_count = 0
+
+            def find_counterparty_by_identity(self, **_: object) -> dict[str, object] | None:
+                self.lookup_count += 1
+                return self.remote if self.lookup_count >= 3 else None
+
+            def create_counterparty(self, card: dict[str, object]) -> dict[str, object]:
+                self.created_cards.append(dict(card))
+                self.remote = {
+                    "Ref_Key": "crm-queue-1",
+                    "Description": "Очередной лид",
+                    "НаименованиеПолное": "Очередной лид",
+                    "ИНН": "7707083893",
+                    "КПП": "770701001",
+                }
+                raise OneCClientError("Соединение оборвалось после POST")
+
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Очередной лид", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        fake_onec = UnknownPostOneC()
+        self.service.build_user_client = lambda **_: fake_onec  # type: ignore[method-assign]
+
+        first = self.service.run_due_crm_sync_jobs()
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE crm_sync_jobs SET available_at = ? WHERE crm_client_id = ?", ("1970-01-01T00:00:00+00:00", client_id))
+        second = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute("SELECT status, attempt_count FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchone()
+            card = conn.execute("SELECT linked_counterparty_id, sync_status FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+
+        self.assertEqual({"processed": 1, "retried": 1}, first)
+        self.assertEqual({"processed": 1, "completed": 1}, second)
+        self.assertEqual(1, len(fake_onec.created_cards))
+        self.assertEqual("completed", job["status"])
+        self.assertEqual(2, job["attempt_count"])
+        self.assertIsNotNone(card["linked_counterparty_id"])
+        self.assertEqual("synced", card["sync_status"])
 
     def test_owner_can_confirm_matching_existing_onec_counterparty(self) -> None:
         created = self.client.post(

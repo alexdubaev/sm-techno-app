@@ -254,19 +254,78 @@ class WebStockSyncService:
         overwrite in 1C. A later capability probe can replace this branch with
         the worker's conditional remote write.
         """
-        processed = 0
-        blocked = 0
+        result = {"processed": 0, "blocked": 0, "retried": 0, "completed": 0}
         for _ in range(max(0, int(limit))):
             job = self.db.claim_next_crm_sync_job()
             if not job:
                 break
-            processed += 1
+            result["processed"] += 1
+            if str(job.get("operation") or "") == "create":
+                outcome = self._process_crm_create_job(job)
+                result[outcome] += 1
+                continue
             self.db.block_crm_sync_job(
                 int(job["id"]),
                 message="Автоматическая отправка отключена: публикация 1С не подтвердила поддержку условной записи.",
             )
-            blocked += 1
-        return {"processed": processed, "blocked": blocked}
+            result["blocked"] += 1
+        return {key: value for key, value in result.items() if value}
+
+    def _process_crm_create_job(self, job: dict[str, Any]) -> str:
+        """Create an explicitly requested local lead with safe unknown-POST recovery."""
+        job_id = int(job["id"])
+        client_id = int(job["crm_client_id"])
+        card = self.db.get_crm_client(client_id)
+        if not card:
+            self.db.block_crm_sync_job(job_id, message="Локальная карточка для создания в 1С не найдена.")
+            return "blocked"
+        if card.get("linked_counterparty_id") is not None:
+            self.db.complete_crm_sync_job(job_id)
+            return "completed"
+        try:
+            payload = json.loads(str(job.get("payload") or "{}"))
+        except json.JSONDecodeError:
+            payload = {}
+        try:
+            onec_client = self.build_user_client(user_id=int(job["author_user_id"]))
+            existing = self._find_counterparty_by_identity(onec_client, card)
+            if existing:
+                if payload.get("post_uncertain"):
+                    self._complete_crm_create_job(job_id, client_id, existing, card)
+                    return "completed"
+                self.db.block_crm_sync_job(
+                    job_id,
+                    message="В 1С уже найден контрагент с такими реквизитами. Подтвердите связывание вручную.",
+                )
+                return "blocked"
+            created = onec_client.create_counterparty(card)
+        except OneCClientError as exc:
+            recovered = self._find_counterparty_by_identity(onec_client, card)
+            if recovered:
+                self._complete_crm_create_job(job_id, client_id, recovered, card)
+                return "completed"
+            payload["post_uncertain"] = True
+            self.db.retry_crm_sync_job(job_id, message=str(exc), payload=payload)
+            return "retried"
+        self._complete_crm_create_job(job_id, client_id, created, card)
+        return "completed"
+
+    def _complete_crm_create_job(
+        self,
+        job_id: int,
+        client_id: int,
+        onec_row: dict[str, Any],
+        card: dict[str, Any],
+    ) -> None:
+        counterparty_id = self._upsert_synced_counterparty(onec_row, card)
+        self.db.update_crm_client_sync_state(
+            client_id,
+            sync_status="synced",
+            sync_error="",
+            linked_counterparty_id=counterparty_id,
+            synced=True,
+        )
+        self.db.complete_crm_sync_job(job_id)
 
     def sync_contracts(
         self,
