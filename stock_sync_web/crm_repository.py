@@ -824,9 +824,11 @@ class CrmRepository:
         now = utc_now()
         with self.db.transaction() as conn:
             self._require_admin(conn, actor_id)
-            client = self._require_row(conn, "SELECT linked_counterparty_id, crm_owner_user_id, sync_status FROM crm_clients WHERE id = ?", (client_id,), "Клиент не найден.")
+            client = self._require_row(conn, "SELECT linked_counterparty_id, crm_owner_user_id, is_inactive FROM crm_clients WHERE id = ?", (client_id,), "Клиент не найден.")
             if client["linked_counterparty_id"] is not None or int(client["crm_owner_user_id"] or 0) != int(owner_id):
                 raise ValueError("Локальный клиент не принадлежит выбранной CRM.")
+            if not bool(client["is_inactive"]):
+                raise ValueError("Локальная карточка не архивирована.")
             assignment = self._require_row(conn, "SELECT * FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NOT NULL ORDER BY id DESC LIMIT 1", (owner_id, client_id), "Архивный локальный клиент не найден.")
             current_version = self._ensure_card_version(conn, client_id)
             if int(expected_version) != current_version:

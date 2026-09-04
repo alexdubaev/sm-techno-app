@@ -224,6 +224,27 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(3, restored.json()["version"])
         self.assertEqual("local", self.service.db.get_crm_client(client_id)["sync_status"])
 
+    def test_local_restore_does_not_reopen_an_assignment_only_archive(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Лид с архивным назначением"}).json()
+        client_id = created["client"]["id"]
+
+        self.as_user(self.admin_id, "admin")
+        assignment_archive = self.client.post(
+            f"/api/crm/clients/{client_id}/archive?ownerId={self.owner_id}",
+            json={"reason": "Скрыть из личного списка"},
+        )
+        local_restore = self.client.post(
+            f"/api/crm/clients/{client_id}/local-restore?ownerId={self.owner_id}",
+            json={"expectedVersion": 1},
+        )
+
+        self.assertEqual(200, assignment_archive.status_code)
+        self.assertEqual(400, local_restore.status_code)
+        self.assertEqual("local", self.service.db.get_crm_client(client_id)["sync_status"])
+        self.as_user(self.owner_id)
+        detail = self.client.get(f"/api/crm/clients/{client_id}")
+        self.assertIsNone(detail.json()["client"]["assignment"])
+
     def test_card_update_rejects_stale_version_without_overwriting_data(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Версионный лид"}).json()
         client_id = created["client"]["id"]
