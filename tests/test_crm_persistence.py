@@ -59,6 +59,31 @@ class CrmPersistenceTest(unittest.TestCase):
 
         self.assertEqual('{"document_name": "Потенциальный клиент", "email": "base@example.test", "phone": ""}', state["last_synced_snapshot"])
 
+    def test_three_way_merge_preserves_local_conflict_and_applies_remote_only_field(self) -> None:
+        with self.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (701, 'onec-701', 'Альфа', '2026-09-04T00:00:00')")
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = 701, document_name = ?, name = ?, email = ?, sync_status = 'synced' WHERE id = ?",
+                ("Альфа — локально", "Альфа — локально", "old@example.test", self.client["id"]),
+            )
+            conn.execute(
+                "INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at) VALUES (?, 3, ?, '2026-09-04T00:00:00')",
+                (self.client["id"], '{"document_name": "Альфа", "email": "old@example.test", "phone": ""}'),
+            )
+
+        self.db.merge_crm_client_fields_from_counterparty(
+            self.client["id"],
+            {"document_name": "Альфа — 1С", "email": "remote@example.test", "phone": ""},
+        )
+        with self.db.connect() as conn:
+            card = conn.execute("SELECT document_name, email, sync_status FROM crm_clients WHERE id = ?", (self.client["id"],)).fetchone()
+            conflicts = conn.execute("SELECT field_name, base_value_json, local_value_json, remote_value_json, status FROM crm_sync_conflicts WHERE crm_client_id = ?", (self.client["id"],)).fetchall()
+
+        self.assertEqual("Альфа — локально", card["document_name"])
+        self.assertEqual("remote@example.test", card["email"])
+        self.assertEqual("conflict", card["sync_status"])
+        self.assertEqual([("document_name", '"Альфа"', '"Альфа — локально"', '"Альфа — 1С"', "open")], [tuple(row) for row in conflicts])
+
     def test_tab_deletion_reassigns_clients_atomically(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
         follow_up = self.repo.create_tab(self.owner_id, "Перезвонить")

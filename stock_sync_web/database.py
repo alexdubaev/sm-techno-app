@@ -1391,6 +1391,44 @@ class WebDatabase(Database):
                 synced_count += 1
         return synced_count
 
+    def merge_crm_client_fields_from_counterparty(self, client_id: int, remote: dict[str, Any]) -> None:
+        tracked = ("document_name", "email", "phone")
+        now = utc_now()
+        with self.transaction() as conn:
+            card = conn.execute("SELECT document_name, email, phone FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+            state = conn.execute("SELECT version, last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)).fetchone()
+            if card is None or state is None:
+                raise ValueError("Для объединения требуется синхронизированная CRM-карточка.")
+            try:
+                base = json.loads(str(state["last_synced_snapshot"] or "{}"))
+            except json.JSONDecodeError:
+                base = {}
+            snapshot = dict(base)
+            updates: dict[str, str] = {}
+            has_conflict = False
+            for field in tracked:
+                local = str(card[field] or "")
+                remote_value = str(remote.get(field) or "")
+                base_value = str(base.get(field) or "")
+                if local == base_value and remote_value != base_value:
+                    updates[field] = remote_value
+                    snapshot[field] = remote_value
+                elif local != remote_value and remote_value != base_value:
+                    has_conflict = True
+                    conn.execute(
+                        """INSERT INTO crm_sync_conflicts(crm_client_id, field_name, base_value_json, local_value_json, remote_value_json, source_version, status, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)
+                           ON CONFLICT(crm_client_id, field_name) WHERE status = 'open' DO UPDATE SET local_value_json = excluded.local_value_json, remote_value_json = excluded.remote_value_json, updated_at = excluded.updated_at""",
+                        (client_id, field, json.dumps(base_value, ensure_ascii=False), json.dumps(local, ensure_ascii=False), json.dumps(remote_value, ensure_ascii=False), int(state["version"]), now, now),
+                    )
+            assignments = [f"{field} = ?" for field in updates]
+            values = list(updates.values())
+            if has_conflict:
+                assignments.append("sync_status = 'conflict'")
+            if assignments:
+                conn.execute(f"UPDATE crm_clients SET {', '.join(assignments)}, updated_at = ? WHERE id = ?", (*values, now, client_id))
+            conn.execute("UPDATE crm_sync_state SET last_synced_snapshot = ?, updated_at = ? WHERE crm_client_id = ?", (json.dumps(snapshot, ensure_ascii=False, sort_keys=True), now, client_id))
+
     def update_crm_client_sync_state(
         self,
         client_id: int,
