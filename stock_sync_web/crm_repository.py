@@ -846,6 +846,14 @@ class CrmRepository:
         now = utc_now()
         with self.db.transaction() as conn:
             self._require_admin(conn, actor_id)
+            client = self._require_row(
+                conn,
+                "SELECT linked_counterparty_id, is_inactive FROM crm_clients WHERE id = ?",
+                (client_id,),
+                "Клиент не найден.",
+            )
+            if client["linked_counterparty_id"] is None and bool(client["is_inactive"]):
+                raise ValueError("Архивную локальную карточку нужно восстановить отдельно.")
             assignment = self._require_row(conn, "SELECT * FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NOT NULL ORDER BY id DESC LIMIT 1", (owner_id, client_id), "Архивное назначение не найдено.")
             target_tab_id = assignment["tab_id"]
             target = conn.execute("SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (target_tab_id, owner_id)).fetchone()
