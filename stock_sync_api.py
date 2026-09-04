@@ -1323,6 +1323,44 @@ def list_crm_sync_conflicts(
         _crm_error(exc)
 
 
+@app.post("/api/crm/clients/{client_id}/sync-conflicts/{conflict_id}/resolve")
+def resolve_crm_sync_conflict(
+    client_id: int,
+    conflict_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    if str(payload.get("choice") or "") != "remote":
+        raise HTTPException(status_code=400, detail="Пока можно применить только значение из 1С.")
+    expected_updated_at = str(payload.get("expectedUpdatedAt") or "").strip()
+    if not expected_updated_at:
+        raise HTTPException(status_code=400, detail="Укажите актуальную версию конфликта.")
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        card = repo.resolve_sync_conflict_with_remote_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            conflict_id=conflict_id,
+            expected_updated_at=expected_updated_at,
+        )
+        assignment = repo.get_assignment_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        tab = (
+            repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"]))
+            if assignment
+            else None
+        )
+        version = repo.get_card_version_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab, version=version)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
 @app.post("/api/crm/clients/{client_id}/send-to-onec")
 def send_crm_client_to_onec(
     client_id: int,

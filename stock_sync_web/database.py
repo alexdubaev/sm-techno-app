@@ -1439,6 +1439,61 @@ class WebDatabase(Database):
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def resolve_crm_sync_conflict_with_remote(
+        self, client_id: int, conflict_id: int, *, expected_updated_at: str, resolved_by_user_id: int
+    ) -> dict[str, Any]:
+        tracked = {"document_name", "email", "phone"}
+        now = utc_now()
+        with self.transaction() as conn:
+            conflict = conn.execute(
+                """SELECT * FROM crm_sync_conflicts
+                   WHERE id = ? AND crm_client_id = ? AND status = 'open'""",
+                (conflict_id, client_id),
+            ).fetchone()
+            if not conflict or str(conflict["updated_at"] or "") != expected_updated_at:
+                raise ValueError("Конфликт синхронизации уже изменён. Обновите карточку.")
+            field_name = str(conflict["field_name"] or "")
+            if field_name not in tracked:
+                raise ValueError("Конфликт содержит неподдерживаемое поле.")
+            state = conn.execute(
+                "SELECT last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)
+            ).fetchone()
+            if not state:
+                raise ValueError("Для разрешения требуется синхронизированная CRM-карточка.")
+            try:
+                snapshot = json.loads(str(state["last_synced_snapshot"] or "{}"))
+                remote_value = json.loads(str(conflict["remote_value_json"] or "null"))
+            except json.JSONDecodeError as exc:
+                raise ValueError("Конфликт синхронизации содержит некорректное значение.") from exc
+            if not isinstance(remote_value, str):
+                raise ValueError("Конфликт синхронизации содержит некорректное значение.")
+            snapshot[field_name] = remote_value
+            conn.execute(
+                f"UPDATE crm_clients SET {field_name} = ?, updated_at = ? WHERE id = ?",
+                (remote_value, now, client_id),
+            )
+            conn.execute(
+                """UPDATE crm_sync_conflicts
+                   SET status = 'resolved_remote', resolved_value_json = ?, resolved_by_user_id = ?,
+                       resolved_at = ?, updated_at = ?
+                   WHERE id = ?""",
+                (json.dumps(remote_value, ensure_ascii=False), resolved_by_user_id, now, now, conflict_id),
+            )
+            remaining = conn.execute(
+                "SELECT 1 FROM crm_sync_conflicts WHERE crm_client_id = ? AND status = 'open' LIMIT 1",
+                (client_id,),
+            ).fetchone()
+            conn.execute(
+                "UPDATE crm_clients SET sync_status = ?, sync_error = '', updated_at = ? WHERE id = ?",
+                ("conflict" if remaining else "synced", now, client_id),
+            )
+            conn.execute(
+                "UPDATE crm_sync_state SET last_synced_snapshot = ?, updated_at = ? WHERE crm_client_id = ?",
+                (json.dumps(snapshot, ensure_ascii=False, sort_keys=True), now, client_id),
+            )
+            card = conn.execute(self._crm_client_select() + " WHERE id = ?", (client_id,)).fetchone()
+        return dict(card)
+
     def update_crm_client_sync_state(
         self,
         client_id: int,
