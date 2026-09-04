@@ -1082,6 +1082,9 @@ def _serialize_crm_reminder(row: dict[str, Any]) -> dict[str, Any]:
         "dueAt": row.get("due_at") or "",
         "status": row.get("status") or "active",
         "createdAt": row.get("created_at") or "",
+        "completedAt": row.get("completed_at") or "",
+        "cancelledAt": row.get("cancelled_at") or "",
+        "updatedAt": row.get("updated_at") or "",
     }
 
 
@@ -1599,6 +1602,59 @@ def list_crm_reminders(owner_id: int | None = Query(None, alias="ownerId"), curr
         return {"ownerId": resolved_owner_id, "items": [_serialize_crm_reminder(row) for row in repo.list_reminders_for_actor(actor_id=actor_id, owner_id=resolved_owner_id)]}
     except Exception as exc:
         _crm_error(exc)
+
+
+def _transition_crm_reminder(
+    reminder_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None,
+    current_user: dict[str, Any],
+    *,
+    action: str,
+) -> dict[str, Any]:
+    expected_updated_at = str(payload.get("expectedUpdatedAt") or "").strip()
+    if not expected_updated_at:
+        raise HTTPException(status_code=400, detail="Укажите актуальную версию напоминания.")
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        if action == "complete":
+            reminder = repo.complete_reminder_for_actor(
+                actor_id=actor_id,
+                owner_id=resolved_owner_id,
+                reminder_id=reminder_id,
+                expected_updated_at=expected_updated_at,
+            )
+        else:
+            reminder = repo.cancel_reminder_for_actor(
+                actor_id=actor_id,
+                owner_id=resolved_owner_id,
+                reminder_id=reminder_id,
+                expected_updated_at=expected_updated_at,
+            )
+        return {"ownerId": resolved_owner_id, "reminder": _serialize_crm_reminder(reminder)}
+    except Exception as exc:
+        _crm_error(exc)
+    raise AssertionError("unreachable")
+
+
+@app.post("/api/crm/reminders/{reminder_id}/complete")
+def complete_crm_reminder(
+    reminder_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    return _transition_crm_reminder(reminder_id, payload, owner_id, current_user, action="complete")
+
+
+@app.post("/api/crm/reminders/{reminder_id}/cancel")
+def cancel_crm_reminder(
+    reminder_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    return _transition_crm_reminder(reminder_id, payload, owner_id, current_user, action="cancel")
 
 
 @app.post("/api/crm/clients/{client_id}/move")
