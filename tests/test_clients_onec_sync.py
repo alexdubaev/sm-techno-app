@@ -108,6 +108,21 @@ class IdentityOnlyDuplicateOneCClient(FakeOneCClient):
         }
 
 
+class IdentityResponseOneCClient(FakeOneCClient):
+    def __init__(self, response: dict[str, Any]) -> None:
+        super().__init__()
+        self.response = response
+
+    def find_counterparty_by_identity(
+        self,
+        *,
+        legal_type: str,
+        inn: str,
+        kpp: str = "",
+    ) -> dict[str, Any] | None:
+        return dict(self.response)
+
+
 class PartialSuccessOneCClient(FakeOneCClient):
     def create_counterparty(self, card: dict[str, Any]) -> dict[str, Any]:
         created = super().create_counterparty(card)
@@ -442,6 +457,46 @@ class ClientOneCSyncTest(unittest.TestCase):
             duplicate.identity_calls,
         )
         self.assertEqual([], self.db.list_crm_clients())
+
+    def test_remote_legal_entity_with_same_inn_and_different_kpp_is_created(self) -> None:
+        duplicate = IdentityResponseOneCClient(
+            {
+                "Ref_Key": "44444444-4444-4444-4444-444444444444",
+                "ИНН": VALID_CLIENT_PAYLOAD["inn"],
+                "КПП": "770799999",
+            }
+        )
+        self.service.build_user_client = lambda **_: duplicate  # type: ignore[method-assign]
+
+        response = self.client.post("/api/clients", json=VALID_CLIENT_PAYLOAD)
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(1, len(duplicate.created_cards))
+        self.assertEqual("11111111-1111-1111-1111-111111111111", response.json()["sync"]["onecRefKey"])
+
+    def test_remote_ip_with_same_inn_is_treated_as_duplicate(self) -> None:
+        ip_payload = {
+            **VALID_CLIENT_PAYLOAD,
+            "legalType": "individual_entrepreneur",
+            "documentName": "ИП Петров",
+            "fullName": "Индивидуальный предприниматель Петров",
+            "inn": "340301024150",
+            "kpp": "",
+        }
+        duplicate = IdentityResponseOneCClient(
+            {
+                "Ref_Key": "55555555-5555-5555-5555-555555555555",
+                "ИНН": ip_payload["inn"],
+                "КПП": "",
+            }
+        )
+        self.service.build_user_client = lambda **_: duplicate  # type: ignore[method-assign]
+
+        response = self.client.post("/api/clients", json=ip_payload)
+
+        self.assertEqual(400, response.status_code)
+        self.assertIn("уже есть", response.json()["detail"])
+        self.assertEqual([], duplicate.created_cards)
 
 
 if __name__ == "__main__":

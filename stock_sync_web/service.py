@@ -904,11 +904,19 @@ class WebStockSyncService:
         onec_client: OneCClient,
         card: dict[str, Any],
     ) -> dict[str, Any] | None:
-        return onec_client.find_counterparty_by_identity(
-            legal_type=str(card.get("legal_type") or ""),
-            inn=str(card.get("inn") or ""),
-            kpp=str(card.get("kpp") or ""),
+        legal_type = str(card.get("legal_type") or "")
+        inn = str(card.get("inn") or "").strip()
+        kpp = str(card.get("kpp") or "").strip()
+        counterparty = onec_client.find_counterparty_by_identity(
+            legal_type=legal_type,
+            inn=inn,
+            kpp=kpp,
         )
+        if not counterparty or str(counterparty.get("ИНН") or "").strip() != inn:
+            return None
+        if legal_type == "legal_entity" and str(counterparty.get("КПП") or "").strip() != kpp:
+            return None
+        return counterparty
 
     @staticmethod
     def _is_onec_access_denied(exc: OneCClientError) -> bool:
