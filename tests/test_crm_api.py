@@ -328,17 +328,19 @@ class CrmApiTest(unittest.TestCase):
         created = self.client.post("/api/crm/clients", json={"documentName": "Лид с цветом"}).json()
         client_id = created["client"]["id"]
         tab_id = created["assignment"]["tabId"]
+        initial = self.client.get(f"/api/crm/clients?tabId={tab_id}").json()["items"][0]["rowPreference"]
 
         response = self.client.put(
             f"/api/crm/clients/{client_id}/row-preference",
-            json={"tabId": tab_id, "colorKey": "blue", "position": 5},
+            json={"tabId": tab_id, "colorKey": "blue", "expectedOrderVersion": initial["orderVersion"]},
         )
 
         self.assertEqual(200, response.status_code)
         self.assertEqual("blue", response.json()["preference"]["colorKey"])
-        self.assertEqual(5, response.json()["preference"]["position"])
+        self.assertEqual(initial["position"], response.json()["preference"]["position"])
         listed = self.client.get(f"/api/crm/clients?tabId={tab_id}")
         self.assertEqual("blue", listed.json()["items"][0]["rowPreference"]["colorKey"])
+        self.assertEqual(initial["position"], listed.json()["items"][0]["rowPreference"]["position"])
 
     def test_primary_color_update_preserves_existing_position(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Связанная компания"}).json()
