@@ -27,6 +27,7 @@ import {
   moveCrmClient,
   removeCrmAssignment,
   resolveCrmSyncConflict,
+  rescheduleCrmReminder,
   restoreLocalCrmClient,
   saveCrmRowPreference,
   saveCrmPrimaryRowPreference,
@@ -755,7 +756,7 @@ function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, ca
     setReminders((current) => [...current, temporary]);
     setIsSaving("reminder"); setError(null);
     try {
-      const saved = await createCrmReminder(client.id, { dueAt: reminderDueAt }, ownerId);
+      const saved = await createCrmReminder(client.id, { dueAt: moscowInputToUtc(reminderDueAt) }, ownerId);
       setReminders((current) => current.map((item) => item.id === temporary.id ? saved : item));
       setReminderDueAt("");
     } catch (cause) {
@@ -786,6 +787,14 @@ function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, ca
         setError(errorMessage(cause, "Напоминание изменено, но не удалось обновить карточку. Обновите её позже."));
       }
     } finally { setIsSaving(null); }
+  };
+  const rescheduleReminder = async (reminder: CrmReminder) => {
+    const nextDueAt = window.prompt("Новая дата и время (МСК)", utcToMoscowInput(reminder.dueAt));
+    if (!nextDueAt || !canManageReminders) return;
+    setIsSaving("reminder"); setError(null);
+    try { await rescheduleCrmReminder(reminder.id, { dueAt: moscowInputToUtc(nextDueAt), expectedUpdatedAt: reminder.updatedAt }, ownerId); await refreshReminders(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Не удалось перенести напоминание."); }
+    finally { setIsSaving(null); }
   };
 
   const saveCompanyRequisites = async (event: SubmitEvent<HTMLFormElement>) => {
@@ -942,10 +951,10 @@ function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, ca
             </DetailSection>
             <DetailSection title="Напоминания">
               {canManageReminders ? <form onSubmit={saveReminder} className="grid gap-2">
-                <label className="flex flex-col gap-1 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Дата и время</span><input type="datetime-local" value={reminderDueAt} onChange={(event) => setReminderDueAt(event.target.value)} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px] font-normal" /></label>
+                <label className="flex flex-col gap-1 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Дата и время (МСК)</span><input type="datetime-local" value={reminderDueAt} onChange={(event) => setReminderDueAt(event.target.value)} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px] font-normal" /></label>
                 <button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "reminder" ? "Сохраняем…" : "Добавить напоминание"}</button>
               </form> : <p className="text-[11px] text-[var(--text-secondary)]">Напоминания доступны только для просмотра.</p>}
-              <DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatDate(reminder.dueAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div>{canManageReminders && reminder.status === "active" ? <div className="mt-2 flex gap-2"><button type="button" onClick={() => void transitionReminder(reminder, "complete")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">{isSaving === "complete-reminder" ? "Отмечаем…" : "Выполнено"}</button><button type="button" onClick={() => void transitionReminder(reminder, "cancel")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[#F0D98A] bg-[#FFF9E8] px-2 text-[10px] font-semibold text-[#92400E]">{isSaving === "cancel-reminder" ? "Отменяем…" : "Отменить"}</button></div> : null}</div>} />
+              <DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatMoscowDate(reminder.dueAt)} МСК</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div>{canManageReminders && reminder.status === "active" ? <div className="mt-2 flex gap-2"><button type="button" onClick={() => void rescheduleReminder(reminder)} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">Перенести</button><button type="button" onClick={() => void transitionReminder(reminder, "complete")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">{isSaving === "complete-reminder" ? "Отмечаем…" : "Выполнено"}</button><button type="button" onClick={() => void transitionReminder(reminder, "cancel")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[#F0D98A] bg-[#FFF9E8] px-2 text-[10px] font-semibold text-[#92400E]">{isSaving === "cancel-reminder" ? "Отменяем…" : "Отменить"}</button></div> : null}</div>} />
             </DetailSection>
             {canConfirmExistingLink ? (
               <DetailSection title="Найденные в 1С совпадения">
@@ -975,5 +984,8 @@ function auditActionLabel(action: string) { return ({ archive_local_client: "Л�
 function syncConflictFieldLabel(fieldName: string) { return ({ documentName: "Наименование", email: "Почта", phone: "Телефон" } as Record<string, string>)[fieldName] ?? fieldName; }
 function formatSyncConflictValue(value: unknown) { if (value === null || value === undefined || value === "") return "Не указано"; return typeof value === "string" ? value : JSON.stringify(value); }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value || "Только что" : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }); }
+function formatMoscowDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Moscow" }); }
+function moscowInputToUtc(value: string) { return new Date(`${value}:00+03:00`).toISOString(); }
+function utcToMoscowInput(value: string) { const date = new Date(value); return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date).replace(" ", "T"); }
 function Field({ label, value, onChange, type = "text", autoFocus = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; autoFocus?: boolean }) { return <label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>{label}</span><input autoFocus={autoFocus} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label>; }
 function errorMessage(cause: unknown, fallback: string) { return cause instanceof Error && cause.message.trim() ? cause.message : fallback; }

@@ -225,6 +225,17 @@ CREATE TABLE IF NOT EXISTS crm_reminders (
     FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
 );
 
+CREATE TABLE IF NOT EXISTS crm_reminder_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    crm_reminder_id INTEGER NOT NULL,
+    actor_user_id INTEGER NOT NULL,
+    old_due_at TEXT NOT NULL,
+    new_due_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(crm_reminder_id) REFERENCES crm_reminders(id),
+    FOREIGN KEY(actor_user_id) REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS crm_row_preferences (
     owner_user_id INTEGER NOT NULL,
     tab_id INTEGER NOT NULL,
@@ -541,6 +552,7 @@ class WebDatabase(Database):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_contacts_owner_client ON crm_contacts(owner_user_id, crm_client_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_events_owner_client ON crm_events(owner_user_id, crm_client_id, created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_reminders_owner_status_due ON crm_reminders(owner_user_id, status, due_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_reminder_history_reminder ON crm_reminder_history(crm_reminder_id, id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_sync_jobs_status_available ON crm_sync_jobs(status, available_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_sync_conflicts_client_status ON crm_sync_conflicts(crm_client_id, status)")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_sync_conflicts_open_unique ON crm_sync_conflicts(crm_client_id, field_name) WHERE status = 'open'")

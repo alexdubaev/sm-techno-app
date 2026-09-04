@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from typing import Any
 
 from stock_sync_desktop.database import utc_now
@@ -19,6 +20,20 @@ CRM_COLOR_KEYS = frozenset({
     "blue", "cyan", "teal", "green", "lime", "yellow",
     "amber", "orange", "red", "pink", "purple", "gray",
 })
+
+
+def canonical_utc_instant(value: str) -> str:
+    """Validate an explicit instant and serialize it in the CRM UTC form."""
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("Укажите дату и время напоминания с часовым поясом.")
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Укажите дату и время напоминания в формате ISO-8601 с часовым поясом.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError("Укажите дату и время напоминания с часовым поясом.")
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 class CrmRepository:
@@ -756,8 +771,9 @@ class CrmRepository:
 
     def _add_reminder(self, owner_id: int, client_id: int, *, due_at: str) -> dict[str, Any]:
         now = utc_now()
+        canonical_due_at = canonical_utc_instant(due_at)
         with self.db.transaction() as conn:
-            cursor = conn.execute("INSERT INTO crm_reminders(owner_user_id, crm_client_id, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, due_at, now, now))
+            cursor = conn.execute("INSERT INTO crm_reminders(owner_user_id, crm_client_id, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, canonical_due_at, now, now))
             row = conn.execute("SELECT * FROM crm_reminders WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return dict(row)
 
@@ -777,6 +793,65 @@ class CrmRepository:
             if actor_id != owner_id and not self._is_admin(conn, actor_id):
                 raise PermissionError("Нельзя открывать чужую CRM.")
         return self._list_reminders(owner_id)
+
+    def list_due_reminders_for_current_actor(self, *, actor_id: int, now_utc: str) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                """SELECT r.*, COALESCE(c.document_name, c.name, '') AS client_label
+                   FROM crm_reminders r JOIN crm_clients c ON c.id = r.crm_client_id
+                   WHERE r.owner_user_id = ? AND r.status = 'active' AND r.due_at <= ?
+                   ORDER BY r.due_at, r.id""",
+                (actor_id, canonical_utc_instant(now_utc)),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def _reminder_history(conn: sqlite3.Connection, reminder_id: int) -> list[dict[str, Any]]:
+        rows = conn.execute(
+            "SELECT old_due_at, new_due_at, created_at FROM crm_reminder_history WHERE crm_reminder_id = ? ORDER BY id",
+            (reminder_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def reschedule_reminder_for_actor(
+        self, *, actor_id: int, owner_id: int, reminder_id: int, due_at: str, expected_updated_at: str
+    ) -> dict[str, Any]:
+        if actor_id != owner_id:
+            raise PermissionError("Переносить напоминания может только их владелец.")
+        canonical_due_at = canonical_utc_instant(due_at)
+        now = utc_now()
+        if now == expected_updated_at:
+            now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "")
+        with self.db.transaction() as conn:
+            reminder = self._require_row(
+                conn,
+                "SELECT * FROM crm_reminders WHERE id = ? AND owner_user_id = ?",
+                (reminder_id, owner_id),
+                "Напоминание не найдено.",
+            )
+            if str(reminder["status"] or "") != "active" or str(reminder["updated_at"] or "") != expected_updated_at:
+                raise ValueError("Конфликт версии напоминания. Загрузите актуальные данные.")
+            cursor = conn.execute(
+                """UPDATE crm_reminders SET due_at = ?, updated_at = ?
+                   WHERE id = ? AND owner_user_id = ? AND status = 'active' AND updated_at = ?""",
+                (canonical_due_at, now, reminder_id, owner_id, expected_updated_at),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Конфликт версии напоминания. Загрузите актуальные данные.")
+            conn.execute(
+                """INSERT INTO crm_reminder_history(crm_reminder_id, actor_user_id, old_due_at, new_due_at, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (reminder_id, actor_id, str(reminder["due_at"]), canonical_due_at, now),
+            )
+            updated = dict(self._require_row(
+                conn,
+                "SELECT * FROM crm_reminders WHERE id = ? AND owner_user_id = ?",
+                (reminder_id, owner_id),
+                "Напоминание не найдено.",
+            ))
+            updated["history"] = self._reminder_history(conn, reminder_id)
+            self._audit(conn, actor_id, owner_id, int(updated["crm_client_id"]), "reschedule_reminder", "")
+        return updated
 
     def _transition_reminder_for_actor(
         self,

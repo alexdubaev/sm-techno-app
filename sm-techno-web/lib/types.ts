@@ -270,6 +270,8 @@ export type CrmReminder = {
   completedAt: string;
   cancelledAt: string;
   updatedAt: string;
+  clientLabel?: string;
+  history?: Array<{ oldDueAt: string; newDueAt: string; createdAt: string }>;
 };
 
 export type Contract = {
