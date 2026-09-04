@@ -795,6 +795,43 @@ class CrmApiTest(unittest.TestCase):
         self.assertIsNotNone(card["linked_counterparty_id"])
         self.assertEqual("synced", card["sync_status"])
 
+    def test_create_worker_never_repeats_an_unknown_post_while_identity_is_not_visible(self) -> None:
+        """Eventual 1C visibility after POST must not turn a timeout into a duplicate."""
+        class DelayedUnknownPostOneC:
+            def __init__(self) -> None:
+                self.created_cards: list[dict[str, object]] = []
+                self.lookup_count = 0
+
+            def find_counterparty_by_identity(self, **_: object) -> None:
+                self.lookup_count += 1
+                return None
+
+            def create_counterparty(self, card: dict[str, object]) -> dict[str, object]:
+                self.created_cards.append(dict(card))
+                raise OneCClientError("Соединение оборвалось после POST")
+
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Отложенная видимость", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        fake_onec = DelayedUnknownPostOneC()
+        self.service.build_user_client = lambda **_: fake_onec  # type: ignore[method-assign]
+
+        first = self.service.run_due_crm_sync_jobs()
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE crm_sync_jobs SET available_at = ? WHERE crm_client_id = ?", ("1970-01-01T00:00:00+00:00", client_id))
+        second = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute("SELECT status, payload FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchone()
+
+        self.assertEqual({"processed": 1, "retried": 1}, first)
+        self.assertEqual({"processed": 1, "retried": 1}, second)
+        self.assertEqual(1, len(fake_onec.created_cards))
+        self.assertEqual("pending", job["status"])
+        self.assertTrue(json.loads(job["payload"])["post_uncertain"])
+
     def test_create_worker_blocks_a_preexisting_identity_for_manual_linking(self) -> None:
         class ExistingOneC:
             def __init__(self) -> None:

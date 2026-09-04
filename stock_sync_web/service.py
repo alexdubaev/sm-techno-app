@@ -314,6 +314,13 @@ class WebStockSyncService:
                     status="blocked_duplicate",
                 )
                 return "blocked"
+            if payload.get("post_uncertain"):
+                self.db.retry_crm_sync_job(
+                    job_id,
+                    message="Ожидается подтверждение результата предыдущего POST в 1С; повторная отправка не выполняется.",
+                    payload=payload,
+                )
+                return "retried"
             created = onec_client.create_counterparty(card)
         except OneCClientError as exc:
             if self._is_onec_access_denied(exc):
