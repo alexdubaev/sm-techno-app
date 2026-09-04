@@ -1456,7 +1456,10 @@ def send_crm_client_to_onec(
     current_user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
     try:
-        _crm_context(current_user, owner_id)
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo._require_workspace_write(actor_id, resolved_owner_id)
+        with repo.db.connect() as conn:
+            repo._require_personal_access(conn, actor_id, resolved_owner_id, client_id)
         raise ValueError(CRM_LOCAL_ONLY_POLICY_MESSAGE)
     except Exception as exc:
         _crm_error(exc)
@@ -1469,7 +1472,10 @@ def retry_crm_client_onec_create(
     current_user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
     try:
-        _crm_context(current_user, owner_id)
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo._require_workspace_write(actor_id, resolved_owner_id)
+        with repo.db.connect() as conn:
+            repo._require_personal_access(conn, actor_id, resolved_owner_id, client_id)
         raise ValueError(CRM_LOCAL_ONLY_POLICY_MESSAGE)
     except Exception as exc:
         _crm_error(exc)

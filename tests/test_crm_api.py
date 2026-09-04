@@ -93,6 +93,22 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(409, retry.status_code)
         self.assertEqual([], jobs)
 
+    def test_crm_send_and_retry_preserve_workspace_write_authorization(self) -> None:
+        client_id = self.client.post(
+            "/api/crm/clients", json={"documentName": "Локально"}
+        ).json()["client"]["id"]
+        self.as_user(self.admin_id, "admin")
+
+        send = self.client.post(
+            f"/api/crm/clients/{client_id}/send-to-onec?ownerId={self.owner_id}"
+        )
+        retry = self.client.post(
+            f"/api/crm/clients/{client_id}/retry-onec?ownerId={self.owner_id}"
+        )
+
+        self.assertEqual(403, send.status_code)
+        self.assertEqual(403, retry.status_code)
+
     def test_non_admin_cannot_supply_another_owner_context(self) -> None:
         response = self.client.get(f"/api/crm/tabs?ownerId={self.other_id}")
 

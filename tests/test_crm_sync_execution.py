@@ -159,7 +159,7 @@ class CrmSyncExecutionTest(unittest.TestCase):
             self.service.sync_crm_counterparties_for_user(self.owner_id),
         )
 
-    def test_app_lifecycle_advances_an_explicit_create_job(self) -> None:
+    def test_app_lifecycle_blocks_an_explicit_legacy_job_without_onec_client(self) -> None:
         repo = CrmRepository(self.service.db)
         card, _assignment, _tab = repo.create_local_lead_for_actor(
             actor_id=self.owner_id,
@@ -171,18 +171,18 @@ class CrmSyncExecutionTest(unittest.TestCase):
         repo.enqueue_onec_create_for_actor(
             actor_id=self.owner_id, owner_id=self.owner_id, client_id=int(card["id"])
         )
-        fake = CreatingOneC()
-        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+        self.service.build_user_client = lambda **_: (_ for _ in ()).throw(
+            AssertionError("must not build 1C")
+        )
 
         with TestClient(stock_sync_api.app):
             deadline = time.monotonic() + 3
-            while not fake.created.is_set() and time.monotonic() < deadline:
+            while self.service.db.get_crm_client(int(card["id"]))["sync_status"] != "blocked_capability" and time.monotonic() < deadline:
                 time.sleep(0.05)
 
-        self.assertTrue(fake.created.is_set())
-        self.assertEqual("synced", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
+        self.assertEqual("blocked_capability", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
 
-    def test_app_lifecycle_waits_for_an_inflight_worker_before_shutdown(self) -> None:
+    def test_app_lifecycle_shutdown_does_not_construct_onec_for_legacy_jobs(self) -> None:
         repo = CrmRepository(self.service.db)
         card, _assignment, _tab = repo.create_local_lead_for_actor(
             actor_id=self.owner_id,
@@ -194,19 +194,14 @@ class CrmSyncExecutionTest(unittest.TestCase):
         repo.enqueue_onec_create_for_actor(
             actor_id=self.owner_id, owner_id=self.owner_id, client_id=int(card["id"])
         )
-        fake = BlockingCreateOneC()
-        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+        self.service.build_user_client = lambda **_: (_ for _ in ()).throw(
+            AssertionError("must not build 1C")
+        )
         async def shutdown_scenario() -> None:
             lifespan = stock_sync_api._app_lifespan(stock_sync_api.app)
             await lifespan.__aenter__()
-            self.assertTrue(await asyncio.to_thread(fake.created.wait, 1))
-            shutdown = asyncio.create_task(lifespan.__aexit__(None, None, None))
-            try:
-                await asyncio.sleep(0.1)
-                self.assertFalse(shutdown.done(), "shutdown must drain the worker's remote call")
-            finally:
-                fake.release.set()
-            await asyncio.wait_for(shutdown, timeout=2)
+            await asyncio.sleep(0.1)
+            await asyncio.wait_for(lifespan.__aexit__(None, None, None), timeout=2)
 
         asyncio.run(shutdown_scenario())
-        self.assertEqual("synced", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
+        self.assertEqual("blocked_capability", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
