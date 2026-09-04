@@ -62,11 +62,27 @@ test("administrator CRM workspace keeps the selected owner explicit across actio
   assert.match(workspace, /fetchCrmTabs\(ownerId\)/);
   assert.match(workspace, /fetchCrmClients\(tab === "primary" \? \{ ownerId, primaryOnly: true \}/);
   assert.match(workspace, /moveCrmClient\(client\.id, targetTabId, ownerId\)/);
+  assert.match(workspace, /removeCrmAssignment\(client\.id, ownerId\)/);
   assert.match(workspace, /saveCrmRowPreference\(client\.id, \{ tabId: activeTab, colorKey, position: previous\?\.position \?\? 0 \}, ownerId\)/);
   assert.match(workspace, /downloadCrmExportFile\(\{ scope, tabId: scope === "tab" \? activeTab : undefined, ownerId \}\)/);
   assert.match(workspace, /fetchCrmContacts\(currentClient\.id, ownerId\)/);
   assert.match(workspace, /fetchCrmEvents\(currentClient\.id, ownerId\)/);
   assert.match(workspace, /fetchCrmReminders\(ownerId\)/);
+});
+
+test("administrator can leave a linked client only in the primary 1C tab", async () => {
+  const [workspace, api] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+  ]);
+
+  assert.match(api, /export async function removeCrmAssignment/);
+  assert.match(api, /\/assignment\$\{buildCrmQuery\(\{ ownerId \}\)\}/);
+  assert.match(api, /method: "DELETE"/);
+  assert.match(workspace, /isAdmin && currentClient\.linkedCounterpartyId !== null && currentClient\.assignment !== null/);
+  assert.match(workspace, /currentClient\.assignment\.archivedAt === null/);
+  assert.match(workspace, /Карточка останется в основной вкладке «Клиенты 1С», а история и напоминания сохранятся\./);
+  assert.match(workspace, /remove_assignment: "Оставлен только в основной вкладке"/);
 });
 
 test("administrator can confirm versioned local-card archive and review its audit trail", async () => {

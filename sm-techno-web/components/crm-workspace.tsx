@@ -19,6 +19,7 @@ import {
   fetchCrmTabs,
   fetchUsers,
   moveCrmClient,
+  removeCrmAssignment,
   retryCrmOnecCreate,
   restoreLocalCrmClient,
   saveCrmRowPreference,
@@ -330,16 +331,17 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "archive" | "restore" | "link" | "retry" | "queue" | null>(null);
+  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "archive" | "restore" | "remove" | "link" | "retry" | "queue" | null>(null);
   const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", isPrimary: false });
   const [eventForm, setEventForm] = useState({ kind: "comment", body: "" });
   const [reminderDueAt, setReminderDueAt] = useState("");
   const [archiveReason, setArchiveReason] = useState("");
   const [isArchiveConfirmationOpen, setIsArchiveConfirmationOpen] = useState(false);
+  const [isRemoveAssignmentConfirmationOpen, setIsRemoveAssignmentConfirmationOpen] = useState(false);
   const [isRetryConfirmationOpen, setIsRetryConfirmationOpen] = useState(false);
   const [isCreateConfirmationOpen, setIsCreateConfirmationOpen] = useState(false);
 
-  useEffect(() => { setCurrentClient(client); setIsArchiveConfirmationOpen(false); setIsRetryConfirmationOpen(false); setIsCreateConfirmationOpen(false); setLinkCandidate(null); setNotice(null); }, [client]);
+  useEffect(() => { setCurrentClient(client); setIsArchiveConfirmationOpen(false); setIsRemoveAssignmentConfirmationOpen(false); setIsRetryConfirmationOpen(false); setIsCreateConfirmationOpen(false); setLinkCandidate(null); setNotice(null); }, [client]);
 
   const refreshAudit = useCallback(async () => {
     setAudit(await fetchCrmAudit(currentClient.id, ownerId));
@@ -438,6 +440,20 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
     } finally { setIsSaving(null); }
   };
 
+  const removeAssignment = async () => {
+    setIsSaving("remove"); setError(null);
+    try {
+      await removeCrmAssignment(client.id, ownerId);
+      setCurrentClient((item) => ({ ...item, assignment: null, rowPreference: null }));
+      setIsRemoveAssignmentConfirmationOpen(false);
+      await refreshAudit();
+      onChanged();
+      setNotice("Клиент оставлен только в основной вкладке «Клиенты 1С».");
+    } catch (cause) {
+      setError(errorMessage(cause, "Не удалось оставить клиента только в основной вкладке. Изменение отменено."));
+    } finally { setIsSaving(null); }
+  };
+
   const confirmExistingLink = async () => {
     if (!linkCandidate) return;
     setIsSaving("link"); setError(null);
@@ -482,6 +498,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
   };
 
   const canManageLocalClient = isAdmin && currentClient.linkedCounterpartyId === null;
+  const canRemoveAssignment = isAdmin && currentClient.linkedCounterpartyId !== null && currentClient.assignment !== null && currentClient.assignment.archivedAt === null;
   const canConfirmExistingLink = currentClient.linkedCounterpartyId === null && currentClient.syncStatus !== "archived";
   const canQueueOnecCreate = currentClient.linkedCounterpartyId === null && currentClient.syncStatus === "local";
 
@@ -564,7 +581,8 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
                 </AlertDialogContent>
               </AlertDialog>
             </DetailSection> : null}
-            {canManageLocalClient ? <DetailSection title="Административные действия"><p className="text-[11px] text-[var(--text-secondary)]">CRM сотрудника: {ownerName}</p>{currentClient.syncStatus === "archived" ? <button type="button" onClick={() => void restoreLocalClient()} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "restore" ? "Восстанавливаем…" : "Восстановить локального клиента"}</button> : <><button type="button" onClick={() => setIsArchiveConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 text-[11px] font-semibold text-[#B91C1C]">Архивировать локального клиента</button>{isArchiveConfirmationOpen ? <div role="alertdialog" aria-label="Подтверждение архивации" className="grid gap-2 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] p-3 text-[11px]"><p>Подтвердите архивирование «{currentClient.documentName || currentClient.name}» в CRM сотрудника «{ownerName}». Активные напоминания будут отменены, история сохранится.</p><label className="grid gap-1"><span className="font-semibold">Причина</span><textarea value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} className="min-h-16 rounded-[8px] border border-[#F4B9B9] bg-white px-2 py-1.5" /></label><div className="flex gap-2"><button type="button" onClick={() => setIsArchiveConfirmationOpen(false)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void archiveLocalClient()} disabled={isSaving !== null} className="h-8 rounded-[8px] bg-[#B91C1C] px-3 font-semibold text-white">{isSaving === "archive" ? "Архивируем…" : "Подтвердить архивирование"}</button></div></div>}</>}</DetailSection> : null}
+            {canManageLocalClient ? <DetailSection title="Административные действия"><p className="text-[11px] text-[var(--text-secondary)]">CRM сотрудника: {ownerName}</p>{currentClient.syncStatus === "archived" ? <button type="button" onClick={() => void restoreLocalClient()} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "restore" ? "Восстанавливаем…" : "Восстановить локального клиента"}</button> : <><button type="button" onClick={() => setIsArchiveConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 text-[11px] font-semibold text-[#B91C1C]">Архивировать локального клиента</button>{isArchiveConfirmationOpen ? <div role="alertdialog" aria-label="Подтверждение архивации" className="grid gap-2 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] p-3 text-[11px]"><p>Подтвердите архивирование «{currentClient.documentName || currentClient.name}» в CRM сотрудника «{ownerName}». Активные напоминания будут отменены, история сохранится.</p><label className="grid gap-1"><span className="font-semibold">Причина</span><textarea value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} className="min-h-16 rounded-[8px] border border-[#F4B9B9] bg-white px-2 py-1.5" /></label><div className="flex gap-2"><button type="button" onClick={() => setIsArchiveConfirmationOpen(false)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void archiveLocalClient()} disabled={isSaving !== null} className="h-8 rounded-[8px] bg-[#B91C1C] px-3 font-semibold text-white">{isSaving === "archive" ? "Архивируем…" : "Подтвердить архивирование"}</button></div></div> : null}</>}</DetailSection> : null}
+            {canRemoveAssignment ? <DetailSection title="Административные действия"><p className="text-[11px] text-[var(--text-secondary)]">CRM сотрудника: {ownerName}</p><button type="button" onClick={() => setIsRemoveAssignmentConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F0D98A] bg-[#FFF9E8] px-3 text-[11px] font-semibold text-[#92400E]">Оставить только в основной вкладке</button><AlertDialog open={isRemoveAssignmentConfirmationOpen} onOpenChange={setIsRemoveAssignmentConfirmationOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Подтверждение удаления из личной вкладки</AlertDialogTitle><AlertDialogDescription>Оставить «{currentClient.documentName || currentClient.name}» только в основной вкладке «Клиенты 1С» CRM сотрудника «{ownerName}»? Карточка останется в основной вкладке «Клиенты 1С», а история и напоминания сохранятся.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeAssignment()} disabled={isSaving !== null}>{isSaving === "remove" ? "Удаляем…" : "Подтвердить"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></DetailSection> : null}
             <DetailSection title="Журнал действий"><DetailEmpty items={audit} empty="Административных действий пока нет." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{auditActionLabel(item.action)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.reason || "Без комментария"}</div></div>} /></DetailSection>
           </div>
         )}
@@ -576,7 +594,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
 function DetailSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="rounded-[14px] border border-[var(--border-color)] p-3"><h3 className="text-[13px] font-bold">{title}</h3><div className="mt-3 grid gap-3">{children}</div></section>; }
 function DetailEmpty<T extends { id: number }>({ items, empty, render }: { items: T[]; empty: string; render: (item: T) => React.ReactNode }) { return <div className="grid gap-2">{items.length ? items.map(render) : <p className="text-[11px] text-[var(--text-secondary)]">{empty}</p>}</div>; }
 function eventLabel(kind: string) { return ({ comment: "Комментарий", call: "Звонок", meeting: "Встреча", email: "Письмо" } as Record<string, string>)[kind] ?? kind; }
-function auditActionLabel(action: string) { return ({ archive_local_client: "Локальный клиент архивирован", restore_local_client: "Локальный клиент восстановлен", archive_assignment: "Назначение архивировано", restore_assignment: "Назначение восстановлено" } as Record<string, string>)[action] ?? action; }
+function auditActionLabel(action: string) { return ({ archive_local_client: "Локальный клиент архивирован", restore_local_client: "Локальный клиент восстановлен", archive_assignment: "Назначение архивировано", restore_assignment: "Назначение восстановлено", remove_assignment: "Оставлен только в основной вкладке" } as Record<string, string>)[action] ?? action; }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value || "Только что" : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }); }
 function Field({ label, value, onChange, type = "text", autoFocus = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; autoFocus?: boolean }) { return <label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>{label}</span><input autoFocus={autoFocus} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label>; }
 function errorMessage(cause: unknown, fallback: string) { return cause instanceof Error && cause.message.trim() ? cause.message : fallback; }

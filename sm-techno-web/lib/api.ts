@@ -922,6 +922,17 @@ export async function moveCrmClient(
   return result.assignment;
 }
 
+export async function removeCrmAssignment(
+  clientId: number,
+  ownerId?: number,
+): Promise<{ ok: true }> {
+  return requestJsonWithInit<{ ok: true }>(
+    `/api/crm/clients/${clientId}/assignment${buildCrmQuery({ ownerId })}`,
+    { method: "DELETE" },
+    "Не удалось оставить клиента только в основной вкладке.",
+  );
+}
+
 export async function saveCrmRowPreference(
   clientId: number,
   payload: { tabId: number; colorKey: string | null; position: number },
