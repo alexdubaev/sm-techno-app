@@ -11,6 +11,7 @@ os.environ.setdefault("SM_TECHNO_INITIAL_ADMIN_PASSWORD", "foreign-workspace-gua
 
 import stock_sync_api
 from stock_sync_web.database import WebDatabase
+from stock_sync_web.crm_repository import CrmRepository
 from stock_sync_web.service import WebStockSyncService
 
 
@@ -41,7 +42,10 @@ class ForeignWorkspaceWriteGuardTest(unittest.TestCase):
     def test_admin_cannot_mutate_selected_foreign_workspace(self) -> None:
         owner_query = f"?ownerId={self.owner_id}"
         responses = [
+            self.client.post(f"/api/crm/clients{owner_query}", json={"documentName": "Чужой клиент"}),
             self.client.post(f"/api/crm/tabs{owner_query}", json={"name": "Чужая вкладка"}),
+            self.client.patch(f"/api/crm/tabs/{self.custom_tab_id}{owner_query}", json={"name": "Переименована"}),
+            self.client.delete(f"/api/crm/tabs/{self.custom_tab_id}{owner_query}&replacementTabId={self.work_tab_id}"),
             self.client.patch(
                 f"/api/crm/clients/{self.client_id}{owner_query}",
                 json={"documentName": "Чужое изменение", "expectedVersion": 1},
@@ -49,6 +53,10 @@ class ForeignWorkspaceWriteGuardTest(unittest.TestCase):
             self.client.post(
                 f"/api/crm/clients/{self.client_id}/contacts{owner_query}",
                 json={"name": "Чужой контакт"},
+            ),
+            self.client.post(
+                f"/api/crm/clients/{self.client_id}/events{owner_query}",
+                json={"kind": "comment", "body": "Чужое событие"},
             ),
             self.client.post(
                 f"/api/crm/clients/{self.client_id}/reminders{owner_query}",
@@ -69,6 +77,14 @@ class ForeignWorkspaceWriteGuardTest(unittest.TestCase):
                 json={"clientId": self.client_id, "expectedOrderVersion": 0},
             ),
             self.client.put(
+                f"/api/crm/clients/{self.client_id}/primary-row-preference{owner_query}",
+                json={"colorKey": "red", "expectedOrderVersion": 0},
+            ),
+            self.client.post(
+                f"/api/crm/primary/reorder{owner_query}",
+                json={"clientId": self.client_id, "expectedOrderVersion": 0},
+            ),
+            self.client.put(
                 f"/api/crm/clients/{self.client_id}/row-preference{owner_query}",
                 json={"tabId": self.work_tab_id, "colorKey": "red", "position": 1},
             ),
@@ -80,6 +96,7 @@ class ForeignWorkspaceWriteGuardTest(unittest.TestCase):
         self.assertEqual("Карточка владельца", detail["documentName"])
         self.assertEqual(self.work_tab_id, detail["assignment"]["tabId"])
         self.assertEqual([], self.client.get(f"/api/crm/clients/{self.client_id}/contacts").json()["items"])
+        self.assertEqual([], self.client.get(f"/api/crm/clients/{self.client_id}/events").json()["items"])
         self.assertEqual([], self.client.get("/api/crm/reminders").json()["items"])
 
     def test_owner_retains_normal_workspace_write_access(self) -> None:
@@ -101,3 +118,27 @@ class ForeignWorkspaceWriteGuardTest(unittest.TestCase):
         )
 
         self.assertEqual(200, archived.status_code, archived.text)
+        restored = self.client.post(
+            f"/api/crm/clients/{self.client_id}/restore?ownerId={self.owner_id}",
+        )
+        self.assertEqual(200, restored.status_code, restored.text)
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (?, ?, ?, ?)",
+                (901, "onec-901", "Связанная компания", "2026-09-04T00:00:00"),
+            )
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = ? WHERE id = ?",
+                (901, self.client_id),
+            )
+        removed = self.client.delete(
+            f"/api/crm/clients/{self.client_id}/assignment?ownerId={self.owner_id}",
+        )
+        self.assertEqual(200, removed.status_code, removed.text)
+
+    def test_admin_can_claim_an_unowned_legacy_lead(self) -> None:
+        legacy = self.service.db.create_crm_client_card({"document_name": "Старый лид"})
+
+        CrmRepository(self.service.db).claim_local_client(self.admin_id, legacy["id"])
+
+        self.assertEqual(self.admin_id, self.service.db.get_crm_client(legacy["id"])["crm_owner_user_id"])
