@@ -282,7 +282,7 @@ class CrmPersistenceTest(unittest.TestCase):
         self.repo.claim_local_client(self.admin_id, legacy["id"])
         self.assertEqual(self.admin_id, self.db.get_crm_client(legacy["id"])["crm_owner_user_id"])
 
-    def test_all_personal_operations_require_actor_and_allow_admin_owner_context(self) -> None:
+    def test_personal_operations_require_owner_even_when_admin_selects_owner_context(self) -> None:
         other = self.db.create_user(username="other3", password="password", role="user")
         client = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Защищённый лид"})
         work = self.repo.ensure_work_tab(self.owner_id)
@@ -295,8 +295,10 @@ class CrmPersistenceTest(unittest.TestCase):
             self.repo.add_reminder_for_actor(actor_id=other, owner_id=self.owner_id, client_id=client["id"], due_at="2026-10-01")
         with self.assertRaises(PermissionError):
             self.repo.set_row_preference_for_actor(actor_id=other, owner_id=self.owner_id, tab_id=work["id"], client_id=client["id"], color_key="blue", position=1)
-        self.repo.add_contact_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, client_id=client["id"], name="Admin")
-        self.assertEqual("Admin", self.repo.list_contacts_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, client_id=client["id"])[0]["name"])
+        with self.assertRaises(PermissionError):
+            self.repo.add_contact_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, client_id=client["id"], name="Admin")
+        self.repo.add_contact_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=client["id"], name="Owner")
+        self.assertEqual("Owner", self.repo.list_contacts_for_actor(actor_id=self.admin_id, owner_id=self.owner_id, client_id=client["id"])[0]["name"])
 
     def test_tabs_and_audit_require_actor_context_with_explicit_admin_access(self) -> None:
         other = self.db.create_user(username="other4", password="password", role="user")

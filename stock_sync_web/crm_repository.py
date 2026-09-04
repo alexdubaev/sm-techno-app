@@ -114,8 +114,7 @@ class CrmRepository:
             raise ValueError("Укажите наименование для документов.")
         now = utc_now()
         with self.db.transaction() as conn:
-            if actor_id != owner_id and not self._is_admin(conn, actor_id):
-                raise PermissionError("Нельзя изменять чужую CRM.")
+            self._require_workspace_write(actor_id, owner_id)
             work = conn.execute("SELECT * FROM crm_tabs WHERE owner_user_id = ? AND system_kind = 'work'", (owner_id,)).fetchone()
             if not work:
                 cursor = conn.execute("INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at) VALUES (?, 'В работе', 'work', 0, ?, ?)", (owner_id, now, now))
@@ -222,8 +221,14 @@ class CrmRepository:
             if actor_id != owner_id and not self._is_admin(conn, actor_id):
                 raise PermissionError("Нельзя открывать чужую CRM.")
 
+    @staticmethod
+    def _require_workspace_write(actor_id: int, owner_id: int) -> None:
+        """Personal CRM state belongs to its selected owner, including for admins."""
+        if int(actor_id) != int(owner_id):
+            raise PermissionError("Нельзя изменять чужую CRM.")
+
     def ensure_work_tab_for_actor(self, *, actor_id: int, owner_id: int) -> dict[str, Any]:
-        self._require_owner_access(actor_id, owner_id)
+        self._require_workspace_write(actor_id, owner_id)
         return self._ensure_work_tab(owner_id)
 
     def get_work_tab_for_actor(self, *, actor_id: int, owner_id: int) -> dict[str, Any] | None:
@@ -237,7 +242,8 @@ class CrmRepository:
     def list_tabs_for_actor(self, *, actor_id: int, owner_id: int) -> list[dict[str, Any]]:
         """Return only the target owner's personal tabs, after the actor guard."""
         self._require_owner_access(actor_id, owner_id)
-        self._ensure_work_tab(owner_id)
+        if int(actor_id) == int(owner_id):
+            self._ensure_work_tab(owner_id)
         with self.db.connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM crm_tabs WHERE owner_user_id = ? ORDER BY sort_order, id", (owner_id,)
@@ -270,13 +276,22 @@ class CrmRepository:
                 # is private.  Materialize a missing owner/card preference only
                 # when that owner opens the primary list; 1C synchronization does
                 # not write CRM presentation state.
-                with self.db.transaction() as write_conn:
-                    self._ensure_primary_preferences(write_conn, owner_id)
-                    rows = write_conn.execute(
+                if int(actor_id) == int(owner_id):
+                    with self.db.transaction() as write_conn:
+                        self._ensure_primary_preferences(write_conn, owner_id)
+                        rows = write_conn.execute(
+                            "SELECT crm_clients.* FROM crm_clients"
+                            + " JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = crm_clients.id"
+                            + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
+                            + " ORDER BY p.position, crm_clients.name COLLATE NOCASE",
+                            (owner_id,),
+                        ).fetchall()
+                else:
+                    rows = conn.execute(
                         "SELECT crm_clients.* FROM crm_clients"
-                        + " JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = crm_clients.id"
+                        + " LEFT JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = crm_clients.id"
                         + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
-                        + " ORDER BY p.position, crm_clients.name COLLATE NOCASE",
+                        + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
                         (owner_id,),
                     ).fetchall()
             else:
@@ -307,9 +322,16 @@ class CrmRepository:
         return int(row["version"])
 
     def get_card_version_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> int:
-        with self.db.transaction() as conn:
+        if int(actor_id) == int(owner_id):
+            with self.db.transaction() as conn:
+                self._require_personal_access(conn, actor_id, owner_id, client_id)
+                return self._ensure_card_version(conn, client_id)
+        with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
-            return self._ensure_card_version(conn, client_id)
+            row = conn.execute(
+                "SELECT version FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)
+            ).fetchone()
+        return int(row["version"]) if row else 1
 
     def update_card_for_actor(
         self,
@@ -338,6 +360,7 @@ class CrmRepository:
             changes["name"] = changes["document_name"]
 
         with self.db.transaction() as conn:
+            self._require_workspace_write(actor_id, owner_id)
             self._require_personal_access(conn, actor_id, owner_id, client_id)
             current_version = self._ensure_card_version(conn, client_id)
             if int(expected_version) != current_version:
@@ -413,6 +436,7 @@ class CrmRepository:
         """Link one local lead to an imported, identity-matching 1C counterparty."""
         now = utc_now()
         with self.db.transaction() as conn:
+            self._require_workspace_write(actor_id, owner_id)
             self._require_personal_access(conn, actor_id, owner_id, client_id)
             client = self._require_row(
                 conn,
@@ -479,6 +503,7 @@ class CrmRepository:
         """Persist an explicit local-lead creation request without contacting 1C."""
         now = utc_now()
         with self.db.transaction() as conn:
+            self._require_workspace_write(actor_id, owner_id)
             self._require_personal_access(conn, actor_id, owner_id, client_id)
             card = self._require_row(
                 conn,
@@ -542,6 +567,7 @@ class CrmRepository:
         """Explicitly requeue the submitter's create job after credentials are fixed."""
         now = utc_now()
         with self.db.transaction() as conn:
+            self._require_workspace_write(actor_id, owner_id)
             self._require_personal_access(conn, actor_id, owner_id, client_id)
             card = self._require_row(
                 conn,
@@ -642,20 +668,19 @@ class CrmRepository:
         )
 
     def create_tab_for_actor(self, *, actor_id: int, owner_id: int, name: str) -> dict[str, Any]:
-        self._require_owner_access(actor_id, owner_id)
+        self._require_workspace_write(actor_id, owner_id)
         return self._create_tab(owner_id, name)
 
     def rename_tab_for_actor(self, *, actor_id: int, owner_id: int, tab_id: int, name: str) -> None:
-        self._require_owner_access(actor_id, owner_id)
+        self._require_workspace_write(actor_id, owner_id)
         self._rename_tab(owner_id, tab_id, name)
 
     def delete_tab_for_actor(self, *, actor_id: int, owner_id: int, tab_id: int, replacement_tab_id: int) -> None:
-        self._require_owner_access(actor_id, owner_id)
+        self._require_workspace_write(actor_id, owner_id)
         self._delete_tab(owner_id, tab_id, replacement_tab_id)
 
     def assign_client_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, tab_id: int) -> dict[str, Any]:
-        if actor_id != owner_id and not self._actor_is_admin(actor_id):
-            raise PermissionError("Нельзя изменять чужую CRM.")
+        self._require_workspace_write(actor_id, owner_id)
         now = utc_now()
         with self.db.transaction() as conn:
             self._require_client_access(conn, actor_id, client_id)
@@ -679,8 +704,7 @@ class CrmRepository:
 
     def move_client(self, *, actor_id: int, owner_id: int, client_id: int, tab_id: int) -> dict[str, Any]:
         with self.db.transaction() as conn:
-            if actor_id != owner_id and not self._is_admin(conn, actor_id):
-                raise PermissionError("Нельзя изменять чужую CRM.")
+            self._require_workspace_write(actor_id, owner_id)
             self._require_client_access(conn, actor_id, client_id)
             target = self._require_row(conn, "SELECT * FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Целевая вкладка не найдена.")
             archived = conn.execute(
@@ -738,6 +762,7 @@ class CrmRepository:
         return dict(row)
 
     def add_contact_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, name: str, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
+        self._require_workspace_write(actor_id, owner_id)
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self._add_contact(owner_id, client_id, name=name, email=email, phone=phone, is_primary=is_primary)
@@ -762,6 +787,7 @@ class CrmRepository:
         return dict(row)
 
     def add_event_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, kind: str, body: str) -> dict[str, Any]:
+        self._require_workspace_write(actor_id, owner_id)
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self._add_event(owner_id, client_id, kind=kind, body=body, author_user_id=actor_id)
@@ -784,6 +810,7 @@ class CrmRepository:
         return dict(row)
 
     def add_reminder_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, due_at: str) -> dict[str, Any]:
+        self._require_workspace_write(actor_id, owner_id)
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self._add_reminder(owner_id, client_id, due_at=due_at)
@@ -907,6 +934,7 @@ class CrmRepository:
                             ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO UPDATE SET color_key = excluded.color_key, position = excluded.position, order_version = crm_row_preferences.order_version + 1, updated_at = excluded.updated_at""", (owner_id, tab_id, client_id, color_key, position, utc_now()))
 
     def set_row_preference_for_actor(self, *, actor_id: int, owner_id: int, tab_id: int, client_id: int, color_key: str | None, position: int) -> None:
+        self._require_workspace_write(actor_id, owner_id)
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         self._set_row_preference(owner_id, tab_id, client_id, color_key=color_key, position=position)
@@ -965,7 +993,7 @@ class CrmRepository:
     ) -> dict[str, Any]:
         if color_key is not None and color_key not in CRM_COLOR_KEYS:
             raise ValueError("Выберите цвет из разрешённой палитры.")
-        self._require_owner_access(actor_id, owner_id)
+        self._require_workspace_write(actor_id, owner_id)
         with self.db.transaction() as conn:
             self._require_primary_client(conn, client_id)
             self._ensure_primary_preferences(conn, owner_id)
@@ -1009,7 +1037,7 @@ class CrmRepository:
         expected_order_version: int,
     ) -> dict[str, Any]:
         """Atomically place a linked card between validated primary-list neighbors."""
-        self._require_owner_access(actor_id, owner_id)
+        self._require_workspace_write(actor_id, owner_id)
         with self.db.transaction() as conn:
             self._require_primary_client(conn, client_id)
             self._ensure_primary_preferences(conn, owner_id)
@@ -1080,6 +1108,7 @@ class CrmRepository:
     ) -> dict[str, Any]:
         """Atomically place a row between two validated neighbors in one personal tab."""
         with self.db.transaction() as conn:
+            self._require_workspace_write(actor_id, owner_id)
             self._require_personal_access(conn, actor_id, owner_id, client_id)
             self._require_row(conn, "SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена.")
             rows = conn.execute(

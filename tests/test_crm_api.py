@@ -435,7 +435,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(200, other_color.status_code)
         self.assertEqual("pink", owner_list.json()["items"][0]["primaryRowPreference"]["colorKey"])
         self.assertEqual(400, admin_without_owner.status_code)
-        self.assertEqual(200, admin_for_owner.status_code)
+        self.assertEqual(403, admin_for_owner.status_code)
 
     def test_owner_can_reorder_between_neighbors_with_version(self) -> None:
         first = self.client.post("/api/crm/clients", json={"documentName": "Первый"}).json()
