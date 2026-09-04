@@ -15,6 +15,7 @@ test("published client times out session requests", async () => {
   const source = await readFile(apiUrl, "utf8");
 
   assert.match(source, /const REQUEST_TIMEOUT_MS = 15_000;/);
+  assert.match(source, /const CRM_SYNC_TIMEOUT_MS = 90_000;/);
   assert.match(source, /timeoutController\.abort\(\)/);
   assert.match(source, /Время ожидания ответа сервера истекло/);
 });
