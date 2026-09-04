@@ -464,6 +464,39 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual([], jobs)
         self.assertEqual("archived", card["sync_status"])
 
+    def test_archived_local_lead_cannot_retry_a_blocked_onec_create(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Архивный повтор", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.service.save_system_settings({"base_url": "https://onec.example.test"})
+        queued = self.client.post(f"/api/crm/clients/{client_id}/send-to-onec")
+        blocked = self.service.run_due_crm_sync_jobs()
+
+        self.as_user(self.admin_id, "admin")
+        archived = self.client.post(
+            f"/api/crm/clients/{client_id}/local-archive?ownerId={self.owner_id}",
+            json={"reason": "Отменено", "expectedVersion": queued.json()["client"]["version"]},
+        )
+        self.as_user(self.owner_id)
+        retry = self.client.post(f"/api/crm/clients/{client_id}/retry-onec")
+        with self.service.db.connect() as conn:
+            job = conn.execute(
+                "SELECT status FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)
+            ).fetchone()
+            card = conn.execute(
+                "SELECT sync_status FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+
+        self.assertEqual(202, queued.status_code, queued.text)
+        self.assertEqual({"processed": 1, "blocked": 1}, blocked)
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assertEqual(400, retry.status_code)
+        self.assertIn("архив", retry.json()["detail"].casefold())
+        self.assertEqual("blocked_credentials", job["status"])
+        self.assertEqual("archived", card["sync_status"])
+
     def test_create_worker_blocks_missing_submitter_onec_credentials_without_fallback(self) -> None:
         created = self.client.post(
             "/api/crm/clients",

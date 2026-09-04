@@ -469,6 +469,14 @@ class CrmRepository:
         now = utc_now()
         with self.db.transaction() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
+            card = self._require_row(
+                conn,
+                "SELECT is_inactive FROM crm_clients WHERE id = ?",
+                (client_id,),
+                "Клиент не найден.",
+            )
+            if bool(card["is_inactive"]):
+                raise ValueError("Архивный локальный клиент нельзя повторно отправить в 1С.")
             version = self._ensure_card_version(conn, client_id)
             job = self._require_row(
                 conn,
