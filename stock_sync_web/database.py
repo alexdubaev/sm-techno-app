@@ -1111,6 +1111,22 @@ class WebDatabase(Database):
             if not job:
                 raise ValueError("Задание создания в 1С нельзя завершить.")
             client_id = int(job["crm_client_id"])
+            client = conn.execute(
+                "SELECT is_inactive FROM crm_clients WHERE id = ?",
+                (client_id,),
+            ).fetchone()
+            if not client:
+                raise ValueError("Клиент не найден.")
+            if bool(client["is_inactive"]):
+                cursor = conn.execute(
+                    """UPDATE crm_sync_jobs SET status = 'completed', claimed_at = NULL, updated_at = ?
+                       WHERE id = ? AND status = 'running'""",
+                    (now, job_id),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError("Задание синхронизации нельзя завершить.")
+                row = conn.execute(self._crm_client_select() + " WHERE id = ?", (client_id,)).fetchone()
+                return dict(row)
             newer_outstanding = conn.execute(
                 """SELECT 1 FROM crm_sync_jobs
                    WHERE crm_client_id = ? AND id != ? AND status IN ('pending', 'running') LIMIT 1""",

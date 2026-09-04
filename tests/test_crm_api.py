@@ -996,6 +996,43 @@ class CrmApiTest(unittest.TestCase):
         self.assertIsNone(card["linked_counterparty_id"])
         self.assertEqual("archived", card["sync_status"])
 
+    def test_archived_local_lead_stays_unlinked_when_a_claimed_create_finishes(self) -> None:
+        """A create already sent to 1C must not revive a subsequently archived lead."""
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Гонка архива", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        queued = self.client.post(f"/api/crm/clients/{client_id}/send-to-onec")
+        claimed = self.service.db.claim_next_crm_sync_job()
+        self.assertIsNotNone(claimed)
+
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (?, ?, ?, ?)",
+                (870, "onec-870", "Гонка архива", "2026-09-04T00:00:00"),
+            )
+
+        self.as_user(self.admin_id, "admin")
+        archived = self.client.post(
+            f"/api/crm/clients/{client_id}/local-archive?ownerId={self.owner_id}",
+            json={"reason": "Архивировать после POST", "expectedVersion": queued.json()["client"]["version"]},
+        )
+        self.service.db.complete_crm_create_job(int(claimed["id"]), counterparty_id=870)
+
+        with self.service.db.connect() as conn:
+            job = conn.execute("SELECT status FROM crm_sync_jobs WHERE id = ?", (claimed["id"],)).fetchone()
+            card = conn.execute(
+                "SELECT linked_counterparty_id, sync_status, is_inactive FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+
+        self.assertEqual(202, queued.status_code, queued.text)
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assertEqual("completed", job["status"])
+        self.assertIsNone(card["linked_counterparty_id"])
+        self.assertEqual("archived", card["sync_status"])
+        self.assertEqual(1, card["is_inactive"])
+
     def test_restoring_archived_local_lead_does_not_revive_cancelled_onec_create(self) -> None:
         """Restoring a card must require a new explicit request before 1C creation."""
         class RecordingOneC:
