@@ -4,6 +4,7 @@ import base64
 import ctypes
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
@@ -58,6 +59,8 @@ CREATE TABLE IF NOT EXISTS crm_clients (
     bank_account TEXT,
     correspondent_account TEXT,
     contact_person TEXT,
+    city TEXT,
+    website TEXT,
     email TEXT,
     email_note TEXT,
     phone TEXT,
@@ -69,6 +72,7 @@ CREATE TABLE IF NOT EXISTS crm_clients (
     signer_name TEXT,
     signer_basis TEXT,
     notes TEXT,
+    crm_owner_user_id INTEGER,
     linked_counterparty_id INTEGER,
     sync_status TEXT NOT NULL DEFAULT 'local',
     sync_error TEXT,
@@ -76,6 +80,7 @@ CREATE TABLE IF NOT EXISTS crm_clients (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY(linked_counterparty_id) REFERENCES counterparties(id)
+    ,FOREIGN KEY(crm_owner_user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS commercial_offers (
@@ -142,6 +147,165 @@ CREATE TABLE IF NOT EXISTS documents (
     FOREIGN KEY(counterparty_id) REFERENCES counterparties(id),
     FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
     FOREIGN KEY(commercial_offer_id) REFERENCES commercial_offers(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_tabs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    system_kind TEXT NOT NULL DEFAULT 'custom' CHECK(system_kind IN ('work', 'custom')),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    UNIQUE(owner_user_id, name)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_tabs_one_work_per_owner
+ON crm_tabs(owner_user_id) WHERE system_kind = 'work';
+
+CREATE TABLE IF NOT EXISTS crm_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    tab_id INTEGER NOT NULL,
+    archived_at TEXT,
+    archived_by_user_id INTEGER,
+    archive_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(tab_id) REFERENCES crm_tabs(id),
+    FOREIGN KEY(archived_by_user_id) REFERENCES users(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_assignments_one_active_per_owner_client
+ON crm_assignments(owner_user_id, crm_client_id) WHERE archived_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS crm_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    email TEXT,
+    phone TEXT,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    author_user_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(author_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_reminders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    due_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'completed', 'cancelled')),
+    completed_at TEXT,
+    cancelled_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_row_preferences (
+    owner_user_id INTEGER NOT NULL,
+    tab_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    color_key TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    order_version INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(owner_user_id, tab_id, crm_client_id),
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(tab_id) REFERENCES crm_tabs(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_primary_row_preferences (
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    color_key TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    order_version INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(owner_user_id, crm_client_id),
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_audit_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id INTEGER NOT NULL,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER,
+    action TEXT NOT NULL,
+    reason TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(actor_user_id) REFERENCES users(id),
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_sync_state (
+    crm_client_id INTEGER PRIMARY KEY,
+    version INTEGER NOT NULL DEFAULT 1,
+    last_synced_snapshot TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_sync_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    crm_client_id INTEGER NOT NULL,
+    author_user_id INTEGER NOT NULL,
+    operation TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    idempotency_key TEXT,
+    available_at TEXT NOT NULL,
+    claimed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(author_user_id) REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS crm_sync_conflicts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    crm_client_id INTEGER NOT NULL,
+    field_name TEXT NOT NULL,
+    base_value_json TEXT NOT NULL,
+    local_value_json TEXT NOT NULL,
+    remote_value_json TEXT NOT NULL,
+    source_version INTEGER NOT NULL,
+    remote_version TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    resolved_value_json TEXT,
+    resolved_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(resolved_by_user_id) REFERENCES users(id)
 );
 """
 
@@ -285,6 +449,8 @@ class WebDatabase(Database):
             "correspondent_account": "ALTER TABLE crm_clients ADD COLUMN correspondent_account TEXT",
             "email_note": "ALTER TABLE crm_clients ADD COLUMN email_note TEXT",
             "phone_note": "ALTER TABLE crm_clients ADD COLUMN phone_note TEXT",
+            "city": "ALTER TABLE crm_clients ADD COLUMN city TEXT",
+            "website": "ALTER TABLE crm_clients ADD COLUMN website TEXT",
             "legal_address": "ALTER TABLE crm_clients ADD COLUMN legal_address TEXT",
             "actual_address": "ALTER TABLE crm_clients ADD COLUMN actual_address TEXT",
             "ogrn": "ALTER TABLE crm_clients ADD COLUMN ogrn TEXT",
@@ -294,6 +460,7 @@ class WebDatabase(Database):
             "sync_status": "ALTER TABLE crm_clients ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'local'",
             "sync_error": "ALTER TABLE crm_clients ADD COLUMN sync_error TEXT",
             "onec_synced_at": "ALTER TABLE crm_clients ADD COLUMN onec_synced_at TEXT",
+            "crm_owner_user_id": "ALTER TABLE crm_clients ADD COLUMN crm_owner_user_id INTEGER",
         }
         for column_name, ddl in client_migrations.items():
             if column_name not in client_columns:
@@ -343,9 +510,64 @@ class WebDatabase(Database):
 
         self._backfill_crm_client_inferred_fields(conn)
 
+        job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(crm_sync_jobs)").fetchall()}
+        if "idempotency_key" not in job_columns:
+            conn.execute("ALTER TABLE crm_sync_jobs ADD COLUMN idempotency_key TEXT")
+        conn.execute("UPDATE crm_sync_jobs SET idempotency_key = 'crm-sync-' || id WHERE idempotency_key IS NULL")
+
+        # Existing accounts get their immutable personal workspace during the
+        # idempotent migration; new accounts are handled by create_user().
+        now = utc_now()
+        conn.execute(
+            """INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at)
+               SELECT u.id, 'В работе', 'work', 0, ?, ? FROM users u
+               WHERE NOT EXISTS (SELECT 1 FROM crm_tabs t WHERE t.owner_user_id = u.id AND t.system_kind = 'work')""",
+            (now, now),
+        )
+        conn.execute(
+            """UPDATE crm_assignments
+               SET tab_id = (SELECT id FROM crm_tabs t WHERE t.owner_user_id = crm_assignments.owner_user_id AND t.system_kind = 'work')
+               WHERE tab_id IS NULL"""
+        )
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_name ON crm_clients(name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_inn ON crm_clients(inn)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_sync_status ON crm_clients(sync_status)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_clients_owner ON crm_clients(crm_owner_user_id)")
+        duplicate_link = conn.execute("SELECT 1 FROM crm_clients WHERE linked_counterparty_id IS NOT NULL GROUP BY linked_counterparty_id HAVING COUNT(*) > 1 LIMIT 1").fetchone()
+        if not duplicate_link:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_clients_linked_counterparty_unique ON crm_clients(linked_counterparty_id) WHERE linked_counterparty_id IS NOT NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_assignments_owner_tab ON crm_assignments(owner_user_id, tab_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_contacts_owner_client ON crm_contacts(owner_user_id, crm_client_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_events_owner_client ON crm_events(owner_user_id, crm_client_id, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_reminders_owner_status_due ON crm_reminders(owner_user_id, status, due_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_sync_jobs_status_available ON crm_sync_jobs(status, available_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_sync_conflicts_client_status ON crm_sync_conflicts(crm_client_id, status)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_sync_conflicts_open_unique ON crm_sync_conflicts(crm_client_id, field_name) WHERE status = 'open'")
+        conn.executescript(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_crm_assignment_tab_owner_insert
+            BEFORE INSERT ON crm_assignments
+            FOR EACH ROW WHEN NEW.tab_id IS NULL OR NOT EXISTS (
+                SELECT 1 FROM crm_tabs WHERE id = NEW.tab_id AND owner_user_id = NEW.owner_user_id
+            ) BEGIN SELECT RAISE(ABORT, 'CRM assignment tab must belong to owner'); END;
+            CREATE TRIGGER IF NOT EXISTS trg_crm_assignment_tab_owner_update
+            BEFORE UPDATE OF tab_id, owner_user_id ON crm_assignments
+            FOR EACH ROW WHEN NEW.tab_id IS NULL OR NOT EXISTS (
+                SELECT 1 FROM crm_tabs WHERE id = NEW.tab_id AND owner_user_id = NEW.owner_user_id
+            ) BEGIN SELECT RAISE(ABORT, 'CRM assignment tab must belong to owner'); END;
+            CREATE TRIGGER IF NOT EXISTS trg_crm_preference_tab_owner_insert
+            BEFORE INSERT ON crm_row_preferences
+            FOR EACH ROW WHEN NOT EXISTS (
+                SELECT 1 FROM crm_tabs WHERE id = NEW.tab_id AND owner_user_id = NEW.owner_user_id
+            ) BEGIN SELECT RAISE(ABORT, 'CRM preference tab must belong to owner'); END;
+            CREATE TRIGGER IF NOT EXISTS trg_crm_preference_tab_owner_update
+            BEFORE UPDATE OF tab_id, owner_user_id ON crm_row_preferences
+            FOR EACH ROW WHEN NOT EXISTS (
+                SELECT 1 FROM crm_tabs WHERE id = NEW.tab_id AND owner_user_id = NEW.owner_user_id
+            ) BEGIN SELECT RAISE(ABORT, 'CRM preference tab must belong to owner'); END;
+            """
+        )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_created ON commercial_offers(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offers_owner ON commercial_offers(created_by_user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commercial_offer_lines_offer ON commercial_offer_lines(offer_id)")
@@ -500,6 +722,11 @@ class WebDatabase(Database):
                     now,
                     now,
                 ),
+            )
+            conn.execute(
+                """INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at)
+                   VALUES (?, 'В работе', 'work', 0, ?, ?)""",
+                (int(cursor.lastrowid), now, now),
             )
         return int(cursor.lastrowid)
 
@@ -736,6 +963,8 @@ class WebDatabase(Database):
                 bank_account,
                 correspondent_account,
                 contact_person,
+                city,
+                website,
                 email,
                 email_note,
                 phone,
@@ -747,6 +976,7 @@ class WebDatabase(Database):
                 signer_name,
                 signer_basis,
                 notes,
+                crm_owner_user_id,
                 linked_counterparty_id,
                 sync_status,
                 sync_error,
@@ -770,6 +1000,174 @@ class WebDatabase(Database):
                 (client_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def claim_next_crm_sync_job(self) -> dict[str, Any] | None:
+        """Claim one due outbox job without holding a database transaction during I/O."""
+        now = utc_now()
+        with self.transaction() as conn:
+            job = conn.execute(
+                """SELECT * FROM crm_sync_jobs
+                   WHERE status = 'pending' AND available_at <= ?
+                   ORDER BY available_at, id LIMIT 1""",
+                (now,),
+            ).fetchone()
+            if not job:
+                return None
+            claimed_update = conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'running', claimed_at = ?,
+                   attempt_count = attempt_count + 1, updated_at = ? WHERE id = ? AND status = 'pending'""",
+                (now, now, job["id"]),
+            )
+            if claimed_update.rowcount != 1:
+                return None
+            claimed = conn.execute("SELECT * FROM crm_sync_jobs WHERE id = ?", (job["id"],)).fetchone()
+        return dict(claimed) if claimed else None
+
+    def recover_stale_crm_sync_jobs(self, *, claim_timeout_seconds: int = 300) -> int:
+        """Make jobs abandoned by a stopped worker eligible for a later worker."""
+        now = utc_now()
+        cutoff = (datetime.fromisoformat(now) - timedelta(seconds=max(1, int(claim_timeout_seconds)))).isoformat()
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                """UPDATE crm_sync_jobs
+                   SET status = 'pending', claimed_at = NULL, available_at = ?, updated_at = ?
+                   WHERE status = 'running' AND claimed_at IS NOT NULL AND claimed_at <= ?""",
+                (now, now, cutoff),
+            )
+        return int(cursor.rowcount)
+
+    def block_crm_sync_job(
+        self,
+        job_id: int,
+        *,
+        message: str,
+        status: str = "blocked_capability",
+    ) -> None:
+        if status not in {"blocked_capability", "blocked_duplicate", "blocked_credentials", "blocked_validation"}:
+            raise ValueError("Недопустимый статус задания синхронизации.")
+        now = utc_now()
+        with self.transaction() as conn:
+            job = conn.execute("SELECT crm_client_id FROM crm_sync_jobs WHERE id = ?", (job_id,)).fetchone()
+            if not job:
+                raise ValueError("Задание синхронизации не найдено.")
+            conn.execute(
+                "UPDATE crm_sync_jobs SET status = ?, updated_at = ? WHERE id = ?",
+                (status, now, job_id),
+            )
+            newer_pending = conn.execute(
+                """SELECT id FROM crm_sync_jobs
+                   WHERE crm_client_id = ? AND id != ? AND status = 'pending' LIMIT 1""",
+                (job["crm_client_id"], job_id),
+            ).fetchone()
+            if not newer_pending:
+                conn.execute(
+                    """UPDATE crm_clients SET sync_status = ?, sync_error = ?,
+                       updated_at = ? WHERE id = ?""",
+                    (status, message, now, job["crm_client_id"]),
+                )
+
+    def retry_crm_sync_job(self, job_id: int, *, message: str, payload: dict[str, Any]) -> None:
+        """Return a claimed job to the durable outbox after a transient failure."""
+        now = utc_now()
+        with self.transaction() as conn:
+            job = conn.execute(
+                "SELECT crm_client_id, attempt_count FROM crm_sync_jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if not job:
+                raise ValueError("Задание синхронизации не найдено.")
+            delay_seconds = min(300, 2 ** min(int(job["attempt_count"]), 7))
+            available_at = (datetime.fromisoformat(now) + timedelta(seconds=delay_seconds)).isoformat()
+            conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'pending', payload = ?, available_at = ?,
+                   claimed_at = NULL, updated_at = ? WHERE id = ?""",
+                (json.dumps(payload, ensure_ascii=False, sort_keys=True), available_at, now, job_id),
+            )
+            conn.execute(
+                """UPDATE crm_clients SET sync_status = 'pending', sync_error = ?, updated_at = ?
+                   WHERE id = ?""",
+                (message, now, job["crm_client_id"]),
+            )
+
+    def complete_crm_sync_job(self, job_id: int) -> None:
+        now = utc_now()
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'completed', claimed_at = NULL, updated_at = ?
+                   WHERE id = ? AND status = 'running'""",
+                (now, job_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Задание синхронизации нельзя завершить.")
+
+    def complete_crm_create_job(self, job_id: int, *, counterparty_id: int) -> dict[str, Any]:
+        """Link a completed create without overwriting newer pending local work."""
+        now = utc_now()
+        with self.transaction() as conn:
+            job = conn.execute(
+                """SELECT crm_client_id FROM crm_sync_jobs
+                   WHERE id = ? AND operation = 'create' AND status = 'running'""",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                raise ValueError("Задание создания в 1С нельзя завершить.")
+            client_id = int(job["crm_client_id"])
+            client = conn.execute(
+                "SELECT is_inactive FROM crm_clients WHERE id = ?",
+                (client_id,),
+            ).fetchone()
+            if not client:
+                raise ValueError("Клиент не найден.")
+            if bool(client["is_inactive"]):
+                cursor = conn.execute(
+                    """UPDATE crm_sync_jobs SET status = 'completed', claimed_at = NULL, updated_at = ?
+                       WHERE id = ? AND status = 'running'""",
+                    (now, job_id),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError("Задание синхронизации нельзя завершить.")
+                row = conn.execute(self._crm_client_select() + " WHERE id = ?", (client_id,)).fetchone()
+                return dict(row)
+            newer_outstanding = conn.execute(
+                """SELECT 1 FROM crm_sync_jobs
+                   WHERE crm_client_id = ? AND id != ? AND status IN ('pending', 'running') LIMIT 1""",
+                (client_id, job_id),
+            ).fetchone()
+            if newer_outstanding:
+                sync_status = "pending"
+            else:
+                snapshot_row = conn.execute(
+                    "SELECT document_name, email, phone, legal_address FROM crm_clients WHERE id = ?",
+                    (client_id,),
+                ).fetchone()
+                if not snapshot_row:
+                    raise ValueError("Клиент не найден.")
+                snapshot = json.dumps({
+                    "document_name": snapshot_row["document_name"] or "",
+                    "email": snapshot_row["email"] or "",
+                    "phone": snapshot_row["phone"] or "",
+                    "legal_address": snapshot_row["legal_address"] or "",
+                }, ensure_ascii=False, sort_keys=True)
+                conn.execute(
+                    """INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at)
+                       VALUES (?, 1, ?, ?)
+                       ON CONFLICT(crm_client_id) DO UPDATE SET last_synced_snapshot = excluded.last_synced_snapshot, updated_at = excluded.updated_at""",
+                    (client_id, snapshot, now),
+                )
+                sync_status = "synced"
+            conn.execute(
+                """UPDATE crm_clients SET linked_counterparty_id = ?, sync_status = ?, sync_error = NULL,
+                   onec_synced_at = ?, updated_at = ? WHERE id = ?""",
+                (counterparty_id, sync_status, now, now, client_id),
+            )
+            cursor = conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'completed', claimed_at = NULL, updated_at = ?
+                   WHERE id = ? AND status = 'running'""",
+                (now, job_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Задание синхронизации нельзя завершить.")
+            row = conn.execute(self._crm_client_select() + " WHERE id = ?", (client_id,)).fetchone()
+        return dict(row)
 
     def get_counterparty_by_onec_key(self, onec_key: str) -> dict[str, Any] | None:
         normalized_key = onec_key.strip()
@@ -803,12 +1201,51 @@ class WebDatabase(Database):
             ).fetchone()
         return dict(row) if row else None
 
+    def get_counterparty_by_inn_and_kpp(self, inn: str, kpp: str) -> dict[str, Any] | None:
+        normalized_inn = inn.strip()
+        normalized_kpp = kpp.strip()
+        if not normalized_inn or not normalized_kpp:
+            return None
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, onec_key, name, full_name, inn, kpp
+                FROM counterparties
+                WHERE inn = ? AND kpp = ?
+                ORDER BY id
+                LIMIT 1
+                """,
+                (normalized_inn, normalized_kpp),
+            ).fetchone()
+        return dict(row) if row else None
+
     def get_crm_client_by_inn(self, inn: str, *, exclude_client_id: int | None = None) -> dict[str, Any] | None:
         normalized_inn = inn.strip()
         if not normalized_inn:
             return None
         query = self._crm_client_select() + " WHERE inn = ?"
         params: list[Any] = [normalized_inn]
+        if exclude_client_id is not None:
+            query += " AND id <> ?"
+            params.append(exclude_client_id)
+        query += " ORDER BY id LIMIT 1"
+        with self.connect() as conn:
+            row = conn.execute(query, params).fetchone()
+        return dict(row) if row else None
+
+    def get_crm_client_by_inn_and_kpp(
+        self,
+        inn: str,
+        kpp: str,
+        *,
+        exclude_client_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        normalized_inn = inn.strip()
+        normalized_kpp = kpp.strip()
+        if not normalized_inn or not normalized_kpp:
+            return None
+        query = self._crm_client_select() + " WHERE inn = ? AND kpp = ?"
+        params: list[Any] = [normalized_inn, normalized_kpp]
         if exclude_client_id is not None:
             query += " AND id <> ?"
             params.append(exclude_client_id)
@@ -825,7 +1262,7 @@ class WebDatabase(Database):
             ).fetchone()
         return dict(row) if row else None
 
-    def create_crm_client_card(self, values: dict[str, Any]) -> dict[str, Any]:
+    def create_crm_client_card(self, values: dict[str, Any], *, owner_user_id: int | None = None) -> dict[str, Any]:
         document_name = str(values.get("document_name") or "").strip()
         if not document_name:
             raise ValueError("Укажите наименование для документов.")
@@ -850,6 +1287,8 @@ class WebDatabase(Database):
                     bank_account,
                     correspondent_account,
                     contact_person,
+                    city,
+                    website,
                     email,
                     email_note,
                     phone,
@@ -861,11 +1300,12 @@ class WebDatabase(Database):
                     signer_name,
                     signer_basis,
                     notes,
+                    crm_owner_user_id,
                     sync_status,
                     created_at,
                     updated_at
                 )
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)
                 """,
                 (
                     document_name,
@@ -883,6 +1323,8 @@ class WebDatabase(Database):
                     values.get("bank_account") or None,
                     values.get("correspondent_account") or None,
                     values.get("contact_person") or None,
+                    values.get("city") or None,
+                    values.get("website") or None,
                     values.get("email") or None,
                     values.get("email_note") or None,
                     values.get("phone") or None,
@@ -894,6 +1336,7 @@ class WebDatabase(Database):
                     values.get("signer_name") or None,
                     values.get("signer_basis") or None,
                     values.get("notes") or None,
+                    owner_user_id,
                     now,
                     now,
                 ),
@@ -979,10 +1422,14 @@ class WebDatabase(Database):
                 )
 
                 existing = conn.execute(
-                    "SELECT id FROM crm_clients WHERE linked_counterparty_id = ? ORDER BY id LIMIT 1",
+                    "SELECT id, sync_status FROM crm_clients WHERE linked_counterparty_id = ? ORDER BY id LIMIT 1",
                     (counterparty_id,),
                 ).fetchone()
                 if existing:
+                    if str(existing["sync_status"] or "") in {"pending", "blocked_capability"}:
+                        # A newer local edit is awaiting a safe conditional write.
+                        # Importing the full 1C catalogue must never erase it.
+                        continue
                     conn.execute(
                         """
                         UPDATE crm_clients
@@ -1065,6 +1512,133 @@ class WebDatabase(Database):
                 synced_count += 1
         return synced_count
 
+    def merge_crm_client_fields_from_counterparty(self, client_id: int, remote: dict[str, Any]) -> None:
+        tracked = ("document_name", "email", "phone", "legal_address")
+        now = utc_now()
+        with self.transaction() as conn:
+            card = conn.execute("SELECT document_name, email, phone, legal_address FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+            state = conn.execute("SELECT version, last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)).fetchone()
+            if card is None or state is None:
+                raise ValueError("Для объединения требуется синхронизированная CRM-карточка.")
+            try:
+                base = json.loads(str(state["last_synced_snapshot"] or "{}"))
+            except json.JSONDecodeError:
+                base = {}
+            snapshot = dict(base)
+            updates: dict[str, str] = {}
+            has_conflict = False
+            for field in tracked:
+                local = str(card[field] or "")
+                remote_value = str(remote.get(field) or "")
+                base_value = str(base.get(field) or "")
+                if local == base_value and remote_value != base_value:
+                    updates[field] = remote_value
+                    snapshot[field] = remote_value
+                elif local != remote_value and remote_value != base_value:
+                    has_conflict = True
+                    conn.execute(
+                        """INSERT INTO crm_sync_conflicts(crm_client_id, field_name, base_value_json, local_value_json, remote_value_json, source_version, status, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)
+                           ON CONFLICT(crm_client_id, field_name) WHERE status = 'open' DO UPDATE SET local_value_json = excluded.local_value_json, remote_value_json = excluded.remote_value_json, updated_at = excluded.updated_at""",
+                        (client_id, field, json.dumps(base_value, ensure_ascii=False), json.dumps(local, ensure_ascii=False), json.dumps(remote_value, ensure_ascii=False), int(state["version"]), now, now),
+                    )
+            assignments = [f"{field} = ?" for field in updates]
+            values = list(updates.values())
+            if has_conflict:
+                assignments.append("sync_status = 'conflict'")
+            if assignments:
+                conn.execute(f"UPDATE crm_clients SET {', '.join(assignments)}, updated_at = ? WHERE id = ?", (*values, now, client_id))
+            conn.execute("UPDATE crm_sync_state SET last_synced_snapshot = ?, updated_at = ? WHERE crm_client_id = ?", (json.dumps(snapshot, ensure_ascii=False, sort_keys=True), now, client_id))
+
+    def list_crm_sync_conflicts(self, client_id: int) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM crm_sync_conflicts
+                   WHERE crm_client_id = ? AND status = 'open'
+                   ORDER BY id""",
+                (client_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def resolve_crm_sync_conflict(
+        self,
+        client_id: int,
+        conflict_id: int,
+        *,
+        choice: str,
+        expected_updated_at: str,
+        resolved_by_user_id: int,
+        owner_user_id: int,
+    ) -> dict[str, Any]:
+        tracked = {"document_name", "email", "phone"}
+        if choice not in {"local", "remote"}:
+            raise ValueError("Выберите локальное значение или значение из 1С.")
+        now = utc_now()
+        with self.transaction() as conn:
+            conflict = conn.execute(
+                """SELECT * FROM crm_sync_conflicts
+                   WHERE id = ? AND crm_client_id = ? AND status = 'open'""",
+                (conflict_id, client_id),
+            ).fetchone()
+            if not conflict or str(conflict["updated_at"] or "") != expected_updated_at:
+                raise ValueError("Конфликт синхронизации уже изменён. Обновите карточку.")
+            field_name = str(conflict["field_name"] or "")
+            if field_name not in tracked:
+                raise ValueError("Конфликт содержит неподдерживаемое поле.")
+            state = conn.execute(
+                "SELECT last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)
+            ).fetchone()
+            if not state:
+                raise ValueError("Для разрешения требуется синхронизированная CRM-карточка.")
+            try:
+                snapshot = json.loads(str(state["last_synced_snapshot"] or "{}"))
+                remote_value = json.loads(str(conflict["remote_value_json"] or "null"))
+                local_value = json.loads(str(conflict["local_value_json"] or "null"))
+            except json.JSONDecodeError as exc:
+                raise ValueError("Конфликт синхронизации содержит некорректное значение.") from exc
+            if not isinstance(remote_value, str) or not isinstance(local_value, str):
+                raise ValueError("Конфликт синхронизации содержит некорректное значение.")
+            snapshot[field_name] = remote_value
+            resolved_value = remote_value if choice == "remote" else local_value
+            if choice == "remote":
+                conn.execute(
+                    f"UPDATE crm_clients SET {field_name} = ?, updated_at = ? WHERE id = ?",
+                    (remote_value, now, client_id),
+                )
+            conn.execute(
+                """UPDATE crm_sync_conflicts
+                   SET status = ?, resolved_value_json = ?, resolved_by_user_id = ?,
+                       resolved_at = ?, updated_at = ?
+                   WHERE id = ?""",
+                (f"resolved_{choice}", json.dumps(resolved_value, ensure_ascii=False), resolved_by_user_id, now, now, conflict_id),
+            )
+            conn.execute(
+                """INSERT INTO crm_audit_actions(actor_user_id, owner_user_id, crm_client_id, action, reason, created_at)
+                   VALUES (?, ?, ?, 'resolve_sync_conflict', ?, ?)""",
+                (resolved_by_user_id, owner_user_id, client_id, choice, now),
+            )
+            remaining = conn.execute(
+                "SELECT 1 FROM crm_sync_conflicts WHERE crm_client_id = ? AND status = 'open' LIMIT 1",
+                (client_id,),
+            ).fetchone()
+            if remaining:
+                sync_status, sync_error = "conflict", ""
+            elif choice == "remote":
+                sync_status, sync_error = "synced", ""
+            else:
+                sync_status = "blocked_capability"
+                sync_error = "Локальное значение сохранено и ожидает безопасной условной записи в 1С."
+            conn.execute(
+                "UPDATE crm_clients SET sync_status = ?, sync_error = ?, updated_at = ? WHERE id = ?",
+                (sync_status, sync_error, now, client_id),
+            )
+            conn.execute(
+                "UPDATE crm_sync_state SET last_synced_snapshot = ?, updated_at = ? WHERE crm_client_id = ?",
+                (json.dumps(snapshot, ensure_ascii=False, sort_keys=True), now, client_id),
+            )
+            card = conn.execute(self._crm_client_select() + " WHERE id = ?", (client_id,)).fetchone()
+        return dict(card)
+
     def update_crm_client_sync_state(
         self,
         client_id: int,
@@ -1079,6 +1653,21 @@ class WebDatabase(Database):
             existing = conn.execute("SELECT id FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
             if existing is None:
                 raise ValueError("Клиент не найден.")
+
+            if synced:
+                snapshot_row = conn.execute("SELECT document_name, email, phone, legal_address FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+                snapshot = json.dumps({
+                    "document_name": snapshot_row["document_name"] or "",
+                    "email": snapshot_row["email"] or "",
+                    "phone": snapshot_row["phone"] or "",
+                    "legal_address": snapshot_row["legal_address"] or "",
+                }, ensure_ascii=False, sort_keys=True)
+                conn.execute(
+                    """INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at)
+                       VALUES (?, 1, ?, ?)
+                       ON CONFLICT(crm_client_id) DO UPDATE SET last_synced_snapshot = excluded.last_synced_snapshot, updated_at = excluded.updated_at""",
+                    (client_id, snapshot, now),
+                )
 
             if linked_counterparty_id is not None:
                 conn.execute(

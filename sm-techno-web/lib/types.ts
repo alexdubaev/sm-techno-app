@@ -156,6 +156,122 @@ export type CrmClient = {
   isLinkedToOneC: boolean;
 };
 
+export type CrmTab = {
+  id: number;
+  name: string;
+  systemKind: "work" | "custom";
+  sortOrder: number;
+};
+
+export type CrmAssignment = {
+  id: number;
+  tabId: number;
+  tabName: string;
+  archivedAt: string | null;
+};
+
+export type CrmWorkspaceClient = {
+  id: number;
+  version: number;
+  name: string;
+  documentName: string;
+  fullName: string;
+  inn: string;
+  kpp: string;
+  city: string;
+  website: string;
+  email: string;
+  phone: string;
+  notes: string;
+  linkedCounterpartyId: number | null;
+  syncStatus: "local" | "synced" | "sync_error" | "pending" | "blocked_capability" | "blocked_credentials" | "conflict" | "archived";
+  syncError: string;
+  createdAt: string;
+  updatedAt: string;
+  assignment: CrmAssignment | null;
+  rowPreference?: CrmRowPreference | null;
+  primaryRowPreference?: CrmPrimaryRowPreference | null;
+};
+
+export type CrmSyncConflict = {
+  id: number;
+  fieldName: string;
+  baseValue: string;
+  localValue: string;
+  remoteValue: string;
+  sourceVersion: number;
+  updatedAt: string;
+};
+
+export type CrmLinkCandidate = {
+  id: number;
+  onecKey: string;
+  name: string;
+  inn: string;
+  kpp: string;
+};
+
+export type CrmRowPreference = {
+  tabId: number;
+  clientId: number;
+  colorKey: string | null;
+  position: number;
+  orderVersion: number;
+};
+
+export type CrmPrimaryRowPreference = {
+  clientId: number;
+  colorKey: string | null;
+  position: number;
+  orderVersion: number;
+};
+
+export type CrmPrimaryListResponse = {
+  ownerId: number;
+  items: CrmWorkspaceClient[];
+  orderVersion: number;
+};
+
+export type CrmContact = {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  isPrimary: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CrmEvent = {
+  id: number;
+  kind: string;
+  body: string;
+  authorUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CrmAuditAction = {
+  id: number;
+  actorUserId: number;
+  ownerUserId: number;
+  clientId: number;
+  action: string;
+  reason: string;
+  createdAt: string;
+};
+
+export type CrmReminder = {
+  id: number;
+  clientId: number;
+  dueAt: string;
+  status: string;
+  createdAt: string;
+  completedAt: string;
+  cancelledAt: string;
+  updatedAt: string;
+};
+
 export type Contract = {
   id: number;
   onecKey: string;

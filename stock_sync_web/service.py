@@ -7,6 +7,7 @@ import shutil
 import uuid
 from datetime import date, datetime
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounterpartySyncError
@@ -21,6 +22,7 @@ DOCUMENT_TEMPLATE_PATHS = {
     "specification": ROOT_DIR / "assets" / "templates" / "specification_template.docx",
 }
 DOCUMENT_STORAGE_DIR = ROOT_DIR / "storage" / "documents"
+CRM_LOCAL_ONLY_POLICY_MESSAGE = "CRM не отправляет клиентов или изменения в 1С; создание выполняется в разделе «Клиенты»."
 
 
 class WebStockSyncService:
@@ -45,6 +47,7 @@ class WebStockSyncService:
         self.document_storage_dir = Path(document_storage_dir)
         self.document_exports_dir = self.document_storage_dir / "exports"
         self.document_exports_dir.mkdir(parents=True, exist_ok=True)
+        self._crm_refresh_lock = Lock()
 
     def bootstrap(self) -> bool:
         return self.db.ensure_default_admin()
@@ -243,8 +246,166 @@ class WebStockSyncService:
         )
         rows = client.list_counterparties()
         count = self.db.upsert_counterparties(rows)
-        self.db.upsert_crm_clients_from_counterparties(rows)
+        legacy_rows: list[dict[str, Any]] = []
+        for row in rows:
+            onec_key = str(row.get("onec_key") or "").strip()
+            counterparty = self.db.get_counterparty_by_onec_key(onec_key) if onec_key else None
+            card = self.db.get_crm_client_by_counterparty_id(int(counterparty["id"])) if counterparty else None
+            if not card:
+                legacy_rows.append(row)
+                continue
+            try:
+                self.db.merge_crm_client_fields_from_counterparty(int(card["id"]), row)
+            except ValueError:
+                legacy_rows.append(row)
+        if legacy_rows:
+            self.db.upsert_crm_clients_from_counterparties(legacy_rows)
+            for row in legacy_rows:
+                counterparty = self.db.get_counterparty_by_onec_key(str(row.get("onec_key") or ""))
+                card = self.db.get_crm_client_by_counterparty_id(int(counterparty["id"])) if counterparty else None
+                if card:
+                    self.db.update_crm_client_sync_state(int(card["id"]), sync_status="synced", synced=True)
         return count
+
+    def sync_crm_counterparties_for_user(self, user_id: int) -> dict[str, int | str]:
+        """Pull the CRM catalogue once; overlapping in-process requests coalesce.
+
+        A coalesced caller returns immediately and reloads the local CRM data
+        being refreshed by the request that owns the lock.
+        """
+        if not self._crm_refresh_lock.acquire(blocking=False):
+            return {"status": "coalesced", "counterparties": 0}
+        try:
+            return {
+                "status": "synced",
+                "counterparties": self.sync_counterparties(user_id=int(user_id)),
+            }
+        finally:
+            self._crm_refresh_lock.release()
+
+    def run_due_crm_sync_jobs(self, *, limit: int = 20) -> dict[str, int]:
+        """Block legacy CRM outbox jobs without constructing a 1C client."""
+        self.db.recover_stale_crm_sync_jobs()
+        result = {"processed": 0, "blocked": 0, "retried": 0, "completed": 0}
+        for _ in range(max(0, int(limit))):
+            job = self.db.claim_next_crm_sync_job()
+            if not job:
+                break
+            result["processed"] += 1
+            self.db.block_crm_sync_job(
+                int(job["id"]),
+                message=CRM_LOCAL_ONLY_POLICY_MESSAGE,
+            )
+            result["blocked"] += 1
+        return {key: value for key, value in result.items() if value}
+
+    def _process_crm_create_job(self, job: dict[str, Any]) -> str:
+        """Create an explicitly requested local lead with safe unknown-POST recovery."""
+        job_id = int(job["id"])
+        client_id = int(job["crm_client_id"])
+        card = self.db.get_crm_client(client_id)
+        if not card:
+            self.db.block_crm_sync_job(job_id, message="Локальная карточка для создания в 1С не найдена.")
+            return "blocked"
+        if bool(card.get("is_inactive")):
+            # A local lead can be archived after its explicit create request was
+            # queued.  Finishing that obsolete local intent must not revive the
+            # card or perform a remote write.
+            self.db.complete_crm_sync_job(job_id)
+            return "completed"
+        if card.get("linked_counterparty_id") is not None:
+            self.db.complete_crm_sync_job(job_id)
+            return "completed"
+        try:
+            payload = json.loads(str(job.get("payload") or "{}"))
+        except json.JSONDecodeError:
+            payload = {}
+        try:
+            onec_client = self.build_user_client(user_id=int(job["author_user_id"]))
+        except ValueError as exc:
+            self.db.block_crm_sync_job(
+                job_id,
+                message=f"Учётные данные 1С автора заявки недоступны: {exc}",
+                status="blocked_credentials",
+            )
+            return "blocked"
+        try:
+            existing = self._find_counterparty_by_identity(onec_client, card)
+        except OneCClientError as exc:
+            if self._is_onec_access_denied(exc):
+                self.db.block_crm_sync_job(
+                    job_id,
+                    message=f"Доступ 1С автора заявки отклонён: {exc}",
+                    status="blocked_credentials",
+                )
+                return "blocked"
+            if self._is_onec_non_retriable_error(exc):
+                self.db.block_crm_sync_job(
+                    job_id,
+                    message=f"1С отклонила данные для отправки: {exc}",
+                    status="blocked_validation",
+                )
+                return "blocked"
+            self.db.retry_crm_sync_job(job_id, message=str(exc), payload=payload)
+            return "retried"
+
+        if existing:
+            if payload.get("post_uncertain"):
+                self._complete_crm_create_job(job_id, client_id, existing, card)
+                return "completed"
+            self.db.block_crm_sync_job(
+                job_id,
+                message="В 1С уже найден контрагент с такими реквизитами. Подтвердите связывание вручную.",
+                status="blocked_duplicate",
+            )
+            return "blocked"
+        if payload.get("post_uncertain"):
+            self.db.retry_crm_sync_job(
+                job_id,
+                message="Ожидается подтверждение результата предыдущего POST в 1С; повторная отправка не выполняется.",
+                payload=payload,
+            )
+            return "retried"
+
+        try:
+            created = onec_client.create_counterparty(card)
+        except OneCClientError as exc:
+            if self._is_onec_access_denied(exc):
+                self.db.block_crm_sync_job(
+                    job_id,
+                    message=f"Доступ 1С автора заявки отклонён: {exc}",
+                    status="blocked_credentials",
+                )
+                return "blocked"
+            if self._is_onec_non_retriable_error(exc):
+                self.db.block_crm_sync_job(
+                    job_id,
+                    message=f"1С отклонила данные для отправки: {exc}",
+                    status="blocked_validation",
+                )
+                return "blocked"
+            try:
+                recovered = self._find_counterparty_by_identity(onec_client, card)
+            except OneCClientError:
+                recovered = None
+            if recovered:
+                self._complete_crm_create_job(job_id, client_id, recovered, card)
+                return "completed"
+            payload["post_uncertain"] = True
+            self.db.retry_crm_sync_job(job_id, message=str(exc), payload=payload)
+            return "retried"
+        self._complete_crm_create_job(job_id, client_id, created, card)
+        return "completed"
+
+    def _complete_crm_create_job(
+        self,
+        job_id: int,
+        client_id: int,
+        onec_row: dict[str, Any],
+        card: dict[str, Any],
+    ) -> None:
+        counterparty_id = self._upsert_synced_counterparty(onec_row, card)
+        self.db.complete_crm_create_job(job_id, counterparty_id=counterparty_id)
 
     def sync_contracts(
         self,
@@ -524,11 +685,35 @@ class WebStockSyncService:
     def list_organizations(self) -> list[dict[str, Any]]:
         return self.db.list_organizations()
 
-    def list_clients(self) -> list[dict[str, Any]]:
+    def _require_legacy_client_access(
+        self, row: dict[str, Any], *, actor_user_id: int | None
+    ) -> None:
+        """Keep private, unlinked CRM leads out of legacy shared-client flows."""
+        if actor_user_id is None:
+            return
+        owner_user_id = row.get("crm_owner_user_id")
+        if (
+            row.get("linked_counterparty_id") is None
+            and owner_user_id is not None
+            and int(owner_user_id) != int(actor_user_id)
+        ):
+            raise PermissionError("Частный CRM-клиент другого сотрудника недоступен.")
+
+    def _legacy_client_is_hidden(
+        self, row: dict[str, Any], *, actor_user_id: int | None
+    ) -> bool:
+        try:
+            self._require_legacy_client_access(row, actor_user_id=actor_user_id)
+        except PermissionError:
+            return True
+        return False
+
+    def list_clients(self, *, actor_user_id: int | None = None) -> list[dict[str, Any]]:
         local_rows = self.db.list_crm_clients()
         linked_counterparty_ids = {
             int(row["linked_counterparty_id"])
             for row in local_rows
+            if not self._legacy_client_is_hidden(row, actor_user_id=actor_user_id)
             if row.get("linked_counterparty_id")
         }
         onec_clients = [
@@ -609,6 +794,7 @@ class WebStockSyncService:
                 "is_linked_to_onec": bool(row.get("linked_counterparty_id")),
             }
             for row in local_rows
+            if not self._legacy_client_is_hidden(row, actor_user_id=actor_user_id)
         ]
         return sorted(
             onec_clients + local_clients,
@@ -634,13 +820,13 @@ class WebStockSyncService:
             "notes": notes,
         }
         card = self._normalize_client_card_payload(raw_payload)
-        self._ensure_no_client_inn_duplicate(card["inn"])
+        self._ensure_no_client_inn_duplicate(card)
 
         onec_client: OneCClient | None = None
         remote_check_error = ""
         try:
             onec_client = self.build_user_client(user_id=actor_user_id)
-            existing_counterparty = onec_client.find_counterparty_by_inn(card["inn"])
+            existing_counterparty = self._find_counterparty_by_identity(onec_client, card)
         except Exception as exc:
             existing_counterparty = None
             remote_check_error = str(exc)
@@ -751,17 +937,57 @@ class WebStockSyncService:
 
     def _ensure_no_client_inn_duplicate(
         self,
-        inn: str,
+        card: dict[str, Any],
         *,
         exclude_client_id: int | None = None,
         allowed_counterparty_id: int | None = None,
     ) -> None:
-        existing_client = self.db.get_crm_client_by_inn(inn, exclude_client_id=exclude_client_id)
+        legal_type = str(card.get("legal_type") or "")
+        inn = str(card.get("inn") or "").strip()
+        kpp = str(card.get("kpp") or "").strip()
+        if legal_type == "legal_entity":
+            existing_client = self.db.get_crm_client_by_inn_and_kpp(
+                inn,
+                kpp,
+                exclude_client_id=exclude_client_id,
+            )
+            existing_counterparty = self.db.get_counterparty_by_inn_and_kpp(inn, kpp)
+        else:
+            existing_client = self.db.get_crm_client_by_inn(inn, exclude_client_id=exclude_client_id)
+            existing_counterparty = self.db.get_counterparty_by_inn(inn)
         if existing_client:
             raise ValueError(f"Локальный клиент с ИНН {inn} уже существует: {existing_client.get('name') or existing_client['id']}.")
-        existing_counterparty = self.db.get_counterparty_by_inn(inn)
         if existing_counterparty and int(existing_counterparty["id"]) != int(allowed_counterparty_id or 0):
             raise ValueError(f"Контрагент с ИНН {inn} уже есть в справочнике 1С: {existing_counterparty.get('name') or existing_counterparty['onec_key']}.")
+
+    @staticmethod
+    def _find_counterparty_by_identity(
+        onec_client: OneCClient,
+        card: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        legal_type = str(card.get("legal_type") or "")
+        inn = str(card.get("inn") or "").strip()
+        kpp = str(card.get("kpp") or "").strip()
+        counterparty = onec_client.find_counterparty_by_identity(
+            legal_type=legal_type,
+            inn=inn,
+            kpp=kpp,
+        )
+        if not counterparty or str(counterparty.get("ИНН") or "").strip() != inn:
+            return None
+        if legal_type == "legal_entity" and str(counterparty.get("КПП") or "").strip() != kpp:
+            return None
+        return counterparty
+
+    @staticmethod
+    def _is_onec_access_denied(exc: OneCClientError) -> bool:
+        message = str(exc).casefold()
+        return "http 401" in message or "http 403" in message
+
+    @staticmethod
+    def _is_onec_non_retriable_error(exc: OneCClientError) -> bool:
+        message = str(exc).casefold()
+        return "http 400" in message or "metadata" in message or "метадан" in message
 
     def _send_crm_client_to_onec(
         self,
@@ -774,15 +1000,16 @@ class WebStockSyncService:
         row = self.db.get_crm_client(client_id)
         if not row:
             raise ValueError("Клиент не найден.")
+        self._require_legacy_client_access(row, actor_user_id=actor_user_id)
 
         linked_counterparty_id = int(row["linked_counterparty_id"]) if row.get("linked_counterparty_id") else None
         self._ensure_no_client_inn_duplicate(
-            str(row.get("inn") or ""),
+            row,
             exclude_client_id=client_id,
             allowed_counterparty_id=linked_counterparty_id,
         )
         onec_client = onec_client or self.build_user_client(user_id=actor_user_id)
-        existing_counterparty = None if remote_duplicate_checked else onec_client.find_counterparty_by_inn(str(row.get("inn") or ""))
+        existing_counterparty = None if remote_duplicate_checked else self._find_counterparty_by_identity(onec_client, row)
         if existing_counterparty and not self._remote_counterparty_matches_link(existing_counterparty, linked_counterparty_id):
             raise ValueError(
                 f"В 1С уже есть контрагент с ИНН {row.get('inn')}: "
@@ -946,6 +1173,7 @@ class WebStockSyncService:
             client_source=client_source,
             client_id=client_id,
             client_name=client_name,
+            actor_user_id=created_by_user_id,
         )
         file_id = uuid.uuid4().hex[:12]
         safe_source_name = self._safe_filename(original_filename)
@@ -995,6 +1223,7 @@ class WebStockSyncService:
             client_source=client_source,
             client_id=client_id,
             client_name=client_name,
+            actor_user_id=created_by_user_id,
         )
         now = datetime.now()
         offer_number = f"КП-{now:%Y%m%d-%H%M%S}"
@@ -1125,7 +1354,11 @@ class WebStockSyncService:
             document_number = f"{prefix}-{datetime.now():%Y%m%d-%H%M%S}"
 
         normalized_date = str(document_date or "").strip()[:10] or date.today().isoformat()
-        client = self._resolve_document_client(client_source=client_source, client_id=client_id)
+        client = self._resolve_document_client(
+            client_source=client_source,
+            client_id=client_id,
+            actor_user_id=created_by_user_id,
+        )
         client_data = dict(client["client"])
         correspondent_account = str(correspondent_account or "").strip()
         if correspondent_account:
@@ -1242,6 +1475,7 @@ class WebStockSyncService:
         client_source: str,
         client_id: int | None,
         client_name: str,
+        actor_user_id: int | None,
     ) -> dict[str, Any]:
         normalized_source = str(client_source or "").strip().lower()
         if normalized_source == "onec" and client_id:
@@ -1262,6 +1496,7 @@ class WebStockSyncService:
             target = self.db.get_crm_client(int(client_id))
             if not target:
                 raise ValueError("Локальный клиент не найден.")
+            self._require_legacy_client_access(target, actor_user_id=actor_user_id)
             return {
                 "client_source": "local",
                 "counterparty_id": target.get("linked_counterparty_id"),
@@ -1282,6 +1517,7 @@ class WebStockSyncService:
         *,
         client_source: str,
         client_id: int | None,
+        actor_user_id: int | None,
     ) -> dict[str, Any]:
         normalized_source = str(client_source or "").strip().lower()
         if normalized_source == "onec" and client_id:
@@ -1307,6 +1543,7 @@ class WebStockSyncService:
             target = self.db.get_crm_client(int(client_id))
             if not target:
                 raise ValueError("Локальный клиент не найден.")
+            self._require_legacy_client_access(target, actor_user_id=actor_user_id)
             return {
                 "client_source": "local",
                 "counterparty_id": target.get("linked_counterparty_id"),

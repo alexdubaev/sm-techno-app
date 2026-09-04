@@ -1,8 +1,11 @@
 ﻿from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import tempfile
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,13 +14,17 @@ from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from stock_sync_web.service import WebStockSyncService
+from stock_sync_web.service import CRM_LOCAL_ONLY_POLICY_MESSAGE, WebStockSyncService
+from stock_sync_web.crm_export import build_crm_export_xlsx
+from stock_sync_web.crm_repository import CrmRepository
 
 
 APP_TITLE = "SM Techno Stock Sync API"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+CRM_SYNC_WORKER_POLL_SECONDS = 1.0
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,13 +39,40 @@ class DraftLine:
 SERVICE = WebStockSyncService()
 SERVICE.bootstrap()
 
+
+@asynccontextmanager
+async def _app_lifespan(_: FastAPI):
+    """Advance the durable CRM outbox without blocking the ASGI event loop."""
+    stop = asyncio.Event()
+
+    async def advance_crm_jobs() -> None:
+        while not stop.is_set():
+            try:
+                await asyncio.to_thread(SERVICE.run_due_crm_sync_jobs, limit=20)
+            except Exception:
+                LOGGER.exception("CRM sync worker iteration failed")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=CRM_SYNC_WORKER_POLL_SECONDS)
+            except asyncio.TimeoutError:
+                pass
+
+    task = asyncio.create_task(advance_crm_jobs())
+    try:
+        yield
+    finally:
+        stop.set()
+        # Do not cancel an asyncio.to_thread wrapper: cancellation does not
+        # stop its already-running 1C call.  Draining this task keeps a
+        # shutdown from overlapping that call with a subsequent app start.
+        await task
+
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get("SM_TECHNO_ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3001,http://localhost:3001,https://sm-techno-stock.alexdubaev.chatgpt.site").split(",")
     if origin.strip()
 ]
 
-app = FastAPI(title=APP_TITLE, version="0.1.0")
+app = FastAPI(title=APP_TITLE, version="0.1.0", lifespan=_app_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -484,6 +518,102 @@ def _get_admin_user(current_user: dict[str, Any] = Depends(_get_current_user)) -
     return current_user
 
 
+def _crm_error(exc: Exception) -> None:
+    """Translate the repository's deliberate domain errors at the HTTP edge."""
+    if isinstance(exc, HTTPException):
+        raise exc
+    if isinstance(exc, PermissionError):
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    message = str(exc)
+    if message == CRM_LOCAL_ONLY_POLICY_MESSAGE:
+        raise HTTPException(status_code=409, detail=message) from exc
+    if "не найден" in message.lower():
+        raise HTTPException(status_code=404, detail=message) from exc
+    if "конфликт" in message.lower():
+        raise HTTPException(status_code=409, detail=message) from exc
+    raise HTTPException(status_code=400, detail=message) from exc
+
+
+def _crm_owner(repo: CrmRepository, current_user: dict[str, Any], requested_owner_id: int | None) -> int:
+    actor_id = int(current_user["id"])
+    is_admin = str(current_user.get("role") or "") == "admin"
+    # An administrator's target workspace is never implicit: this prevents a
+    # browser URL from silently drifting between the administrator and employee.
+    if is_admin and requested_owner_id is None:
+        raise HTTPException(status_code=400, detail="Для администратора укажите CRM сотрудника.")
+    try:
+        return repo.resolve_owner(
+            actor_id=actor_id, actor_is_admin=is_admin, requested_owner_id=requested_owner_id
+        )
+    except (PermissionError, ValueError) as exc:
+        _crm_error(exc)
+    raise AssertionError("unreachable")
+
+
+def _serialize_crm_client(
+    row: dict[str, Any],
+    assignment: dict[str, Any] | None = None,
+    tab: dict[str, Any] | None = None,
+    *,
+    version: int | None = None,
+    row_preference: dict[str, Any] | None = None,
+    primary_row_preference: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "name": row.get("name") or "",
+        "documentName": row.get("document_name") or row.get("full_name") or row.get("name") or "",
+        "fullName": row.get("full_name") or "",
+        "inn": row.get("inn") or "",
+        "kpp": row.get("kpp") or "",
+        "city": row.get("city") or "",
+        "website": row.get("website") or "",
+        "email": row.get("email") or "",
+        "phone": row.get("phone") or "",
+        "notes": row.get("notes") or "",
+        "linkedCounterpartyId": row.get("linked_counterparty_id"),
+        "syncStatus": row.get("sync_status") or "local",
+        "syncError": row.get("sync_error") or "",
+        "version": int(version if version is not None else row.get("version") or 1),
+        "createdAt": row.get("created_at") or "",
+        "updatedAt": row.get("updated_at") or "",
+        "assignment": _serialize_crm_assignment(assignment, tab) if assignment else None,
+        "rowPreference": _serialize_crm_row_preference(row_preference) if row_preference else None,
+        "primaryRowPreference": _serialize_crm_primary_row_preference(primary_row_preference) if primary_row_preference else None,
+    }
+
+
+def _serialize_crm_tab(row: dict[str, Any]) -> dict[str, Any]:
+    return {"id": int(row["id"]), "name": row.get("name") or "", "systemKind": row.get("system_kind") or "custom", "sortOrder": int(row.get("sort_order") or 0)}
+
+
+def _serialize_crm_assignment(row: dict[str, Any], tab: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {"id": int(row["id"]), "tabId": int(row["tab_id"]), "tabName": (tab or {}).get("name") or "", "archivedAt": row.get("archived_at")}
+
+
+def _serialize_crm_link_candidate(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "onecKey": row.get("onec_key") or "",
+        "name": row.get("name") or "",
+        "inn": row.get("inn") or "",
+        "kpp": row.get("kpp") or "",
+    }
+
+
+def _serialize_crm_sync_conflict(row: dict[str, Any]) -> dict[str, Any]:
+    field_names = {"document_name": "documentName"}
+    return {
+        "id": int(row["id"]),
+        "fieldName": field_names.get(str(row.get("field_name") or ""), str(row.get("field_name") or "")),
+        "baseValue": json.loads(str(row.get("base_value_json") or "null")),
+        "localValue": json.loads(str(row.get("local_value_json") or "null")),
+        "remoteValue": json.loads(str(row.get("remote_value_json") or "null")),
+        "sourceVersion": int(row.get("source_version") or 0),
+        "updatedAt": row.get("updated_at") or "",
+    }
+
+
 def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         counterparty_id = int(payload.get("counterpartyId"))
@@ -835,6 +965,17 @@ def sync_references(
     }
 
 
+@app.post("/api/crm/sync")
+def sync_crm_counterparties(
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, int | str]:
+    """Refresh CRM companies with the authenticated user's 1C credentials."""
+    try:
+        return SERVICE.sync_crm_counterparties_for_user(int(current_user["id"]))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/references/counterparties")
 def list_counterparties(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     return {
@@ -869,7 +1010,12 @@ def list_organizations(current_user: dict[str, Any] = Depends(_get_current_user)
 
 @app.get("/api/clients")
 def list_clients(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
-    return {"items": [_serialize_client(row) for row in SERVICE.list_clients()]}
+    return {
+        "items": [
+            _serialize_client(row)
+            for row in SERVICE.list_clients(actor_user_id=int(current_user["id"]))
+        ]
+    }
 
 
 @app.post("/api/clients")
@@ -897,12 +1043,719 @@ def send_client_to_onec(
             client_id,
             actor_user_id=int(current_user["id"]) if current_user.get("id") is not None else None,
         )
-    except ValueError as exc:
-        message = str(exc)
-        if "не найден" in message.lower():
-            raise HTTPException(status_code=404, detail=message) from exc
-        raise HTTPException(status_code=400, detail=message) from exc
+    except Exception as exc:
+        _crm_error(exc)
     return {"client": _serialize_client(client), "sync": sync}
+
+
+def _crm_context(
+    current_user: dict[str, Any], requested_owner_id: int | None
+) -> tuple[CrmRepository, int, int]:
+    repo = CrmRepository(SERVICE.db)
+    owner_id = _crm_owner(repo, current_user, requested_owner_id)
+    return repo, int(current_user["id"]), owner_id
+
+
+def _serialize_crm_contact(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "name": row.get("name") or "",
+        "email": row.get("email") or "",
+        "phone": row.get("phone") or "",
+        "isPrimary": bool(row.get("is_primary")),
+        "createdAt": row.get("created_at") or "",
+        "updatedAt": row.get("updated_at") or "",
+    }
+
+
+def _serialize_crm_event(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "kind": row.get("kind") or "comment",
+        "body": row.get("body") or "",
+        "authorUserId": row.get("author_user_id"),
+        "createdAt": row.get("created_at") or "",
+        "updatedAt": row.get("updated_at") or "",
+    }
+
+
+def _serialize_crm_reminder(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "clientId": int(row["crm_client_id"]),
+        "dueAt": row.get("due_at") or "",
+        "status": row.get("status") or "active",
+        "createdAt": row.get("created_at") or "",
+        "completedAt": row.get("completed_at") or "",
+        "cancelledAt": row.get("cancelled_at") or "",
+        "updatedAt": row.get("updated_at") or "",
+    }
+
+
+def _serialize_crm_audit(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "actorUserId": int(row["actor_user_id"]),
+        "ownerUserId": int(row["owner_user_id"]),
+        "clientId": int(row["crm_client_id"]),
+        "action": row.get("action") or "",
+        "reason": row.get("reason") or "",
+        "createdAt": row.get("created_at") or "",
+    }
+
+
+def _serialize_crm_row_preference(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "tabId": int(row["tab_id"]),
+        "clientId": int(row["crm_client_id"]),
+        "colorKey": row.get("color_key"),
+        "position": int(row.get("position") or 0),
+        "orderVersion": int(row.get("order_version") or 0),
+    }
+
+
+def _serialize_crm_primary_row_preference(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "clientId": int(row["crm_client_id"]),
+        "colorKey": row.get("color_key"),
+        "position": int(row.get("position") or 0),
+        "orderVersion": int(row.get("order_version") or 0),
+    }
+
+
+def _crm_client_values(payload: dict[str, Any]) -> dict[str, Any]:
+    fields = {
+        "documentName": "document_name", "fullName": "full_name", "inn": "inn", "kpp": "kpp",
+        "city": "city", "website": "website", "email": "email", "phone": "phone",
+        "notes": "notes", "contactPerson": "contact_person", "legalType": "legal_type",
+    }
+    return {target: payload[source] for source, target in fields.items() if source in payload}
+
+
+@app.get("/api/crm/tabs")
+def list_crm_tabs(
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        return {"ownerId": resolved_owner_id, "items": [_serialize_crm_tab(row) for row in repo.list_tabs_for_actor(actor_id=actor_id, owner_id=resolved_owner_id)]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/tabs", status_code=201)
+def create_crm_tab(
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        tab = repo.create_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, name=str(payload.get("name") or ""))
+        return {"tab": _serialize_crm_tab(tab)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.patch("/api/crm/tabs/{tab_id}")
+def rename_crm_tab(
+    tab_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.rename_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, name=str(payload.get("name") or ""))
+        tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id)
+        return {"tab": _serialize_crm_tab(tab or {})}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.delete("/api/crm/tabs/{tab_id}")
+def delete_crm_tab(
+    tab_id: int,
+    replacement_tab_id: int = Query(..., alias="replacementTabId"),
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, bool]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.delete_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, replacement_tab_id=replacement_tab_id)
+        return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/tabs/{tab_id}/reorder")
+def reorder_crm_tab(
+    tab_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        result = repo.reorder_client_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            tab_id=tab_id,
+            client_id=int(payload.get("clientId")),
+            before_client_id=int(payload["beforeClientId"]) if payload.get("beforeClientId") is not None else None,
+            after_client_id=int(payload["afterClientId"]) if payload.get("afterClientId") is not None else None,
+            expected_order_version=int(payload.get("expectedOrderVersion")),
+        )
+        return {"clientIds": result["client_ids"], "orderVersion": result["order_version"]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/primary/reorder")
+def reorder_primary_crm_clients(
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        try:
+            client_id = int(payload.get("clientId"))
+            expected_order_version = int(payload.get("expectedOrderVersion"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите клиента и ожидаемую версию порядка.") from exc
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        result = repo.reorder_primary_client_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            before_client_id=int(payload["beforeClientId"]) if payload.get("beforeClientId") is not None else None,
+            after_client_id=int(payload["afterClientId"]) if payload.get("afterClientId") is not None else None,
+            expected_order_version=expected_order_version,
+        )
+        return {"clientIds": result["client_ids"], "orderVersion": result["order_version"]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/clients")
+def list_crm_clients(
+    owner_id: int | None = Query(None, alias="ownerId"),
+    tab_id: int | None = Query(None, alias="tabId"),
+    primary_only: bool = Query(False, alias="primaryOnly"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        items = []
+        primary_order_version = 0
+        for card in repo.list_cards_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, primary_only=primary_only):
+            assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
+            tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
+            version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
+            preference = repo.get_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"]), client_id=int(card["id"])) if assignment else None
+            primary_preference = repo.get_primary_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"])) if primary_only else None
+            if primary_preference:
+                primary_order_version = max(primary_order_version, int(primary_preference.get("order_version") or 0))
+            items.append(_serialize_crm_client(card, assignment, tab, version=version, row_preference=preference, primary_row_preference=primary_preference))
+        result: dict[str, Any] = {"ownerId": resolved_owner_id, "items": items}
+        if primary_only:
+            result["orderVersion"] = primary_order_version
+        return result
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients", status_code=201)
+def create_crm_client(
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        values = _crm_client_values(payload)
+        initial_contact = {
+            "name": str(values.pop("contact_person", "") or ""),
+            "email": str(values.pop("email", "") or ""),
+            "phone": str(values.pop("phone", "") or ""),
+        }
+        initial_comment = str(values.pop("notes", "") or "")
+        card, assignment, work_tab = repo.create_local_lead_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, values=values,
+            initial_contact=initial_contact, initial_comment=initial_comment,
+        )
+        version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
+        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, work_tab, version=version), "assignment": _serialize_crm_assignment(assignment, work_tab)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/clients/{client_id}")
+def get_crm_client(
+    client_id: int,
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        card = repo.get_card_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        if not card:
+            raise ValueError("Клиент не найден.")
+        assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
+        version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        preference = repo.get_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"]), client_id=client_id) if assignment else None
+        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab, version=version, row_preference=preference)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.patch("/api/crm/clients/{client_id}")
+def update_crm_client(
+    client_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        expected_version = int(payload.get("expectedVersion"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Укажите ожидаемую версию карточки.")
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        card, version = repo.update_card_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            values=_crm_client_values(payload),
+            expected_version=expected_version,
+        )
+        assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
+        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab, version=version)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/link-existing")
+def confirm_existing_onec_link(
+    client_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        counterparty_id = int(payload.get("counterpartyId"))
+        expected_version = int(payload.get("expectedVersion"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Укажите контрагента и ожидаемую версию карточки.") from exc
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        card, version = repo.confirm_link_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            counterparty_id=counterparty_id,
+            expected_version=expected_version,
+        )
+        assignment = repo.get_assignment_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        tab = (
+            repo.get_tab_for_actor(
+                actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])
+            )
+            if assignment
+            else None
+        )
+        return {
+            "ownerId": resolved_owner_id,
+            "client": _serialize_crm_client(card, assignment, tab, version=version),
+        }
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/clients/{client_id}/link-candidates")
+def list_existing_onec_link_candidates(
+    client_id: int,
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        candidates = repo.list_link_candidates_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        return {"items": [_serialize_crm_link_candidate(candidate) for candidate in candidates]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/clients/{client_id}/sync-conflicts")
+def list_crm_sync_conflicts(
+    client_id: int,
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        conflicts = repo.list_sync_conflicts_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        return {"ownerId": resolved_owner_id, "items": [_serialize_crm_sync_conflict(conflict) for conflict in conflicts]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/sync-conflicts/{conflict_id}/resolve")
+def resolve_crm_sync_conflict(
+    client_id: int,
+    conflict_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    choice = str(payload.get("choice") or "")
+    if choice not in {"local", "remote"}:
+        raise HTTPException(status_code=400, detail="Выберите локальное значение или значение из 1С.")
+    expected_updated_at = str(payload.get("expectedUpdatedAt") or "").strip()
+    if not expected_updated_at:
+        raise HTTPException(status_code=400, detail="Укажите актуальную версию конфликта.")
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        card = repo.resolve_sync_conflict_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            conflict_id=conflict_id,
+            choice=choice,
+            expected_updated_at=expected_updated_at,
+        )
+        assignment = repo.get_assignment_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        tab = (
+            repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"]))
+            if assignment
+            else None
+        )
+        version = repo.get_card_version_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, tab, version=version)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/send-to-onec")
+def send_crm_client_to_onec(
+    client_id: int,
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo._require_workspace_write(actor_id, resolved_owner_id)
+        with repo.db.connect() as conn:
+            repo._require_personal_access(conn, actor_id, resolved_owner_id, client_id)
+        raise ValueError(CRM_LOCAL_ONLY_POLICY_MESSAGE)
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/retry-onec")
+def retry_crm_client_onec_create(
+    client_id: int,
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo._require_workspace_write(actor_id, resolved_owner_id)
+        with repo.db.connect() as conn:
+            repo._require_personal_access(conn, actor_id, resolved_owner_id, client_id)
+        raise ValueError(CRM_LOCAL_ONLY_POLICY_MESSAGE)
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/export")
+def export_crm_clients(
+    scope: str = Query("all"),
+    tab_id: int | None = Query(None, alias="tabId"),
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> StreamingResponse:
+    try:
+        normalized_scope = scope.strip().lower()
+        if normalized_scope not in {"all", "tab"}:
+            raise ValueError("Область выгрузки должна быть all или tab.")
+        if normalized_scope == "tab" and tab_id is None:
+            raise ValueError("Для выгрузки вкладки укажите tabId.")
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        cards = repo.list_cards_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            tab_id=tab_id if normalized_scope == "tab" else None,
+        )
+        export_rows: list[dict[str, Any]] = []
+        contact_rows: list[dict[str, Any]] = []
+        for card in cards:
+            client_id = int(card["id"])
+            assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+            tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
+            contacts = repo.list_contacts_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+            primary = next((contact for contact in contacts if contact.get("is_primary")), None)
+            row = dict(card)
+            row["tab_name"] = (tab or {}).get("name") or "Без вкладки"
+            row["contact_name"] = (primary or {}).get("name") or ""
+            row["phone"] = (primary or {}).get("phone") or row.get("phone") or ""
+            row["email"] = (primary or {}).get("email") or row.get("email") or ""
+            export_rows.append(row)
+            for contact in contacts:
+                contact_rows.append({**contact, "client_id": client_id, "company_name": row["document_name"]})
+        content = build_crm_export_xlsx(client_rows=export_rows, contact_rows=contact_rows)
+        filename = f"crm_{normalized_scope}_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+        return StreamingResponse(
+            iter([content]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=_download_headers(filename),
+        )
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/contacts", status_code=201)
+def add_crm_contact(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        contact = repo.add_contact_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, name=str(payload.get("name") or ""), email=str(payload.get("email") or ""), phone=str(payload.get("phone") or ""), is_primary=bool(payload.get("isPrimary", False)))
+        return {"contact": _serialize_crm_contact(contact)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/clients/{client_id}/contacts")
+def list_crm_contacts(client_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        return {"items": [_serialize_crm_contact(row) for row in repo.list_contacts_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/events", status_code=201)
+def add_crm_event(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        event = repo.add_event_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, kind=str(payload.get("kind") or "comment"), body=str(payload.get("body") or ""))
+        return {"event": _serialize_crm_event(event)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/clients/{client_id}/events")
+def list_crm_events(client_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        return {"items": [_serialize_crm_event(row) for row in repo.list_events_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/reminders", status_code=201)
+def add_crm_reminder(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        reminder = repo.add_reminder_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, due_at=str(payload.get("dueAt") or ""))
+        return {"reminder": _serialize_crm_reminder(reminder)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/reminders")
+def list_crm_reminders(owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        return {"ownerId": resolved_owner_id, "items": [_serialize_crm_reminder(row) for row in repo.list_reminders_for_actor(actor_id=actor_id, owner_id=resolved_owner_id)]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+def _transition_crm_reminder(
+    reminder_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None,
+    current_user: dict[str, Any],
+    *,
+    action: str,
+) -> dict[str, Any]:
+    expected_updated_at = str(payload.get("expectedUpdatedAt") or "").strip()
+    if not expected_updated_at:
+        raise HTTPException(status_code=400, detail="Укажите актуальную версию напоминания.")
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        if action == "complete":
+            reminder = repo.complete_reminder_for_actor(
+                actor_id=actor_id,
+                owner_id=resolved_owner_id,
+                reminder_id=reminder_id,
+                expected_updated_at=expected_updated_at,
+            )
+        else:
+            reminder = repo.cancel_reminder_for_actor(
+                actor_id=actor_id,
+                owner_id=resolved_owner_id,
+                reminder_id=reminder_id,
+                expected_updated_at=expected_updated_at,
+            )
+        return {"ownerId": resolved_owner_id, "reminder": _serialize_crm_reminder(reminder)}
+    except Exception as exc:
+        _crm_error(exc)
+    raise AssertionError("unreachable")
+
+
+@app.post("/api/crm/reminders/{reminder_id}/complete")
+def complete_crm_reminder(
+    reminder_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    return _transition_crm_reminder(reminder_id, payload, owner_id, current_user, action="complete")
+
+
+@app.post("/api/crm/reminders/{reminder_id}/cancel")
+def cancel_crm_reminder(
+    reminder_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    return _transition_crm_reminder(reminder_id, payload, owner_id, current_user, action="cancel")
+
+
+@app.post("/api/crm/clients/{client_id}/move")
+def move_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        tab_id = int(payload.get("tabId"))
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        assignment = repo.move_client(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, tab_id=tab_id)
+        tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id)
+        return {"assignment": _serialize_crm_assignment(assignment, tab)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.put("/api/crm/clients/{client_id}/row-preference")
+def save_crm_row_preference(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        tab_id = int(payload.get("tabId"))
+        expected_order_version = int(payload.get("expectedOrderVersion"))
+        color_key = payload.get("colorKey")
+        if color_key is not None:
+            color_key = str(color_key)
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        preference = repo.set_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id, color_key=color_key, expected_order_version=expected_order_version)
+        return {"preference": _serialize_crm_row_preference(preference or {})}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.put("/api/crm/clients/{client_id}/primary-row-preference")
+def save_crm_primary_row_preference(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        color_key = payload.get("colorKey")
+        if color_key is not None:
+            color_key = str(color_key)
+        try:
+            expected_order_version = int(payload.get("expectedOrderVersion"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите ожидаемую версию порядка.") from exc
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        preference = repo.set_primary_row_color_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            color_key=color_key,
+            expected_order_version=expected_order_version,
+        )
+        return {"preference": _serialize_crm_primary_row_preference(preference or {})}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/archive")
+def archive_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.archive_assignment(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, reason=str(payload.get("reason") or ""))
+        return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/local-archive")
+def archive_local_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool | int]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        if str(current_user.get("role") or "") != "admin":
+            raise PermissionError("Доступно только администратору.")
+        try:
+            expected_version = int(payload.get("expectedVersion"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите ожидаемую версию карточки.") from exc
+        version = repo.archive_local_client(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, reason=str(payload.get("reason") or ""), expected_version=expected_version)
+        return {"ok": True, "version": version}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/local-restore")
+def restore_local_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool | int]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        if str(current_user.get("role") or "") != "admin":
+            raise PermissionError("Доступно только администратору.")
+        try:
+            expected_version = int(payload.get("expectedVersion"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите ожидаемую версию карточки.") from exc
+        version = repo.restore_local_client(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, expected_version=expected_version)
+        return {"ok": True, "version": version}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.delete("/api/crm/clients/{client_id}/assignment")
+def remove_crm_assignment(client_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.remove_assignment_for_admin(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/restore")
+def restore_crm_client(client_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.restore_assignment(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/clients/{client_id}/audit")
+def list_crm_audit(client_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        return {"items": [_serialize_crm_audit(row) for row in repo.list_audit_actions_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)]}
+    except Exception as exc:
+        _crm_error(exc)
 
 
 @app.get("/api/commercial-offers")
@@ -942,8 +1795,8 @@ async def create_commercial_offer_from_excel(
                 notes=notes,
                 created_by_user_id=int(current_user["id"]),
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            _crm_error(exc)
     finally:
         temp_path.unlink(missing_ok=True)
     return _serialize_commercial_offer_details(bundle)
@@ -963,8 +1816,8 @@ def create_commercial_offer_from_draft(
             lines=payload.get("lines") if isinstance(payload.get("lines"), list) else [],
             created_by_user_id=int(current_user["id"]),
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _crm_error(exc)
     return _serialize_commercial_offer_details(bundle)
 
 
@@ -1075,8 +1928,8 @@ def create_document(
             created_by_user_id=int(current_user["id"]),
             is_admin=str(current_user.get("role") or "") == "admin",
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _crm_error(exc)
     return {"document": _serialize_document(document)}
 
 

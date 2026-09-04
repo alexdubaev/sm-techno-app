@@ -6,7 +6,19 @@
   CommercialOfferDraftLine,
   Contract,
   Counterparty,
+  CrmAssignment,
+  CrmAuditAction,
+  CrmContact,
+  CrmEvent,
+  CrmLinkCandidate,
+  CrmPrimaryListResponse,
+  CrmPrimaryRowPreference,
+  CrmReminder,
   CrmClient,
+  CrmRowPreference,
+  CrmSyncConflict,
+  CrmTab,
+  CrmWorkspaceClient,
   GeneratedDocument,
   OrderDetails,
   OrderHistoryItem,
@@ -236,6 +248,31 @@ export type ClientSyncResult = {
 export type CreateClientResponse = {
   client: CrmClient;
   sync: ClientSyncResult;
+};
+
+export type CrmCreateClientPayload = {
+  documentName: string;
+  fullName?: string;
+  inn?: string;
+  kpp?: string;
+  city?: string;
+  website?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+  contactPerson?: string;
+  legalType?: "legal_entity" | "individual_entrepreneur";
+};
+
+export type CrmClientsQuery = {
+  ownerId?: number;
+  tabId?: number;
+  primaryOnly?: boolean;
+};
+
+export type ResolveCrmSyncConflictPayload = {
+  choice: "local" | "remote";
+  expectedUpdatedAt: string;
 };
 
 export type CreateCommercialOfferPayload = {
@@ -692,6 +729,415 @@ export async function createClient(payload: CreateClientPayload): Promise<Create
       body: JSON.stringify(payload),
     },
     "Не удалось сохранить клиента.",
+  );
+}
+
+function buildCrmQuery(params: Record<string, string | number | boolean | undefined>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) {
+      query.set(key, String(value));
+    }
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return suffix;
+}
+
+export async function fetchCrmTabs(ownerId?: number): Promise<CrmTab[]> {
+  const result = await requestJson<{ items: CrmTab[] }>(
+    `/api/crm/tabs${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function syncCrmWorkspace(): Promise<{ status: string; counterparties: number }> {
+  return requestJsonWithInit<{ status: string; counterparties: number }>(
+    "/api/crm/sync",
+    { method: "POST" },
+    "Не удалось обновить CRM из 1С.",
+  );
+}
+
+export async function createCrmTab(name: string, ownerId?: number): Promise<CrmTab> {
+  const result = await requestJsonWithInit<{ tab: CrmTab }>(
+    `/api/crm/tabs${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+    "Не удалось создать личную вкладку.",
+  );
+  return result.tab;
+}
+
+export async function renameCrmTab(tabId: number, name: string, ownerId?: number): Promise<CrmTab> {
+  const result = await requestJsonWithInit<{ tab: CrmTab }>(
+    `/api/crm/tabs/${tabId}${buildCrmQuery({ ownerId })}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+    "Не удалось переименовать личную вкладку.",
+  );
+  return result.tab;
+}
+
+export async function deleteCrmTab(tabId: number, replacementTabId: number, ownerId?: number): Promise<{ ok: true }> {
+  return requestJsonWithInit<{ ok: true }>(
+    `/api/crm/tabs/${tabId}${buildCrmQuery({ replacementTabId, ownerId })}`,
+    { method: "DELETE" },
+    "Не удалось удалить личную вкладку.",
+  );
+}
+
+export async function fetchCrmClients(query: CrmClientsQuery = {}): Promise<CrmWorkspaceClient[]> {
+  const result = await requestJson<{ items: CrmWorkspaceClient[] }>(
+    `/api/crm/clients${buildCrmQuery(query)}`,
+  );
+  return result.items;
+}
+
+export async function fetchPrimaryCrmClients(ownerId: number): Promise<CrmPrimaryListResponse> {
+  return requestJson<CrmPrimaryListResponse>(
+    `/api/crm/clients${buildCrmQuery({ ownerId, primaryOnly: true })}`,
+  );
+}
+
+export async function downloadCrmExportFile(params: {
+  scope: "all" | "tab";
+  tabId?: number;
+  ownerId?: number;
+}): Promise<void> {
+  await downloadApiFile(
+    `/api/crm/export${buildCrmQuery({ scope: params.scope, tabId: params.tabId, ownerId: params.ownerId })}`,
+    "Не удалось выгрузить CRM в Excel.",
+    "crm_export.xlsx",
+  );
+}
+
+export async function fetchCrmContacts(clientId: number, ownerId?: number): Promise<CrmContact[]> {
+  const result = await requestJson<{ items: CrmContact[] }>(
+    `/api/crm/clients/${clientId}/contacts${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function createCrmContact(
+  clientId: number,
+  payload: { name: string; email: string; phone: string; isPrimary: boolean },
+  ownerId?: number,
+): Promise<CrmContact> {
+  const result = await requestJsonWithInit<{ contact: CrmContact }>(
+    `/api/crm/clients/${clientId}/contacts${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось добавить контакт.",
+  );
+  return result.contact;
+}
+
+export async function fetchCrmEvents(clientId: number, ownerId?: number): Promise<CrmEvent[]> {
+  const result = await requestJson<{ items: CrmEvent[] }>(
+    `/api/crm/clients/${clientId}/events${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function fetchCrmAudit(clientId: number, ownerId?: number): Promise<CrmAuditAction[]> {
+  const result = await requestJson<{ items: CrmAuditAction[] }>(
+    `/api/crm/clients/${clientId}/audit${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function fetchCrmSyncConflicts(clientId: number, ownerId: number): Promise<CrmSyncConflict[]> {
+  const result = await requestJson<{ items: CrmSyncConflict[] }>(
+    `/api/crm/clients/${clientId}/sync-conflicts${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function resolveCrmSyncConflict(
+  clientId: number,
+  conflictId: number,
+  payload: ResolveCrmSyncConflictPayload,
+  ownerId: number,
+): Promise<CrmWorkspaceClient> {
+  const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients/${clientId}/sync-conflicts/${conflictId}/resolve${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось разрешить конфликт синхронизации.",
+  );
+  return result.client;
+}
+
+export async function createCrmEvent(
+  clientId: number,
+  payload: { kind: string; body: string },
+  ownerId?: number,
+): Promise<CrmEvent> {
+  const result = await requestJsonWithInit<{ event: CrmEvent }>(
+    `/api/crm/clients/${clientId}/events${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось добавить событие.",
+  );
+  return result.event;
+}
+
+export async function fetchCrmReminders(ownerId?: number): Promise<CrmReminder[]> {
+  const result = await requestJson<{ items: CrmReminder[] }>(
+    `/api/crm/reminders${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function createCrmReminder(
+  clientId: number,
+  payload: { dueAt: string },
+  ownerId?: number,
+): Promise<CrmReminder> {
+  const result = await requestJsonWithInit<{ reminder: CrmReminder }>(
+    `/api/crm/clients/${clientId}/reminders${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось добавить напоминание.",
+  );
+  return result.reminder;
+}
+
+async function transitionCrmReminder(
+  reminderId: number,
+  action: "complete" | "cancel",
+  expectedUpdatedAt: string,
+  ownerId?: number,
+): Promise<CrmReminder> {
+  const result = await requestJsonWithInit<{ reminder: CrmReminder }>(
+    `/api/crm/reminders/${reminderId}/${action}${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedUpdatedAt }),
+    },
+    action === "complete" ? "Не удалось отметить напоминание выполненным." : "Не удалось отменить напоминание.",
+  );
+  return result.reminder;
+}
+
+export async function completeCrmReminder(reminderId: number, expectedUpdatedAt: string, ownerId?: number): Promise<CrmReminder> {
+  return transitionCrmReminder(reminderId, "complete", expectedUpdatedAt, ownerId);
+}
+
+export async function cancelCrmReminder(reminderId: number, expectedUpdatedAt: string, ownerId?: number): Promise<CrmReminder> {
+  return transitionCrmReminder(reminderId, "cancel", expectedUpdatedAt, ownerId);
+}
+
+export async function createCrmClient(
+  payload: CrmCreateClientPayload,
+  ownerId?: number,
+): Promise<CrmWorkspaceClient> {
+  const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось добавить клиента в CRM.",
+  );
+  return result.client;
+}
+
+export async function updateCrmClient(
+  clientId: number,
+  payload: {
+    documentName: string;
+    fullName: string;
+    inn: string;
+    kpp: string;
+    city: string;
+    email: string;
+    phone: string;
+    expectedVersion: number;
+  },
+  ownerId?: number,
+): Promise<CrmWorkspaceClient> {
+  const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients/${clientId}${buildCrmQuery({ ownerId })}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить реквизиты компании.",
+  );
+  return result.client;
+}
+
+export async function fetchCrmLinkCandidates(clientId: number, ownerId?: number): Promise<CrmLinkCandidate[]> {
+  const result = await requestJson<{ items: CrmLinkCandidate[] }>(
+    `/api/crm/clients/${clientId}/link-candidates${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function confirmCrmExistingLink(
+  clientId: number,
+  counterpartyId: number,
+  expectedVersion: number,
+  ownerId?: number,
+): Promise<CrmWorkspaceClient> {
+  const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients/${clientId}/link-existing${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ counterpartyId, expectedVersion }),
+    },
+    "Не удалось подтвердить связь с 1С.",
+  );
+  return result.client;
+}
+
+export async function moveCrmClient(
+  clientId: number,
+  tabId: number,
+  ownerId?: number,
+): Promise<CrmAssignment> {
+  const result = await requestJsonWithInit<{ assignment: CrmAssignment }>(
+    `/api/crm/clients/${clientId}/move${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tabId }),
+    },
+    "Не удалось переместить клиента.",
+  );
+  return result.assignment;
+}
+
+export async function removeCrmAssignment(
+  clientId: number,
+  ownerId?: number,
+): Promise<{ ok: true }> {
+  return requestJsonWithInit<{ ok: true }>(
+    `/api/crm/clients/${clientId}/assignment${buildCrmQuery({ ownerId })}`,
+    { method: "DELETE" },
+    "Не удалось оставить клиента только в основной вкладке.",
+  );
+}
+
+export async function saveCrmRowPreference(
+  clientId: number,
+  payload: { tabId: number; colorKey: string | null; expectedOrderVersion: number },
+  ownerId?: number,
+): Promise<CrmRowPreference> {
+  const result = await requestJsonWithInit<{ preference: CrmRowPreference }>(
+    `/api/crm/clients/${clientId}/row-preference${buildCrmQuery({ ownerId })}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить оформление строки.",
+  );
+  return result.preference;
+}
+
+export async function saveCrmPrimaryRowPreference(
+  clientId: number,
+  payload: { colorKey: string | null; expectedOrderVersion: number },
+  ownerId: number,
+): Promise<CrmPrimaryRowPreference> {
+  const result = await requestJsonWithInit<{ preference: CrmPrimaryRowPreference }>(
+    `/api/crm/clients/${clientId}/primary-row-preference${buildCrmQuery({ ownerId })}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить цвет строки.",
+  );
+  return result.preference;
+}
+
+export async function reorderPrimaryCrmClients(
+  payload: {
+    clientId: number;
+    beforeClientId: number | null;
+    afterClientId: number | null;
+    expectedOrderVersion: number;
+  },
+  ownerId: number,
+): Promise<{ clientIds: number[]; orderVersion: number }> {
+  return requestJsonWithInit<{ clientIds: number[]; orderVersion: number }>(
+    `/api/crm/primary/reorder${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить порядок клиентов.",
+  );
+}
+
+export async function reorderCrmTabClients(
+  tabId: number,
+  payload: {
+    clientId: number;
+    beforeClientId: number | null;
+    afterClientId: number | null;
+    expectedOrderVersion: number;
+  },
+  ownerId: number,
+): Promise<{ clientIds: number[]; orderVersion: number }> {
+  return requestJsonWithInit<{ clientIds: number[]; orderVersion: number }>(
+    `/api/crm/tabs/${tabId}/reorder${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить порядок клиентов.",
+  );
+}
+
+export async function archiveLocalCrmClient(
+  clientId: number,
+  payload: { reason: string; expectedVersion: number },
+  ownerId?: number,
+): Promise<{ version: number }> {
+  return requestJsonWithInit<{ ok: true; version: number }>(
+    `/api/crm/clients/${clientId}/local-archive${buildCrmQuery({ ownerId })}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+    "Не удалось архивировать локального клиента.",
+  );
+}
+
+export async function restoreLocalCrmClient(
+  clientId: number,
+  payload: { expectedVersion: number },
+  ownerId?: number,
+): Promise<{ version: number }> {
+  return requestJsonWithInit<{ ok: true; version: number }>(
+    `/api/crm/clients/${clientId}/local-restore${buildCrmQuery({ ownerId })}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+    "Не удалось восстановить локального клиента.",
   );
 }
 

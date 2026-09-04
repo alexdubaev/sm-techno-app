@@ -45,6 +45,15 @@ class FakeOneCClient:
         self.find_by_inn_calls.append(inn)
         return None
 
+    def find_counterparty_by_identity(
+        self,
+        *,
+        legal_type: str,
+        inn: str,
+        kpp: str = "",
+    ) -> dict[str, Any] | None:
+        return self.find_counterparty_by_inn(inn)
+
     def create_counterparty(self, card: dict[str, Any]) -> dict[str, Any]:
         self.created_cards.append(dict(card))
         return {
@@ -72,6 +81,46 @@ class DuplicateOneCClient(FakeOneCClient):
             "ИНН": inn,
             "КПП": "770701001",
         }
+
+
+class IdentityOnlyDuplicateOneCClient(FakeOneCClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.identity_calls: list[tuple[str, str, str]] = []
+
+    def find_counterparty_by_inn(self, inn: str) -> dict[str, Any] | None:
+        raise AssertionError("CRM must not use an INN-only duplicate lookup for a legal entity")
+
+    def find_counterparty_by_identity(
+        self,
+        *,
+        legal_type: str,
+        inn: str,
+        kpp: str = "",
+    ) -> dict[str, Any] | None:
+        self.identity_calls.append((legal_type, inn, kpp))
+        return {
+            "Ref_Key": "33333333-3333-3333-3333-333333333333",
+            "Description": "ООО Уже есть",
+            "НаименованиеПолное": "ООО Уже есть",
+            "ИНН": inn,
+            "КПП": kpp,
+        }
+
+
+class IdentityResponseOneCClient(FakeOneCClient):
+    def __init__(self, response: dict[str, Any]) -> None:
+        super().__init__()
+        self.response = response
+
+    def find_counterparty_by_identity(
+        self,
+        *,
+        legal_type: str,
+        inn: str,
+        kpp: str = "",
+    ) -> dict[str, Any] | None:
+        return dict(self.response)
 
 
 class PartialSuccessOneCClient(FakeOneCClient):
@@ -395,6 +444,79 @@ class ClientOneCSyncTest(unittest.TestCase):
         self.assertIn("уже есть", response.json()["detail"])
         self.assertEqual(self.db.list_crm_clients(), [])
         self.assertEqual(duplicate.created_cards, [])
+
+    def test_remote_duplicate_check_uses_legal_entity_inn_and_kpp(self) -> None:
+        duplicate = IdentityOnlyDuplicateOneCClient()
+        self.service.build_user_client = lambda **_: duplicate  # type: ignore[method-assign]
+
+        response = self.client.post("/api/clients", json=VALID_CLIENT_PAYLOAD)
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual(
+            [("legal_entity", "7707083893", "770701001")],
+            duplicate.identity_calls,
+        )
+        self.assertEqual([], self.db.list_crm_clients())
+
+    def test_remote_legal_entity_with_same_inn_and_different_kpp_is_created(self) -> None:
+        duplicate = IdentityResponseOneCClient(
+            {
+                "Ref_Key": "44444444-4444-4444-4444-444444444444",
+                "ИНН": VALID_CLIENT_PAYLOAD["inn"],
+                "КПП": "770799999",
+            }
+        )
+        self.service.build_user_client = lambda **_: duplicate  # type: ignore[method-assign]
+
+        response = self.client.post("/api/clients", json=VALID_CLIENT_PAYLOAD)
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(1, len(duplicate.created_cards))
+        self.assertEqual("11111111-1111-1111-1111-111111111111", response.json()["sync"]["onecRefKey"])
+
+    def test_cached_legal_entity_with_same_inn_and_different_kpp_does_not_block_creation(self) -> None:
+        self.db.upsert_counterparties(
+            [
+                {
+                    "onec_key": "cached-different-kpp",
+                    "name": "ООО Другой КПП",
+                    "full_name": "ООО Другой КПП",
+                    "inn": VALID_CLIENT_PAYLOAD["inn"],
+                    "kpp": "770799999",
+                }
+            ]
+        )
+        fake = FakeOneCClient()
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+
+        response = self.client.post("/api/clients", json=VALID_CLIENT_PAYLOAD)
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(1, len(fake.created_cards))
+
+    def test_remote_ip_with_same_inn_is_treated_as_duplicate(self) -> None:
+        ip_payload = {
+            **VALID_CLIENT_PAYLOAD,
+            "legalType": "individual_entrepreneur",
+            "documentName": "ИП Петров",
+            "fullName": "Индивидуальный предприниматель Петров",
+            "inn": "340301024150",
+            "kpp": "",
+        }
+        duplicate = IdentityResponseOneCClient(
+            {
+                "Ref_Key": "55555555-5555-5555-5555-555555555555",
+                "ИНН": ip_payload["inn"],
+                "КПП": "",
+            }
+        )
+        self.service.build_user_client = lambda **_: duplicate  # type: ignore[method-assign]
+
+        response = self.client.post("/api/clients", json=ip_payload)
+
+        self.assertEqual(400, response.status_code)
+        self.assertIn("уже есть", response.json()["detail"])
+        self.assertEqual([], duplicate.created_cards)
 
 
 if __name__ == "__main__":
