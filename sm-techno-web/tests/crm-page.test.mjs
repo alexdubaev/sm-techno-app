@@ -95,7 +95,7 @@ test("CRM conflict helpers require an explicit owner and keep a successful resol
 
   assert.doesNotMatch(api, /fetchCrmSyncConflicts\(clientId: number, ownerId\?: number/);
   assert.match(api, /payload: ResolveCrmSyncConflictPayload,\s+ownerId: number/);
-  assert.match(workspace, /onChanged\(\);\s+try \{\s+await refreshSyncConflicts\(\);/);
+  assert.match(workspace, /notifyChanged\(\);\s+try \{\s+await refreshSyncConflicts\(\);/);
   assert.match(workspace, /Конфликт разрешён, но не удалось обновить данные карточки\./);
   assert.match(workspace, /Не удалось разрешить конфликт синхронизации\./);
 });
@@ -559,4 +559,12 @@ test("owner switches reset new-client state and normal writes ignore stale owner
   assert.match(workspace, /setSelectedClient\(null\); setIsAdding\(false\); setForm\(emptyClientForm\(\)\); setTabEditor\(null\);/);
   assert.match(workspace, /const requestOwnerId = ownerId;\s+const requestTab = activeTab;/);
   assert.match(workspace, /if \(!isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) return;/);
+});
+
+test("foreign detail keeps values visible but gates retry and stale detail reloads", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /currentClient\.syncStatus === "blocked_credentials" && canEditWorkspace/);
+  assert.match(workspace, /onChanged=\{\(requestOwnerId, requestTab\) => \{ if \(isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) void loadWorkspace\(requestTab, \{ silent: true \}\); \}\}/);
+  assert.match(workspace, /<ReadonlyCompanyRequisites client=\{currentClient\} \/>/);
 });
