@@ -45,9 +45,11 @@ export class ApiRequestError extends Error {
 const transientResponseStatuses = new Set([502, 503, 504]);
 const retryDelaysMs = [500, 1500];
 const REQUEST_TIMEOUT_MS = 15_000;
+const CRM_SYNC_TIMEOUT_MS = 90_000;
 
 type FetchRetryOptions = {
   retryTransient?: boolean;
+  timeoutMs?: number;
 };
 
 function waitForRetry(delayMs: number) {
@@ -59,7 +61,7 @@ function waitForRetry(delayMs: number) {
 async function fetchWithRetry(
   input: RequestInfo | URL,
   init?: RequestInit,
-  { retryTransient = false }: FetchRetryOptions = {},
+  { retryTransient = false, timeoutMs = REQUEST_TIMEOUT_MS }: FetchRetryOptions = {},
 ): Promise<Response> {
   const isSafeGet = (init?.method ?? "GET").toUpperCase() === "GET";
   const maxAttempts = retryTransient && isSafeGet ? retryDelaysMs.length + 1 : 1;
@@ -70,7 +72,7 @@ async function fetchWithRetry(
     const timeoutId = window.setTimeout(() => {
       timedOut = true;
       timeoutController.abort();
-    }, REQUEST_TIMEOUT_MS);
+    }, timeoutMs);
     const signal = init?.signal
       ? AbortSignal.any([init.signal, timeoutController.signal])
       : timeoutController.signal;
@@ -755,6 +757,7 @@ export async function syncCrmWorkspace(): Promise<{ status: string; counterparti
     "/api/crm/sync",
     { method: "POST" },
     "Не удалось обновить CRM из 1С.",
+    { timeoutMs: CRM_SYNC_TIMEOUT_MS },
   );
 }
 
