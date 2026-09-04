@@ -48,6 +48,20 @@ async function loadCrmWorkspaceCacheForTest() {
   return commonJsModule.exports;
 }
 
+test("CRM keeps browser-style tabs, a compact contact column, and decisive status colors", async () => {
+  const [workspace, types] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmTypesUrl, "utf8"),
+  ]);
+
+  assert.match(workspace, /crm-tab-strip/);
+  assert.match(workspace, /Контактное лицо/);
+  assert.match(workspace, /client\.contactPerson/);
+  assert.match(workspace, /bg-red-600/);
+  assert.match(workspace, /bg-emerald-600/);
+  assert.match(types, /contactPerson: string;/);
+});
+
 test("CRM workspace cache restores a prior view only for its owner and tab", async () => {
   const cache = await loadCrmWorkspaceCacheForTest();
   const cachedView = {

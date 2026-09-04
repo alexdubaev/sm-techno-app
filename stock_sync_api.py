@@ -568,6 +568,7 @@ def _serialize_crm_client(
         "kpp": row.get("kpp") or "",
         "city": row.get("city") or "",
         "website": row.get("website") or "",
+        "contactPerson": row.get("contact_person") or "",
         "email": row.get("email") or "",
         "phone": row.get("phone") or "",
         "notes": row.get("notes") or "",

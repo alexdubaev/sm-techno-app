@@ -180,6 +180,7 @@ export type CrmWorkspaceClient = {
   kpp: string;
   city: string;
   website: string;
+  contactPerson: string;
   email: string;
   phone: string;
   notes: string;
