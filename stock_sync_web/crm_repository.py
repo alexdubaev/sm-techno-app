@@ -433,8 +433,21 @@ class CrmRepository:
                 raise ValueError("Клиент уже связан с контрагентом 1С.")
             if not str(card["inn"] or "").strip():
                 raise ValueError("Укажите ИНН перед отправкой в 1С.")
-            if str(card["legal_type"] or "legal_entity") == "legal_entity" and not str(card["kpp"] or "").strip():
-                raise ValueError("Укажите КПП юридического лица перед отправкой в 1С.")
+            legal_type = str(card["legal_type"] or "legal_entity")
+            inn = str(card["inn"] or "").strip()
+            kpp = str(card["kpp"] or "").strip()
+            if legal_type == "legal_entity":
+                if not (inn.isdigit() and len(inn) == 10):
+                    raise ValueError("ИНН юридического лица должен содержать 10 цифр.")
+                if not (kpp.isdigit() and len(kpp) == 9):
+                    raise ValueError("КПП юридического лица должен содержать 9 цифр.")
+            elif legal_type == "individual_entrepreneur":
+                if not (inn.isdigit() and len(inn) == 12):
+                    raise ValueError("ИНН индивидуального предпринимателя должен содержать 12 цифр.")
+                if kpp:
+                    raise ValueError("КПП индивидуального предпринимателя не указывается.")
+            else:
+                raise ValueError("Неизвестный вид контрагента для отправки в 1С.")
             version = self._ensure_card_version(conn, client_id)
             pending = conn.execute(
                 """SELECT id FROM crm_sync_jobs

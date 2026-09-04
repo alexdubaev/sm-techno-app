@@ -425,6 +425,17 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(400, response.status_code)
         self.assertIn("ИНН", response.json()["detail"])
 
+    def test_local_legal_entity_requires_a_valid_tax_identity_before_queueing_onec_create(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Лид с ошибочным ИНН", "inn": "7707", "kpp": "770701001"},
+        ).json()
+
+        response = self.client.post(f"/api/crm/clients/{created['client']['id']}/send-to-onec")
+
+        self.assertEqual(400, response.status_code)
+        self.assertIn("10 цифр", response.json()["detail"])
+
     def test_explicit_onec_create_persists_a_job_without_calling_onec(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
