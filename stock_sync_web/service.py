@@ -671,11 +671,35 @@ class WebStockSyncService:
     def list_organizations(self) -> list[dict[str, Any]]:
         return self.db.list_organizations()
 
-    def list_clients(self) -> list[dict[str, Any]]:
+    def _require_legacy_client_access(
+        self, row: dict[str, Any], *, actor_user_id: int | None
+    ) -> None:
+        """Keep private, unlinked CRM leads out of legacy shared-client flows."""
+        if actor_user_id is None:
+            return
+        owner_user_id = row.get("crm_owner_user_id")
+        if (
+            row.get("linked_counterparty_id") is None
+            and owner_user_id is not None
+            and int(owner_user_id) != int(actor_user_id)
+        ):
+            raise PermissionError("Частный CRM-клиент другого сотрудника недоступен.")
+
+    def _legacy_client_is_hidden(
+        self, row: dict[str, Any], *, actor_user_id: int | None
+    ) -> bool:
+        try:
+            self._require_legacy_client_access(row, actor_user_id=actor_user_id)
+        except PermissionError:
+            return True
+        return False
+
+    def list_clients(self, *, actor_user_id: int | None = None) -> list[dict[str, Any]]:
         local_rows = self.db.list_crm_clients()
         linked_counterparty_ids = {
             int(row["linked_counterparty_id"])
             for row in local_rows
+            if not self._legacy_client_is_hidden(row, actor_user_id=actor_user_id)
             if row.get("linked_counterparty_id")
         }
         onec_clients = [
@@ -756,6 +780,7 @@ class WebStockSyncService:
                 "is_linked_to_onec": bool(row.get("linked_counterparty_id")),
             }
             for row in local_rows
+            if not self._legacy_client_is_hidden(row, actor_user_id=actor_user_id)
         ]
         return sorted(
             onec_clients + local_clients,
@@ -961,6 +986,7 @@ class WebStockSyncService:
         row = self.db.get_crm_client(client_id)
         if not row:
             raise ValueError("Клиент не найден.")
+        self._require_legacy_client_access(row, actor_user_id=actor_user_id)
 
         linked_counterparty_id = int(row["linked_counterparty_id"]) if row.get("linked_counterparty_id") else None
         self._ensure_no_client_inn_duplicate(
@@ -1133,6 +1159,7 @@ class WebStockSyncService:
             client_source=client_source,
             client_id=client_id,
             client_name=client_name,
+            actor_user_id=created_by_user_id,
         )
         file_id = uuid.uuid4().hex[:12]
         safe_source_name = self._safe_filename(original_filename)
@@ -1182,6 +1209,7 @@ class WebStockSyncService:
             client_source=client_source,
             client_id=client_id,
             client_name=client_name,
+            actor_user_id=created_by_user_id,
         )
         now = datetime.now()
         offer_number = f"КП-{now:%Y%m%d-%H%M%S}"
@@ -1312,7 +1340,11 @@ class WebStockSyncService:
             document_number = f"{prefix}-{datetime.now():%Y%m%d-%H%M%S}"
 
         normalized_date = str(document_date or "").strip()[:10] or date.today().isoformat()
-        client = self._resolve_document_client(client_source=client_source, client_id=client_id)
+        client = self._resolve_document_client(
+            client_source=client_source,
+            client_id=client_id,
+            actor_user_id=created_by_user_id,
+        )
         client_data = dict(client["client"])
         correspondent_account = str(correspondent_account or "").strip()
         if correspondent_account:
@@ -1429,6 +1461,7 @@ class WebStockSyncService:
         client_source: str,
         client_id: int | None,
         client_name: str,
+        actor_user_id: int | None,
     ) -> dict[str, Any]:
         normalized_source = str(client_source or "").strip().lower()
         if normalized_source == "onec" and client_id:
@@ -1449,6 +1482,7 @@ class WebStockSyncService:
             target = self.db.get_crm_client(int(client_id))
             if not target:
                 raise ValueError("Локальный клиент не найден.")
+            self._require_legacy_client_access(target, actor_user_id=actor_user_id)
             return {
                 "client_source": "local",
                 "counterparty_id": target.get("linked_counterparty_id"),
@@ -1469,6 +1503,7 @@ class WebStockSyncService:
         *,
         client_source: str,
         client_id: int | None,
+        actor_user_id: int | None,
     ) -> dict[str, Any]:
         normalized_source = str(client_source or "").strip().lower()
         if normalized_source == "onec" and client_id:
@@ -1494,6 +1529,7 @@ class WebStockSyncService:
             target = self.db.get_crm_client(int(client_id))
             if not target:
                 raise ValueError("Локальный клиент не найден.")
+            self._require_legacy_client_access(target, actor_user_id=actor_user_id)
             return {
                 "client_source": "local",
                 "counterparty_id": target.get("linked_counterparty_id"),

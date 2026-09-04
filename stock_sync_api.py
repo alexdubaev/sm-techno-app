@@ -1008,7 +1008,12 @@ def list_organizations(current_user: dict[str, Any] = Depends(_get_current_user)
 
 @app.get("/api/clients")
 def list_clients(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
-    return {"items": [_serialize_client(row) for row in SERVICE.list_clients()]}
+    return {
+        "items": [
+            _serialize_client(row)
+            for row in SERVICE.list_clients(actor_user_id=int(current_user["id"]))
+        ]
+    }
 
 
 @app.post("/api/clients")
@@ -1036,11 +1041,8 @@ def send_client_to_onec(
             client_id,
             actor_user_id=int(current_user["id"]) if current_user.get("id") is not None else None,
         )
-    except ValueError as exc:
-        message = str(exc)
-        if "не найден" in message.lower():
-            raise HTTPException(status_code=404, detail=message) from exc
-        raise HTTPException(status_code=400, detail=message) from exc
+    except Exception as exc:
+        _crm_error(exc)
     return {"client": _serialize_client(client), "sync": sync}
 
 
@@ -1816,8 +1818,8 @@ async def create_commercial_offer_from_excel(
                 notes=notes,
                 created_by_user_id=int(current_user["id"]),
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            _crm_error(exc)
     finally:
         temp_path.unlink(missing_ok=True)
     return _serialize_commercial_offer_details(bundle)
@@ -1837,8 +1839,8 @@ def create_commercial_offer_from_draft(
             lines=payload.get("lines") if isinstance(payload.get("lines"), list) else [],
             created_by_user_id=int(current_user["id"]),
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _crm_error(exc)
     return _serialize_commercial_offer_details(bundle)
 
 
@@ -1949,8 +1951,8 @@ def create_document(
             created_by_user_id=int(current_user["id"]),
             is_admin=str(current_user.get("role") or "") == "admin",
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        _crm_error(exc)
     return {"document": _serialize_document(document)}
 
 
