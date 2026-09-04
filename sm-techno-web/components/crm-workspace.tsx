@@ -11,6 +11,8 @@ import {
   createCrmEvent,
   createCrmReminder,
   createCrmTab,
+  cancelCrmReminder,
+  completeCrmReminder,
   deleteCrmTab,
   fetchCrmClients,
   fetchPrimaryCrmClients,
@@ -33,6 +35,7 @@ import {
   reorderPrimaryCrmClients,
   renameCrmTab,
   sendCrmClientToOneC,
+  syncCrmWorkspace,
   updateCrmClient,
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
@@ -108,6 +111,9 @@ export function CrmWorkspace() {
   const [replacementTabId, setReplacementTabId] = useState<number | null>(null);
   const [isSavingTab, setIsSavingTab] = useState(false);
   const requestId = useRef(0);
+  const crmSyncInFlight = useRef<Promise<void> | null>(null);
+  const crmRefreshInFlight = useRef<{ ownerId: number; request: Promise<void> } | null>(null);
+  const syncedOwnerId = useRef<number | null>(null);
   const currentView = useRef({ activeTab, ownerId });
   currentView.current = { activeTab, ownerId };
 
@@ -151,14 +157,54 @@ export function CrmWorkspace() {
     }
   }, [ownerId]);
 
-  useEffect(() => {
-    void loadWorkspace(activeTab);
-  }, [activeTab, loadWorkspace, ownerId]);
+  const syncCrmBeforeReload = useCallback(() => {
+    if (!crmSyncInFlight.current) {
+      crmSyncInFlight.current = syncCrmWorkspace().then(() => undefined).finally(() => { crmSyncInFlight.current = null; });
+    }
+    return crmSyncInFlight.current;
+  }, []);
+
+  const refreshWorkspace = useCallback((tab: ActiveTab, { silent = false } = {}) => {
+    const pendingRefresh = crmRefreshInFlight.current;
+    if (pendingRefresh?.ownerId === ownerId) return pendingRefresh.request;
+    const requestOwnerId = ownerId;
+    const requestTab = tab;
+    const request = (async () => {
+      if (silent) setIsRefreshing(true);
+      else setIsLoading(true);
+      try {
+        await syncCrmBeforeReload();
+        if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
+        await loadWorkspace(requestTab, { silent });
+      } catch (cause) {
+        if (isCurrentWorkspaceView(requestTab, requestOwnerId)) setError(errorMessage(cause, "Не удалось обновить CRM из 1С. Данные не изменены."));
+      } finally {
+        if (isCurrentWorkspaceView(requestTab, requestOwnerId)) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
+      }
+    })();
+    crmRefreshInFlight.current = { ownerId: requestOwnerId, request };
+    void request.finally(() => {
+      if (crmRefreshInFlight.current?.request === request) crmRefreshInFlight.current = null;
+    });
+    return request;
+  }, [loadWorkspace, ownerId, syncCrmBeforeReload]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => void loadWorkspace(activeTab, { silent: true }), 5 * 60_000);
+    if (syncedOwnerId.current !== ownerId) {
+      syncedOwnerId.current = ownerId;
+      void refreshWorkspace(activeTab);
+      return;
+    }
+    void loadWorkspace(activeTab);
+  }, [activeTab, ownerId, refreshWorkspace]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => void refreshWorkspace(activeTab, { silent: true }), 5 * 60_000);
     return () => window.clearInterval(timer);
-  }, [activeTab, loadWorkspace]);
+  }, [activeTab, refreshWorkspace]);
 
   const visibleClients = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("ru-RU");
@@ -223,24 +269,15 @@ export function CrmWorkspace() {
   };
 
   const moveClient = async (client: CrmWorkspaceClient, targetTabId: number) => {
-    const previousAssignment = client.assignment;
     const target = tabs.find((tab) => tab.id === targetTabId);
     if (!target) return;
-
-    setClients((current) =>
-      current.map((item) =>
-        item.id === client.id && item.assignment
-          ? { ...item, assignment: { ...item.assignment, tabId: target.id, tabName: target.name } }
-          : item,
-      ),
-    );
     try {
-      await moveCrmClient(client.id, targetTabId, ownerId);
-      setNotice(`Клиент перемещён во вкладку «${target.name}».`);
+      const savedAssignment = await moveCrmClient(client.id, targetTabId, ownerId);
+      setClients((current) => current.map((item) => item.id === client.id ? { ...item, assignment: savedAssignment } : item));
+      setNotice(client.assignment ? `Клиент перемещён во вкладку «${target.name}».` : `Клиент добавлен во вкладку «${target.name}».`);
       await loadWorkspace(activeTab, { silent: true });
     } catch (cause) {
-      setClients((current) => current.map((item) => (item.id === client.id ? { ...item, assignment: previousAssignment } : item)));
-      setError(errorMessage(cause, "Не удалось переместить клиента. Изменение отменено."));
+      setError(errorMessage(cause, client.assignment ? "Не удалось переместить клиента. Изменение отменено." : "Не удалось добавить клиента во вкладку. Изменение отменено."));
     }
   };
 
@@ -473,7 +510,7 @@ export function CrmWorkspace() {
               <button type="button" disabled={isExporting || activeTab === "primary"} onClick={() => void exportCrm("tab")} className="rounded-[8px] px-2 py-2 text-left text-[11px] font-semibold hover:bg-[#F6F8FB] disabled:opacity-60">Текущая вкладка</button>
             </div>
           </details>
-          <button type="button" onClick={() => void loadWorkspace(activeTab, { silent: true })} disabled={isRefreshing} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:opacity-60">
+          <button type="button" onClick={() => void refreshWorkspace(activeTab, { silent: true })} disabled={isRefreshing} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:opacity-60">
             {isRefreshing ? "Обновляем…" : "Обновить"}
           </button>
           <button type="button" onClick={() => setIsAdding(true)} className="app-action-button h-10 rounded-[12px] px-4 text-[12px]">
@@ -521,7 +558,7 @@ export function CrmWorkspace() {
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
       {tabEditor ? <form role="dialog" aria-modal="true" aria-labelledby="crm-tab-editor-title" onSubmit={saveTab} className="fixed inset-0 z-50 flex items-center justify-center bg-[#07162e]/35 p-4"><div className="w-full max-w-sm rounded-[18px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"><h2 id="crm-tab-editor-title" className="text-[16px] font-bold">{tabEditor === "new" ? "Новая вкладка" : "Переименовать вкладку"}</h2>{error ? <div role="alert" aria-live="assertive" className="mt-3 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C]">{error}</div> : null}<label className="mt-4 grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Название</span><input autoFocus value={tabName} onChange={(event) => setTabName(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTabEditor(null)} className="h-9 rounded-[9px] px-3 text-[11px] font-semibold text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={isSavingTab} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSavingTab ? "Сохраняем…" : "Сохранить"}</button></div></div></form> : null}
       <AlertDialog open={tabPendingDelete !== null} onOpenChange={(open) => { if (!open) setTabPendingDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Удалить вкладку</AlertDialogTitle><AlertDialogDescription>Карточки и история из вкладки «{tabPendingDelete?.name}» сохранятся. Выберите личную вкладку для переноса; по умолчанию выбрана «В работе».</AlertDialogDescription></AlertDialogHeader><label className="grid gap-1 text-[12px] font-medium"><span>Перенести карточки в</span><select value={replacementTabId ?? ""} onChange={(event) => setReplacementTabId(Number(event.target.value))} className="h-10 rounded-[9px] border border-[var(--border-color)] bg-white px-2">{tabs.filter((tab) => tab.id !== tabPendingDelete?.id).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select></label><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeTab()} disabled={isSavingTab || replacementTabId === null}>{isSavingTab ? "Удаляем…" : "Удалить вкладку"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canResolveSyncConflicts={isAdmin || ownerId === user.id} onChanged={() => void loadWorkspace(activeTab, { silent: true })} onClose={() => setSelectedClient(null)} /> : null}
+      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canManageReminders={ownerId === user.id} canResolveSyncConflicts={isAdmin || ownerId === user.id} onChanged={() => void loadWorkspace(activeTab, { silent: true })} onClose={() => setSelectedClient(null)} /> : null}
     </section>
   );
 }
@@ -594,12 +631,12 @@ function insertionIndexForPosition(clients: CrmWorkspaceClient[], clientId: numb
 function Company({ client, onOpenAssignment }: { client: CrmWorkspaceClient; onOpenAssignment: (tab: ActiveTab) => void }) { return <div><div className="font-semibold">{client.documentName || client.fullName || client.name}</div><div className="mt-1 flex flex-wrap items-center gap-1.5"><span className="text-[10px] text-[var(--text-secondary)]">ИНН {client.inn || "не указан"}</span>{client.linkedCounterpartyId ? <button type="button" onClick={() => onOpenAssignment(client.assignment?.tabId ?? "primary")} className="rounded-full border border-[var(--border-color)] bg-white/75 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand-dark)] hover:bg-white">{client.assignment?.tabName || "Без вкладки"}</button> : null}</div></div>; }
 function Contact({ client }: { client: CrmWorkspaceClient }) { return <div className="space-y-0.5"><div>{client.phone || "Телефон не указан"}</div><div className="text-[11px] text-[var(--text-secondary)]">{client.email || "Почта не указана"}</div></div>; }
 function Status({ status }: { status: CrmWorkspaceClient["syncStatus"] }) { const labels = { synced: "1С", local: "Локальный", pending: "Ожидает отправки", blocked_capability: "Отправка заблокирована", blocked_credentials: "Нужны учётные данные 1С", conflict: "Конфликт", sync_error: "Ошибка", archived: "В архиве" }; const tone = status === "synced" ? "bg-[#DCFCE7] text-[#166534]" : status === "pending" ? "bg-[#FEF3C7] text-[#92400E]" : status === "conflict" || status === "sync_error" || status === "blocked_capability" || status === "blocked_credentials" ? "bg-[#FEE2E2] text-[#B91C1C]" : "bg-[#F1F5F9] text-[#475569]"; return <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${tone}`}>{labels[status]}</span>; }
-function Actions({ client, color, tabs, onColor, onMove, onOpenClient }: RowProps) { return <div className="flex flex-wrap items-center gap-1.5"><button type="button" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold hover:bg-[#F6F8FB]">Открыть</button><select aria-label={`Переместить ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-8 max-w-[136px] rounded-[8px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">Переместить…</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select><details className="relative"><summary className="flex h-8 cursor-pointer list-none items-center rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет строки</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details></div>; }
+function Actions({ client, color, tabs, onColor, onMove, onOpenClient }: RowProps) { const tabActionLabel = client.assignment ? "Переместить…" : "Добавить во вкладку…"; return <div className="flex flex-wrap items-center gap-1.5"><button type="button" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold hover:bg-[#F6F8FB]">Открыть</button><select aria-label={`${client.assignment ? "Переместить" : "Добавить"} ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-8 max-w-[136px] rounded-[8px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">{tabActionLabel}</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select><details className="relative"><summary className="flex h-8 cursor-pointer list-none items-center rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет строки</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details></div>; }
 function LoadingRows() { return <div className="mt-4 space-y-2" aria-label="Загрузка клиентов">{[1, 2, 3, 4].map((row) => <div key={row} className="h-16 animate-pulse rounded-[12px] bg-[#F3F6FA]" />)}</div>; }
-function Message({ children, tone }: { children: string; tone: "error" | "success" }) { return <div className={`mt-3 rounded-[10px] border px-3 py-2 text-[11px] ${tone === "error" ? "border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBE6CA] bg-[#F0FDF4] text-[#166534]"}`}>{children}</div>; }
+function Message({ children, tone }: { children: string; tone: "error" | "success" }) { return <div role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} className={`mt-3 rounded-[10px] border px-3 py-2 text-[11px] ${tone === "error" ? "border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBE6CA] bg-[#F0FDF4] text-[#166534]"}`}>{children}</div>; }
 function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: ReturnType<typeof emptyClientForm>; isSaving: boolean; onChange: (form: ReturnType<typeof emptyClientForm>) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { const update = (key: keyof ReturnType<typeof emptyClientForm>, value: string) => onChange({ ...form, [key]: value }); return <div role="dialog" aria-modal="true" aria-labelledby="crm-new-client-title" className="fixed inset-0 z-50 flex items-end bg-[#07162e]/35 p-2 sm:items-center sm:justify-center sm:p-4"><form onSubmit={onSubmit} className="w-full max-w-[620px] rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><h2 id="crm-new-client-title" className="text-[19px] font-bold tracking-[-0.03em]">Новый локальный клиент</h2><p className="mt-1 text-[11px] text-[var(--text-secondary)]">Будет сохранён локально во вкладке «В работе» без отправки в 1С.</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Наименование компании *" value={form.documentName} onChange={(value) => update("documentName", value)} autoFocus /><Field label="Город" value={form.city} onChange={(value) => update("city", value)} /><Field label="Контактное лицо" value={form.contactPerson} onChange={(value) => update("contactPerson", value)} /><Field label="Телефон" value={form.phone} onChange={(value) => update("phone", value)} type="tel" /><Field label="Почта" value={form.email} onChange={(value) => update("email", value)} type="email" /><label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Комментарий</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-10 rounded-[10px] border border-[var(--border-color)] px-3 py-2 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-10 rounded-[11px] px-3 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Отмена</button><button type="submit" disabled={isSaving} className="app-action-button h-10 rounded-[11px] px-4 text-[12px]">{isSaving ? "Сохраняем…" : "Добавить клиента"}</button></div></form></div>; }
 
-function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyncConflicts, onChanged, onClose }: { client: CrmWorkspaceClient; ownerId: number; ownerName: string; isAdmin: boolean; canResolveSyncConflicts: boolean; onChanged: () => void; onClose: () => void }) {
+function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageReminders, canResolveSyncConflicts, onChanged, onClose }: { client: CrmWorkspaceClient; ownerId: number; ownerName: string; isAdmin: boolean; canManageReminders: boolean; canResolveSyncConflicts: boolean; onChanged: () => void; onClose: () => void }) {
   const [currentClient, setCurrentClient] = useState(client);
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [events, setEvents] = useState<CrmEvent[]>([]);
@@ -611,7 +648,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "retry" | "queue" | "resolve" | null>(null);
+  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "retry" | "queue" | "resolve" | null>(null);
   const [requisitesForm, setRequisitesForm] = useState(() => companyRequisitesForm(client));
   const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", isPrimary: false });
   const [eventForm, setEventForm] = useState({ kind: "comment", body: "" });
@@ -634,6 +671,11 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
     setSyncConflicts(await fetchCrmSyncConflicts(currentClient.id, ownerId));
   }, [currentClient.id, ownerId]);
 
+  const refreshReminders = useCallback(async () => {
+    const items = await fetchCrmReminders(ownerId);
+    setReminders(items.filter((reminder) => reminder.clientId === currentClient.id && reminder.status === "active"));
+  }, [currentClient.id, ownerId]);
+
   useEffect(() => {
     let active = true;
     setIsLoading(true);
@@ -643,7 +685,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
         if (!active) return;
         setContacts(nextContacts);
         setEvents(nextEvents);
-        setReminders(nextReminders.filter((reminder) => reminder.clientId === client.id));
+        setReminders(nextReminders.filter((reminder) => reminder.clientId === client.id && reminder.status === "active"));
         setAudit(nextAudit);
         setLinkCandidates(nextCandidates);
         setSyncConflicts(nextConflicts);
@@ -690,7 +732,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
   const saveReminder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!reminderDueAt) { setError("Укажите дату и время напоминания."); return; }
-    const temporary: CrmReminder = { id: -Date.now(), clientId: client.id, dueAt: reminderDueAt, status: "active", createdAt: new Date().toISOString() };
+    const temporary: CrmReminder = { id: -Date.now(), clientId: client.id, dueAt: reminderDueAt, status: "active", createdAt: new Date().toISOString(), completedAt: "", cancelledAt: "", updatedAt: "" };
     setReminders((current) => [...current, temporary]);
     setIsSaving("reminder"); setError(null);
     try {
@@ -700,6 +742,24 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
     } catch (cause) {
       setReminders((current) => current.filter((item) => item.id !== temporary.id));
       setError(errorMessage(cause, "Не удалось добавить напоминание. Изменение отменено."));
+    } finally { setIsSaving(null); }
+  };
+
+  const transitionReminder = async (reminder: CrmReminder, action: "complete" | "cancel") => {
+    if (!canManageReminders || reminder.status !== "active") return;
+    const previousIndex = reminders.findIndex((item) => item.id === reminder.id);
+    setReminders((current) => current.filter((item) => item.id !== reminder.id));
+    setIsSaving(action === "complete" ? "complete-reminder" : "cancel-reminder");
+    setError(null);
+    try {
+      if (action === "complete") await completeCrmReminder(reminder.id, reminder.updatedAt, ownerId);
+      else await cancelCrmReminder(reminder.id, reminder.updatedAt, ownerId);
+      await Promise.all([refreshReminders(), refreshAudit()]);
+      onChanged();
+      setNotice(action === "complete" ? "Напоминание отмечено выполненным." : "Напоминание отменено.");
+    } catch (cause) {
+      setReminders((current) => current.some((item) => item.id === reminder.id) ? current : [...current.slice(0, previousIndex), reminder, ...current.slice(previousIndex)]);
+      setError(errorMessage(cause, action === "complete" ? "Не удалось отметить напоминание выполненным. Изменение отменено." : "Не удалось отменить напоминание. Изменение отменено."));
     } finally { setIsSaving(null); }
   };
 
@@ -888,7 +948,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
                 <label className="flex flex-col gap-1 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Дата и время</span><input type="datetime-local" value={reminderDueAt} onChange={(event) => setReminderDueAt(event.target.value)} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px] font-normal" /></label>
                 <button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "reminder" ? "Сохраняем…" : "Добавить напоминание"}</button>
               </form>
-              <DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatDate(reminder.dueAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div></div>} />
+              <DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatDate(reminder.dueAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div>{canManageReminders && reminder.status === "active" ? <div className="mt-2 flex gap-2"><button type="button" onClick={() => void transitionReminder(reminder, "complete")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">{isSaving === "complete-reminder" ? "Отмечаем…" : "Выполнено"}</button><button type="button" onClick={() => void transitionReminder(reminder, "cancel")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[#F0D98A] bg-[#FFF9E8] px-2 text-[10px] font-semibold text-[#92400E]">{isSaving === "cancel-reminder" ? "Отменяем…" : "Отменить"}</button></div> : null}</div>} />
             </DetailSection>
             {canConfirmExistingLink ? (
               <DetailSection title="Найденные в 1С совпадения">

@@ -750,6 +750,14 @@ export async function fetchCrmTabs(ownerId?: number): Promise<CrmTab[]> {
   return result.items;
 }
 
+export async function syncCrmWorkspace(): Promise<{ status: string; counterparties: number }> {
+  return requestJsonWithInit<{ status: string; counterparties: number }>(
+    "/api/crm/sync",
+    { method: "POST" },
+    "Не удалось обновить CRM из 1С.",
+  );
+}
+
 export async function createCrmTab(name: string, ownerId?: number): Promise<CrmTab> {
   const result = await requestJsonWithInit<{ tab: CrmTab }>(
     `/api/crm/tabs${buildCrmQuery({ ownerId })}`,
@@ -911,6 +919,32 @@ export async function createCrmReminder(
     "Не удалось добавить напоминание.",
   );
   return result.reminder;
+}
+
+async function transitionCrmReminder(
+  reminderId: number,
+  action: "complete" | "cancel",
+  expectedUpdatedAt: string,
+  ownerId?: number,
+): Promise<CrmReminder> {
+  const result = await requestJsonWithInit<{ reminder: CrmReminder }>(
+    `/api/crm/reminders/${reminderId}/${action}${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedUpdatedAt }),
+    },
+    action === "complete" ? "Не удалось отметить напоминание выполненным." : "Не удалось отменить напоминание.",
+  );
+  return result.reminder;
+}
+
+export async function completeCrmReminder(reminderId: number, expectedUpdatedAt: string, ownerId?: number): Promise<CrmReminder> {
+  return transitionCrmReminder(reminderId, "complete", expectedUpdatedAt, ownerId);
+}
+
+export async function cancelCrmReminder(reminderId: number, expectedUpdatedAt: string, ownerId?: number): Promise<CrmReminder> {
+  return transitionCrmReminder(reminderId, "cancel", expectedUpdatedAt, ownerId);
 }
 
 export async function createCrmClient(

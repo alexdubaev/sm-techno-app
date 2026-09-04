@@ -267,6 +267,9 @@ export type CrmReminder = {
   dueAt: string;
   status: string;
   createdAt: string;
+  completedAt: string;
+  cancelledAt: string;
+  updatedAt: string;
 };
 
 export type Contract = {

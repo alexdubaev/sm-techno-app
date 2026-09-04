@@ -458,3 +458,60 @@ test("CRM tab create and delete re-enable controls after selecting their destina
   assert.match(workspace, /if \(isCurrentWorkspaceOwner\(requestOwnerId\)\) setIsSavingTab\(false\);/);
   assert.doesNotMatch(workspace, /if \(isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) setIsSavingTab\(false\);/);
 });
+
+test("CRM sync and reminder transitions use the authenticated API contract", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof URL ? input.href : input instanceof Request ? input.url : input;
+    requests.push({ url, method: init?.method ?? "GET", body: init?.body ?? null });
+    const payloads = [
+      { status: "synced", counterparties: 3 },
+      { ownerId: 7, reminder: { id: 11, clientId: 42, dueAt: "2026-09-05T10:00:00", status: "completed", createdAt: "2026-09-04T10:00:00", completedAt: "2026-09-04T11:00:00", cancelledAt: "", updatedAt: "2026-09-04T11:00:00" } },
+      { ownerId: 7, reminder: { id: 12, clientId: 42, dueAt: "2026-09-05T10:00:00", status: "cancelled", createdAt: "2026-09-04T10:00:00", completedAt: "", cancelledAt: "2026-09-04T11:00:00", updatedAt: "2026-09-04T11:00:00" } },
+    ];
+    return new Response(JSON.stringify(payloads[requests.length - 1]), { status: 200 });
+  };
+
+  try {
+    const api = await loadCrmApiForContractTest();
+    await api.syncCrmWorkspace();
+    const completed = await api.completeCrmReminder(11, "2026-09-04T10:00:00", 7);
+    const cancelled = await api.cancelCrmReminder(12, "2026-09-04T10:00:00", 7);
+    assert.equal(completed.status, "completed");
+    assert.equal(cancelled.status, "cancelled");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requests, [
+    { url: "/api/crm/sync", method: "POST", body: null },
+    { url: "/api/crm/reminders/11/complete?ownerId=7", method: "POST", body: JSON.stringify({ expectedUpdatedAt: "2026-09-04T10:00:00" }) },
+    { url: "/api/crm/reminders/12/cancel?ownerId=7", method: "POST", body: JSON.stringify({ expectedUpdatedAt: "2026-09-04T10:00:00" }) },
+  ]);
+});
+
+test("CRM refresh coalesces syncs, owner reminders transition safely, and unassigned cards are added to tabs", async () => {
+  const [workspace, api, types] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+    readFile(crmTypesUrl, "utf8"),
+  ]);
+
+  assert.match(api, /export async function syncCrmWorkspace/);
+  assert.match(api, /export async function completeCrmReminder/);
+  assert.match(api, /export async function cancelCrmReminder/);
+  assert.match(types, /updatedAt: string/);
+  assert.match(workspace, /const crmSyncInFlight = useRef<Promise<void> \| null>\(null\)/);
+  assert.match(workspace, /const crmRefreshInFlight = useRef<\{ ownerId: number; request: Promise<void> \} \| null>\(null\)/);
+  assert.match(workspace, /const syncedOwnerId = useRef<number \| null>\(null\)/);
+  assert.match(workspace, /if \(syncedOwnerId\.current !== ownerId\)/);
+  assert.match(workspace, /syncCrmWorkspace\(\)/);
+  assert.match(workspace, /completeCrmReminder\(reminder\.id, reminder\.updatedAt, ownerId\)/);
+  assert.match(workspace, /cancelCrmReminder\(reminder\.id, reminder\.updatedAt, ownerId\)/);
+  assert.match(workspace, /ownerId === user\.id/);
+  assert.match(workspace, /setReminders\(\(current\) => current\.filter\(\(item\) => item\.id !== reminder\.id\)\)/);
+  assert.match(workspace, /Добавить во вкладку…/);
+  assert.match(workspace, /assignment: savedAssignment/);
+  assert.match(workspace, /role=\{tone === "error" \? "alert" : "status"\}/);
+});
