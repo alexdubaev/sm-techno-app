@@ -3,6 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from stock_sync_web.crm_repository import CrmRepository
@@ -125,6 +127,59 @@ class CrmPersistenceTest(unittest.TestCase):
         self.assertEqual(work["id"], current["tab_id"])
         self.assertEqual(assignment["id"], current["id"])
         self.assertIsNone(self.repo.get_tab(self.owner_id, follow_up["id"]))
+
+    def test_tab_deletion_appends_each_source_preference_after_target_tail(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        source = self.repo.create_tab(self.owner_id, "Перенести")
+        first = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Первый источник"})
+        second = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Второй источник"})
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=first["id"], tab_id=source["id"])
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=second["id"], tab_id=source["id"])
+        self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=source["id"], client_id=first["id"], color_key="red", position=50)
+        self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=source["id"], client_id=second["id"], color_key="blue", position=60)
+
+        self.repo.delete_tab(self.owner_id, source["id"], work["id"])
+
+        rows = [
+            self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=client_id)
+            for client_id in (self.client["id"], first["id"], second["id"])
+        ]
+        self.assertEqual(
+            [(None, 1000), ("red", 2000), ("blue", 3000)],
+            [(row["color_key"], row["position"]) for row in rows],
+        )
+
+    def test_concurrent_primary_materialization_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
+            db = WebDatabase(Path(directory) / "concurrent-primary.db")
+            owner_id = db.create_user(username="parallel-owner", password="password", role="user")
+            client = CrmRepository(db).create_local_client(actor_id=owner_id, values={"document_name": "Общая компания"})
+            with db.transaction() as conn:
+                conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (811, 'onec-811', 'Общая компания', '2026-09-04T00:00:00')")
+                conn.execute("UPDATE crm_clients SET linked_counterparty_id = 811, sync_status = 'synced' WHERE id = ?", (client["id"],))
+
+            barrier = threading.Barrier(2)
+
+            def load_primary() -> list[dict[str, object]]:
+                barrier.wait(timeout=5)
+                return CrmRepository(db).list_cards_for_actor(
+                    actor_id=owner_id, owner_id=owner_id, primary_only=True,
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(lambda _: load_primary(), range(2)))
+
+            conn = db.connect()
+            try:
+                rows = conn.execute(
+                    "SELECT crm_client_id, position FROM crm_primary_row_preferences WHERE owner_user_id = ?",
+                    (owner_id,),
+                ).fetchall()
+            finally:
+                conn.close()
+        self.assertEqual([[client["id"]], [client["id"]]], [[row["id"] for row in result] for result in results])
+        self.assertEqual([(client["id"], 1000)], [tuple(row) for row in rows])
 
     def test_personal_data_is_owner_scoped_and_admin_can_explicitly_view_owner(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)

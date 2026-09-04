@@ -179,15 +179,27 @@ class CrmRepository:
             replacement = self._require_row(conn, "SELECT * FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (replacement_tab_id, owner_id), "Целевая вкладка не найдена.")
             if source["id"] == replacement["id"]:
                 raise ValueError("Выберите другую вкладку для переноса клиентов.")
-            preferences = conn.execute(
-                "SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ?", (owner_id, tab_id)
+            assignments = conn.execute(
+                """SELECT a.crm_client_id, p.color_key
+                   FROM crm_assignments a
+                   LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id
+                     AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id
+                   WHERE a.owner_user_id = ? AND a.tab_id = ?
+                   ORDER BY COALESCE(p.position, 0), a.crm_client_id""",
+                (owner_id, tab_id),
             ).fetchall()
-            for preference in preferences:
+            target_tail = conn.execute(
+                "SELECT COALESCE(MAX(position), 0) AS value FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ?",
+                (owner_id, replacement_tab_id),
+            ).fetchone()["value"]
+            for offset, assignment in enumerate(assignments, start=1):
                 conn.execute(
                     """INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, order_version, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO NOTHING""",
-                    (owner_id, replacement_tab_id, preference["crm_client_id"], preference["color_key"], preference["position"], preference["order_version"], utc_now()),
+                       VALUES (?, ?, ?, ?, ?, 0, ?)
+                       ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO UPDATE SET
+                         color_key = excluded.color_key, position = excluded.position,
+                         order_version = crm_row_preferences.order_version + 1, updated_at = excluded.updated_at""",
+                    (owner_id, replacement_tab_id, assignment["crm_client_id"], assignment["color_key"], int(target_tail or 0) + offset * 1000, utc_now()),
                 )
             conn.execute("DELETE FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ?", (owner_id, tab_id))
             # Archived assignments retain their former placement for restoration,
@@ -809,21 +821,27 @@ class CrmRepository:
 
     def _ensure_primary_preferences(self, conn: sqlite3.Connection, owner_id: int) -> None:
         """Append every newly visible linked card to one owner's primary order."""
-        missing = conn.execute(
-            """SELECT c.id FROM crm_clients c
-               LEFT JOIN crm_primary_row_preferences p
-                 ON p.owner_user_id = ? AND p.crm_client_id = c.id
-               WHERE c.linked_counterparty_id IS NOT NULL AND COALESCE(c.is_inactive, 0) = 0
-                 AND p.crm_client_id IS NULL
-               ORDER BY c.id""",
-            (owner_id,),
+        # Acquire the SQLite writer reservation before reading candidate cards.
+        # This serializes concurrent first GETs; the INSERT itself still has an
+        # ON CONFLICT guard for a link/import that raced before this transaction.
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        linked_rows = conn.execute(
+            """SELECT id FROM crm_clients
+               WHERE linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0
+               ORDER BY id"""
         ).fetchall()
-        for row in missing:
+        for row in linked_rows:
             client_id = int(row["id"])
             conn.execute(
                 """INSERT INTO crm_primary_row_preferences(owner_user_id, crm_client_id, color_key, position, order_version, updated_at)
-                   VALUES (?, ?, NULL, ?, 0, ?)""",
-                (owner_id, client_id, self._final_position(conn, "crm_primary_row_preferences", owner_id, client_id), utc_now()),
+                   SELECT ?, c.id, NULL,
+                     (SELECT COALESCE(MAX(position), 0) + 1000 FROM crm_primary_row_preferences WHERE owner_user_id = ?),
+                     0, ?
+                   FROM crm_clients c
+                   WHERE c.id = ? AND c.linked_counterparty_id IS NOT NULL AND COALESCE(c.is_inactive, 0) = 0
+                   ON CONFLICT(owner_user_id, crm_client_id) DO NOTHING""",
+                (owner_id, owner_id, utc_now(), client_id),
             )
 
     def _require_primary_client(self, conn: sqlite3.Connection, client_id: int) -> None:

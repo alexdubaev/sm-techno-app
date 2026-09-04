@@ -1198,14 +1198,20 @@ def list_crm_clients(
     try:
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
         items = []
+        primary_order_version = 0
         for card in repo.list_cards_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, primary_only=primary_only):
             assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
             tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
             version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
             preference = repo.get_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"]), client_id=int(card["id"])) if assignment else None
             primary_preference = repo.get_primary_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"])) if primary_only else None
+            if primary_preference:
+                primary_order_version = max(primary_order_version, int(primary_preference.get("order_version") or 0))
             items.append(_serialize_crm_client(card, assignment, tab, version=version, row_preference=preference, primary_row_preference=primary_preference))
-        return {"ownerId": resolved_owner_id, "items": items}
+        result: dict[str, Any] = {"ownerId": resolved_owner_id, "items": items}
+        if primary_only:
+            result["orderVersion"] = primary_order_version
+        return result
     except Exception as exc:
         _crm_error(exc)
 

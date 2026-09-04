@@ -347,6 +347,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertIn("Конфликт версии", stale.json()["detail"])
         self.assertEqual([first, third, second], [item["id"] for item in current.json()["items"]])
         self.assertEqual("orange", current.json()["items"][1]["primaryRowPreference"]["colorKey"])
+        self.assertEqual(2, current.json()["orderVersion"])
 
     def test_primary_preferences_require_linked_card_and_owner_scope(self) -> None:
         local = self.client.post("/api/crm/clients", json={"documentName": "Локальная карточка"}).json()["client"]["id"]
