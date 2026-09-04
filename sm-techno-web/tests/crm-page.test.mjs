@@ -87,6 +87,19 @@ test("CRM detail presents explicit, irreversible 1C conflict resolution and refr
   assert.match(workspace, /<AlertDialog open=\{syncConflictResolution !== null\}/);
 });
 
+test("CRM conflict helpers require an explicit owner and keep a successful resolution separate from reload failures", async () => {
+  const [workspace, api] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+  ]);
+
+  assert.doesNotMatch(api, /fetchCrmSyncConflicts\(clientId: number, ownerId\?: number/);
+  assert.match(api, /payload: ResolveCrmSyncConflictPayload,\s+ownerId: number/);
+  assert.match(workspace, /onChanged\(\);\s+try \{\s+await refreshSyncConflicts\(\);/);
+  assert.match(workspace, /Конфликт разрешён, но не удалось обновить данные карточки\./);
+  assert.match(workspace, /Не удалось разрешить конфликт синхронизации\./);
+});
+
 test("CRM surface is reachable from navigation and exposes the core workspace", async () => {
   const [page, workspace, api, types, shell] = await Promise.all([
     readFile(crmPageUrl, "utf8"),

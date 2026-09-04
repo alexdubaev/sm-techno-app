@@ -81,3 +81,49 @@ OK
 
 - Общий `npm run lint` красный из-за накопленных вне-task ошибок, включая множество UI primitives и существующие CRM-правила. `tsc`, build и полный Node-набор проходят.
 - Интерфейс использует существующий API, поэтому окончательная авторизация и optimistic locking остаются серверными; UI не заменяет их локальными допущениями.
+
+## Review round 1
+
+### Изменения
+
+- `resolve_crm_sync_conflict` теперь получает owner из actor-authorized repository method и в той же SQLite-транзакции записывает `crm_audit_actions`. Action — `resolve_sync_conflict`, reason — `local` или `remote`; executor и выбранный владелец сохраняются раздельно.
+- `fetchCrmSyncConflicts` и `resolveCrmSyncConflict` требуют `ownerId: number`; все UI-вызовы передают выбранного владельца.
+- После успешного POST клиентская карточка сразу убирает подтверждённый конфликт из state и запускает parent refresh. Ошибки обновления conflicts/audit обрабатываются отдельно и сообщают, что resolve уже состоялся, с предложением обновить карточку.
+
+### TDD: RED → GREEN
+
+RED:
+
+```
+node --test --test-name-pattern "CRM conflict helpers require" tests/crm-page.test.mjs
+✖ ... fetchCrmSyncConflicts(clientId: number, ownerId?: number)
+
+.\.venv\Scripts\python.exe -m unittest ...resolve...audit...
+FAILED (failures=3): expected audit rows for remote, local and admin actor/owner, got []
+```
+
+GREEN:
+
+```
+node --test --test-name-pattern "CRM conflict helpers require" tests/crm-page.test.mjs
+✔ pass 1
+
+.\.venv\Scripts\python.exe -m unittest ...resolve...audit...
+Ran 3 tests in 4.373s
+OK
+```
+
+### Проверки
+
+| Проверка | Результат |
+| --- | --- |
+| `node --test tests/*.test.mjs` | 17/17 passed |
+| `npx tsc --noEmit` | passed |
+| `npm run build` | passed |
+| расширенный Python-набор conflict/audit/merge | 7/7 passed |
+| `git diff --check` | passed перед staging |
+
+### Риски review round 1
+
+- Изменения отдельной задачи `crm_primary_row_preferences` не включаются в этот коммит; её текущие незакоммиченные API/test-файлы сохранены вне staging area.
+- Общий `npm run lint` остаётся с прежними repository-wide ошибками, зафиксированными выше; его повторный запуск не меняет scope этого review round.

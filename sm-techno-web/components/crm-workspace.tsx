@@ -516,10 +516,15 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
       const resolved = await resolveCrmSyncConflict(currentClient.id, conflict.id, { choice, expectedUpdatedAt: conflict.updatedAt }, ownerId);
       setCurrentClient(resolved);
       setSyncConflictResolution(null);
-      await refreshSyncConflicts();
-      await refreshAudit();
+      setSyncConflicts((current) => current.filter((item) => item.id !== conflict.id));
       onChanged();
-      setNotice(choice === "local" ? "Локальное значение сохранено для конфликта синхронизации." : "Значение из 1С принято для конфликта синхронизации.");
+      try {
+        await refreshSyncConflicts();
+        await refreshAudit();
+        setNotice(choice === "local" ? "Локальное значение сохранено для конфликта синхронизации." : "Значение из 1С принято для конфликта синхронизации.");
+      } catch (cause) {
+        setError(errorMessage(cause, "Конфликт разрешён, но не удалось обновить данные карточки. Обновите страницу."));
+      }
     } catch (cause) {
       setSyncConflictResolution(null);
       setError(errorMessage(cause, "Не удалось разрешить конфликт синхронизации."));

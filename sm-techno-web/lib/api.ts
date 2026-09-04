@@ -805,7 +805,7 @@ export async function fetchCrmAudit(clientId: number, ownerId?: number): Promise
   return result.items;
 }
 
-export async function fetchCrmSyncConflicts(clientId: number, ownerId?: number): Promise<CrmSyncConflict[]> {
+export async function fetchCrmSyncConflicts(clientId: number, ownerId: number): Promise<CrmSyncConflict[]> {
   const result = await requestJson<{ items: CrmSyncConflict[] }>(
     `/api/crm/clients/${clientId}/sync-conflicts${buildCrmQuery({ ownerId })}`,
   );
@@ -816,7 +816,7 @@ export async function resolveCrmSyncConflict(
   clientId: number,
   conflictId: number,
   payload: ResolveCrmSyncConflictPayload,
-  ownerId?: number,
+  ownerId: number,
 ): Promise<CrmWorkspaceClient> {
   const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
     `/api/crm/clients/${clientId}/sync-conflicts/${conflictId}/resolve${buildCrmQuery({ ownerId })}`,

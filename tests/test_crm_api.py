@@ -199,11 +199,16 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("Имя из 1С", resolved.json()["client"]["documentName"])
         self.assertEqual("synced", resolved.json()["client"]["syncStatus"])
         self.assertEqual([], self.client.get(f"/api/crm/clients/{client_id}/sync-conflicts").json()["items"])
+        audit = self.client.get(f"/api/crm/clients/{client_id}/audit")
         with self.service.db.connect() as conn:
             conflict_row = conn.execute("SELECT status, resolved_value_json, resolved_by_user_id FROM crm_sync_conflicts WHERE id = ?", (conflict["id"],)).fetchone()
             snapshot = conn.execute("SELECT last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)).fetchone()
         self.assertEqual(("resolved_remote", '"Имя из 1С"', self.owner_id), tuple(conflict_row))
         self.assertEqual("Имя из 1С", json.loads(snapshot["last_synced_snapshot"])["document_name"])
+        self.assertEqual([(self.owner_id, self.owner_id, "resolve_sync_conflict", "remote")], [
+            (item["actorUserId"], item["ownerUserId"], item["action"], item["reason"])
+            for item in audit.json()["items"]
+        ])
 
     def test_owner_can_keep_local_value_when_safe_remote_write_is_unavailable(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Базовое имя"}).json()
@@ -225,11 +230,32 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(200, resolved.status_code, resolved.text)
         self.assertEqual("Локальное имя", resolved.json()["client"]["documentName"])
         self.assertEqual("blocked_capability", resolved.json()["client"]["syncStatus"])
+        audit = self.client.get(f"/api/crm/clients/{client_id}/audit")
         with self.service.db.connect() as conn:
             conflict_row = conn.execute("SELECT status, resolved_value_json, resolved_by_user_id FROM crm_sync_conflicts WHERE id = ?", (conflict["id"],)).fetchone()
             snapshot = conn.execute("SELECT last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)).fetchone()
         self.assertEqual(("resolved_local", '"Локальное имя"', self.owner_id), tuple(conflict_row))
         self.assertEqual("Имя из 1С", json.loads(snapshot["last_synced_snapshot"])["document_name"])
+        self.assertEqual([(self.owner_id, self.owner_id, "resolve_sync_conflict", "local")], [
+            (item["actorUserId"], item["ownerUserId"], item["action"], item["reason"])
+            for item in audit.json()["items"]
+        ])
+
+    def test_admin_resolution_audit_keeps_the_actual_actor_and_selected_owner(self) -> None:
+        client_id, conflict = self.create_open_sync_conflict()
+        self.as_user(self.admin_id, "admin")
+
+        resolved = self.client.post(
+            f"/api/crm/clients/{client_id}/sync-conflicts/{conflict['id']}/resolve?ownerId={self.owner_id}",
+            json={"choice": "remote", "expectedUpdatedAt": conflict["updatedAt"]},
+        )
+        audit = self.client.get(f"/api/crm/clients/{client_id}/audit?ownerId={self.owner_id}")
+
+        self.assertEqual(200, resolved.status_code, resolved.text)
+        self.assertEqual([(self.admin_id, self.owner_id, "resolve_sync_conflict", "remote")], [
+            (item["actorUserId"], item["ownerUserId"], item["action"], item["reason"])
+            for item in audit.json()["items"]
+        ])
 
     def test_owner_can_save_palette_preference_for_own_row(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Лид с цветом"}).json()

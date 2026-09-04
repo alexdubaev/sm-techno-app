@@ -600,6 +600,7 @@ class CrmRepository:
             choice=choice,
             expected_updated_at=expected_updated_at,
             resolved_by_user_id=actor_id,
+            owner_user_id=owner_id,
         )
 
     def create_tab_for_actor(self, *, actor_id: int, owner_id: int, name: str) -> dict[str, Any]:

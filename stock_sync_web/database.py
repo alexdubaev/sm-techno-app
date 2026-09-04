@@ -1459,6 +1459,7 @@ class WebDatabase(Database):
         choice: str,
         expected_updated_at: str,
         resolved_by_user_id: int,
+        owner_user_id: int,
     ) -> dict[str, Any]:
         tracked = {"document_name", "email", "phone"}
         if choice not in {"local", "remote"}:
@@ -1501,6 +1502,11 @@ class WebDatabase(Database):
                        resolved_at = ?, updated_at = ?
                    WHERE id = ?""",
                 (f"resolved_{choice}", json.dumps(resolved_value, ensure_ascii=False), resolved_by_user_id, now, now, conflict_id),
+            )
+            conn.execute(
+                """INSERT INTO crm_audit_actions(actor_user_id, owner_user_id, crm_client_id, action, reason, created_at)
+                   VALUES (?, ?, ?, 'resolve_sync_conflict', ?, ?)""",
+                (resolved_by_user_id, owner_user_id, client_id, choice, now),
             )
             remaining = conn.execute(
                 "SELECT 1 FROM crm_sync_conflicts WHERE crm_client_id = ? AND status = 'open' LIMIT 1",
