@@ -27,14 +27,12 @@ import {
   moveCrmClient,
   removeCrmAssignment,
   resolveCrmSyncConflict,
-  retryCrmOnecCreate,
   restoreLocalCrmClient,
   saveCrmRowPreference,
   saveCrmPrimaryRowPreference,
   reorderCrmTabClients,
   reorderPrimaryCrmClients,
   renameCrmTab,
-  sendCrmClientToOneC,
   syncCrmWorkspace,
   updateCrmClient,
 } from "@/lib/api";
@@ -666,7 +664,7 @@ function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, ca
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "retry" | "queue" | "resolve" | null>(null);
+  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "resolve" | null>(null);
   const [requisitesForm, setRequisitesForm] = useState(() => companyRequisitesForm(client));
   const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", isPrimary: false });
   const [eventForm, setEventForm] = useState({ kind: "comment", body: "" });
@@ -674,13 +672,11 @@ function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, ca
   const [archiveReason, setArchiveReason] = useState("");
   const [isArchiveConfirmationOpen, setIsArchiveConfirmationOpen] = useState(false);
   const [isRemoveAssignmentConfirmationOpen, setIsRemoveAssignmentConfirmationOpen] = useState(false);
-  const [isRetryConfirmationOpen, setIsRetryConfirmationOpen] = useState(false);
-  const [isCreateConfirmationOpen, setIsCreateConfirmationOpen] = useState(false);
   const [syncConflictResolution, setSyncConflictResolution] = useState<{ conflict: CrmSyncConflict; choice: "local" | "remote" } | null>(null);
   const isResolvingSyncConflict = useRef(false);
   const notifyChanged = () => onChanged(ownerId, activeTab);
 
-  useEffect(() => { setCurrentClient(client); setRequisitesForm(companyRequisitesForm(client)); setIsArchiveConfirmationOpen(false); setIsRemoveAssignmentConfirmationOpen(false); setIsRetryConfirmationOpen(false); setIsCreateConfirmationOpen(false); setLinkCandidate(null); setSyncConflictResolution(null); setNotice(null); }, [client]);
+  useEffect(() => { setCurrentClient(client); setRequisitesForm(companyRequisitesForm(client)); setIsArchiveConfirmationOpen(false); setIsRemoveAssignmentConfirmationOpen(false); setLinkCandidate(null); setSyncConflictResolution(null); setNotice(null); }, [client]);
 
   const refreshAudit = useCallback(async () => {
     setAudit(await fetchCrmAudit(currentClient.id, ownerId));
@@ -872,36 +868,6 @@ function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, ca
     } finally { setIsSaving(null); }
   };
 
-  const retryBlockedOnecCreate = async () => {
-    if (!canEditWorkspace) return;
-    setIsSaving("retry"); setError(null);
-    try {
-      const retried = await retryCrmOnecCreate(currentClient.id, ownerId);
-      setCurrentClient(retried);
-      setIsRetryConfirmationOpen(false);
-      setNotice("Заявка на создание в 1С снова поставлена в очередь.");
-      notifyChanged();
-    } catch (cause) {
-      setIsRetryConfirmationOpen(false);
-      setError(errorMessage(cause, "Не удалось повторно поставить создание в 1С в очередь."));
-    } finally { setIsSaving(null); }
-  };
-
-  const queueOnecCreate = async () => {
-    if (!canEditWorkspace) return;
-    setIsSaving("queue"); setError(null);
-    try {
-      const queued = await sendCrmClientToOneC(currentClient.id, ownerId);
-      setCurrentClient(queued);
-      setIsCreateConfirmationOpen(false);
-      setNotice("Заявка на создание в 1С поставлена в очередь.");
-      notifyChanged();
-    } catch (cause) {
-      setIsCreateConfirmationOpen(false);
-      setError(errorMessage(cause, "Не удалось поставить создание в 1С в очередь."));
-    } finally { setIsSaving(null); }
-  };
-
   const resolveSyncConflict = async () => {
     if (!syncConflictResolution || isResolvingSyncConflict.current) return;
     const { conflict, choice } = syncConflictResolution;
@@ -929,7 +895,6 @@ function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, ca
   const canManageLocalClient = isAdmin && currentClient.linkedCounterpartyId === null;
   const canRemoveAssignment = isAdmin && currentClient.linkedCounterpartyId !== null && currentClient.assignment !== null && currentClient.assignment.archivedAt === null;
   const canConfirmExistingLink = canEditWorkspace && currentClient.linkedCounterpartyId === null && currentClient.syncStatus !== "archived";
-  const canQueueOnecCreate = canEditWorkspace && currentClient.linkedCounterpartyId === null && currentClient.syncStatus === "local";
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="crm-client-detail-title" className="fixed inset-0 z-50 overflow-y-auto bg-[#07162e]/35 p-2 sm:p-5">
@@ -989,38 +954,6 @@ function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, ca
                 {linkCandidate ? <div role="alertdialog" aria-label="Подтверждение связи с 1С" className="grid gap-2 rounded-[10px] border border-[#F0D98A] bg-[#FFF9E8] p-3 text-[11px]"><p>Связать «{currentClient.documentName || currentClient.name}» с контрагентом 1С «{linkCandidate.name}»?</p><dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-[10px] text-[var(--text-secondary)]"><dt>ИНН</dt><dd>{linkCandidate.inn}</dd>{linkCandidate.kpp ? <><dt>КПП</dt><dd>{linkCandidate.kpp}</dd></> : null}<dt>Ключ 1С</dt><dd>{linkCandidate.onecKey}</dd></dl><div className="flex gap-2"><button type="button" onClick={() => setLinkCandidate(null)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void confirmExistingLink()} disabled={isSaving !== null} className="app-action-button h-8 rounded-[8px] px-3 text-[11px]">{isSaving === "link" ? "Связываем…" : "Подтвердить связь с 1С"}</button></div></div> : null}
               </DetailSection>
             ) : null}
-            {canQueueOnecCreate ? <DetailSection title="Создание в 1С">
-              <p className="text-[11px] text-[var(--text-secondary)]">Создание не отправляется автоматически: после подтверждения заявка будет поставлена в очередь и проверит реквизиты на сервере.</p>
-              <button type="button" onClick={() => setIsCreateConfirmationOpen(true)} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">Создать в 1С</button>
-              <AlertDialog open={isCreateConfirmationOpen} onOpenChange={setIsCreateConfirmationOpen}>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Подтверждение создания в 1С</AlertDialogTitle>
-                    <AlertDialogDescription>Поставить создание «{currentClient.documentName || currentClient.name}» в очередь 1С? Проверка совпадений и отправка выполняются серверной очередью от имени текущего submitter’а.</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Отмена</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => void queueOnecCreate()} disabled={isSaving !== null}>{isSaving === "queue" ? "Ставим в очередь…" : "Подтвердить создание"}</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </DetailSection> : null}
-            {currentClient.syncStatus === "blocked_credentials" && canEditWorkspace ? <DetailSection title="Отправка в 1С требует исправления">
-              <p className="text-[11px] text-[var(--text-secondary)]">Исправьте учётные данные 1С для исходного submitter’а, затем повторите действие. {currentClient.syncError || "Создание не будет отправлено автоматически."}</p>
-              <button type="button" onClick={() => setIsRetryConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F0D98A] bg-[#FFF9E8] px-3 text-[11px] font-semibold text-[#92400E]">Повторить отправку в 1С</button>
-              <AlertDialog open={isRetryConfirmationOpen} onOpenChange={setIsRetryConfirmationOpen}>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Подтверждение повторной отправки в 1С</AlertDialogTitle>
-                    <AlertDialogDescription>Повторить создание «{currentClient.documentName || currentClient.name}» после исправления учётных данных? Очередь будет использовать только исправленные данные исходной учётной записи 1С, без подстановки данных другого сотрудника.</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Отмена</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => void retryBlockedOnecCreate()} disabled={isSaving !== null}>{isSaving === "retry" ? "Ставим в очередь…" : "Подтвердить повтор"}</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </DetailSection> : null}
             <DetailSection title="Конфликты синхронизации">
               <DetailEmpty items={syncConflicts} empty="Открытых конфликтов синхронизации нет." render={(conflict) => <div key={conflict.id} className="rounded-[9px] bg-[#FFF9E8] px-2.5 py-2 text-[11px]"><div className="font-semibold">{syncConflictFieldLabel(conflict.fieldName)}</div><div className="mt-1 grid gap-1 text-[var(--text-secondary)]"><span><strong className="text-[var(--text-primary)]">CRM:</strong> {formatSyncConflictValue(conflict.localValue)}</span><span><strong className="text-[var(--text-primary)]">1С:</strong> {formatSyncConflictValue(conflict.remoteValue)}</span></div>{canResolveSyncConflicts ? <div className="mt-2 flex flex-wrap gap-2"><button type="button" onClick={() => setSyncConflictResolution({ conflict, choice: "local" })} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">Оставить локальное</button><button type="button" onClick={() => setSyncConflictResolution({ conflict, choice: "remote" })} disabled={isSaving !== null} className="app-action-button h-8 rounded-[8px] px-2 text-[10px]">Принять из 1С</button></div> : null}</div>} />
               <AlertDialog open={syncConflictResolution !== null} onOpenChange={(open) => { if (!open) setSyncConflictResolution(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Подтверждение разрешения конфликта</AlertDialogTitle><AlertDialogDescription>{syncConflictResolution ? <>Разрешить только этот конфликт клиента «{currentClient.documentName || currentClient.name}» по полю «{syncConflictFieldLabel(syncConflictResolution.conflict.fieldName)}», выбрав значение «{formatSyncConflictValue(syncConflictResolution.choice === "local" ? syncConflictResolution.conflict.localValue : syncConflictResolution.conflict.remoteValue)}»? Выбор необратимо разрешит этот открытый конфликт для текущей карточки.</> : null}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void resolveSyncConflict()} disabled={isSaving !== null}>{isSaving === "resolve" ? "Разрешаем…" : "Подтвердить"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>

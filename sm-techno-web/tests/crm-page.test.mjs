@@ -219,45 +219,15 @@ test("CRM detail shows exact 1C candidates and requires a deliberate versioned l
   assert.match(types, /CrmLinkCandidate/);
 });
 
-test("CRM detail makes credential-blocked 1C creation visible and retries only after confirmation", async () => {
-  const [workspace, api, types] = await Promise.all([
-    readFile(crmWorkspaceUrl, "utf8"),
-    readFile(crmApiUrl, "utf8"),
-    readFile(crmTypesUrl, "utf8"),
-  ]);
-
-  assert.match(workspace, /blocked_credentials/);
-  assert.match(workspace, /Исправьте учётные данные 1С/);
-  assert.match(workspace, /Подтверждение повторной отправки в 1С/);
-  assert.match(workspace, /исходной учётной записи 1С/);
-  assert.match(workspace, /retryCrmOnecCreate\(currentClient\.id, ownerId\)/);
-  assert.match(api, /\/retry-onec/);
-  assert.match(types, /"blocked_credentials"/);
-});
-
-test("CRM detail queues a new 1C creation only through explicit confirmation", async () => {
+test("CRM leaves 1C creation local-only", async () => {
   const [workspace, api] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
     readFile(crmApiUrl, "utf8"),
   ]);
 
-  assert.match(workspace, /Создать в 1С/);
-  assert.match(workspace, /Подтверждение создания в 1С/);
-  assert.match(workspace, /поставлена в очередь/);
-  assert.match(workspace, /sendCrmClientToOneC\(currentClient\.id, ownerId\)/);
-  assert.match(api, /\/api\/crm\/clients\/\$\{clientId\}\/send-to-onec/);
-});
-
-test("CRM 1C create and retry confirmations use the shared accessible alert dialog", async () => {
-  const workspace = await readFile(crmWorkspaceUrl, "utf8");
-
-  assert.match(workspace, /from "@\/components\/ui\/alert-dialog"/);
-  assert.match(workspace, /<AlertDialog open=\{isCreateConfirmationOpen\}/);
-  assert.match(workspace, /<AlertDialog open=\{isRetryConfirmationOpen\}/);
-  assert.match(workspace, /<AlertDialogAction onClick=\{\(\) => void queueOnecCreate\(\)\}/);
-  assert.match(workspace, /<AlertDialogAction onClick=\{\(\) => void retryBlockedOnecCreate\(\)\}/);
-  assert.match(workspace, /setIsCreateConfirmationOpen\(false\);\s+setError\(errorMessage\(cause, "Не удалось поставить создание в 1С в очередь\."\)\);/);
-  assert.match(workspace, /setIsRetryConfirmationOpen\(false\);\s+setError\(errorMessage\(cause, "Не удалось повторно поставить создание в 1С в очередь\."\)\);/);
+  assert.doesNotMatch(workspace, /sendCrmClientToOneC|retryCrmOnecCreate|Создать в 1С|Повторить создание в 1С/);
+  assert.doesNotMatch(api, /export async function sendCrmClientToOneC|export async function retryCrmOnecCreate/);
+  assert.match(api, /export async function sendClientToOneC/);
 });
 
 test("primary CRM transport keeps color and versioned reorder owner-scoped", async () => {
@@ -569,10 +539,9 @@ test("owner switches reset new-client state and normal writes ignore stale owner
   assert.match(workspace, /if \(!isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) return;/);
 });
 
-test("foreign detail keeps values visible but gates retry and stale detail reloads", async () => {
+test("foreign detail keeps values visible and stale detail reloads", async () => {
   const workspace = await readFile(crmWorkspaceUrl, "utf8");
 
-  assert.match(workspace, /currentClient\.syncStatus === "blocked_credentials" && canEditWorkspace/);
   assert.match(workspace, /onChanged=\{\(requestOwnerId, requestTab\) => \{ if \(isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) void loadWorkspace\(requestTab, \{ silent: true \}\); \}\}/);
   assert.match(workspace, /<ReadonlyCompanyRequisites client=\{currentClient\} \/>/);
 });
