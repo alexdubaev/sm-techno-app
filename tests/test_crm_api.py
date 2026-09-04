@@ -382,6 +382,60 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(self.owner_id, job["author_user_id"])
         self.assertEqual("pending", job["status"])
 
+    def test_archived_local_lead_never_runs_an_already_queued_onec_create(self) -> None:
+        """An administrative archive must cancel the pending remote-create intent."""
+        class RecordingOneC:
+            def __init__(self) -> None:
+                self.lookup_calls = 0
+                self.create_calls = 0
+
+            def find_counterparty_by_identity(self, **_: object) -> None:
+                self.lookup_calls += 1
+                return None
+
+            def create_counterparty(self, _: dict[str, object]) -> dict[str, object]:
+                self.create_calls += 1
+                return {
+                    "Ref_Key": "must-not-be-created",
+                    "Description": "Архивный лид",
+                    "НаименованиеПолное": "Архивный лид",
+                    "ИНН": "7707083893",
+                    "КПП": "770701001",
+                }
+
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Архивный лид", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        queued = self.client.post(f"/api/crm/clients/{client_id}/send-to-onec")
+
+        self.as_user(self.admin_id, "admin")
+        archived = self.client.post(
+            f"/api/crm/clients/{client_id}/local-archive?ownerId={self.owner_id}",
+            json={"reason": "Отменено", "expectedVersion": queued.json()["client"]["version"]},
+        )
+        fake_onec = RecordingOneC()
+        self.service.build_user_client = lambda **_: fake_onec  # type: ignore[method-assign]
+
+        result = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute(
+                "SELECT status FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)
+            ).fetchone()
+            card = conn.execute(
+                "SELECT linked_counterparty_id, sync_status FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+
+        self.assertEqual(202, queued.status_code, queued.text)
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assertEqual({"processed": 1, "completed": 1}, result)
+        self.assertEqual(0, fake_onec.lookup_calls)
+        self.assertEqual(0, fake_onec.create_calls)
+        self.assertEqual("completed", job["status"])
+        self.assertIsNone(card["linked_counterparty_id"])
+        self.assertEqual("archived", card["sync_status"])
+
     def test_create_worker_blocks_missing_submitter_onec_credentials_without_fallback(self) -> None:
         created = self.client.post(
             "/api/crm/clients",

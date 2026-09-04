@@ -279,6 +279,12 @@ class WebStockSyncService:
         if not card:
             self.db.block_crm_sync_job(job_id, message="Локальная карточка для создания в 1С не найдена.")
             return "blocked"
+        if bool(card.get("is_inactive")):
+            # A local lead can be archived after its explicit create request was
+            # queued.  Finishing that obsolete local intent must not revive the
+            # card or perform a remote write.
+            self.db.complete_crm_sync_job(job_id)
+            return "completed"
         if card.get("linked_counterparty_id") is not None:
             self.db.complete_crm_sync_job(job_id)
             return "completed"
