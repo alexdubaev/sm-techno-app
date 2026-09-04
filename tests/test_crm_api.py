@@ -55,6 +55,17 @@ class CrmApiTest(unittest.TestCase):
         conflict = self.client.get(f"/api/crm/clients/{client_id}/sync-conflicts").json()["items"][0]
         return client_id, conflict
 
+    def link_primary_client(self, client_id: int, counterparty_id: int) -> None:
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (?, ?, ?, ?)",
+                (counterparty_id, f"onec-{counterparty_id}", f"Компания {counterparty_id}", "2026-09-04T00:00:00"),
+            )
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = ?, sync_status = 'synced' WHERE id = ?",
+                (counterparty_id, client_id),
+            )
+
     def test_local_card_is_created_in_own_work_tab_without_onec(self) -> None:
         response = self.client.post("/api/crm/clients", json={"documentName": "Новый лид"})
 
@@ -272,6 +283,112 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(5, response.json()["preference"]["position"])
         listed = self.client.get(f"/api/crm/clients?tabId={tab_id}")
         self.assertEqual("blue", listed.json()["items"][0]["rowPreference"]["colorKey"])
+
+    def test_primary_color_update_preserves_existing_position(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Связанная компания"}).json()
+        client_id = created["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (601, 'onec-601', 'Связанная компания', '2026-09-04T00:00:00')")
+            conn.execute("UPDATE crm_clients SET linked_counterparty_id = 601, sync_status = 'synced' WHERE id = ?", (client_id,))
+            conn.execute(
+                "INSERT INTO crm_primary_row_preferences(owner_user_id, crm_client_id, color_key, position, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (self.owner_id, client_id, "blue", 5000, "2026-09-04T00:00:00"),
+            )
+
+        response = self.client.put(
+            f"/api/crm/clients/{client_id}/primary-row-preference",
+            json={"colorKey": "pink", "expectedOrderVersion": 1},
+        )
+        listed = self.client.get("/api/crm/clients?primaryOnly=true")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("pink", response.json()["preference"]["colorKey"])
+        self.assertEqual(5000, response.json()["preference"]["position"])
+        self.assertEqual("pink", listed.json()["items"][0]["primaryRowPreference"]["colorKey"])
+
+    def test_primary_reorder_uses_neighbors_and_rejects_stale_version_without_erasing_color(self) -> None:
+        first = self.client.post("/api/crm/clients", json={"documentName": "Первая"}).json()["client"]["id"]
+        second = self.client.post("/api/crm/clients", json={"documentName": "Вторая"}).json()["client"]["id"]
+        third = self.client.post("/api/crm/clients", json={"documentName": "Третья"}).json()["client"]["id"]
+        for counterparty_id, client_id in enumerate((first, second, third), start=611):
+            self.link_primary_client(client_id, counterparty_id)
+
+        initial = self.client.get("/api/crm/clients?primaryOnly=true")
+        colored = self.client.put(
+            f"/api/crm/clients/{third}/primary-row-preference",
+            json={"colorKey": "orange", "expectedOrderVersion": 0},
+        )
+        reordered = self.client.post(
+            "/api/crm/primary/reorder",
+            json={
+                "clientId": third,
+                "beforeClientId": second,
+                "afterClientId": first,
+                "expectedOrderVersion": 1,
+            },
+        )
+        stale = self.client.post(
+            "/api/crm/primary/reorder",
+            json={
+                "clientId": second,
+                "beforeClientId": None,
+                "afterClientId": None,
+                "expectedOrderVersion": 1,
+            },
+        )
+        current = self.client.get("/api/crm/clients?primaryOnly=true")
+
+        self.assertEqual(200, initial.status_code)
+        self.assertEqual(200, colored.status_code)
+        self.assertEqual(200, reordered.status_code)
+        self.assertEqual([first, third, second], reordered.json()["clientIds"])
+        self.assertEqual(2, reordered.json()["orderVersion"])
+        self.assertEqual(409, stale.status_code)
+        self.assertIn("Конфликт версии", stale.json()["detail"])
+        self.assertEqual([first, third, second], [item["id"] for item in current.json()["items"]])
+        self.assertEqual("orange", current.json()["items"][1]["primaryRowPreference"]["colorKey"])
+
+    def test_primary_preferences_require_linked_card_and_owner_scope(self) -> None:
+        local = self.client.post("/api/crm/clients", json={"documentName": "Локальная карточка"}).json()["client"]["id"]
+        linked = self.client.post("/api/crm/clients", json={"documentName": "Общая компания"}).json()["client"]["id"]
+        self.link_primary_client(linked, 621)
+
+        local_denied = self.client.put(
+            f"/api/crm/clients/{local}/primary-row-preference",
+            json={"colorKey": "pink", "expectedOrderVersion": 0},
+        )
+        owner_color = self.client.put(
+            f"/api/crm/clients/{linked}/primary-row-preference",
+            json={"colorKey": "pink", "expectedOrderVersion": 0},
+        )
+        self.as_user(self.other_id)
+        owner_denied = self.client.put(
+            f"/api/crm/clients/{linked}/primary-row-preference?ownerId={self.owner_id}",
+            json={"colorKey": "pink", "expectedOrderVersion": 0},
+        )
+        other_color = self.client.put(
+            f"/api/crm/clients/{linked}/primary-row-preference",
+            json={"colorKey": "cyan", "expectedOrderVersion": 0},
+        )
+        self.as_user(self.owner_id)
+        owner_list = self.client.get("/api/crm/clients?primaryOnly=true")
+        self.as_user(self.admin_id, "admin")
+        admin_without_owner = self.client.put(
+            f"/api/crm/clients/{linked}/primary-row-preference",
+            json={"colorKey": "pink", "expectedOrderVersion": 0},
+        )
+        admin_for_owner = self.client.put(
+            f"/api/crm/clients/{linked}/primary-row-preference?ownerId={self.owner_id}",
+            json={"colorKey": "pink", "expectedOrderVersion": 0},
+        )
+
+        self.assertEqual(400, local_denied.status_code)
+        self.assertEqual(200, owner_color.status_code)
+        self.assertEqual(403, owner_denied.status_code)
+        self.assertEqual(200, other_color.status_code)
+        self.assertEqual("pink", owner_list.json()["items"][0]["primaryRowPreference"]["colorKey"])
+        self.assertEqual(400, admin_without_owner.status_code)
+        self.assertEqual(200, admin_for_owner.status_code)
 
     def test_owner_can_reorder_between_neighbors_with_version(self) -> None:
         first = self.client.post("/api/crm/clients", json={"documentName": "Первый"}).json()

@@ -157,6 +157,36 @@ class CrmPersistenceTest(unittest.TestCase):
         actions = self.repo.list_audit_actions(owner_id=self.owner_id, client_id=self.client["id"])
         self.assertEqual(["archive_assignment", "restore_assignment"], [row["action"] for row in actions])
 
+    def test_create_and_restore_append_personal_preferences(self) -> None:
+        first, first_assignment, _ = self.repo.create_local_lead_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            values={"document_name": "Первый лид"},
+            initial_contact={},
+            initial_comment="",
+        )
+        second, _, _ = self.repo.create_local_lead_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            values={"document_name": "Второй лид"},
+            initial_contact={},
+            initial_comment="",
+        )
+        self.repo.archive_local_client(
+            actor_id=self.admin_id, owner_id=self.owner_id, client_id=first["id"], reason="Тест", expected_version=1,
+        )
+        self.repo.restore_local_client(
+            actor_id=self.admin_id, owner_id=self.owner_id, client_id=first["id"], expected_version=2,
+        )
+
+        first_preference = self.repo.get_row_preference_for_actor(
+            actor_id=self.owner_id, owner_id=self.owner_id, tab_id=first_assignment["tab_id"], client_id=first["id"],
+        )
+        second_preference = self.repo.get_row_preference_for_actor(
+            actor_id=self.owner_id, owner_id=self.owner_id, tab_id=first_assignment["tab_id"], client_id=second["id"],
+        )
+        self.assertEqual((3000, 2000), (first_preference["position"], second_preference["position"]))
+
     def test_deleted_tab_keeps_archived_assignment_restorable_in_replacement(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
         custom = self.repo.create_tab(self.owner_id, "Отказ")
@@ -237,12 +267,15 @@ class CrmPersistenceTest(unittest.TestCase):
     def test_move_preserves_color_and_records_actor_and_tab_transition(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
         target = self.repo.create_tab(self.owner_id, "Перезвонить")
+        target_client = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Уже в цели"})
         self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=target_client["id"], tab_id=target["id"])
         self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key="blue", position=10)
 
         self.repo.move_client(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=target["id"])
 
-        self.assertEqual("blue", self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=target["id"], client_id=self.client["id"])["color_key"])
+        preference = self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=target["id"], client_id=self.client["id"])
+        self.assertEqual(("blue", 2000), (preference["color_key"], preference["position"]))
         event = self.repo.list_events_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])[0]
         self.assertEqual("move", event["kind"])
         self.assertEqual(self.owner_id, event["author_user_id"])
