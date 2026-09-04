@@ -515,3 +515,15 @@ test("CRM refresh coalesces syncs, owner reminders transition safely, and unassi
   assert.match(workspace, /assignment: savedAssignment/);
   assert.match(workspace, /role=\{tone === "error" \? "alert" : "status"\}/);
 });
+
+test("CRM reminder rollback is limited to failed transitions, shared refresh follows the current tab, and employee reminders stay read-only", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /let transitionSucceeded = false;/);
+  assert.match(workspace, /transitionSucceeded = true;/);
+  assert.match(workspace, /if \(!transitionSucceeded\) \{\s*setReminders/);
+  assert.match(workspace, /const latestView = currentView\.current;/);
+  assert.match(workspace, /await loadWorkspace\(latestView\.activeTab, \{ silent \}\);/);
+  assert.match(workspace, /if \(!canManageReminders\) return;/);
+  assert.match(workspace, /canManageReminders \? <form onSubmit=\{saveReminder\}/);
+});

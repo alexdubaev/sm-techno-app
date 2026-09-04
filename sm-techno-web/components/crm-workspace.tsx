@@ -168,18 +168,18 @@ export function CrmWorkspace() {
     const pendingRefresh = crmRefreshInFlight.current;
     if (pendingRefresh?.ownerId === ownerId) return pendingRefresh.request;
     const requestOwnerId = ownerId;
-    const requestTab = tab;
     const request = (async () => {
       if (silent) setIsRefreshing(true);
       else setIsLoading(true);
       try {
         await syncCrmBeforeReload();
-        if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
-        await loadWorkspace(requestTab, { silent });
+        const latestView = currentView.current;
+        if (latestView.ownerId !== requestOwnerId) return;
+        await loadWorkspace(latestView.activeTab, { silent });
       } catch (cause) {
-        if (isCurrentWorkspaceView(requestTab, requestOwnerId)) setError(errorMessage(cause, "Не удалось обновить CRM из 1С. Данные не изменены."));
+        if (isCurrentWorkspaceOwner(requestOwnerId)) setError(errorMessage(cause, "Не удалось обновить CRM из 1С. Данные не изменены."));
       } finally {
-        if (isCurrentWorkspaceView(requestTab, requestOwnerId)) {
+        if (isCurrentWorkspaceOwner(requestOwnerId)) {
           setIsLoading(false);
           setIsRefreshing(false);
         }
@@ -731,6 +731,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
 
   const saveReminder = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canManageReminders) return;
     if (!reminderDueAt) { setError("Укажите дату и время напоминания."); return; }
     const temporary: CrmReminder = { id: -Date.now(), clientId: client.id, dueAt: reminderDueAt, status: "active", createdAt: new Date().toISOString(), completedAt: "", cancelledAt: "", updatedAt: "" };
     setReminders((current) => [...current, temporary]);
@@ -751,15 +752,21 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
     setReminders((current) => current.filter((item) => item.id !== reminder.id));
     setIsSaving(action === "complete" ? "complete-reminder" : "cancel-reminder");
     setError(null);
+    let transitionSucceeded = false;
     try {
       if (action === "complete") await completeCrmReminder(reminder.id, reminder.updatedAt, ownerId);
       else await cancelCrmReminder(reminder.id, reminder.updatedAt, ownerId);
+      transitionSucceeded = true;
       await Promise.all([refreshReminders(), refreshAudit()]);
       onChanged();
       setNotice(action === "complete" ? "Напоминание отмечено выполненным." : "Напоминание отменено.");
     } catch (cause) {
-      setReminders((current) => current.some((item) => item.id === reminder.id) ? current : [...current.slice(0, previousIndex), reminder, ...current.slice(previousIndex)]);
-      setError(errorMessage(cause, action === "complete" ? "Не удалось отметить напоминание выполненным. Изменение отменено." : "Не удалось отменить напоминание. Изменение отменено."));
+      if (!transitionSucceeded) {
+        setReminders((current) => current.some((item) => item.id === reminder.id) ? current : [...current.slice(0, previousIndex), reminder, ...current.slice(previousIndex)]);
+        setError(errorMessage(cause, action === "complete" ? "Не удалось отметить напоминание выполненным. Изменение отменено." : "Не удалось отменить напоминание. Изменение отменено."));
+      } else {
+        setError(errorMessage(cause, "Напоминание изменено, но не удалось обновить карточку. Обновите её позже."));
+      }
     } finally { setIsSaving(null); }
   };
 
@@ -944,10 +951,10 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
               <DetailEmpty items={events} empty="История пока пуста." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{eventLabel(item.kind)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.body}</div></div>} />
             </DetailSection>
             <DetailSection title="Напоминания">
-              <form onSubmit={saveReminder} className="grid gap-2">
+              {canManageReminders ? <form onSubmit={saveReminder} className="grid gap-2">
                 <label className="flex flex-col gap-1 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Дата и время</span><input type="datetime-local" value={reminderDueAt} onChange={(event) => setReminderDueAt(event.target.value)} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px] font-normal" /></label>
                 <button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "reminder" ? "Сохраняем…" : "Добавить напоминание"}</button>
-              </form>
+              </form> : <p className="text-[11px] text-[var(--text-secondary)]">Напоминания доступны только для просмотра.</p>}
               <DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatDate(reminder.dueAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div>{canManageReminders && reminder.status === "active" ? <div className="mt-2 flex gap-2"><button type="button" onClick={() => void transitionReminder(reminder, "complete")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">{isSaving === "complete-reminder" ? "Отмечаем…" : "Выполнено"}</button><button type="button" onClick={() => void transitionReminder(reminder, "cancel")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[#F0D98A] bg-[#FFF9E8] px-2 text-[10px] font-semibold text-[#92400E]">{isSaving === "cancel-reminder" ? "Отменяем…" : "Отменить"}</button></div> : null}</div>} />
             </DetailSection>
             {canConfirmExistingLink ? (
