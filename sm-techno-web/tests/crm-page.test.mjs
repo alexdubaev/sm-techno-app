@@ -366,3 +366,77 @@ test("primary pointer reorder rejects secondary input, retains Escape cancellati
   assert.match(workspace, /fetchPrimaryCrmClients\(requestOwnerId\)/);
   assert.match(workspace, /currentView\.current\.activeTab !== "primary" \|\| currentView\.current\.ownerId !== requestOwnerId/);
 });
+
+test("CRM tab management and company requisites edits stay owner-scoped and versioned", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof URL ? input.href : input instanceof Request ? input.url : input;
+    requests.push({ url, method: init?.method ?? "GET", body: init?.body ?? null });
+    const payloads = [
+      { tab: { id: 9, name: "Перезвонить", systemKind: "custom", sortOrder: 2 } },
+      { tab: { id: 9, name: "На согласовании", systemKind: "custom", sortOrder: 2 } },
+      { ok: true },
+      { client: { id: 42, version: 5, documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", legalType: "legal_entity", email: "office@example.test", phone: "+74950000000" } },
+    ];
+    return new Response(JSON.stringify(payloads[requests.length - 1]), { status: 200 });
+  };
+
+  try {
+    const api = await loadCrmApiForContractTest();
+    const created = await api.createCrmTab("Перезвонить", 7);
+    assert.equal(created.name, "Перезвонить");
+    await api.renameCrmTab(9, "На согласовании", 7);
+    await api.deleteCrmTab(9, 3, 7);
+    const updated = await api.updateCrmClient(42, {
+      documentName: "ООО Тест",
+      fullName: "Тестовое общество",
+      inn: "7701000000",
+      kpp: "770101001",
+      city: "Москва",
+      legalType: "legal_entity",
+      email: "office@example.test",
+      phone: "+74950000000",
+      expectedVersion: 4,
+    }, 7);
+    assert.equal(updated.version, 5);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requests, [
+    { url: "/api/crm/tabs?ownerId=7", method: "POST", body: JSON.stringify({ name: "Перезвонить" }) },
+    { url: "/api/crm/tabs/9?ownerId=7", method: "PATCH", body: JSON.stringify({ name: "На согласовании" }) },
+    { url: "/api/crm/tabs/9?replacementTabId=3&ownerId=7", method: "DELETE", body: null },
+    {
+      url: "/api/crm/clients/42?ownerId=7",
+      method: "PATCH",
+      body: JSON.stringify({ documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", legalType: "legal_entity", email: "office@example.test", phone: "+74950000000", expectedVersion: 4 }),
+    },
+  ]);
+});
+
+test("CRM workspace manages only custom personal tabs and edits company requisites separately from contacts", async () => {
+  const [workspace, api, types] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+    readFile(crmTypesUrl, "utf8"),
+  ]);
+
+  assert.match(api, /export async function createCrmTab/);
+  assert.match(api, /export async function renameCrmTab/);
+  assert.match(api, /export async function deleteCrmTab/);
+  assert.match(api, /export async function updateCrmClient/);
+  assert.match(types, /legalType: string/);
+  assert.match(workspace, /Новая вкладка/);
+  assert.match(workspace, /systemKind === "custom"/);
+  assert.match(workspace, /Переименовать вкладку/);
+  assert.match(workspace, /Удалить вкладку/);
+  assert.match(workspace, /replacementTabId/);
+  assert.match(workspace, /В работе/);
+  assert.match(workspace, /Реквизиты компании/);
+  assert.match(workspace, /updateCrmClient\(currentClient\.id,/);
+  assert.match(workspace, /expectedVersion: currentClient\.version/);
+  assert.match(workspace, /Контакты/);
+  assert.match(workspace, /Не удалось сохранить реквизиты компании\. Изменение отменено\./);
+});

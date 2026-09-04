@@ -10,6 +10,8 @@ import {
   createCrmClient,
   createCrmEvent,
   createCrmReminder,
+  createCrmTab,
+  deleteCrmTab,
   fetchCrmClients,
   fetchPrimaryCrmClients,
   fetchCrmAudit,
@@ -29,7 +31,9 @@ import {
   saveCrmPrimaryRowPreference,
   reorderCrmTabClients,
   reorderPrimaryCrmClients,
+  renameCrmTab,
   sendCrmClientToOneC,
+  updateCrmClient,
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -66,6 +70,19 @@ function emptyClientForm() {
   return { documentName: "", city: "", contactPerson: "", email: "", phone: "", notes: "" };
 }
 
+function companyRequisitesForm(client: CrmWorkspaceClient) {
+  return {
+    documentName: client.documentName,
+    fullName: client.fullName,
+    inn: client.inn,
+    kpp: client.kpp,
+    city: client.city,
+    legalType: client.legalType || "legal_entity",
+    email: client.email,
+    phone: client.phone,
+  };
+}
+
 export function CrmWorkspace() {
   const { user, isAdmin } = useAuth();
   const [owners, setOwners] = useState<AppUser[]>([]);
@@ -86,6 +103,11 @@ export function CrmWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState(emptyClientForm);
+  const [tabEditor, setTabEditor] = useState<CrmTab | "new" | null>(null);
+  const [tabName, setTabName] = useState("");
+  const [tabPendingDelete, setTabPendingDelete] = useState<CrmTab | null>(null);
+  const [replacementTabId, setReplacementTabId] = useState<number | null>(null);
+  const [isSavingTab, setIsSavingTab] = useState(false);
   const requestId = useRef(0);
   const currentView = useRef({ activeTab, ownerId });
   currentView.current = { activeTab, ownerId };
@@ -372,6 +394,61 @@ export function CrmWorkspace() {
     }
   };
 
+  const openTabEditor = (tab: CrmTab | "new") => {
+    setTabEditor(tab);
+    setTabName(tab === "new" ? "" : tab.name);
+    setError(null);
+  };
+
+  const reloadAfterTabFailure = async (message: string) => {
+    await loadWorkspace(activeTab, { silent: true });
+    setError(message);
+  };
+
+  const saveTab = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = tabName.trim();
+    if (!name) { setError("Укажите название личной вкладки."); return; }
+    if (!tabEditor) return;
+    const requestOwnerId = ownerId;
+    const editor = tabEditor;
+    setIsSavingTab(true);
+    setError(null);
+    try {
+      const saved = editor === "new"
+        ? await createCrmTab(name, requestOwnerId)
+        : await renameCrmTab(editor.id, name, requestOwnerId);
+      setTabEditor(null);
+      setNotice(editor === "new" ? "Личная вкладка создана." : "Личная вкладка переименована.");
+      if (editor === "new") chooseTab(saved.id);
+      await loadWorkspace(editor === "new" ? saved.id : activeTab, { silent: true });
+    } catch (cause) {
+      await reloadAfterTabFailure(errorMessage(cause, "Не удалось сохранить личную вкладку. Изменение отменено."));
+    } finally {
+      setIsSavingTab(false);
+    }
+  };
+
+  const removeTab = async () => {
+    if (!tabPendingDelete || replacementTabId === null) return;
+    const tab = tabPendingDelete;
+    const requestOwnerId = ownerId;
+    setIsSavingTab(true);
+    setError(null);
+    try {
+      await deleteCrmTab(tab.id, replacementTabId, requestOwnerId);
+      setTabPendingDelete(null);
+      setNotice(`Личная вкладка «${tab.name}» удалена; карточки сохранены в выбранной вкладке.`);
+      const nextTab = activeTab === tab.id ? replacementTabId : activeTab;
+      chooseTab(nextTab);
+      await loadWorkspace(nextTab, { silent: true });
+    } catch (cause) {
+      await reloadAfterTabFailure(errorMessage(cause, "Не удалось удалить личную вкладку. Изменение отменено."));
+    } finally {
+      setIsSavingTab(false);
+    }
+  };
+
   return (
     <section className="mx-auto max-w-[1500px]">
       <header className="flex flex-col justify-between gap-4 rounded-[22px] border border-[var(--border-color)] bg-white/90 px-4 py-4 shadow-[0_12px_30px_rgba(7,22,46,0.05)] sm:px-5 lg:flex-row lg:items-center">
@@ -401,9 +478,10 @@ export function CrmWorkspace() {
       <div className="mt-4 grid gap-4 xl:grid-cols-[238px_minmax(0,1fr)]">
         <aside className="rounded-[20px] border border-[var(--border-color)] bg-white/88 p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.04)]">
           <p className="px-2.5 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">Вкладки</p>
+          <button type="button" onClick={() => openTabEditor("new")} className="mb-2 h-9 w-full rounded-[10px] border border-dashed border-[var(--border-color)] px-2 text-[11px] font-semibold text-[var(--brand-dark)] hover:bg-[#F6F8FB]">Новая вкладка</button>
           <nav className="flex gap-1 overflow-x-auto xl:flex-col" aria-label="Вкладки CRM">
             <TabButton active={activeTab === "primary"} label={PRIMARY_TAB.name} onClick={() => chooseTab("primary")} />
-            {tabs.map((tab) => <TabButton key={tab.id} active={activeTab === tab.id} label={tab.name} onClick={() => chooseTab(tab.id)} />)}
+            {tabs.map((tab) => <div key={tab.id} className="flex min-w-max items-center gap-1 xl:min-w-0"><TabButton active={activeTab === tab.id} label={tab.name} onClick={() => chooseTab(tab.id)} />{tab.systemKind === "custom" ? <><button type="button" aria-label={`Переименовать вкладку ${tab.name}`} onClick={() => openTabEditor(tab)} className="h-8 rounded-[8px] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[#F6F8FB]">✎</button><button type="button" aria-label={`Удалить вкладку ${tab.name}`} onClick={() => { setTabPendingDelete(tab); setReplacementTabId(tabs.find((item) => item.systemKind === "work")?.id ?? null); }} className="h-8 rounded-[8px] px-2 text-[11px] text-[#B91C1C] hover:bg-[#FEF2F2]">×</button></> : null}</div>)}
           </nav>
           <p className="mt-3 border-t border-[var(--border-color)] px-2.5 pt-3 text-[10px] leading-4 text-[var(--text-secondary)]">
             «Клиенты 1С» и «В работе» — постоянные вкладки. Новые клиенты автоматически попадают в «В работе».
@@ -434,6 +512,8 @@ export function CrmWorkspace() {
       </div>
 
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
+      {tabEditor ? <form role="dialog" aria-modal="true" aria-labelledby="crm-tab-editor-title" onSubmit={saveTab} className="fixed inset-0 z-50 flex items-center justify-center bg-[#07162e]/35 p-4"><div className="w-full max-w-sm rounded-[18px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"><h2 id="crm-tab-editor-title" className="text-[16px] font-bold">{tabEditor === "new" ? "Новая вкладка" : "Переименовать вкладку"}</h2><label className="mt-4 grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Название</span><input autoFocus value={tabName} onChange={(event) => setTabName(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTabEditor(null)} className="h-9 rounded-[9px] px-3 text-[11px] font-semibold text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={isSavingTab} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSavingTab ? "Сохраняем…" : "Сохранить"}</button></div></div></form> : null}
+      <AlertDialog open={tabPendingDelete !== null} onOpenChange={(open) => { if (!open) setTabPendingDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Удалить вкладку</AlertDialogTitle><AlertDialogDescription>Карточки и история из вкладки «{tabPendingDelete?.name}» сохранятся. Выберите личную вкладку для переноса; по умолчанию выбрана «В работе».</AlertDialogDescription></AlertDialogHeader><label className="grid gap-1 text-[12px] font-medium"><span>Перенести карточки в</span><select value={replacementTabId ?? ""} onChange={(event) => setReplacementTabId(Number(event.target.value))} className="h-10 rounded-[9px] border border-[var(--border-color)] bg-white px-2">{tabs.filter((tab) => tab.id !== tabPendingDelete?.id).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select></label><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeTab()} disabled={isSavingTab || replacementTabId === null}>{isSavingTab ? "Удаляем…" : "Удалить вкладку"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canResolveSyncConflicts={isAdmin || ownerId === user.id} onChanged={() => void loadWorkspace(activeTab, { silent: true })} onClose={() => setSelectedClient(null)} /> : null}
     </section>
   );
@@ -524,7 +604,8 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "archive" | "restore" | "remove" | "link" | "retry" | "queue" | "resolve" | null>(null);
+  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "retry" | "queue" | "resolve" | null>(null);
+  const [requisitesForm, setRequisitesForm] = useState(() => companyRequisitesForm(client));
   const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", isPrimary: false });
   const [eventForm, setEventForm] = useState({ kind: "comment", body: "" });
   const [reminderDueAt, setReminderDueAt] = useState("");
@@ -536,7 +617,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
   const [syncConflictResolution, setSyncConflictResolution] = useState<{ conflict: CrmSyncConflict; choice: "local" | "remote" } | null>(null);
   const isResolvingSyncConflict = useRef(false);
 
-  useEffect(() => { setCurrentClient(client); setIsArchiveConfirmationOpen(false); setIsRemoveAssignmentConfirmationOpen(false); setIsRetryConfirmationOpen(false); setIsCreateConfirmationOpen(false); setLinkCandidate(null); setSyncConflictResolution(null); setNotice(null); }, [client]);
+  useEffect(() => { setCurrentClient(client); setRequisitesForm(companyRequisitesForm(client)); setIsArchiveConfirmationOpen(false); setIsRemoveAssignmentConfirmationOpen(false); setIsRetryConfirmationOpen(false); setIsCreateConfirmationOpen(false); setLinkCandidate(null); setSyncConflictResolution(null); setNotice(null); }, [client]);
 
   const refreshAudit = useCallback(async () => {
     setAudit(await fetchCrmAudit(currentClient.id, ownerId));
@@ -612,6 +693,32 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
     } catch (cause) {
       setReminders((current) => current.filter((item) => item.id !== temporary.id));
       setError(errorMessage(cause, "Не удалось добавить напоминание. Изменение отменено."));
+    } finally { setIsSaving(null); }
+  };
+
+  const saveCompanyRequisites = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!requisitesForm.documentName.trim()) { setError("Укажите наименование компании."); return; }
+    setIsSaving("requisites");
+    setError(null);
+    try {
+      const saved = await updateCrmClient(currentClient.id, {
+        documentName: requisitesForm.documentName.trim(),
+        fullName: requisitesForm.fullName.trim(),
+        inn: requisitesForm.inn.trim(),
+        kpp: requisitesForm.kpp.trim(),
+        city: requisitesForm.city.trim(),
+        legalType: requisitesForm.legalType,
+        email: requisitesForm.email.trim(),
+        phone: requisitesForm.phone.trim(),
+        expectedVersion: currentClient.version,
+      }, ownerId);
+      setCurrentClient(saved);
+      setRequisitesForm(companyRequisitesForm(saved));
+      setNotice("Реквизиты компании сохранены.");
+      onChanged();
+    } catch (cause) {
+      setError(errorMessage(cause, "Не удалось сохранить реквизиты компании. Изменение отменено."));
     } finally { setIsSaving(null); }
   };
 
@@ -741,6 +848,18 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
         {notice ? <Message tone="success">{notice}</Message> : null}
         {isLoading ? <div className="mt-5"><LoadingRows /></div> : (
           <div className="mt-5 grid gap-4 lg:grid-cols-3">
+            <DetailSection title="Реквизиты компании">
+              <form onSubmit={saveCompanyRequisites} className="grid gap-2">
+                <Field label="Наименование компании *" value={requisitesForm.documentName} onChange={(documentName) => setRequisitesForm((form) => ({ ...form, documentName }))} />
+                <Field label="Полное наименование" value={requisitesForm.fullName} onChange={(fullName) => setRequisitesForm((form) => ({ ...form, fullName }))} />
+                <div className="grid grid-cols-2 gap-2"><Field label="ИНН" value={requisitesForm.inn} onChange={(inn) => setRequisitesForm((form) => ({ ...form, inn }))} /><Field label="КПП" value={requisitesForm.kpp} onChange={(kpp) => setRequisitesForm((form) => ({ ...form, kpp }))} /></div>
+                <label className="grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Тип организации</span><select value={requisitesForm.legalType} onChange={(event) => setRequisitesForm((form) => ({ ...form, legalType: event.target.value }))} className="h-10 rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"><option value="legal_entity">Юридическое лицо</option><option value="individual_entrepreneur">Индивидуальный предприниматель</option><option value="individual">Физическое лицо</option></select></label>
+                <Field label="Город" value={requisitesForm.city} onChange={(city) => setRequisitesForm((form) => ({ ...form, city }))} />
+                <Field label="Общий телефон компании" value={requisitesForm.phone} onChange={(phone) => setRequisitesForm((form) => ({ ...form, phone }))} type="tel" />
+                <Field label="Общая почта компании" value={requisitesForm.email} onChange={(email) => setRequisitesForm((form) => ({ ...form, email }))} type="email" />
+                <button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "requisites" ? "Сохраняем…" : "Сохранить реквизиты"}</button>
+              </form>
+            </DetailSection>
             <DetailSection title="Контакты">
               <form onSubmit={saveContact} className="grid gap-2">
                 <Field label="Имя *" value={contactForm.name} onChange={(name) => setContactForm((form) => ({ ...form, name }))} />

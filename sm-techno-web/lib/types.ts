@@ -178,6 +178,7 @@ export type CrmWorkspaceClient = {
   fullName: string;
   inn: string;
   kpp: string;
+  legalType: string;
   city: string;
   website: string;
   email: string;

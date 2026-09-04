@@ -750,6 +750,40 @@ export async function fetchCrmTabs(ownerId?: number): Promise<CrmTab[]> {
   return result.items;
 }
 
+export async function createCrmTab(name: string, ownerId?: number): Promise<CrmTab> {
+  const result = await requestJsonWithInit<{ tab: CrmTab }>(
+    `/api/crm/tabs${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+    "Не удалось создать личную вкладку.",
+  );
+  return result.tab;
+}
+
+export async function renameCrmTab(tabId: number, name: string, ownerId?: number): Promise<CrmTab> {
+  const result = await requestJsonWithInit<{ tab: CrmTab }>(
+    `/api/crm/tabs/${tabId}${buildCrmQuery({ ownerId })}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+    "Не удалось переименовать личную вкладку.",
+  );
+  return result.tab;
+}
+
+export async function deleteCrmTab(tabId: number, replacementTabId: number, ownerId?: number): Promise<{ ok: true }> {
+  return requestJsonWithInit<{ ok: true }>(
+    `/api/crm/tabs/${tabId}${buildCrmQuery({ replacementTabId, ownerId })}`,
+    { method: "DELETE" },
+    "Не удалось удалить личную вкладку.",
+  );
+}
+
 export async function fetchCrmClients(query: CrmClientsQuery = {}): Promise<CrmWorkspaceClient[]> {
   const result = await requestJson<{ items: CrmWorkspaceClient[] }>(
     `/api/crm/clients${buildCrmQuery(query)}`,
@@ -891,6 +925,33 @@ export async function createCrmClient(
       body: JSON.stringify(payload),
     },
     "Не удалось добавить клиента в CRM.",
+  );
+  return result.client;
+}
+
+export async function updateCrmClient(
+  clientId: number,
+  payload: {
+    documentName: string;
+    fullName: string;
+    inn: string;
+    kpp: string;
+    city: string;
+    legalType: string;
+    email: string;
+    phone: string;
+    expectedVersion: number;
+  },
+  ownerId?: number,
+): Promise<CrmWorkspaceClient> {
+  const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients/${clientId}${buildCrmQuery({ ownerId })}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить реквизиты компании.",
   );
   return result.client;
 }
