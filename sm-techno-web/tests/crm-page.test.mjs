@@ -325,6 +325,17 @@ test("personal CRM reorder sends the active tab and explicit owner", async () =>
   }]);
 });
 
+test("personal CRM tabs use the accessible manual reorder flow with their own versioned context", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /reorderCrmTabClients,/);
+  assert.match(workspace, /const personalOrderVersion = clients\.reduce/);
+  assert.match(workspace, /reorderCrmTabClients\(requestTab, \{\s+clientId,\s+beforeClientId: reordered\[nextIndex \+ 1\]\?\.id \?\? null,\s+afterClientId: reordered\[nextIndex - 1\]\?\.id \?\? null,\s+expectedOrderVersion: personalOrderVersion,/);
+  assert.match(workspace, /currentView\.current\.activeTab !== requestTab \|\| currentView\.current\.ownerId !== requestOwnerId/);
+  assert.match(workspace, /manualOrderEnabled=\{isManualOrderAvailable\}/);
+  assert.match(workspace, /onReorder=\{activeTab === "primary" \? reorderPrimaryClients : reorderPersonalClients\}/);
+});
+
 test("primary CRM list has an accessible manual-order control and preserves its own row preference", async () => {
   const [workspace, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),

@@ -27,6 +27,7 @@ import {
   restoreLocalCrmClient,
   saveCrmRowPreference,
   saveCrmPrimaryRowPreference,
+  reorderCrmTabClients,
   reorderPrimaryCrmClients,
   sendCrmClientToOneC,
 } from "@/lib/api";
@@ -155,7 +156,10 @@ export function CrmWorkspace() {
     return filtered;
   }, [activeTab, clients, primaryOrderMode, search, syncFilter]);
 
+  const personalOrderVersion = clients.reduce((version, client) => Math.max(version, client.rowPreference?.orderVersion ?? 0), 0);
   const isPrimaryManualOrderAvailable = activeTab === "primary" && primaryOrderMode === "manual" && !search.trim() && syncFilter === "all";
+  const isPersonalManualOrderAvailable = activeTab !== "primary" && !search.trim() && syncFilter === "all";
+  const isManualOrderAvailable = isPrimaryManualOrderAvailable || isPersonalManualOrderAvailable;
 
   const chooseTab = (tab: ActiveTab) => {
     currentView.current = { activeTab: tab, ownerId };
@@ -294,6 +298,57 @@ export function CrmWorkspace() {
     }
   };
 
+  const reloadPersonalAfterFailure = async (requestTab: number, requestOwnerId: number) => {
+    try {
+      const refreshed = await fetchCrmClients({ ownerId: requestOwnerId, tabId: requestTab });
+      if (currentView.current.activeTab !== requestTab || currentView.current.ownerId !== requestOwnerId) return "stale";
+      setClients(refreshed);
+      return "reloaded";
+    } catch {
+      return currentView.current.activeTab === requestTab && currentView.current.ownerId === requestOwnerId ? "reload_failed" : "stale";
+    }
+  };
+
+  const reorderPersonalClients = async (clientId: number, insertionIndex: number) => {
+    if (activeTab === "primary") return;
+    const requestTab = activeTab;
+    const requestOwnerId = ownerId;
+    const reordered = moveClientInList(clients, clientId, insertionIndex);
+    const nextIndex = reordered.findIndex((client) => client.id === clientId);
+    if (nextIndex < 0 || reordered.every((client, index) => client.id === clients[index]?.id)) return;
+
+    setClients(reordered);
+    setError(null);
+    try {
+      const result = await reorderCrmTabClients(requestTab, {
+        clientId,
+        beforeClientId: reordered[nextIndex + 1]?.id ?? null,
+        afterClientId: reordered[nextIndex - 1]?.id ?? null,
+        expectedOrderVersion: personalOrderVersion,
+      }, requestOwnerId);
+      if (currentView.current.activeTab !== requestTab || currentView.current.ownerId !== requestOwnerId) return;
+      const byId = new Map(reordered.map((item) => [item.id, item]));
+      setClients(result.clientIds.flatMap((orderedClientId, index) => {
+        const item = byId.get(orderedClientId);
+        return item ? [{
+          ...item,
+          rowPreference: {
+            tabId: requestTab,
+            clientId: item.id,
+            colorKey: item.rowPreference?.colorKey ?? null,
+            position: (index + 1) * 1000,
+            orderVersion: result.orderVersion,
+          },
+        }] : [];
+      }));
+      setNotice("Порядок клиентов сохранён.");
+    } catch (cause) {
+      const reload = await reloadPersonalAfterFailure(requestTab, requestOwnerId);
+      if (reload === "reloaded") setError(`${errorMessage(cause, "Не удалось сохранить порядок клиентов.")} Изменение порядка не сохранено; список обновлён.`);
+      if (reload === "reload_failed") setError(`${errorMessage(cause, "Не удалось сохранить порядок клиентов.")} Изменение порядка не сохранено; не удалось обновить список.`);
+    }
+  };
+
   const returnToPrimaryManualOrder = () => {
     setPrimaryOrderMode("manual");
     setSearch("");
@@ -370,10 +425,10 @@ export function CrmWorkspace() {
               </label>
               {activeTab === "primary" ? <label className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Порядок</span><select value={primaryOrderMode} onChange={(event) => setPrimaryOrderMode(event.target.value as PrimaryOrderMode)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"><option value="manual">Мой порядок</option><option value="name">По названию</option></select></label> : null}
             </div>
-            {activeTab === "primary" && !isPrimaryManualOrderAvailable ? <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[10px] bg-[#F6F8FB] px-3 py-2 text-[11px] text-[var(--text-secondary)]"><span>Перемещение доступно только в режиме «Мой порядок» без поиска и фильтров.</span><button type="button" onClick={returnToPrimaryManualOrder} className="font-semibold text-[var(--brand-dark)] underline underline-offset-2">Вернуться к «Мой порядок»</button></div> : null}
+            {!isManualOrderAvailable ? <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[10px] bg-[#F6F8FB] px-3 py-2 text-[11px] text-[var(--text-secondary)]"><span>Перемещение доступно только без поиска и фильтров{activeTab === "primary" ? " в режиме «Мой порядок»" : ""}.</span>{activeTab === "primary" ? <button type="button" onClick={returnToPrimaryManualOrder} className="font-semibold text-[var(--brand-dark)] underline underline-offset-2">Вернуться к «Мой порядок»</button> : null}</div> : null}
             {error ? <Message tone="error">{error}</Message> : null}
             {notice ? <Message tone="success">{notice}</Message> : null}
-            {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} manualOrderEnabled={isPrimaryManualOrderAvailable} onColor={setRowColor} onReorder={reorderPrimaryClients} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
+            {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} manualOrderEnabled={isManualOrderAvailable} onColor={setRowColor} onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
           </div>
         </div>
       </div>
