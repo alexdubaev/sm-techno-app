@@ -682,13 +682,35 @@ class CrmRepository:
             if actor_id != owner_id and not self._is_admin(conn, actor_id):
                 raise PermissionError("Нельзя изменять чужую CRM.")
             self._require_client_access(conn, actor_id, client_id)
-            current = self._require_row(conn, """SELECT a.*, t.name AS tab_name FROM crm_assignments a
-                JOIN crm_tabs t ON t.id = a.tab_id WHERE a.owner_user_id = ? AND a.crm_client_id = ? AND a.archived_at IS NULL""", (owner_id, client_id), "Активное назначение не найдено.")
             target = self._require_row(conn, "SELECT * FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Целевая вкладка не найдена.")
+            archived = conn.execute(
+                "SELECT id FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NOT NULL",
+                (owner_id, client_id),
+            ).fetchone()
+            if archived:
+                raise ValueError("Назначение архивировано и должно быть восстановлено администратором.")
+            current = conn.execute(
+                """SELECT a.*, t.name AS tab_name FROM crm_assignments a
+                   JOIN crm_tabs t ON t.id = a.tab_id
+                   WHERE a.owner_user_id = ? AND a.crm_client_id = ? AND a.archived_at IS NULL""",
+                (owner_id, client_id),
+            ).fetchone()
+            now = utc_now()
+            if not current:
+                cursor = conn.execute(
+                    "INSERT INTO crm_assignments(owner_user_id, crm_client_id, tab_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (owner_id, client_id, tab_id, now, now),
+                )
+                self._append_personal_preference(conn, owner_id, tab_id, client_id)
+                conn.execute(
+                    "INSERT INTO crm_events(owner_user_id, crm_client_id, author_user_id, kind, body, created_at, updated_at) VALUES (?, ?, ?, 'move', ?, ?, ?)",
+                    (owner_id, client_id, actor_id, f"Добавлено во вкладку: {target['name']}", now, now),
+                )
+                row = conn.execute("SELECT * FROM crm_assignments WHERE id = ?", (cursor.lastrowid,)).fetchone()
+                return dict(row)
             if current["tab_id"] == tab_id:
                 return dict(current)
             preference = conn.execute("SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, current["tab_id"], client_id)).fetchone()
-            now = utc_now()
             conn.execute("UPDATE crm_assignments SET tab_id = ?, updated_at = ? WHERE id = ?", (tab_id, now, current["id"]))
             self._append_personal_preference(
                 conn, owner_id, tab_id, client_id, color_key=preference["color_key"] if preference else None,
@@ -776,6 +798,68 @@ class CrmRepository:
             if actor_id != owner_id and not self._is_admin(conn, actor_id):
                 raise PermissionError("Нельзя открывать чужую CRM.")
         return self._list_reminders(owner_id)
+
+    def _transition_reminder_for_actor(
+        self,
+        *,
+        actor_id: int,
+        owner_id: int,
+        reminder_id: int,
+        expected_updated_at: str,
+        status: str,
+    ) -> dict[str, Any]:
+        """Complete or cancel one owner's active reminder with optimistic locking."""
+        if actor_id != owner_id:
+            raise PermissionError("Завершать или отменять напоминания может только их владелец.")
+        now = utc_now()
+        terminal_column = "completed_at" if status == "completed" else "cancelled_at"
+        action = "complete_reminder" if status == "completed" else "cancel_reminder"
+        with self.db.transaction() as conn:
+            reminder = self._require_row(
+                conn,
+                "SELECT * FROM crm_reminders WHERE id = ? AND owner_user_id = ?",
+                (reminder_id, owner_id),
+                "Напоминание не найдено.",
+            )
+            if str(reminder["status"] or "") != "active" or str(reminder["updated_at"] or "") != expected_updated_at:
+                raise ValueError("Конфликт версии напоминания. Загрузите актуальные данные.")
+            cursor = conn.execute(
+                f"""UPDATE crm_reminders SET status = ?, {terminal_column} = ?, updated_at = ?
+                    WHERE id = ? AND owner_user_id = ? AND status = 'active' AND updated_at = ?""",
+                (status, now, now, reminder_id, owner_id, expected_updated_at),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Конфликт версии напоминания. Загрузите актуальные данные.")
+            updated = self._require_row(
+                conn,
+                "SELECT * FROM crm_reminders WHERE id = ? AND owner_user_id = ?",
+                (reminder_id, owner_id),
+                "Напоминание не найдено.",
+            )
+            self._audit(conn, actor_id, owner_id, int(updated["crm_client_id"]), action, "")
+        return dict(updated)
+
+    def complete_reminder_for_actor(
+        self, *, actor_id: int, owner_id: int, reminder_id: int, expected_updated_at: str
+    ) -> dict[str, Any]:
+        return self._transition_reminder_for_actor(
+            actor_id=actor_id,
+            owner_id=owner_id,
+            reminder_id=reminder_id,
+            expected_updated_at=expected_updated_at,
+            status="completed",
+        )
+
+    def cancel_reminder_for_actor(
+        self, *, actor_id: int, owner_id: int, reminder_id: int, expected_updated_at: str
+    ) -> dict[str, Any]:
+        return self._transition_reminder_for_actor(
+            actor_id=actor_id,
+            owner_id=owner_id,
+            reminder_id=reminder_id,
+            expected_updated_at=expected_updated_at,
+            status="cancelled",
+        )
 
     @staticmethod
     def _final_position(conn: sqlite3.Connection, table: str, owner_id: int, client_id: int, tab_id: int | None = None) -> int:
