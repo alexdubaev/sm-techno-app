@@ -2,10 +2,12 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState, type ReactNode, type SVGProps } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type ReactNode, type SVGProps } from "react";
 
 import { useAuth } from "@/components/auth-provider";
+import { fetchCurrentUserDueCrmReminders } from "@/lib/api";
+import { Toaster, toast } from "@/components/ui/toast";
 
 type ShellProps = {
   children: ReactNode;
@@ -28,6 +30,11 @@ type MenuState = {
   expandedGroupLabel: string;
   selectedGroupLabel: string;
 };
+
+function formatMoscowDeadline(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Moscow" });
+}
 
 let menuStateSnapshot: MenuState = {
   expandedGroupLabel: "",
@@ -86,7 +93,25 @@ const navGroups: NavGroup[] = [
 
 export function AppShell({ children }: ShellProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, isAdmin, logout } = useAuth();
+  const seenReminderRevisions = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!user.id) return;
+    const checkDueReminders = () => { void fetchCurrentUserDueCrmReminders().then((items) => items.forEach((reminder) => {
+      const revision = `${reminder.id}:${reminder.updatedAt}`;
+      if (seenReminderRevisions.current.has(revision)) return;
+      seenReminderRevisions.current.add(revision);
+      toast.add({ title: "Напоминание", description: `${reminder.clientLabel || "Клиент"} · ${formatMoscowDeadline(reminder.dueAt)}`, actionProps: { children: "Открыть CRM", onClick: () => router.push("/crm") } });
+    })).catch(() => undefined); };
+    checkDueReminders();
+    const interval = window.setInterval(checkDueReminders, 60_000);
+    const onVisibility = () => { if (document.visibilityState === "visible") checkDueReminders(); };
+    window.addEventListener("focus", checkDueReminders);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => { window.clearInterval(interval); window.removeEventListener("focus", checkDueReminders); document.removeEventListener("visibilitychange", onVisibility); };
+  }, [router, user.id]);
 
   const visibleNavGroups = navGroups
     .map((group) => ({
@@ -132,7 +157,7 @@ export function AppShell({ children }: ShellProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--page-bg)] text-[var(--text-primary)]">
+    <Toaster><div className="min-h-screen bg-[var(--page-bg)] text-[var(--text-primary)]">
       <div className="mx-auto min-h-screen max-w-[1680px] 2xl:flex">
         <aside className="app-shell-sidebar hidden w-[246px] shrink-0 border-r border-[var(--border-color)] bg-white/92 px-3 py-3 backdrop-blur-sm 2xl:flex 2xl:flex-col">
           <div className="mb-4 px-1.5">
@@ -260,7 +285,7 @@ export function AppShell({ children }: ShellProps) {
           </main>
         </div>
       </div>
-    </div>
+    </div></Toaster>
   );
 }
 

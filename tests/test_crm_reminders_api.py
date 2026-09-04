@@ -38,9 +38,36 @@ class CrmRemindersApiTest(unittest.TestCase):
     def create_client_and_reminder(self) -> tuple[int, dict[str, object]]:
         client_id = self.client.post("/api/crm/clients", json={"documentName": "Напоминание"}).json()["client"]["id"]
         reminder = self.client.post(
-            f"/api/crm/clients/{client_id}/reminders", json={"dueAt": "2026-09-10T10:00:00"}
+            f"/api/crm/clients/{client_id}/reminders", json={"dueAt": "2026-09-10T10:00:00+03:00"}
         ).json()["reminder"]
         return client_id, reminder
+
+    def test_reminder_rejects_naive_due_at_and_returns_canonical_utc(self) -> None:
+        client_id = self.client.post("/api/crm/clients", json={"documentName": "Время"}).json()["client"]["id"]
+
+        naive = self.client.post(f"/api/crm/clients/{client_id}/reminders", json={"dueAt": "2026-09-10T10:00:00"})
+        aware = self.client.post(f"/api/crm/clients/{client_id}/reminders", json={"dueAt": "2026-09-10T10:00:00+03:00"})
+
+        self.assertEqual(400, naive.status_code, naive.text)
+        self.assertEqual(201, aware.status_code, aware.text)
+        self.assertEqual("2026-09-10T07:00:00Z", aware.json()["reminder"]["dueAt"])
+
+    def test_owner_reschedules_active_reminder_and_receives_immutable_history(self) -> None:
+        _client_id, reminder = self.create_client_and_reminder()
+
+        response = self.client.post(
+            f"/api/crm/reminders/{reminder['id']}/reschedule",
+            json={"dueAt": "2026-09-11T10:00:00+03:00", "expectedUpdatedAt": reminder["updatedAt"]},
+        )
+
+        self.assertEqual(200, response.status_code, response.text)
+        updated = response.json()["reminder"]
+        self.assertEqual("2026-09-11T07:00:00Z", updated["dueAt"])
+        self.assertNotEqual(reminder["updatedAt"], updated["updatedAt"])
+        self.assertEqual(
+            [{"oldDueAt": "2026-09-10T07:00:00Z", "newDueAt": "2026-09-11T07:00:00Z"}],
+            [{"oldDueAt": entry["oldDueAt"], "newDueAt": entry["newDueAt"]} for entry in updated["history"]],
+        )
 
     def test_owner_completes_versioned_reminder_and_active_list_excludes_it(self) -> None:
         client_id, reminder = self.create_client_and_reminder()

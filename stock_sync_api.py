@@ -7,7 +7,7 @@ import os
 import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -1080,7 +1080,7 @@ def _serialize_crm_event(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _serialize_crm_reminder(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+    reminder = {
         "id": int(row["id"]),
         "clientId": int(row["crm_client_id"]),
         "dueAt": row.get("due_at") or "",
@@ -1090,6 +1090,14 @@ def _serialize_crm_reminder(row: dict[str, Any]) -> dict[str, Any]:
         "cancelledAt": row.get("cancelled_at") or "",
         "updatedAt": row.get("updated_at") or "",
     }
+    if "history" in row:
+        reminder["history"] = [
+            {"oldDueAt": entry.get("old_due_at") or "", "newDueAt": entry.get("new_due_at") or "", "createdAt": entry.get("created_at") or ""}
+            for entry in row["history"]
+        ]
+    if "client_label" in row:
+        reminder["clientLabel"] = row.get("client_label") or ""
+    return reminder
 
 
 def _serialize_crm_audit(row: dict[str, Any]) -> dict[str, Any]:
@@ -1582,6 +1590,44 @@ def list_crm_reminders(owner_id: int | None = Query(None, alias="ownerId"), curr
         return {"ownerId": resolved_owner_id, "items": [_serialize_crm_reminder(row) for row in repo.list_reminders_for_actor(actor_id=actor_id, owner_id=resolved_owner_id)]}
     except Exception as exc:
         _crm_error(exc)
+
+
+@app.get("/api/crm/reminders/due")
+def list_current_user_due_crm_reminders(
+    now: str | None = Query(None), current_user: dict[str, Any] = Depends(_get_current_user)
+) -> dict[str, Any]:
+    try:
+        actor_id = int(current_user["id"])
+        repo = CrmRepository(SERVICE.db)
+        at = now or datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        return {"items": [_serialize_crm_reminder(row) for row in repo.list_due_reminders_for_current_actor(actor_id=actor_id, now_utc=at)]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/reminders/{reminder_id}/reschedule")
+def reschedule_crm_reminder(
+    reminder_id: int,
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    expected_updated_at = str(payload.get("expectedUpdatedAt") or "").strip()
+    if not expected_updated_at:
+        raise HTTPException(status_code=400, detail="Укажите актуальную версию напоминания.")
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        reminder = repo.reschedule_reminder_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            reminder_id=reminder_id,
+            due_at=str(payload.get("dueAt") or ""),
+            expected_updated_at=expected_updated_at,
+        )
+        return {"ownerId": resolved_owner_id, "reminder": _serialize_crm_reminder(reminder)}
+    except Exception as exc:
+        _crm_error(exc)
+    raise AssertionError("unreachable")
 
 
 def _transition_crm_reminder(

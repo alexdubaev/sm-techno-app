@@ -921,6 +921,16 @@ export async function createCrmReminder(
   return result.reminder;
 }
 
+export async function rescheduleCrmReminder(reminderId: number, payload: { dueAt: string; expectedUpdatedAt: string }, ownerId?: number): Promise<CrmReminder> {
+  const result = await requestJsonWithInit<{ reminder: CrmReminder }>(`/api/crm/reminders/${reminderId}/reschedule${buildCrmQuery({ ownerId })}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }, "Не удалось перенести напоминание.");
+  return result.reminder;
+}
+
+export async function fetchCurrentUserDueCrmReminders(): Promise<CrmReminder[]> {
+  const result = await requestJson<{ items: CrmReminder[] }>("/api/crm/reminders/due");
+  return result.items;
+}
+
 async function transitionCrmReminder(
   reminderId: number,
   action: "complete" | "cancel",
