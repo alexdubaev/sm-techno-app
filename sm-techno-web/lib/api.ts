@@ -937,7 +937,6 @@ export async function updateCrmClient(
     inn: string;
     kpp: string;
     city: string;
-    legalType: string;
     email: string;
     phone: string;
     expectedVersion: number;

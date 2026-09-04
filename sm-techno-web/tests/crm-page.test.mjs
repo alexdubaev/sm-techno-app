@@ -377,7 +377,7 @@ test("CRM tab management and company requisites edits stay owner-scoped and vers
       { tab: { id: 9, name: "Перезвонить", systemKind: "custom", sortOrder: 2 } },
       { tab: { id: 9, name: "На согласовании", systemKind: "custom", sortOrder: 2 } },
       { ok: true },
-      { client: { id: 42, version: 5, documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", legalType: "legal_entity", email: "office@example.test", phone: "+74950000000" } },
+      { client: { id: 42, version: 5, documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", email: "office@example.test", phone: "+74950000000" } },
     ];
     return new Response(JSON.stringify(payloads[requests.length - 1]), { status: 200 });
   };
@@ -394,7 +394,6 @@ test("CRM tab management and company requisites edits stay owner-scoped and vers
       inn: "7701000000",
       kpp: "770101001",
       city: "Москва",
-      legalType: "legal_entity",
       email: "office@example.test",
       phone: "+74950000000",
       expectedVersion: 4,
@@ -411,7 +410,7 @@ test("CRM tab management and company requisites edits stay owner-scoped and vers
     {
       url: "/api/crm/clients/42?ownerId=7",
       method: "PATCH",
-      body: JSON.stringify({ documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", legalType: "legal_entity", email: "office@example.test", phone: "+74950000000", expectedVersion: 4 }),
+      body: JSON.stringify({ documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", email: "office@example.test", phone: "+74950000000", expectedVersion: 4 }),
     },
   ]);
 });
@@ -427,7 +426,8 @@ test("CRM workspace manages only custom personal tabs and edits company requisit
   assert.match(api, /export async function renameCrmTab/);
   assert.match(api, /export async function deleteCrmTab/);
   assert.match(api, /export async function updateCrmClient/);
-  assert.match(types, /legalType: string/);
+  const workspaceClientType = types.slice(types.indexOf("export type CrmWorkspaceClient"), types.indexOf("export type CrmSyncConflict"));
+  assert.doesNotMatch(workspaceClientType, /legalType/);
   assert.match(workspace, /Новая вкладка/);
   assert.match(workspace, /systemKind === "custom"/);
   assert.match(workspace, /Переименовать вкладку/);
@@ -439,4 +439,14 @@ test("CRM workspace manages only custom personal tabs and edits company requisit
   assert.match(workspace, /expectedVersion: currentClient\.version/);
   assert.match(workspace, /Контакты/);
   assert.match(workspace, /Не удалось сохранить реквизиты компании\. Изменение отменено\./);
+  assert.doesNotMatch(workspace, /legalType:/);
+});
+
+test("CRM tab mutations ignore stale owner results and keep dialog errors announced inside the modal", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /const isCurrentWorkspaceView = \(requestTab: ActiveTab, requestOwnerId: number\)/);
+  assert.match(workspace, /if \(!isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) return;/);
+  assert.match(workspace, /reloadAfterTabFailure\(requestTab, requestOwnerId,/);
+  assert.match(workspace, /role="alert" aria-live="assertive"/);
 });

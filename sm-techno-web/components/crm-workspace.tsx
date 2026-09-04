@@ -77,7 +77,6 @@ function companyRequisitesForm(client: CrmWorkspaceClient) {
     inn: client.inn,
     kpp: client.kpp,
     city: client.city,
-    legalType: client.legalType || "legal_entity",
     email: client.email,
     phone: client.phone,
   };
@@ -189,6 +188,8 @@ export function CrmWorkspace() {
     setSyncFilter("all");
     setActiveTab(tab);
   };
+
+  const isCurrentWorkspaceView = (requestTab: ActiveTab, requestOwnerId: number) => currentView.current.activeTab === requestTab && currentView.current.ownerId === requestOwnerId;
 
   const submitClient = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -400,9 +401,10 @@ export function CrmWorkspace() {
     setError(null);
   };
 
-  const reloadAfterTabFailure = async (message: string) => {
-    await loadWorkspace(activeTab, { silent: true });
-    setError(message);
+  const reloadAfterTabFailure = async (requestTab: ActiveTab, requestOwnerId: number, message: string) => {
+    if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
+    await loadWorkspace(requestTab, { silent: true });
+    if (isCurrentWorkspaceView(requestTab, requestOwnerId)) setError(message);
   };
 
   const saveTab = async (event: FormEvent<HTMLFormElement>) => {
@@ -411,6 +413,7 @@ export function CrmWorkspace() {
     if (!name) { setError("Укажите название личной вкладки."); return; }
     if (!tabEditor) return;
     const requestOwnerId = ownerId;
+    const requestTab = activeTab;
     const editor = tabEditor;
     setIsSavingTab(true);
     setError(null);
@@ -418,14 +421,15 @@ export function CrmWorkspace() {
       const saved = editor === "new"
         ? await createCrmTab(name, requestOwnerId)
         : await renameCrmTab(editor.id, name, requestOwnerId);
+      if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setTabEditor(null);
       setNotice(editor === "new" ? "Личная вкладка создана." : "Личная вкладка переименована.");
       if (editor === "new") chooseTab(saved.id);
-      await loadWorkspace(editor === "new" ? saved.id : activeTab, { silent: true });
+      await loadWorkspace(editor === "new" ? saved.id : requestTab, { silent: true });
     } catch (cause) {
-      await reloadAfterTabFailure(errorMessage(cause, "Не удалось сохранить личную вкладку. Изменение отменено."));
+      await reloadAfterTabFailure(requestTab, requestOwnerId, errorMessage(cause, "Не удалось сохранить личную вкладку. Изменение отменено."));
     } finally {
-      setIsSavingTab(false);
+      if (isCurrentWorkspaceView(requestTab, requestOwnerId)) setIsSavingTab(false);
     }
   };
 
@@ -433,19 +437,21 @@ export function CrmWorkspace() {
     if (!tabPendingDelete || replacementTabId === null) return;
     const tab = tabPendingDelete;
     const requestOwnerId = ownerId;
+    const requestTab = activeTab;
     setIsSavingTab(true);
     setError(null);
     try {
       await deleteCrmTab(tab.id, replacementTabId, requestOwnerId);
+      if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setTabPendingDelete(null);
       setNotice(`Личная вкладка «${tab.name}» удалена; карточки сохранены в выбранной вкладке.`);
-      const nextTab = activeTab === tab.id ? replacementTabId : activeTab;
+      const nextTab = requestTab === tab.id ? replacementTabId : requestTab;
       chooseTab(nextTab);
       await loadWorkspace(nextTab, { silent: true });
     } catch (cause) {
-      await reloadAfterTabFailure(errorMessage(cause, "Не удалось удалить личную вкладку. Изменение отменено."));
+      await reloadAfterTabFailure(requestTab, requestOwnerId, errorMessage(cause, "Не удалось удалить личную вкладку. Изменение отменено."));
     } finally {
-      setIsSavingTab(false);
+      if (isCurrentWorkspaceView(requestTab, requestOwnerId)) setIsSavingTab(false);
     }
   };
 
@@ -458,7 +464,7 @@ export function CrmWorkspace() {
           <p className="mt-1 text-[12px] text-[var(--text-secondary)]">Клиенты, личные вкладки и быстрые действия менеджера.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
+          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setTabEditor(null); setTabPendingDelete(null); setIsSavingTab(false); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
           <details className="relative">
             <summary className="flex h-10 cursor-pointer list-none items-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">{isExporting ? "Выгружаем…" : "Выгрузить Excel"}</summary>
             <div className="absolute right-0 z-20 mt-1 grid w-52 gap-1 rounded-[12px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]">
@@ -512,7 +518,7 @@ export function CrmWorkspace() {
       </div>
 
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
-      {tabEditor ? <form role="dialog" aria-modal="true" aria-labelledby="crm-tab-editor-title" onSubmit={saveTab} className="fixed inset-0 z-50 flex items-center justify-center bg-[#07162e]/35 p-4"><div className="w-full max-w-sm rounded-[18px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"><h2 id="crm-tab-editor-title" className="text-[16px] font-bold">{tabEditor === "new" ? "Новая вкладка" : "Переименовать вкладку"}</h2><label className="mt-4 grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Название</span><input autoFocus value={tabName} onChange={(event) => setTabName(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTabEditor(null)} className="h-9 rounded-[9px] px-3 text-[11px] font-semibold text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={isSavingTab} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSavingTab ? "Сохраняем…" : "Сохранить"}</button></div></div></form> : null}
+      {tabEditor ? <form role="dialog" aria-modal="true" aria-labelledby="crm-tab-editor-title" onSubmit={saveTab} className="fixed inset-0 z-50 flex items-center justify-center bg-[#07162e]/35 p-4"><div className="w-full max-w-sm rounded-[18px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"><h2 id="crm-tab-editor-title" className="text-[16px] font-bold">{tabEditor === "new" ? "Новая вкладка" : "Переименовать вкладку"}</h2>{error ? <div role="alert" aria-live="assertive" className="mt-3 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C]">{error}</div> : null}<label className="mt-4 grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Название</span><input autoFocus value={tabName} onChange={(event) => setTabName(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTabEditor(null)} className="h-9 rounded-[9px] px-3 text-[11px] font-semibold text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={isSavingTab} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSavingTab ? "Сохраняем…" : "Сохранить"}</button></div></div></form> : null}
       <AlertDialog open={tabPendingDelete !== null} onOpenChange={(open) => { if (!open) setTabPendingDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Удалить вкладку</AlertDialogTitle><AlertDialogDescription>Карточки и история из вкладки «{tabPendingDelete?.name}» сохранятся. Выберите личную вкладку для переноса; по умолчанию выбрана «В работе».</AlertDialogDescription></AlertDialogHeader><label className="grid gap-1 text-[12px] font-medium"><span>Перенести карточки в</span><select value={replacementTabId ?? ""} onChange={(event) => setReplacementTabId(Number(event.target.value))} className="h-10 rounded-[9px] border border-[var(--border-color)] bg-white px-2">{tabs.filter((tab) => tab.id !== tabPendingDelete?.id).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select></label><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeTab()} disabled={isSavingTab || replacementTabId === null}>{isSavingTab ? "Удаляем…" : "Удалить вкладку"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canResolveSyncConflicts={isAdmin || ownerId === user.id} onChanged={() => void loadWorkspace(activeTab, { silent: true })} onClose={() => setSelectedClient(null)} /> : null}
     </section>
@@ -708,7 +714,6 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
         inn: requisitesForm.inn.trim(),
         kpp: requisitesForm.kpp.trim(),
         city: requisitesForm.city.trim(),
-        legalType: requisitesForm.legalType,
         email: requisitesForm.email.trim(),
         phone: requisitesForm.phone.trim(),
         expectedVersion: currentClient.version,
@@ -853,7 +858,6 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyn
                 <Field label="Наименование компании *" value={requisitesForm.documentName} onChange={(documentName) => setRequisitesForm((form) => ({ ...form, documentName }))} />
                 <Field label="Полное наименование" value={requisitesForm.fullName} onChange={(fullName) => setRequisitesForm((form) => ({ ...form, fullName }))} />
                 <div className="grid grid-cols-2 gap-2"><Field label="ИНН" value={requisitesForm.inn} onChange={(inn) => setRequisitesForm((form) => ({ ...form, inn }))} /><Field label="КПП" value={requisitesForm.kpp} onChange={(kpp) => setRequisitesForm((form) => ({ ...form, kpp }))} /></div>
-                <label className="grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Тип организации</span><select value={requisitesForm.legalType} onChange={(event) => setRequisitesForm((form) => ({ ...form, legalType: event.target.value }))} className="h-10 rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"><option value="legal_entity">Юридическое лицо</option><option value="individual_entrepreneur">Индивидуальный предприниматель</option><option value="individual">Физическое лицо</option></select></label>
                 <Field label="Город" value={requisitesForm.city} onChange={(city) => setRequisitesForm((form) => ({ ...form, city }))} />
                 <Field label="Общий телефон компании" value={requisitesForm.phone} onChange={(phone) => setRequisitesForm((form) => ({ ...form, phone }))} type="tel" />
                 <Field label="Общая почта компании" value={requisitesForm.email} onChange={(email) => setRequisitesForm((form) => ({ ...form, email }))} type="email" />
