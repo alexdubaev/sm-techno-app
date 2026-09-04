@@ -63,3 +63,56 @@ transaction, and legacy create/update retry and block paths remain unchanged.
 ## Commit
 
 `fix(crm): preserve newer sync work after create` (local commit; SHA is in the task response).
+
+## Review fix round 1
+
+Run: 2026-09-04 10:30:06 +03:00
+
+### Findings fixed
+
+- A shared-field edit made before the explicit create is claimed used to
+  coalesce into the pending create row and change its operation to `update`.
+  Coalescing now selects only pending `update` rows, so the create intent
+  remains durable and a separate update row is inserted or coalesced.
+- Create completion now treats both pending and running later work as
+  outstanding. It retains `pending` card state and skips the synced snapshot
+  whenever either state exists.
+
+### TDD evidence
+
+RED:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest -v tests.test_crm_api.CrmApiTest.test_preclaim_edit_keeps_explicit_create_job_before_worker_runs tests.test_crm_api.CrmApiTest.test_stale_create_completion_keeps_newer_running_job_pending
+```
+
+Both tests failed as intended: the pre-claim worker blocked an incorrectly
+rewritten update job, and the running-job scenario observed stale `synced`
+state.
+
+GREEN: the same two regressions, plus the original pending-job race test,
+passed after the minimal query changes.
+
+### Review-round verification
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest -v \
+  tests.test_crm_api.CrmApiTest.test_preclaim_edit_keeps_explicit_create_job_before_worker_runs \
+  tests.test_crm_api.CrmApiTest.test_stale_create_completion_keeps_newer_running_job_pending \
+  tests.test_crm_api.CrmApiTest.test_stale_create_completion_keeps_newer_local_edit_pending \
+  tests.test_crm_api.CrmApiTest.test_card_update_coalesces_one_pending_sync_job_for_shared_fields \
+  tests.test_crm_api.CrmApiTest.test_due_sync_worker_blocks_automatic_update_without_proven_conditional_write \
+  tests.test_crm_api.CrmApiTest.test_new_edit_stays_pending_when_an_older_claimed_job_finishes \
+  tests.test_crm_api.CrmApiTest.test_create_worker_recovers_an_unknown_post_without_a_second_create \
+  tests.test_crm_api.CrmApiTest.test_create_worker_never_repeats_an_unknown_post_while_identity_is_not_visible \
+  tests.test_crm_api.CrmApiTest.test_create_worker_blocks_a_non_retriable_validation_error \
+  tests.test_clients_onec_sync
+# Ran 22 tests ... OK
+
+.\.venv\Scripts\python.exe -m py_compile stock_sync_web\crm_repository.py stock_sync_web\database.py
+git -c safe.directory=D:/codex/sm-techno-app/worktrees/mini-crm diff --check
+```
+
+The final checks passed. Self-review confirmed no HTTP is inside a SQLite
+write transaction and the create, retry, block, and recovery paths retain
+their existing behavior.

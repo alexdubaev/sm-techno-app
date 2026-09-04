@@ -1111,12 +1111,12 @@ class WebDatabase(Database):
             if not job:
                 raise ValueError("Задание создания в 1С нельзя завершить.")
             client_id = int(job["crm_client_id"])
-            newer_pending = conn.execute(
+            newer_outstanding = conn.execute(
                 """SELECT 1 FROM crm_sync_jobs
-                   WHERE crm_client_id = ? AND id != ? AND status = 'pending' LIMIT 1""",
+                   WHERE crm_client_id = ? AND id != ? AND status IN ('pending', 'running') LIMIT 1""",
                 (client_id, job_id),
             ).fetchone()
-            if newer_pending:
+            if newer_outstanding:
                 sync_status = "pending"
             else:
                 snapshot_row = conn.execute(

@@ -361,7 +361,7 @@ class CrmRepository:
                 now = utc_now()
                 pending_job = conn.execute(
                     """SELECT id, payload FROM crm_sync_jobs
-                       WHERE crm_client_id = ? AND status = 'pending'
+                       WHERE crm_client_id = ? AND operation = 'update' AND status = 'pending'
                        ORDER BY id LIMIT 1""",
                     (client_id,),
                 ).fetchone()
