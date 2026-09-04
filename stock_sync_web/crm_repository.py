@@ -108,6 +108,29 @@ class CrmRepository:
         """Create a local lead with its authenticated owner in the card insert."""
         return self.db.create_crm_client_card(values, owner_user_id=actor_id)
 
+    def create_local_lead_for_actor(self, *, actor_id: int, owner_id: int, values: dict[str, Any], initial_contact: dict[str, str], initial_comment: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        document_name = str(values.get("document_name") or "").strip()
+        if not document_name:
+            raise ValueError("Укажите наименование для документов.")
+        now = utc_now()
+        with self.db.transaction() as conn:
+            if actor_id != owner_id and not self._is_admin(conn, actor_id):
+                raise PermissionError("Нельзя изменять чужую CRM.")
+            work = conn.execute("SELECT * FROM crm_tabs WHERE owner_user_id = ? AND system_kind = 'work'", (owner_id,)).fetchone()
+            if not work:
+                cursor = conn.execute("INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at) VALUES (?, 'В работе', 'work', 0, ?, ?)", (owner_id, now, now))
+                work = conn.execute("SELECT * FROM crm_tabs WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            cursor = conn.execute("INSERT INTO crm_clients(name, legal_type, document_name, full_name, inn, kpp, city, crm_owner_user_id, sync_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)", (document_name, values.get("legal_type") or "legal_entity", document_name, str(values.get("full_name") or document_name), values.get("inn") or None, values.get("kpp") or None, values.get("city") or None, owner_id, now, now))
+            client_id = int(cursor.lastrowid)
+            assignment_cursor = conn.execute("INSERT INTO crm_assignments(owner_user_id, crm_client_id, tab_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, int(work["id"]), now, now))
+            if initial_contact.get("name", "").strip():
+                conn.execute("INSERT INTO crm_contacts(owner_user_id, crm_client_id, name, email, phone, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)", (owner_id, client_id, initial_contact["name"].strip(), initial_contact.get("email", "").strip() or None, initial_contact.get("phone", "").strip() or None, now, now))
+            if initial_comment.strip():
+                conn.execute("INSERT INTO crm_events(owner_user_id, crm_client_id, author_user_id, kind, body, created_at, updated_at) VALUES (?, ?, ?, 'comment', ?, ?, ?)", (owner_id, client_id, actor_id, initial_comment.strip(), now, now))
+            card = conn.execute(self.db._crm_client_select() + " WHERE id = ?", (client_id,)).fetchone()
+            assignment = conn.execute("SELECT * FROM crm_assignments WHERE id = ?", (assignment_cursor.lastrowid,)).fetchone()
+        return dict(card), dict(assignment), dict(work)
+
     def _require_personal_access(self, conn: sqlite3.Connection, actor_id: int, owner_id: int, client_id: int) -> None:
         self._require_client_access(conn, actor_id, client_id)
         if actor_id != owner_id and not self._is_admin(conn, actor_id):

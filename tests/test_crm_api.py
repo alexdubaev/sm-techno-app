@@ -536,6 +536,24 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(["Перезвонить после выставки"], [event["body"] for event in events.json()["items"]])
         self.assertEqual((None, None, None, None), tuple(card))
 
+    def test_create_lead_rolls_back_all_rows_when_initial_comment_insert_fails(self) -> None:
+        with self.service.db.transaction() as conn:
+            conn.execute("""
+                CREATE TRIGGER fail_initial_crm_comment
+                BEFORE INSERT ON crm_events WHEN NEW.kind = 'comment'
+                BEGIN SELECT RAISE(ABORT, 'injected initial comment failure'); END
+            """)
+
+        response = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Атомарный лид", "contactPerson": "Ирина", "email": "irina@example.test", "phone": "+79990000000", "notes": "Первый комментарий"},
+        )
+        with self.service.db.connect() as conn:
+            counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("crm_clients", "crm_assignments", "crm_contacts", "crm_events")}
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual({"crm_clients": 0, "crm_assignments": 0, "crm_contacts": 0, "crm_events": 0}, counts)
+
     def test_explicit_onec_create_persists_a_job_without_calling_onec(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
