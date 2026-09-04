@@ -342,7 +342,8 @@ export function CrmWorkspace() {
       setClients((current) => current.map((item) => item.id === client.id ? { ...item, rowPreference: preference } : item));
       setNotice("Оформление строки сохранено.");
     } catch (cause) {
-      await reloadPersonalAfterFailure(activeTab, ownerId);
+      const reload = await reloadPersonalAfterFailure(activeTab, ownerId);
+      if (reload === "stale") return;
       setError(errorMessage(cause, "Не удалось сохранить цвет. Изменение отменено."));
     }
   };

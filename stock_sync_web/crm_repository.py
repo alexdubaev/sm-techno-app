@@ -899,21 +899,24 @@ class CrmRepository:
         return int(row["value"] or 0) + 1000
 
     def _append_personal_preference(
-        self, conn: sqlite3.Connection, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None = None
+        self, conn: sqlite3.Connection, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None = None,
+        position: int | None = None,
     ) -> None:
         existing = conn.execute(
             "SELECT color_key FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?",
             (owner_id, tab_id, client_id),
         ).fetchone()
         final_color = color_key if color_key is not None else (existing["color_key"] if existing else None)
-        position = self._final_position(conn, "crm_row_preferences", owner_id, client_id, tab_id)
+        final_position = position if position is not None else self._final_position(
+            conn, "crm_row_preferences", owner_id, client_id, tab_id
+        )
         conn.execute(
             """INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, order_version, updated_at)
                VALUES (?, ?, ?, ?, ?, 0, ?)
                ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO UPDATE SET
                  color_key = excluded.color_key, position = excluded.position,
                  order_version = crm_row_preferences.order_version + 1, updated_at = excluded.updated_at""",
-            (owner_id, tab_id, client_id, final_color, position, utc_now()),
+            (owner_id, tab_id, client_id, final_color, final_position, utc_now()),
         )
 
     def _set_row_preference(self, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None, expected_order_version: int | None = None, position: int | None = None) -> dict[str, Any]:
@@ -931,7 +934,7 @@ class CrmRepository:
                 raise ValueError("Клиент не назначен в указанную вкладку.")
             preference_exists = conn.execute("SELECT 1 FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, tab_id, client_id)).fetchone()
             if not preference_exists:
-                self._append_personal_preference(conn, owner_id, tab_id, client_id)
+                self._append_personal_preference(conn, owner_id, tab_id, client_id, position=0)
             current = conn.execute("SELECT COALESCE(MAX(order_version), 0) AS value FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ?", (owner_id, tab_id)).fetchone()["value"]
             if expected_order_version is not None and int(expected_order_version) != int(current):
                 raise ValueError("Конфликт версии порядка. Загрузите актуальный список.")

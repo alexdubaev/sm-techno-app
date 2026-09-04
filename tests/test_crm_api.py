@@ -428,8 +428,41 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(200, response.status_code, response.text)
         preference = response.json()["preference"]
         self.assertEqual("blue", preference["colorKey"])
-        self.assertGreater(preference["position"], 0)
+        self.assertEqual(0, preference["position"])
         self.assertGreater(preference["orderVersion"], initial["orderVersion"])
+
+    def test_personal_color_materialization_preserves_missing_row_list_position(self) -> None:
+        first = self.client.post("/api/crm/clients", json={"documentName": "Альфа"}).json()
+        second = self.client.post("/api/crm/clients", json={"documentName": "Бета"}).json()
+        third = self.client.post("/api/crm/clients", json={"documentName": "Гамма"}).json()
+        tab_id = first["assignment"]["tabId"]
+        first_id = first["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "DELETE FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?",
+                (self.owner_id, tab_id, first_id),
+            )
+        before = self.client.get(f"/api/crm/clients?tabId={tab_id}").json()["items"]
+        before_ids = [item["id"] for item in before]
+        before_positions = {
+            item["id"]: item["rowPreference"]["position"]
+            for item in before
+            if item["id"] != first_id
+        }
+        version = max(item["rowPreference"]["orderVersion"] for item in before if item["rowPreference"] is not None)
+
+        response = self.client.put(
+            f"/api/crm/clients/{first_id}/row-preference",
+            json={"tabId": tab_id, "colorKey": "blue", "expectedOrderVersion": version},
+        )
+
+        self.assertEqual(200, response.status_code, response.text)
+        after = self.client.get(f"/api/crm/clients?tabId={tab_id}").json()["items"]
+        self.assertEqual(before_ids, [item["id"] for item in after])
+        self.assertEqual(
+            before_positions,
+            {item["id"]: item["rowPreference"]["position"] for item in after if item["id"] != first_id},
+        )
 
     def test_primary_preferences_require_linked_card_and_owner_scope(self) -> None:
         local = self.client.post("/api/crm/clients", json={"documentName": "Локальная карточка"}).json()["client"]["id"]

@@ -163,6 +163,13 @@ test("administrator CRM workspace keeps the selected owner explicit across actio
   assert.match(workspace, /fetchCrmReminders\(ownerId\)/);
 });
 
+test("personal color failures do not announce an error after the requested workspace became stale", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /const reload = await reloadPersonalAfterFailure\(activeTab, ownerId\);/);
+  assert.match(workspace, /if \(reload === "stale"\) return;/);
+});
+
 test("administrator can leave a linked client only in the primary 1C tab", async () => {
   const [workspace, api] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
