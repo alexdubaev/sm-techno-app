@@ -984,6 +984,19 @@ class WebDatabase(Database):
             claimed = conn.execute("SELECT * FROM crm_sync_jobs WHERE id = ?", (job["id"],)).fetchone()
         return dict(claimed) if claimed else None
 
+    def recover_stale_crm_sync_jobs(self, *, claim_timeout_seconds: int = 300) -> int:
+        """Make jobs abandoned by a stopped worker eligible for a later worker."""
+        now = utc_now()
+        cutoff = (datetime.fromisoformat(now) - timedelta(seconds=max(1, int(claim_timeout_seconds)))).isoformat()
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                """UPDATE crm_sync_jobs
+                   SET status = 'pending', claimed_at = NULL, available_at = ?, updated_at = ?
+                   WHERE status = 'running' AND claimed_at IS NOT NULL AND claimed_at <= ?""",
+                (now, now, cutoff),
+            )
+        return int(cursor.rowcount)
+
     def block_crm_sync_job(
         self,
         job_id: int,

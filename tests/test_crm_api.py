@@ -361,6 +361,30 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("blocked_capability", card["sync_status"])
         self.assertIn("условной записи", card["sync_error"])
 
+    def test_due_sync_worker_recovers_a_stale_running_job_after_restart(self) -> None:
+        """A worker crash must not leave an outbox job permanently claimed."""
+        created = self.client.post("/api/crm/clients", json={"documentName": "Перезапуск очереди"}).json()
+        client_id = created["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (804, 'onec-804', 'Перезапуск очереди', '2026-09-04T00:00:00')")
+            conn.execute("UPDATE crm_clients SET linked_counterparty_id = 804, sync_status = 'synced' WHERE id = ?", (client_id,))
+        self.client.patch(
+            f"/api/crm/clients/{client_id}",
+            json={"email": "restart@example.test", "expectedVersion": 1},
+        )
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "UPDATE crm_sync_jobs SET status = 'running', claimed_at = ? WHERE crm_client_id = ?",
+                ("1970-01-01T00:00:00+00:00", client_id),
+            )
+
+        result = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute("SELECT status FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchone()
+
+        self.assertEqual({"processed": 1, "blocked": 1}, result)
+        self.assertEqual("blocked_capability", job["status"])
+
     def test_new_edit_stays_pending_when_an_older_claimed_job_finishes(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Гонка очереди"}).json()
         client_id = created["client"]["id"]

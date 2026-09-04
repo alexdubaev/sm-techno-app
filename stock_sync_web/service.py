@@ -254,6 +254,7 @@ class WebStockSyncService:
         overwrite in 1C. A later capability probe can replace this branch with
         the worker's conditional remote write.
         """
+        self.db.recover_stale_crm_sync_jobs()
         result = {"processed": 0, "blocked": 0, "retried": 0, "completed": 0}
         for _ in range(max(0, int(limit))):
             job = self.db.claim_next_crm_sync_job()
