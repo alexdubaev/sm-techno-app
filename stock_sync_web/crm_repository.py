@@ -358,11 +358,13 @@ class CrmRepository:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
             client = self._require_row(
                 conn,
-                """SELECT crm_owner_user_id, linked_counterparty_id, legal_type, inn, kpp
+                """SELECT crm_owner_user_id, linked_counterparty_id, legal_type, inn, kpp, is_inactive
                    FROM crm_clients WHERE id = ?""",
                 (client_id,),
                 "Клиент не найден.",
             )
+            if bool(client["is_inactive"]):
+                raise ValueError("Архивный локальный клиент нельзя связать с контрагентом 1С.")
             if client["linked_counterparty_id"] is not None:
                 raise ValueError("Клиент уже связан с контрагентом 1С.")
             if int(client["crm_owner_user_id"] or 0) != int(owner_id):

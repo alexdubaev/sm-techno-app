@@ -497,6 +497,39 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("blocked_credentials", job["status"])
         self.assertEqual("archived", card["sync_status"])
 
+    def test_archived_local_lead_cannot_link_an_existing_onec_counterparty(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Архивное связывание", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, inn, kpp, updated_at) "
+                "VALUES (904, 'onec-904', 'Контрагент архива', '7707083893', '770701001', '2026-09-04T00:00:00')"
+            )
+
+        self.as_user(self.admin_id, "admin")
+        archived = self.client.post(
+            f"/api/crm/clients/{client_id}/local-archive?ownerId={self.owner_id}",
+            json={"reason": "Отменено", "expectedVersion": created["client"]["version"]},
+        )
+        self.as_user(self.owner_id)
+        link = self.client.post(
+            f"/api/crm/clients/{client_id}/link-existing",
+            json={"counterpartyId": 904, "expectedVersion": archived.json()["version"]},
+        )
+        with self.service.db.connect() as conn:
+            card = conn.execute(
+                "SELECT linked_counterparty_id, sync_status FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assertEqual(400, link.status_code)
+        self.assertIn("архив", link.json()["detail"].casefold())
+        self.assertIsNone(card["linked_counterparty_id"])
+        self.assertEqual("archived", card["sync_status"])
+
     def test_create_worker_blocks_missing_submitter_onec_credentials_without_fallback(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
