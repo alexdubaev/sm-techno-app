@@ -680,6 +680,56 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(["blocked_capability", "pending"], [job["status"] for job in jobs])
         self.assertEqual("pending", card["sync_status"])
 
+    def test_stale_create_completion_keeps_newer_local_edit_pending(self) -> None:
+        """A create response must link the card without clearing a newer local edit."""
+        class EditingDuringCreateOneC:
+            def __init__(self, client: TestClient, test_case: unittest.TestCase, client_id: int) -> None:
+                self.client = client
+                self.test_case = test_case
+                self.client_id = client_id
+
+            def find_counterparty_by_identity(self, **_: object) -> None:
+                return None
+
+            def create_counterparty(self, _: dict[str, object]) -> dict[str, object]:
+                edit = self.client.patch(
+                    f"/api/crm/clients/{self.client_id}",
+                    json={"email": "newer@example.test", "expectedVersion": 1},
+                )
+                self.test_case.assertEqual(200, edit.status_code, edit.text)
+                return {
+                    "Ref_Key": "race-created-1",
+                    "Description": "Созданная гонка",
+                    "НаименованиеПолное": "Созданная гонка",
+                    "ИНН": "7707083893",
+                    "КПП": "770701001",
+                }
+
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Созданная гонка", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        claimed = self.service.db.claim_next_crm_sync_job()
+        self.assertIsNotNone(claimed)
+        fake_onec = EditingDuringCreateOneC(self.client, self, client_id)
+        self.service.build_user_client = lambda **_: fake_onec  # type: ignore[method-assign]
+
+        outcome = self.service._process_crm_create_job(claimed or {})
+        with self.service.db.connect() as conn:
+            jobs = conn.execute(
+                "SELECT status FROM crm_sync_jobs WHERE crm_client_id = ? ORDER BY id", (client_id,)
+            ).fetchall()
+            card = conn.execute(
+                "SELECT linked_counterparty_id, sync_status FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+
+        self.assertEqual("completed", outcome)
+        self.assertEqual("pending", card["sync_status"])
+        self.assertIsNotNone(card["linked_counterparty_id"])
+        self.assertEqual(["completed", "pending"], [job["status"] for job in jobs])
+
     def test_export_returns_only_the_current_owner_crm_workbook(self) -> None:
         self.client.post("/api/crm/clients", json={"documentName": "Экспорт владельца", "inn": "001234567890"})
         self.as_user(self.other_id)

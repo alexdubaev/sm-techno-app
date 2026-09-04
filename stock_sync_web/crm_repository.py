@@ -347,7 +347,16 @@ class CrmRepository:
             linked_card = conn.execute(
                 "SELECT linked_counterparty_id FROM crm_clients WHERE id = ?", (client_id,)
             ).fetchone()
-            if sync_payload and linked_card and linked_card["linked_counterparty_id"] is not None:
+            create_in_flight = conn.execute(
+                """SELECT 1 FROM crm_sync_jobs
+                   WHERE crm_client_id = ? AND operation = 'create'
+                     AND status IN ('pending', 'running') LIMIT 1""",
+                (client_id,),
+            ).fetchone()
+            if sync_payload and (
+                (linked_card and linked_card["linked_counterparty_id"] is not None)
+                or create_in_flight
+            ):
                 sync_payload["source_version"] = next_version
                 now = utc_now()
                 pending_job = conn.execute(

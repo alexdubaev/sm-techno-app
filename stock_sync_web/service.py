@@ -373,14 +373,7 @@ class WebStockSyncService:
         card: dict[str, Any],
     ) -> None:
         counterparty_id = self._upsert_synced_counterparty(onec_row, card)
-        self.db.update_crm_client_sync_state(
-            client_id,
-            sync_status="synced",
-            sync_error="",
-            linked_counterparty_id=counterparty_id,
-            synced=True,
-        )
-        self.db.complete_crm_sync_job(job_id)
+        self.db.complete_crm_create_job(job_id, counterparty_id=counterparty_id)
 
     def sync_contracts(
         self,

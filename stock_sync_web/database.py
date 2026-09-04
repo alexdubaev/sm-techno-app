@@ -1099,6 +1099,60 @@ class WebDatabase(Database):
             if cursor.rowcount != 1:
                 raise ValueError("Задание синхронизации нельзя завершить.")
 
+    def complete_crm_create_job(self, job_id: int, *, counterparty_id: int) -> dict[str, Any]:
+        """Link a completed create without overwriting newer pending local work."""
+        now = utc_now()
+        with self.transaction() as conn:
+            job = conn.execute(
+                """SELECT crm_client_id FROM crm_sync_jobs
+                   WHERE id = ? AND operation = 'create' AND status = 'running'""",
+                (job_id,),
+            ).fetchone()
+            if not job:
+                raise ValueError("Задание создания в 1С нельзя завершить.")
+            client_id = int(job["crm_client_id"])
+            newer_pending = conn.execute(
+                """SELECT 1 FROM crm_sync_jobs
+                   WHERE crm_client_id = ? AND id != ? AND status = 'pending' LIMIT 1""",
+                (client_id, job_id),
+            ).fetchone()
+            if newer_pending:
+                sync_status = "pending"
+            else:
+                snapshot_row = conn.execute(
+                    "SELECT document_name, email, phone, legal_address FROM crm_clients WHERE id = ?",
+                    (client_id,),
+                ).fetchone()
+                if not snapshot_row:
+                    raise ValueError("Клиент не найден.")
+                snapshot = json.dumps({
+                    "document_name": snapshot_row["document_name"] or "",
+                    "email": snapshot_row["email"] or "",
+                    "phone": snapshot_row["phone"] or "",
+                    "legal_address": snapshot_row["legal_address"] or "",
+                }, ensure_ascii=False, sort_keys=True)
+                conn.execute(
+                    """INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at)
+                       VALUES (?, 1, ?, ?)
+                       ON CONFLICT(crm_client_id) DO UPDATE SET last_synced_snapshot = excluded.last_synced_snapshot, updated_at = excluded.updated_at""",
+                    (client_id, snapshot, now),
+                )
+                sync_status = "synced"
+            conn.execute(
+                """UPDATE crm_clients SET linked_counterparty_id = ?, sync_status = ?, sync_error = NULL,
+                   onec_synced_at = ?, updated_at = ? WHERE id = ?""",
+                (counterparty_id, sync_status, now, now, client_id),
+            )
+            cursor = conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'completed', claimed_at = NULL, updated_at = ?
+                   WHERE id = ? AND status = 'running'""",
+                (now, job_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Задание синхронизации нельзя завершить.")
+            row = conn.execute(self._crm_client_select() + " WHERE id = ?", (client_id,)).fetchone()
+        return dict(row)
+
     def get_counterparty_by_onec_key(self, onec_key: str) -> dict[str, Any] | None:
         normalized_key = onec_key.strip()
         if not normalized_key:
