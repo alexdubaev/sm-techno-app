@@ -770,7 +770,7 @@ class WebStockSyncService:
             "notes": notes,
         }
         card = self._normalize_client_card_payload(raw_payload)
-        self._ensure_no_client_inn_duplicate(card["inn"])
+        self._ensure_no_client_inn_duplicate(card)
 
         onec_client: OneCClient | None = None
         remote_check_error = ""
@@ -887,15 +887,26 @@ class WebStockSyncService:
 
     def _ensure_no_client_inn_duplicate(
         self,
-        inn: str,
+        card: dict[str, Any],
         *,
         exclude_client_id: int | None = None,
         allowed_counterparty_id: int | None = None,
     ) -> None:
-        existing_client = self.db.get_crm_client_by_inn(inn, exclude_client_id=exclude_client_id)
+        legal_type = str(card.get("legal_type") or "")
+        inn = str(card.get("inn") or "").strip()
+        kpp = str(card.get("kpp") or "").strip()
+        if legal_type == "legal_entity":
+            existing_client = self.db.get_crm_client_by_inn_and_kpp(
+                inn,
+                kpp,
+                exclude_client_id=exclude_client_id,
+            )
+            existing_counterparty = self.db.get_counterparty_by_inn_and_kpp(inn, kpp)
+        else:
+            existing_client = self.db.get_crm_client_by_inn(inn, exclude_client_id=exclude_client_id)
+            existing_counterparty = self.db.get_counterparty_by_inn(inn)
         if existing_client:
             raise ValueError(f"Локальный клиент с ИНН {inn} уже существует: {existing_client.get('name') or existing_client['id']}.")
-        existing_counterparty = self.db.get_counterparty_by_inn(inn)
         if existing_counterparty and int(existing_counterparty["id"]) != int(allowed_counterparty_id or 0):
             raise ValueError(f"Контрагент с ИНН {inn} уже есть в справочнике 1С: {existing_counterparty.get('name') or existing_counterparty['onec_key']}.")
 
@@ -942,7 +953,7 @@ class WebStockSyncService:
 
         linked_counterparty_id = int(row["linked_counterparty_id"]) if row.get("linked_counterparty_id") else None
         self._ensure_no_client_inn_duplicate(
-            str(row.get("inn") or ""),
+            row,
             exclude_client_id=client_id,
             allowed_counterparty_id=linked_counterparty_id,
         )

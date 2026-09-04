@@ -474,6 +474,26 @@ class ClientOneCSyncTest(unittest.TestCase):
         self.assertEqual(1, len(duplicate.created_cards))
         self.assertEqual("11111111-1111-1111-1111-111111111111", response.json()["sync"]["onecRefKey"])
 
+    def test_cached_legal_entity_with_same_inn_and_different_kpp_does_not_block_creation(self) -> None:
+        self.db.upsert_counterparties(
+            [
+                {
+                    "onec_key": "cached-different-kpp",
+                    "name": "ООО Другой КПП",
+                    "full_name": "ООО Другой КПП",
+                    "inn": VALID_CLIENT_PAYLOAD["inn"],
+                    "kpp": "770799999",
+                }
+            ]
+        )
+        fake = FakeOneCClient()
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+
+        response = self.client.post("/api/clients", json=VALID_CLIENT_PAYLOAD)
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(1, len(fake.created_cards))
+
     def test_remote_ip_with_same_inn_is_treated_as_duplicate(self) -> None:
         ip_payload = {
             **VALID_CLIENT_PAYLOAD,

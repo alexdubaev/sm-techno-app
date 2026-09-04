@@ -1131,12 +1131,51 @@ class WebDatabase(Database):
             ).fetchone()
         return dict(row) if row else None
 
+    def get_counterparty_by_inn_and_kpp(self, inn: str, kpp: str) -> dict[str, Any] | None:
+        normalized_inn = inn.strip()
+        normalized_kpp = kpp.strip()
+        if not normalized_inn or not normalized_kpp:
+            return None
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id, onec_key, name, full_name, inn, kpp
+                FROM counterparties
+                WHERE inn = ? AND kpp = ?
+                ORDER BY id
+                LIMIT 1
+                """,
+                (normalized_inn, normalized_kpp),
+            ).fetchone()
+        return dict(row) if row else None
+
     def get_crm_client_by_inn(self, inn: str, *, exclude_client_id: int | None = None) -> dict[str, Any] | None:
         normalized_inn = inn.strip()
         if not normalized_inn:
             return None
         query = self._crm_client_select() + " WHERE inn = ?"
         params: list[Any] = [normalized_inn]
+        if exclude_client_id is not None:
+            query += " AND id <> ?"
+            params.append(exclude_client_id)
+        query += " ORDER BY id LIMIT 1"
+        with self.connect() as conn:
+            row = conn.execute(query, params).fetchone()
+        return dict(row) if row else None
+
+    def get_crm_client_by_inn_and_kpp(
+        self,
+        inn: str,
+        kpp: str,
+        *,
+        exclude_client_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        normalized_inn = inn.strip()
+        normalized_kpp = kpp.strip()
+        if not normalized_inn or not normalized_kpp:
+            return None
+        query = self._crm_client_select() + " WHERE inn = ? AND kpp = ?"
+        params: list[Any] = [normalized_inn, normalized_kpp]
         if exclude_client_id is not None:
             query += " AND id <> ?"
             params.append(exclude_client_id)
