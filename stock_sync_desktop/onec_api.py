@@ -94,6 +94,41 @@ class OneCClient:
         except json.JSONDecodeError as exc:
             raise OneCClientError(f"1С вернула не-JSON ответ: {raw[:500]}") from exc
 
+    def _request_with_response_headers(
+        self,
+        method: str,
+        endpoint_or_url: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[str, str | None]:
+        """Issue an isolated conditional request without changing legacy transport hooks."""
+        url = endpoint_or_url
+        if not endpoint_or_url.lower().startswith("http"):
+            url = f"{self.base_url}/{endpoint_or_url.lstrip('/')}"
+        url = self._encode_url(url)
+
+        body = None
+        headers = {
+            "Authorization": self._authorization_header(),
+            "Accept": "application/json",
+        }
+        if extra_headers:
+            headers.update(extra_headers)
+        if payload is not None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json; charset=utf-8"
+
+        request = Request(url=url, data=body, headers=headers, method=method.upper())
+        try:
+            with urlopen(request, timeout=60) as response:
+                return response.read().decode("utf-8"), response.headers.get("ETag")
+        except HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="replace")
+            raise OneCClientError(f"1С вернула HTTP {exc.code}: {message}") from exc
+        except URLError as exc:
+            raise OneCClientError(f"Не удалось подключиться к 1С: {exc}") from exc
+
     @staticmethod
     def _encode_url(url: str) -> str:
         parts = urlsplit(url)
@@ -994,6 +1029,35 @@ class OneCClient:
     def update_counterparty(self, ref_key: str, payload: dict[str, Any]) -> dict[str, Any]:
         endpoint = f"Catalog_Контрагенты(guid'{ref_key}')?$format=json"
         return self._request("PATCH", endpoint, payload)
+
+    def get_counterparty_with_etag(self, ref_key: str) -> tuple[dict[str, Any], str | None]:
+        """Read a counterparty and its response ETag for an explicit future probe."""
+        endpoint = f"Catalog_Контрагенты(guid'{ref_key}')?$format=json"
+        raw, etag = self._request_with_response_headers("GET", endpoint)
+        if not raw:
+            return {}, etag
+        try:
+            return json.loads(raw), etag
+        except json.JSONDecodeError as exc:
+            raise OneCClientError(f"1С вернула не-JSON ответ: {raw[:500]}") from exc
+
+    def update_counterparty_if_match(
+        self,
+        ref_key: str,
+        payload: dict[str, Any],
+        etag: str,
+    ) -> dict[str, Any]:
+        """PATCH a counterparty only with the caller-supplied If-Match token."""
+        endpoint = f"Catalog_Контрагенты(guid'{ref_key}')?$format=json"
+        raw, _ = self._request_with_response_headers(
+            "PATCH", endpoint, payload, extra_headers={"If-Match": etag}
+        )
+        if not raw:
+            return {}
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise OneCClientError(f"1С вернула не-JSON ответ: {raw[:500]}") from exc
 
     def create_counterparty(self, card: dict[str, Any]) -> dict[str, Any]:
         core_payload = self._build_counterparty_payload(card, include_extra_fields=False)

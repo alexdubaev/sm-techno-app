@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 from urllib.parse import unquote
+from unittest.mock import patch
 
 from stock_sync_desktop.onec_api import OneCClient
 
@@ -163,6 +164,52 @@ class FakeODataOneCClient(OneCClient):
 
 
 class OneCCounterpartyPayloadTest(unittest.TestCase):
+    def test_get_counterparty_with_etag_returns_entity_and_response_token(self) -> None:
+        class FakeResponse:
+            headers = {"ETag": 'W/"counterparty-v1"'}
+
+            def read(self) -> bytes:
+                return b'{"Ref_Key": "counterparty-ref"}'
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+        with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse()) as urlopen_mock:
+            counterparty, etag = OneCClient("http://onec.example", "user", "password").get_counterparty_with_etag("counterparty-ref")
+
+        request = urlopen_mock.call_args.args[0]
+        self.assertEqual("GET", request.get_method())
+        self.assertIn("Catalog_%D0%9A%D0%BE%D0%BD%D1%82%D1%80%D0%B0%D0%B3%D0%B5%D0%BD%D1%82%D1%8B(guid'counterparty-ref')", request.full_url)
+        self.assertEqual({"Ref_Key": "counterparty-ref"}, counterparty)
+        self.assertEqual('W/"counterparty-v1"', etag)
+
+    def test_conditional_counterparty_update_sends_caller_etag_without_changing_ordinary_patch(self) -> None:
+        class FakeResponse:
+            headers: dict[str, str] = {}
+
+            def read(self) -> bytes:
+                return b"{}"
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+        client = OneCClient("http://onec.example", "user", "password")
+        with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse()) as urlopen_mock:
+            client.update_counterparty_if_match("counterparty-ref", {"Description": "Conditional"}, 'W/"counterparty-v1"')
+            client.update_counterparty("counterparty-ref", {"Description": "Ordinary"})
+
+        conditional_request = urlopen_mock.call_args_list[0].args[0]
+        ordinary_request = urlopen_mock.call_args_list[1].args[0]
+        self.assertEqual("PATCH", conditional_request.get_method())
+        self.assertEqual('W/"counterparty-v1"', conditional_request.get_header("If-match"))
+        self.assertIsNone(ordinary_request.get_header("If-match"))
+
     def test_find_counterparty_by_identity_uses_kpp_only_for_legal_entity(self) -> None:
         class IdentityLookupOneCClient(FakeODataOneCClient):
             def _request(
