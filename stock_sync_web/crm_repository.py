@@ -916,7 +916,7 @@ class CrmRepository:
             (owner_id, tab_id, client_id, final_color, position, utc_now()),
         )
 
-    def _set_row_preference(self, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None, position: int) -> None:
+    def _set_row_preference(self, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None, expected_order_version: int | None = None, position: int | None = None) -> dict[str, Any]:
         if color_key is not None and color_key not in CRM_COLOR_KEYS:
             raise ValueError("Выберите цвет из разрешённой палитры.")
         with self.db.transaction() as conn:
@@ -929,15 +929,23 @@ class CrmRepository:
             )
             if int(assignment["tab_id"]) != int(tab_id):
                 raise ValueError("Клиент не назначен в указанную вкладку.")
-            conn.execute("""INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                            ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO UPDATE SET color_key = excluded.color_key, position = excluded.position, order_version = crm_row_preferences.order_version + 1, updated_at = excluded.updated_at""", (owner_id, tab_id, client_id, color_key, position, utc_now()))
+            preference_exists = conn.execute("SELECT 1 FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, tab_id, client_id)).fetchone()
+            if not preference_exists:
+                self._append_personal_preference(conn, owner_id, tab_id, client_id)
+            current = conn.execute("SELECT COALESCE(MAX(order_version), 0) AS value FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ?", (owner_id, tab_id)).fetchone()["value"]
+            if expected_order_version is not None and int(expected_order_version) != int(current):
+                raise ValueError("Конфликт версии порядка. Загрузите актуальный список.")
+            next_version = int(current) + 1
+            conn.execute("UPDATE crm_row_preferences SET order_version = ?, updated_at = ? WHERE owner_user_id = ? AND tab_id = ?", (next_version, utc_now(), owner_id, tab_id))
+            conn.execute("UPDATE crm_row_preferences SET color_key = ?, order_version = ?, updated_at = ? WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (color_key, next_version, utc_now(), owner_id, tab_id, client_id))
+            row = conn.execute("SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, tab_id, client_id)).fetchone()
+        return dict(row)
 
-    def set_row_preference_for_actor(self, *, actor_id: int, owner_id: int, tab_id: int, client_id: int, color_key: str | None, position: int) -> None:
+    def set_row_preference_for_actor(self, *, actor_id: int, owner_id: int, tab_id: int, client_id: int, color_key: str | None, expected_order_version: int | None = None, position: int | None = None) -> dict[str, Any]:
         self._require_workspace_write(actor_id, owner_id)
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
-        self._set_row_preference(owner_id, tab_id, client_id, color_key=color_key, position=position)
+        return self._set_row_preference(owner_id, tab_id, client_id, color_key=color_key, expected_order_version=expected_order_version, position=position)
 
     def _get_row_preference(self, owner_id: int, tab_id: int, client_id: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:

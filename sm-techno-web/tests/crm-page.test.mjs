@@ -155,7 +155,8 @@ test("administrator CRM workspace keeps the selected owner explicit across actio
   assert.match(workspace, /fetchPrimaryCrmClients\(ownerId\)/);
   assert.match(workspace, /moveCrmClient\(client\.id, targetTabId, ownerId\)/);
   assert.match(workspace, /removeCrmAssignment\(client\.id, ownerId\)/);
-  assert.match(workspace, /saveCrmRowPreference\(client\.id, \{ tabId: activeTab, colorKey, position: previous\?\.position \?\? 0 \}, ownerId\)/);
+  assert.match(workspace, /saveCrmRowPreference\(client\.id, \{ tabId: activeTab, colorKey, expectedOrderVersion: personalOrderVersion \}, ownerId\)/);
+  assert.doesNotMatch(workspace, /saveCrmRowPreference\([^\n]+position:/);
   assert.match(workspace, /downloadCrmExportFile\(\{ scope, tabId: activeTab === "primary" \? undefined : activeTab, ownerId \}\)/);
   assert.match(workspace, /fetchCrmContacts\(currentClient\.id, ownerId\)/);
   assert.match(workspace, /fetchCrmEvents\(currentClient\.id, ownerId\)/);

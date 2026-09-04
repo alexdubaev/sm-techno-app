@@ -1675,13 +1675,12 @@ def move_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | Non
 def save_crm_row_preference(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     try:
         tab_id = int(payload.get("tabId"))
-        position = int(payload.get("position", 0))
+        expected_order_version = int(payload.get("expectedOrderVersion"))
         color_key = payload.get("colorKey")
         if color_key is not None:
             color_key = str(color_key)
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        repo.set_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id, color_key=color_key, position=position)
-        preference = repo.get_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id)
+        preference = repo.set_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id, color_key=color_key, expected_order_version=expected_order_version)
         return {"preference": _serialize_crm_row_preference(preference or {})}
     except Exception as exc:
         _crm_error(exc)

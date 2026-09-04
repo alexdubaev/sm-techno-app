@@ -395,6 +395,42 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("orange", current.json()["items"][1]["primaryRowPreference"]["colorKey"])
         self.assertEqual(2, current.json()["orderVersion"])
 
+    def test_personal_color_uses_tab_order_version_without_rewriting_positions(self) -> None:
+        first = self.client.post("/api/crm/clients", json={"documentName": "Первый"}).json()
+        second = self.client.post("/api/crm/clients", json={"documentName": "Второй"}).json()
+        tab_id = first["assignment"]["tabId"]
+        first_id, second_id = first["client"]["id"], second["client"]["id"]
+        before = self.client.get(f"/api/crm/clients?tabId={tab_id}").json()["items"]
+        version = max(item["rowPreference"]["orderVersion"] for item in before)
+        positions = {item["id"]: item["rowPreference"]["position"] for item in before}
+        reordered = self.client.post(f"/api/crm/tabs/{tab_id}/reorder", json={"clientId": second_id, "beforeClientId": first_id, "afterClientId": None, "expectedOrderVersion": version})
+        self.assertEqual(200, reordered.status_code)
+        stale = self.client.put(f"/api/crm/clients/{first_id}/row-preference", json={"tabId": tab_id, "colorKey": "red", "expectedOrderVersion": version})
+        self.assertEqual(409, stale.status_code)
+        current = self.client.get(f"/api/crm/clients?tabId={tab_id}").json()["items"]
+        self.assertEqual([second_id, first_id], [item["id"] for item in current])
+        reordered_positions = {item["id"]: item["rowPreference"]["position"] for item in current}
+        self.assertNotEqual(reordered_positions, positions)
+        success_version = max(item["rowPreference"]["orderVersion"] for item in current)
+        success = self.client.put(f"/api/crm/clients/{first_id}/row-preference", json={"tabId": tab_id, "colorKey": "red", "expectedOrderVersion": success_version})
+        self.assertEqual(200, success.status_code)
+        after = self.client.get(f"/api/crm/clients?tabId={tab_id}").json()["items"]
+        self.assertEqual("red", next(item for item in after if item["id"] == first_id)["rowPreference"]["colorKey"])
+        self.assertEqual({item["id"]: item["rowPreference"]["position"] for item in after}, {item["id"]: item["rowPreference"]["position"] for item in current})
+
+    def test_personal_color_materializes_missing_preference_with_current_version(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Без предпочтения"}).json()
+        client_id, tab_id = created["client"]["id"], created["assignment"]["tabId"]
+        initial = self.client.get(f"/api/crm/clients?tabId={tab_id}").json()["items"][0]["rowPreference"]
+        with self.service.db.transaction() as conn:
+            conn.execute("DELETE FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (self.owner_id, tab_id, client_id))
+        response = self.client.put(f"/api/crm/clients/{client_id}/row-preference", json={"tabId": tab_id, "colorKey": "blue", "expectedOrderVersion": initial["orderVersion"]})
+        self.assertEqual(200, response.status_code, response.text)
+        preference = response.json()["preference"]
+        self.assertEqual("blue", preference["colorKey"])
+        self.assertGreater(preference["position"], 0)
+        self.assertGreater(preference["orderVersion"], initial["orderVersion"])
+
     def test_primary_preferences_require_linked_card_and_owner_scope(self) -> None:
         local = self.client.post("/api/crm/clients", json={"documentName": "Локальная карточка"}).json()["client"]["id"]
         linked = self.client.post("/api/crm/clients", json={"documentName": "Общая компания"}).json()["client"]["id"]

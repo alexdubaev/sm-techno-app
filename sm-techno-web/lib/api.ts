@@ -1068,7 +1068,7 @@ export async function removeCrmAssignment(
 
 export async function saveCrmRowPreference(
   clientId: number,
-  payload: { tabId: number; colorKey: string | null; position: number },
+  payload: { tabId: number; colorKey: string | null; expectedOrderVersion: number },
   ownerId?: number,
 ): Promise<CrmRowPreference> {
   const result = await requestJsonWithInit<{ preference: CrmRowPreference }>(

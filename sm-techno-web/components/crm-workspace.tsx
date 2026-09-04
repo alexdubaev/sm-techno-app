@@ -337,10 +337,12 @@ export function CrmWorkspace() {
       rowPreference: { tabId: activeTab, clientId: client.id, colorKey, position: previous?.position ?? 0, orderVersion: previous?.orderVersion ?? 0 },
     } : item));
     try {
-      await saveCrmRowPreference(client.id, { tabId: activeTab, colorKey, position: previous?.position ?? 0 }, ownerId);
+      const preference = await saveCrmRowPreference(client.id, { tabId: activeTab, colorKey, expectedOrderVersion: personalOrderVersion }, ownerId);
+      if (currentView.current.activeTab !== activeTab || currentView.current.ownerId !== ownerId) return;
+      setClients((current) => current.map((item) => item.id === client.id ? { ...item, rowPreference: preference } : item));
       setNotice("Оформление строки сохранено.");
     } catch (cause) {
-      setClients((current) => current.map((item) => item.id === client.id ? { ...item, rowPreference: previous } : item));
+      await reloadPersonalAfterFailure(activeTab, ownerId);
       setError(errorMessage(cause, "Не удалось сохранить цвет. Изменение отменено."));
     }
   };
