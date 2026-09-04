@@ -9,6 +9,7 @@ const ts = require("../node_modules/typescript/lib/typescript.js");
 
 const crmPageUrl = new URL("../app/crm/page.tsx", import.meta.url);
 const crmWorkspaceUrl = new URL("../components/crm-workspace.tsx", import.meta.url);
+const crmWorkspaceCacheUrl = new URL("../lib/crm-workspace-cache.ts", import.meta.url);
 const crmApiUrl = new URL("../lib/api.ts", import.meta.url);
 const crmTypesUrl = new URL("../lib/types.ts", import.meta.url);
 const appShellUrl = new URL("../components/app-shell.tsx", import.meta.url);
@@ -36,6 +37,35 @@ async function loadCrmApiForContractTest() {
   });
   return commonJsModule.exports;
 }
+
+async function loadCrmWorkspaceCacheForTest() {
+  const source = await readFile(crmWorkspaceCacheUrl, "utf8");
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const commonJsModule = { exports: {} };
+  vm.runInNewContext(compiled, { module: commonJsModule, exports: commonJsModule.exports });
+  return commonJsModule.exports;
+}
+
+test("CRM workspace cache restores a prior view only for its owner and tab", async () => {
+  const cache = await loadCrmWorkspaceCacheForTest();
+  const cachedView = {
+    tabs: [{ id: 4, name: "В работе", systemKind: "personal", position: 1 }],
+    clients: [{ id: 42, name: "ООО Тест", documentName: "ООО Тест" }],
+    primaryOrderVersion: 9,
+  };
+
+  cache.saveCrmWorkspaceCache(7, "primary", cachedView);
+  cache.updateCrmWorkspaceCache(7, "primary", (current) => ({
+    ...current,
+    primaryOrderVersion: 10,
+  }));
+
+  assert.deepEqual(cache.readCrmWorkspaceCache(7, "primary"), { ...cachedView, primaryOrderVersion: 10 });
+  assert.equal(cache.readCrmWorkspaceCache(8, "primary"), null);
+  assert.equal(cache.readCrmWorkspaceCache(7, 4), null);
+});
 
 test("CRM conflict transport keeps resolution scoped to the selected owner", async () => {
   const originalFetch = globalThis.fetch;

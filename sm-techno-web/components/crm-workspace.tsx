@@ -39,6 +39,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { readCrmWorkspaceCache, saveCrmWorkspaceCache, updateCrmWorkspaceCache } from "@/lib/crm-workspace-cache";
 import type { AppUser, CrmAuditAction, CrmContact, CrmEvent, CrmLinkCandidate, CrmReminder, CrmSyncConflict, CrmTab, CrmWorkspaceClient } from "@/lib/types";
 
 type ActiveTab = "primary" | number;
@@ -86,17 +87,18 @@ function companyRequisitesForm(client: CrmWorkspaceClient) {
 
 export function CrmWorkspace() {
   const { user, isAdmin } = useAuth();
+  const [initialWorkspaceCache] = useState(() => readCrmWorkspaceCache(user.id, "primary"));
   const [owners, setOwners] = useState<AppUser[]>([]);
   const [ownerId, setOwnerId] = useState(user.id);
   const canEditWorkspace = ownerId === user.id;
-  const [tabs, setTabs] = useState<CrmTab[]>([]);
+  const [tabs, setTabs] = useState<CrmTab[]>(() => initialWorkspaceCache?.tabs ?? []);
   const [activeTab, setActiveTab] = useState<ActiveTab>("primary");
-  const [clients, setClients] = useState<CrmWorkspaceClient[]>([]);
+  const [clients, setClients] = useState<CrmWorkspaceClient[]>(() => initialWorkspaceCache?.clients ?? []);
   const [search, setSearch] = useState("");
   const [syncFilter, setSyncFilter] = useState<SyncFilter>("all");
   const [primaryOrderMode, setPrimaryOrderMode] = useState<PrimaryOrderMode>("manual");
-  const [primaryOrderVersion, setPrimaryOrderVersion] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [primaryOrderVersion, setPrimaryOrderVersion] = useState(() => initialWorkspaceCache?.primaryOrderVersion ?? 0);
+  const [isLoading, setIsLoading] = useState(() => initialWorkspaceCache === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
@@ -145,10 +147,12 @@ export function CrmWorkspace() {
         tab === "primary" ? fetchPrimaryCrmClients(ownerId) : Promise.resolve(null),
         tab === "primary" ? Promise.resolve(null) : fetchCrmClients({ ownerId, tabId: tab }),
       ]);
-      if (id !== requestId.current) return;
+      if (id !== requestId.current || !isCurrentWorkspaceView(tab, ownerId)) return;
       setTabs(nextTabs);
-      setClients(primaryResult?.items ?? personalClients ?? []);
+      const nextClients = primaryResult?.items ?? personalClients ?? [];
+      setClients(nextClients);
       if (primaryResult) setPrimaryOrderVersion(primaryResult.orderVersion);
+      saveCrmWorkspaceCache(ownerId, tab, { tabs: nextTabs, clients: nextClients, primaryOrderVersion: primaryResult?.orderVersion ?? null });
     } catch (cause) {
       if (id === requestId.current) setError(errorMessage(cause, "Не удалось загрузить CRM."));
     } finally {
@@ -157,7 +161,7 @@ export function CrmWorkspace() {
         setIsRefreshing(false);
       }
     }
-  }, [ownerId]);
+  }, [isCurrentWorkspaceView, ownerId]);
 
   const syncCrmBeforeReload = useCallback(() => {
     if (!crmSyncInFlight.current) {
@@ -195,6 +199,12 @@ export function CrmWorkspace() {
   }, [isCurrentWorkspaceOwner, loadWorkspace, ownerId, syncCrmBeforeReload]);
 
   useEffect(() => {
+    const cachedWorkspace = readCrmWorkspaceCache(ownerId, activeTab);
+    if (cachedWorkspace) {
+      syncedOwnerId.current = ownerId;
+      void loadWorkspace(activeTab, { silent: true });
+      return;
+    }
     if (syncedOwnerId.current !== ownerId) {
       syncedOwnerId.current = ownerId;
       void refreshWorkspace(activeTab);
@@ -232,6 +242,13 @@ export function CrmWorkspace() {
 
   const chooseTab = (tab: ActiveTab) => {
     currentView.current = { activeTab: tab, ownerId };
+    requestId.current += 1;
+    const cachedWorkspace = readCrmWorkspaceCache(ownerId, tab);
+    if (cachedWorkspace) {
+      setTabs(cachedWorkspace.tabs);
+      setClients(cachedWorkspace.clients);
+      if (cachedWorkspace.primaryOrderVersion !== null) setPrimaryOrderVersion(cachedWorkspace.primaryOrderVersion);
+    }
     setSearch("");
     setSyncFilter("all");
     setActiveTab(tab);
@@ -297,6 +314,7 @@ export function CrmWorkspace() {
       if (currentView.current.activeTab !== "primary" || currentView.current.ownerId !== requestOwnerId) return "stale";
       setClients(primary.items);
       setPrimaryOrderVersion(primary.orderVersion);
+      updateCrmWorkspaceCache(requestOwnerId, "primary", (cached) => ({ ...cached, clients: primary.items, primaryOrderVersion: primary.orderVersion }));
       return "reloaded";
     } catch {
       return isCurrentPrimaryView(requestOwnerId) ? "reload_failed" : "stale";
@@ -320,7 +338,11 @@ export function CrmWorkspace() {
       try {
         const preference = await saveCrmPrimaryRowPreference(client.id, { colorKey, expectedOrderVersion: primaryOrderVersion }, requestOwnerId);
         if (!isCurrentPrimaryView(requestOwnerId)) return;
-        setClients((current) => current.map((item) => item.id === client.id ? { ...item, primaryRowPreference: preference } : item));
+        setClients((current) => {
+          const nextClients = current.map((item) => item.id === client.id ? { ...item, primaryRowPreference: preference } : item);
+          updateCrmWorkspaceCache(requestOwnerId, "primary", (cached) => ({ ...cached, clients: nextClients, primaryOrderVersion: preference.orderVersion }));
+          return nextClients;
+        });
         setPrimaryOrderVersion(preference.orderVersion);
         setNotice("Оформление строки сохранено.");
       } catch (cause) {
@@ -338,7 +360,11 @@ export function CrmWorkspace() {
     try {
       const preference = await saveCrmRowPreference(client.id, { tabId: activeTab, colorKey, expectedOrderVersion: personalOrderVersion }, ownerId);
       if (currentView.current.activeTab !== activeTab || currentView.current.ownerId !== ownerId) return;
-      setClients((current) => current.map((item) => item.id === client.id ? { ...item, rowPreference: preference } : item));
+      setClients((current) => {
+        const nextClients = current.map((item) => item.id === client.id ? { ...item, rowPreference: preference } : item);
+        updateCrmWorkspaceCache(ownerId, activeTab, (cached) => ({ ...cached, clients: nextClients }));
+        return nextClients;
+      });
       setNotice("Оформление строки сохранено.");
     } catch (cause) {
       const reload = await reloadPersonalAfterFailure(activeTab, ownerId);
@@ -364,6 +390,7 @@ export function CrmWorkspace() {
         expectedOrderVersion: primaryOrderVersion,
       }, requestOwnerId);
       if (!isCurrentPrimaryView(requestOwnerId)) return;
+      updateCrmWorkspaceCache(requestOwnerId, "primary", (cached) => ({ ...cached, clients: reordered, primaryOrderVersion: result.orderVersion }));
       setPrimaryOrderVersion(result.orderVersion);
       setNotice("Порядок клиентов сохранён.");
     } catch (cause) {
@@ -378,6 +405,7 @@ export function CrmWorkspace() {
       const refreshed = await fetchCrmClients({ ownerId: requestOwnerId, tabId: requestTab });
       if (currentView.current.activeTab !== requestTab || currentView.current.ownerId !== requestOwnerId) return "stale";
       setClients(refreshed);
+      updateCrmWorkspaceCache(requestOwnerId, requestTab, (cached) => ({ ...cached, clients: refreshed }));
       return "reloaded";
     } catch {
       return currentView.current.activeTab === requestTab && currentView.current.ownerId === requestOwnerId ? "reload_failed" : "stale";
@@ -403,7 +431,7 @@ export function CrmWorkspace() {
       }, requestOwnerId);
       if (currentView.current.activeTab !== requestTab || currentView.current.ownerId !== requestOwnerId) return;
       const byId = new Map(reordered.map((item) => [item.id, item]));
-      setClients(result.clientIds.flatMap((orderedClientId, index) => {
+      const nextClients = result.clientIds.flatMap((orderedClientId, index) => {
         const item = byId.get(orderedClientId);
         return item ? [{
           ...item,
@@ -415,7 +443,9 @@ export function CrmWorkspace() {
             orderVersion: result.orderVersion,
           },
         }] : [];
-      }));
+      });
+      setClients(nextClients);
+      updateCrmWorkspaceCache(requestOwnerId, requestTab, (cached) => ({ ...cached, clients: nextClients }));
       setNotice("Порядок клиентов сохранён.");
     } catch (cause) {
       const reload = await reloadPersonalAfterFailure(requestTab, requestOwnerId);
@@ -519,7 +549,7 @@ export function CrmWorkspace() {
           <p className="mt-1 text-[12px] text-[var(--text-secondary)]">Клиенты, личные вкладки и быстрые действия менеджера.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setIsAdding(false); setForm(emptyClientForm()); setTabEditor(null); setTabPendingDelete(null); setIsSavingTab(false); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
+          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); const cachedWorkspace = readCrmWorkspaceCache(nextOwnerId, "primary"); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setIsAdding(false); setForm(emptyClientForm()); setTabEditor(null); setTabPendingDelete(null); setIsSavingTab(false); setTabs(cachedWorkspace?.tabs ?? []); setClients(cachedWorkspace?.clients ?? []); setPrimaryOrderVersion(cachedWorkspace?.primaryOrderVersion ?? 0); setIsLoading(cachedWorkspace === null); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
           <details className="relative">
             <summary className="flex h-10 cursor-pointer list-none items-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">{isExporting ? "Выгружаем…" : "Выгрузить Excel"}</summary>
             <div className="absolute right-0 z-20 mt-1 grid w-52 gap-1 rounded-[12px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]">
