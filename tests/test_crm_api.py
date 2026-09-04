@@ -694,47 +694,33 @@ class CrmApiTest(unittest.TestCase):
             self.client.get(f"/api/crm/clients/{client_id}").json()["client"]["documentName"],
         )
 
-    def test_card_update_coalesces_one_pending_sync_job_for_shared_fields(self) -> None:
-        created = self.client.post("/api/crm/clients", json={"documentName": "Очередь лид"}).json()
+    def test_linked_crm_card_edit_stays_local_without_enqueuing_onec_update(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Связанная"}).json()
         client_id = created["client"]["id"]
-        with self.service.db.transaction() as conn:
-            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (801, 'onec-801', 'Очередь лид', '2026-09-04T00:00:00')")
-            conn.execute("UPDATE crm_clients SET linked_counterparty_id = 801, sync_status = 'synced' WHERE id = ?", (client_id,))
-        with self.service.db.transaction() as conn:
-            conn.execute(
-                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (502, 'onec-502', 'Очередь лид', '2026-09-04T00:00:00')"
-            )
-            conn.execute(
-                "UPDATE crm_clients SET linked_counterparty_id = 502, sync_status = 'synced' WHERE id = ?",
-                (client_id,),
-            )
+        self.link_primary_client(client_id, 901)
 
-        first = self.client.patch(
+        changed = self.client.patch(
             f"/api/crm/clients/{client_id}",
-            json={"documentName": "Очередь лид 1", "expectedVersion": 1},
-        )
-        second = self.client.patch(
-            f"/api/crm/clients/{client_id}",
-            json={"email": "latest@example.test", "expectedVersion": 2},
+            json={"email": "local@example.test", "expectedVersion": 1},
         )
         with self.service.db.connect() as conn:
             jobs = conn.execute(
-                "SELECT crm_client_id, author_user_id, operation, payload, status FROM crm_sync_jobs WHERE crm_client_id = ?",
+                "SELECT id FROM crm_sync_jobs WHERE crm_client_id = ?",
                 (client_id,),
             ).fetchall()
-            card = conn.execute("SELECT sync_status FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+            card = conn.execute(
+                "SELECT email, sync_status FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
 
-        self.assertEqual(200, first.status_code)
-        self.assertEqual(200, second.status_code)
-        self.assertEqual(1, len(jobs))
-        self.assertEqual(client_id, jobs[0]["crm_client_id"])
-        self.assertEqual(self.owner_id, jobs[0]["author_user_id"])
-        self.assertEqual("update", jobs[0]["operation"])
-        self.assertEqual("pending", jobs[0]["status"])
-        self.assertEqual("Очередь лид 1", json.loads(jobs[0]["payload"])["document_name"])
-        self.assertEqual("latest@example.test", json.loads(jobs[0]["payload"])["email"])
-        self.assertEqual("pending", card["sync_status"])
+        self.assertEqual(200, changed.status_code, changed.text)
+        self.assertEqual("local@example.test", changed.json()["client"]["email"])
+        self.assertEqual(2, changed.json()["client"]["version"])
+        self.assertEqual("synced", changed.json()["client"]["syncStatus"])
+        self.assertEqual([], jobs)
+        self.assertEqual("local@example.test", card["email"])
+        self.assertEqual("synced", card["sync_status"])
 
+    @unittest.skip("Retired CRM outbound 1C update workflow")
     def test_due_sync_worker_blocks_automatic_update_without_proven_conditional_write(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Безопасная очередь"}).json()
         client_id = created["client"]["id"]
@@ -767,6 +753,7 @@ class CrmApiTest(unittest.TestCase):
             card["sync_error"],
         )
 
+    @unittest.skip("Retired CRM outbound 1C update workflow")
     def test_due_sync_worker_recovers_a_stale_running_job_after_restart(self) -> None:
         """A worker crash must not leave an outbox job permanently claimed."""
         created = self.client.post("/api/crm/clients", json={"documentName": "Перезапуск очереди"}).json()
@@ -791,6 +778,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual({"processed": 1, "blocked": 1}, result)
         self.assertEqual("blocked_capability", job["status"])
 
+    @unittest.skip("Retired CRM outbound 1C update workflow")
     def test_new_edit_stays_pending_when_an_older_claimed_job_finishes(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Гонка очереди"}).json()
         client_id = created["client"]["id"]

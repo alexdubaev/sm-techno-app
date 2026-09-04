@@ -346,10 +346,6 @@ class CrmRepository:
             "document_name", "full_name", "inn", "kpp", "city", "website",
             "email", "phone", "notes", "contact_person", "legal_type",
         }
-        sync_fields = {
-            "document_name", "full_name", "inn", "kpp", "city", "website",
-            "email", "phone", "legal_type",
-        }
         changes = {key: value for key, value in values.items() if key in allowed}
         if not changes:
             raise ValueError("Укажите данные карточки для изменения.")
@@ -375,50 +371,6 @@ class CrmRepository:
                 "UPDATE crm_sync_state SET version = ?, updated_at = ? WHERE crm_client_id = ?",
                 (next_version, utc_now(), client_id),
             )
-            sync_payload = {key: changes[key] for key in changes if key in sync_fields}
-            linked_card = conn.execute(
-                "SELECT linked_counterparty_id FROM crm_clients WHERE id = ?", (client_id,)
-            ).fetchone()
-            create_in_flight = conn.execute(
-                """SELECT 1 FROM crm_sync_jobs
-                   WHERE crm_client_id = ? AND operation = 'create'
-                     AND status IN ('pending', 'running') LIMIT 1""",
-                (client_id,),
-            ).fetchone()
-            if sync_payload and (
-                (linked_card and linked_card["linked_counterparty_id"] is not None)
-                or create_in_flight
-            ):
-                sync_payload["source_version"] = next_version
-                now = utc_now()
-                pending_job = conn.execute(
-                    """SELECT id, payload FROM crm_sync_jobs
-                       WHERE crm_client_id = ? AND operation = 'update' AND status = 'pending'
-                       ORDER BY id LIMIT 1""",
-                    (client_id,),
-                ).fetchone()
-                if pending_job:
-                    try:
-                        pending_payload = json.loads(str(pending_job["payload"] or "{}"))
-                    except json.JSONDecodeError:
-                        pending_payload = {}
-                    pending_payload.update(sync_payload)
-                    conn.execute(
-                        """UPDATE crm_sync_jobs SET author_user_id = ?, operation = 'update', payload = ?,
-                           status = 'pending', available_at = ?, claimed_at = NULL, updated_at = ? WHERE id = ?""",
-                        (actor_id, json.dumps(pending_payload, ensure_ascii=False, sort_keys=True), now, now, pending_job["id"]),
-                    )
-                else:
-                    conn.execute(
-                        """INSERT INTO crm_sync_jobs(crm_client_id, author_user_id, operation, payload, status,
-                           attempt_count, available_at, created_at, updated_at)
-                           VALUES (?, ?, 'update', ?, 'pending', 0, ?, ?, ?)""",
-                        (client_id, actor_id, json.dumps(sync_payload, ensure_ascii=False, sort_keys=True), now, now, now),
-                    )
-                conn.execute(
-                    "UPDATE crm_clients SET sync_status = 'pending', sync_error = NULL, updated_at = ? WHERE id = ?",
-                    (now, client_id),
-                )
         card = self.db.get_crm_client(client_id)
         if not card:
             raise ValueError("Клиент не найден.")
