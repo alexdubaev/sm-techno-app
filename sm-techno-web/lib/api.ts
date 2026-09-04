@@ -1026,6 +1026,27 @@ export async function reorderPrimaryCrmClients(
   );
 }
 
+export async function reorderCrmTabClients(
+  tabId: number,
+  payload: {
+    clientId: number;
+    beforeClientId: number | null;
+    afterClientId: number | null;
+    expectedOrderVersion: number;
+  },
+  ownerId: number,
+): Promise<{ clientIds: number[]; orderVersion: number }> {
+  return requestJsonWithInit<{ clientIds: number[]; orderVersion: number }>(
+    `/api/crm/tabs/${tabId}/reorder${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить порядок клиентов.",
+  );
+}
+
 export async function archiveLocalCrmClient(
   clientId: number,
   payload: { reason: string; expectedVersion: number },

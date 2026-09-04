@@ -296,6 +296,35 @@ test("primary CRM transport keeps color and versioned reorder owner-scoped", asy
   ]);
 });
 
+test("personal CRM reorder sends the active tab and explicit owner", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof URL ? input.href : input instanceof Request ? input.url : input;
+    requests.push({ url, method: init?.method ?? "GET", body: init?.body ?? null });
+    return new Response(JSON.stringify({ clientIds: [15, 11], orderVersion: 3 }), { status: 200 });
+  };
+
+  try {
+    const api = await loadCrmApiForContractTest();
+    const result = await api.reorderCrmTabClients(9, {
+      clientId: 11,
+      beforeClientId: 15,
+      afterClientId: null,
+      expectedOrderVersion: 2,
+    }, 7);
+    assert.deepEqual(result, { clientIds: [15, 11], orderVersion: 3 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requests, [{
+    url: "/api/crm/tabs/9/reorder?ownerId=7",
+    method: "POST",
+    body: JSON.stringify({ clientId: 11, beforeClientId: 15, afterClientId: null, expectedOrderVersion: 2 }),
+  }]);
+});
+
 test("primary CRM list has an accessible manual-order control and preserves its own row preference", async () => {
   const [workspace, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
