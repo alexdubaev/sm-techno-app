@@ -782,7 +782,7 @@ export function StockPage() {
               <tr
                 key={rowKey}
                 aria-selected={isSelected}
-                onClick={() => selectItem(item)}
+                onClick={() => (isSelected ? clearSelection() : selectItem(item))}
                 className={[
                   "cursor-pointer transition-colors duration-200",
                   isSelected
