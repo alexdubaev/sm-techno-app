@@ -49,8 +49,9 @@ async function loadCrmWorkspaceCacheForTest() {
 }
 
 test("CRM keeps browser-style tabs, a compact contact column, and decisive status colors", async () => {
-  const [workspace, types] = await Promise.all([
+  const [workspace, stock, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
+    readFile(new URL("../components/stock-page.tsx", import.meta.url), "utf8"),
     readFile(crmTypesUrl, "utf8"),
   ]);
 
@@ -60,6 +61,10 @@ test("CRM keeps browser-style tabs, a compact contact column, and decisive statu
   assert.match(workspace, /bg-red-600/);
   assert.match(workspace, /bg-emerald-600/);
   assert.match(types, /contactPerson: string;/);
+  assert.match(stock, /bg-\[#FAFBFD\] text-left text-\[10px\]/);
+  assert.match(stock, /border-t border-\[var\(--border-color\)\] px-3 py-1\.5 align-middle text-\[10px\]/);
+  assert.match(workspace, /bg-\[#FAFBFD\] text-left text-\[10px\]/);
+  assert.match(workspace, /border-t border-\[var\(--border-color\)\] px-3 py-1\.5 align-middle text-\[10px\]/);
 });
 
 test("CRM workspace cache restores a prior view only for its owner and tab", async () => {
