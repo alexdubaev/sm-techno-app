@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from stock_sync_web.service import WebStockSyncService
+from stock_sync_web.service import CRM_LOCAL_ONLY_POLICY_MESSAGE, WebStockSyncService
 from stock_sync_web.crm_export import build_crm_export_xlsx
 from stock_sync_web.crm_repository import CrmRepository
 
@@ -525,6 +525,8 @@ def _crm_error(exc: Exception) -> None:
     if isinstance(exc, PermissionError):
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     message = str(exc)
+    if message == CRM_LOCAL_ONLY_POLICY_MESSAGE:
+        raise HTTPException(status_code=409, detail=message) from exc
     if "не найден" in message.lower():
         raise HTTPException(status_code=404, detail=message) from exc
     if "конфликт" in message.lower():
@@ -1454,19 +1456,8 @@ def send_crm_client_to_onec(
     current_user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
     try:
-        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        card, version = repo.enqueue_onec_create_for_actor(
-            actor_id=actor_id,
-            owner_id=resolved_owner_id,
-            client_id=client_id,
-        )
-        assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
-        tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
-        return JSONResponse(status_code=202, content={
-            "ownerId": resolved_owner_id,
-            "client": _serialize_crm_client(card, assignment, tab, version=version),
-            "sync": {"status": "queued", "message": "Заявка на создание в 1С поставлена в очередь."},
-        })
+        _crm_context(current_user, owner_id)
+        raise ValueError(CRM_LOCAL_ONLY_POLICY_MESSAGE)
     except Exception as exc:
         _crm_error(exc)
 
@@ -1478,27 +1469,8 @@ def retry_crm_client_onec_create(
     current_user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
     try:
-        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        card, version = repo.retry_onec_create_for_actor(
-            actor_id=actor_id,
-            owner_id=resolved_owner_id,
-            client_id=client_id,
-        )
-        assignment = repo.get_assignment_for_actor(
-            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
-        )
-        tab = (
-            repo.get_tab_for_actor(
-                actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])
-            )
-            if assignment
-            else None
-        )
-        return JSONResponse(status_code=202, content={
-            "ownerId": resolved_owner_id,
-            "client": _serialize_crm_client(card, assignment, tab, version=version),
-            "sync": {"status": "queued", "message": "Заявка на создание в 1С снова поставлена в очередь."},
-        })
+        _crm_context(current_user, owner_id)
+        raise ValueError(CRM_LOCAL_ONLY_POLICY_MESSAGE)
     except Exception as exc:
         _crm_error(exc)
 

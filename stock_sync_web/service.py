@@ -22,6 +22,7 @@ DOCUMENT_TEMPLATE_PATHS = {
     "specification": ROOT_DIR / "assets" / "templates" / "specification_template.docx",
 }
 DOCUMENT_STORAGE_DIR = ROOT_DIR / "storage" / "documents"
+CRM_LOCAL_ONLY_POLICY_MESSAGE = "CRM не отправляет клиентов или изменения в 1С; создание выполняется в разделе «Клиенты»."
 
 
 class WebStockSyncService:
@@ -283,13 +284,7 @@ class WebStockSyncService:
             self._crm_refresh_lock.release()
 
     def run_due_crm_sync_jobs(self, *, limit: int = 20) -> dict[str, int]:
-        """Advance the durable CRM outbox only when safe 1C writes are available.
-
-        The current OData client has no proven ETag/If-Match contract, so an
-        automatic update is deliberately blocked rather than risking a silent
-        overwrite in 1C. A later capability probe can replace this branch with
-        the worker's conditional remote write.
-        """
+        """Block legacy CRM outbox jobs without constructing a 1C client."""
         self.db.recover_stale_crm_sync_jobs()
         result = {"processed": 0, "blocked": 0, "retried": 0, "completed": 0}
         for _ in range(max(0, int(limit))):
@@ -297,13 +292,9 @@ class WebStockSyncService:
             if not job:
                 break
             result["processed"] += 1
-            if str(job.get("operation") or "") == "create":
-                outcome = self._process_crm_create_job(job)
-                result[outcome] += 1
-                continue
             self.db.block_crm_sync_job(
                 int(job["id"]),
-                message="Автоматическая отправка отключена: публикация 1С не подтвердила поддержку условной записи.",
+                message=CRM_LOCAL_ONLY_POLICY_MESSAGE,
             )
             result["blocked"] += 1
         return {key: value for key, value in result.items() if value}

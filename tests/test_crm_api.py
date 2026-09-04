@@ -76,6 +76,23 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("В работе", data["assignment"]["tabName"])
         self.assertIsNone(data["client"]["linkedCounterpartyId"])
 
+    def test_crm_send_and_retry_are_rejected_without_creating_jobs(self) -> None:
+        """A stale CRM browser must not queue a 1C create through legacy routes."""
+        client_id = self.client.post(
+            "/api/crm/clients", json={"documentName": "Локально"}
+        ).json()["client"]["id"]
+
+        send = self.client.post(f"/api/crm/clients/{client_id}/send-to-onec")
+        retry = self.client.post(f"/api/crm/clients/{client_id}/retry-onec")
+        with self.service.db.connect() as conn:
+            jobs = conn.execute(
+                "SELECT id FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)
+            ).fetchall()
+
+        self.assertEqual(409, send.status_code)
+        self.assertEqual(409, retry.status_code)
+        self.assertEqual([], jobs)
+
     def test_non_admin_cannot_supply_another_owner_context(self) -> None:
         response = self.client.get(f"/api/crm/tabs?ownerId={self.other_id}")
 
@@ -729,7 +746,10 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual({"processed": 1, "blocked": 1}, result)
         self.assertEqual("blocked_capability", job["status"])
         self.assertEqual("blocked_capability", card["sync_status"])
-        self.assertIn("условной записи", card["sync_error"])
+        self.assertEqual(
+            "CRM не отправляет клиентов или изменения в 1С; создание выполняется в разделе «Клиенты».",
+            card["sync_error"],
+        )
 
     def test_due_sync_worker_recovers_a_stale_running_job_after_restart(self) -> None:
         """A worker crash must not leave an outbox job permanently claimed."""
@@ -772,6 +792,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(["blocked_capability", "pending"], [job["status"] for job in jobs])
         self.assertEqual("pending", card["sync_status"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_stale_create_completion_keeps_newer_local_edit_pending(self) -> None:
         """A create response must link the card without clearing a newer local edit."""
         class EditingDuringCreateOneC:
@@ -822,6 +843,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertIsNotNone(card["linked_counterparty_id"])
         self.assertEqual(["completed", "pending"], [job["status"] for job in jobs])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_preclaim_edit_keeps_explicit_create_job_before_worker_runs(self) -> None:
         """Editing a queued local lead must not replace its explicit create intent."""
         class SuccessfulOneC:
@@ -864,6 +886,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("pending", card["sync_status"])
         self.assertEqual([("create", "completed"), ("update", "pending")], [(job["operation"], job["status"]) for job in jobs])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_stale_create_completion_keeps_newer_running_job_pending(self) -> None:
         """A newer claimed update is still outstanding when an older create returns."""
         class ClaimingEditDuringCreateOneC:
@@ -930,25 +953,6 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("Экспорт владельца", workbook["Клиенты"]["A2"].value)
         self.assertEqual(2, workbook["Клиенты"].max_row)
 
-    def test_local_crm_card_can_only_be_sent_to_onec_explicitly_after_validation(self) -> None:
-        created = self.client.post("/api/crm/clients", json={"documentName": "Лид без ИНН"}).json()
-
-        response = self.client.post(f"/api/crm/clients/{created['client']['id']}/send-to-onec")
-
-        self.assertEqual(400, response.status_code)
-        self.assertIn("ИНН", response.json()["detail"])
-
-    def test_local_legal_entity_requires_a_valid_tax_identity_before_queueing_onec_create(self) -> None:
-        created = self.client.post(
-            "/api/crm/clients",
-            json={"documentName": "Лид с ошибочным ИНН", "inn": "7707", "kpp": "770701001"},
-        ).json()
-
-        response = self.client.post(f"/api/crm/clients/{created['client']['id']}/send-to-onec")
-
-        self.assertEqual(400, response.status_code)
-        self.assertIn("10 цифр", response.json()["detail"])
-
     def test_new_lead_stores_initial_contact_and_comment_in_the_owner_crm(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
@@ -995,6 +999,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(400, response.status_code)
         self.assertEqual({"crm_clients": 0, "crm_assignments": 0, "crm_contacts": 0, "crm_events": 0}, counts)
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_explicit_onec_create_persists_a_job_without_calling_onec(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
@@ -1017,6 +1022,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(self.owner_id, job["author_user_id"])
         self.assertEqual("pending", job["status"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_explicit_onec_create_persists_a_stable_idempotency_key(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
@@ -1034,6 +1040,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(1, len(jobs))
         self.assertEqual(f"crm-create-{client_id}", jobs[0]["idempotency_key"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_archived_local_lead_never_runs_an_already_queued_onec_create(self) -> None:
         """An administrative archive must cancel the pending remote-create intent."""
         class RecordingOneC:
@@ -1088,6 +1095,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertIsNone(card["linked_counterparty_id"])
         self.assertEqual("archived", card["sync_status"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_archived_local_lead_stays_unlinked_when_a_claimed_create_finishes(self) -> None:
         """A create already sent to 1C must not revive a subsequently archived lead."""
         created = self.client.post(
@@ -1125,6 +1133,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("archived", card["sync_status"])
         self.assertEqual(1, card["is_inactive"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_restoring_archived_local_lead_does_not_revive_cancelled_onec_create(self) -> None:
         """Restoring a card must require a new explicit request before 1C creation."""
         class RecordingOneC:
@@ -1173,6 +1182,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(0, fake_onec.create_calls)
         self.assertEqual("completed", job["status"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_archived_local_lead_cannot_queue_another_onec_create(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
@@ -1201,6 +1211,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual([], jobs)
         self.assertEqual("archived", card["sync_status"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_archived_local_lead_cannot_retry_a_blocked_onec_create(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
@@ -1267,6 +1278,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertIsNone(card["linked_counterparty_id"])
         self.assertEqual("archived", card["sync_status"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_create_worker_blocks_missing_submitter_onec_credentials_without_fallback(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
@@ -1297,6 +1309,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("blocked_credentials", card["sync_status"])
         self.assertIn("учётные данные", card["sync_error"].casefold())
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_submitter_can_explicitly_retry_a_blocked_credential_create_job(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
@@ -1330,6 +1343,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("pending", card["sync_status"])
         self.assertIsNone(card["sync_error"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_non_submitter_cannot_retry_a_blocked_credential_create_job(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
@@ -1346,6 +1360,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(403, response.status_code)
         self.assertIn("только автор", response.json()["detail"].casefold())
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_create_worker_blocks_revoked_submitter_onec_access(self) -> None:
         class RevokedAccessOneC:
             def find_counterparty_by_identity(self, **_: object) -> dict[str, object] | None:
@@ -1372,6 +1387,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("blocked_credentials", card["sync_status"])
         self.assertIn("доступ", card["sync_error"].casefold())
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_create_worker_recovers_an_unknown_post_without_a_second_create(self) -> None:
         class UnknownPostOneC:
             def __init__(self) -> None:
@@ -1419,6 +1435,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertIsNotNone(card["linked_counterparty_id"])
         self.assertEqual("synced", card["sync_status"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_create_worker_never_repeats_an_unknown_post_while_identity_is_not_visible(self) -> None:
         """Eventual 1C visibility after POST must not turn a timeout into a duplicate."""
         class DelayedUnknownPostOneC:
@@ -1456,6 +1473,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("pending", job["status"])
         self.assertTrue(json.loads(job["payload"])["post_uncertain"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_create_worker_blocks_a_non_retriable_validation_error(self) -> None:
         """A rejected payload is not an uncertain POST and must not be retried."""
         class ValidationRejectingOneC:
@@ -1482,6 +1500,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("blocked_validation", job["status"])
         self.assertEqual("blocked_validation", card["sync_status"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_create_worker_blocks_a_metadata_error_without_retry(self) -> None:
         """A publication capability error cannot become safe by retrying the same payload."""
         class MetadataRejectingOneC:
@@ -1506,6 +1525,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual({"processed": 1, "blocked": 1}, result)
         self.assertEqual("blocked_validation", job["status"])
 
+    @unittest.skip("Retired CRM outbound 1C workflow")
     def test_create_worker_blocks_a_preexisting_identity_for_manual_linking(self) -> None:
         class ExistingOneC:
             def __init__(self) -> None:
