@@ -364,6 +364,19 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(5000, response.json()["preference"]["position"])
         self.assertEqual("pink", listed.json()["items"][0]["primaryRowPreference"]["colorKey"])
 
+    def test_crm_lists_only_counterparties_marked_as_buyers(self) -> None:
+        buyer_id = self.client.post("/api/crm/clients", json={"documentName": "Покупатель"}).json()["client"]["id"]
+        supplier_id = self.client.post("/api/crm/clients", json={"documentName": "Поставщик"}).json()["client"]["id"]
+        self.link_primary_client(buyer_id, 701)
+        self.link_primary_client(supplier_id, 702)
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE crm_clients SET is_buyer = 0 WHERE id = ?", (supplier_id,))
+
+        response = self.client.get("/api/crm/clients?primaryOnly=true")
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual([buyer_id], [item["id"] for item in response.json()["items"]])
+
     def test_primary_color_update_accepts_latest_list_order_version_for_another_row(self) -> None:
         first = self.client.post("/api/crm/clients", json={"documentName": "Первая связанная"}).json()["client"]["id"]
         second = self.client.post("/api/crm/clients", json={"documentName": "Вторая связанная"}).json()["client"]["id"]

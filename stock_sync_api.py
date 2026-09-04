@@ -1258,6 +1258,8 @@ def list_crm_clients(
         items = []
         primary_order_version = 0
         for card in repo.list_cards_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, primary_only=primary_only):
+            if not bool(card.get("is_buyer")):
+                continue
             assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
             tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
             version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
