@@ -246,9 +246,7 @@ class CrmRepository:
             elif primary_only:
                 rows = conn.execute(
                     "SELECT crm_clients.* FROM crm_clients"
-                    + " LEFT JOIN crm_assignments a ON a.crm_client_id = crm_clients.id AND a.owner_user_id = ? AND a.archived_at IS NULL"
-                    + " LEFT JOIN crm_tabs t ON t.id = a.tab_id"
-                    + " LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id"
+                    + " LEFT JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = crm_clients.id"
                     + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
                     + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
                     (owner_id,),
@@ -771,6 +769,41 @@ class CrmRepository:
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self._get_row_preference(owner_id, tab_id, client_id)
+
+    def set_primary_row_preference_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, color_key: str | None, position: int) -> None:
+        if color_key is not None and color_key not in CRM_COLOR_KEYS:
+            raise ValueError("Выберите цвет из разрешённой палитры.")
+        self._require_owner_access(actor_id, owner_id)
+        with self.db.transaction() as conn:
+            self._require_row(
+                conn,
+                "SELECT id FROM crm_clients WHERE id = ? AND linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0",
+                (client_id,),
+                "В основной вкладке доступен только связанный с 1С клиент.",
+            )
+            conn.execute(
+                """INSERT INTO crm_primary_row_preferences(owner_user_id, crm_client_id, color_key, position, updated_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(owner_user_id, crm_client_id) DO UPDATE SET
+                     color_key = excluded.color_key, position = excluded.position,
+                     order_version = crm_primary_row_preferences.order_version + 1, updated_at = excluded.updated_at""",
+                (owner_id, client_id, color_key, position, utc_now()),
+            )
+
+    def get_primary_row_preference_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> dict[str, Any] | None:
+        self._require_owner_access(actor_id, owner_id)
+        with self.db.connect() as conn:
+            self._require_row(
+                conn,
+                "SELECT id FROM crm_clients WHERE id = ? AND linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0",
+                (client_id,),
+                "В основной вкладке доступен только связанный с 1С клиент.",
+            )
+            row = conn.execute(
+                "SELECT * FROM crm_primary_row_preferences WHERE owner_user_id = ? AND crm_client_id = ?",
+                (owner_id, client_id),
+            ).fetchone()
+        return dict(row) if row else None
 
     def reorder_client_for_actor(
         self,

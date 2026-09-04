@@ -262,6 +262,30 @@ class CrmPersistenceTest(unittest.TestCase):
         self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key=None, position=1)
         self.assertIsNone(self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"])["color_key"])
 
+    def test_primary_row_preference_is_independent_from_personal_tab_order(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        second = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Второй клиент"})
+        with self.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (801, 'onec-801', 'Первый клиент', '2026-09-04T00:00:00')")
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (802, 'onec-802', 'Второй клиент', '2026-09-04T00:00:00')")
+            conn.execute("UPDATE crm_clients SET linked_counterparty_id = ? WHERE id = ?", (801, self.client["id"]))
+            conn.execute("UPDATE crm_clients SET linked_counterparty_id = ? WHERE id = ?", (802, second["id"]))
+
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
+        self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=second["id"], tab_id=work["id"])
+        self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key="blue", position=9000)
+        self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=second["id"], color_key="green", position=1000)
+        self.repo.set_primary_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], color_key="pink", position=1000)
+        self.repo.set_primary_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=second["id"], color_key="orange", position=9000)
+
+        personal = self.repo.list_cards_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"])
+        primary = self.repo.list_cards_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, primary_only=True)
+        preference = self.repo.get_primary_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])
+
+        self.assertEqual([second["id"], self.client["id"]], [row["id"] for row in personal])
+        self.assertEqual([self.client["id"], second["id"]], [row["id"] for row in primary])
+        self.assertEqual(("pink", 1000), (preference["color_key"], preference["position"]))
+
     def test_row_preference_must_match_clients_active_personal_tab(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
         another_tab = self.repo.create_tab(self.owner_id, "Другой список")

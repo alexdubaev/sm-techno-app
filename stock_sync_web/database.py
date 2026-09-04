@@ -239,6 +239,18 @@ CREATE TABLE IF NOT EXISTS crm_row_preferences (
     FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
 );
 
+CREATE TABLE IF NOT EXISTS crm_primary_row_preferences (
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    color_key TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    order_version INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(owner_user_id, crm_client_id),
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id)
+);
+
 CREATE TABLE IF NOT EXISTS crm_audit_actions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     actor_user_id INTEGER NOT NULL,
