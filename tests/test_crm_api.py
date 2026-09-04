@@ -379,7 +379,7 @@ class CrmApiTest(unittest.TestCase):
         )
         admin_for_owner = self.client.put(
             f"/api/crm/clients/{linked}/primary-row-preference?ownerId={self.owner_id}",
-            json={"colorKey": "pink", "expectedOrderVersion": 0},
+            json={"colorKey": "pink", "expectedOrderVersion": 1},
         )
 
         self.assertEqual(400, local_denied.status_code)

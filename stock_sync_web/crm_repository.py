@@ -123,6 +123,7 @@ class CrmRepository:
             cursor = conn.execute("INSERT INTO crm_clients(name, legal_type, document_name, full_name, inn, kpp, city, crm_owner_user_id, sync_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)", (document_name, values.get("legal_type") or "legal_entity", document_name, str(values.get("full_name") or document_name), values.get("inn") or None, values.get("kpp") or None, values.get("city") or None, owner_id, now, now))
             client_id = int(cursor.lastrowid)
             assignment_cursor = conn.execute("INSERT INTO crm_assignments(owner_user_id, crm_client_id, tab_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, int(work["id"]), now, now))
+            self._append_personal_preference(conn, owner_id, int(work["id"]), client_id)
             if initial_contact.get("name", "").strip():
                 conn.execute("INSERT INTO crm_contacts(owner_user_id, crm_client_id, name, email, phone, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)", (owner_id, client_id, initial_contact["name"].strip(), initial_contact.get("email", "").strip() or None, initial_contact.get("phone", "").strip() or None, now, now))
             if initial_comment.strip():
@@ -244,13 +245,19 @@ class CrmRepository:
                     (owner_id, tab_id),
                 ).fetchall()
             elif primary_only:
-                rows = conn.execute(
-                    "SELECT crm_clients.* FROM crm_clients"
-                    + " LEFT JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = crm_clients.id"
-                    + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
-                    + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
-                    (owner_id,),
-                ).fetchall()
+                # Imported cards are shared, but each owner's visual placement
+                # is private.  Materialize a missing owner/card preference only
+                # when that owner opens the primary list; 1C synchronization does
+                # not write CRM presentation state.
+                with self.db.transaction() as write_conn:
+                    self._ensure_primary_preferences(write_conn, owner_id)
+                    rows = write_conn.execute(
+                        "SELECT crm_clients.* FROM crm_clients"
+                        + " JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = crm_clients.id"
+                        + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
+                        + " ORDER BY p.position, crm_clients.name COLLATE NOCASE",
+                        (owner_id,),
+                    ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT crm_clients.* FROM crm_clients"
@@ -425,6 +432,7 @@ class CrmRepository:
                 "UPDATE crm_sync_state SET version = ?, updated_at = ? WHERE crm_client_id = ?",
                 (next_version, now, client_id),
             )
+            self._ensure_primary_preferences(conn, owner_id)
             self._audit(conn, actor_id, owner_id, client_id, "link_existing_counterparty", str(counterparty["onec_key"]))
         card = self.db.get_crm_client(client_id)
         if not card:
@@ -632,6 +640,7 @@ class CrmRepository:
             else:
                 cursor = conn.execute("INSERT INTO crm_assignments(owner_user_id, crm_client_id, tab_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, tab_id, now, now))
                 row = conn.execute("SELECT * FROM crm_assignments WHERE id = ?", (cursor.lastrowid,)).fetchone()
+            self._append_personal_preference(conn, owner_id, tab_id, client_id)
         return dict(row)
 
     def _actor_is_admin(self, actor_id: int) -> bool:
@@ -649,13 +658,12 @@ class CrmRepository:
             if current["tab_id"] == tab_id:
                 return dict(current)
             preference = conn.execute("SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, current["tab_id"], client_id)).fetchone()
-            if preference:
-                conn.execute("""INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, order_version, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_user_id, tab_id, crm_client_id)
-                    DO UPDATE SET color_key = excluded.color_key, position = excluded.position, order_version = crm_row_preferences.order_version + 1, updated_at = excluded.updated_at""", (owner_id, tab_id, client_id, preference["color_key"], preference["position"], preference["order_version"], utc_now()))
-                conn.execute("DELETE FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, current["tab_id"], client_id))
             now = utc_now()
             conn.execute("UPDATE crm_assignments SET tab_id = ?, updated_at = ? WHERE id = ?", (tab_id, now, current["id"]))
+            self._append_personal_preference(
+                conn, owner_id, tab_id, client_id, color_key=preference["color_key"] if preference else None,
+            )
+            conn.execute("DELETE FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, current["tab_id"], client_id))
             conn.execute("INSERT INTO crm_events(owner_user_id, crm_client_id, author_user_id, kind, body, created_at, updated_at) VALUES (?, ?, ?, 'move', ?, ?, ?)", (owner_id, client_id, actor_id, f"Перемещено: {current['tab_name']} → {target['name']}", now, now))
             row = conn.execute("SELECT * FROM crm_assignments WHERE id = ?", (current["id"],)).fetchone()
         return dict(row)
@@ -739,6 +747,34 @@ class CrmRepository:
                 raise PermissionError("Нельзя открывать чужую CRM.")
         return self._list_reminders(owner_id)
 
+    @staticmethod
+    def _final_position(conn: sqlite3.Connection, table: str, owner_id: int, client_id: int, tab_id: int | None = None) -> int:
+        where = "owner_user_id = ? AND crm_client_id != ?"
+        params: list[Any] = [owner_id, client_id]
+        if tab_id is not None:
+            where += " AND tab_id = ?"
+            params.append(tab_id)
+        row = conn.execute(f"SELECT COALESCE(MAX(position), 0) AS value FROM {table} WHERE {where}", params).fetchone()
+        return int(row["value"] or 0) + 1000
+
+    def _append_personal_preference(
+        self, conn: sqlite3.Connection, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None = None
+    ) -> None:
+        existing = conn.execute(
+            "SELECT color_key FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?",
+            (owner_id, tab_id, client_id),
+        ).fetchone()
+        final_color = color_key if color_key is not None else (existing["color_key"] if existing else None)
+        position = self._final_position(conn, "crm_row_preferences", owner_id, client_id, tab_id)
+        conn.execute(
+            """INSERT INTO crm_row_preferences(owner_user_id, tab_id, crm_client_id, color_key, position, order_version, updated_at)
+               VALUES (?, ?, ?, ?, ?, 0, ?)
+               ON CONFLICT(owner_user_id, tab_id, crm_client_id) DO UPDATE SET
+                 color_key = excluded.color_key, position = excluded.position,
+                 order_version = crm_row_preferences.order_version + 1, updated_at = excluded.updated_at""",
+            (owner_id, tab_id, client_id, final_color, position, utc_now()),
+        )
+
     def _set_row_preference(self, owner_id: int, tab_id: int, client_id: int, *, color_key: str | None, position: int) -> None:
         if color_key is not None and color_key not in CRM_COLOR_KEYS:
             raise ValueError("Выберите цвет из разрешённой палитры.")
@@ -771,35 +807,131 @@ class CrmRepository:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self._get_row_preference(owner_id, tab_id, client_id)
 
-    def set_primary_row_preference_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, color_key: str | None, position: int) -> None:
+    def _ensure_primary_preferences(self, conn: sqlite3.Connection, owner_id: int) -> None:
+        """Append every newly visible linked card to one owner's primary order."""
+        missing = conn.execute(
+            """SELECT c.id FROM crm_clients c
+               LEFT JOIN crm_primary_row_preferences p
+                 ON p.owner_user_id = ? AND p.crm_client_id = c.id
+               WHERE c.linked_counterparty_id IS NOT NULL AND COALESCE(c.is_inactive, 0) = 0
+                 AND p.crm_client_id IS NULL
+               ORDER BY c.id""",
+            (owner_id,),
+        ).fetchall()
+        for row in missing:
+            client_id = int(row["id"])
+            conn.execute(
+                """INSERT INTO crm_primary_row_preferences(owner_user_id, crm_client_id, color_key, position, order_version, updated_at)
+                   VALUES (?, ?, NULL, ?, 0, ?)""",
+                (owner_id, client_id, self._final_position(conn, "crm_primary_row_preferences", owner_id, client_id), utc_now()),
+            )
+
+    def _require_primary_client(self, conn: sqlite3.Connection, client_id: int) -> None:
+        self._require_row(
+            conn,
+            "SELECT id FROM crm_clients WHERE id = ? AND linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0",
+            (client_id,),
+            "В основной вкладке доступен только связанный с 1С клиент.",
+        )
+
+    def set_primary_row_color_for_actor(
+        self,
+        *,
+        actor_id: int,
+        owner_id: int,
+        client_id: int,
+        color_key: str | None,
+        expected_order_version: int,
+    ) -> dict[str, Any]:
         if color_key is not None and color_key not in CRM_COLOR_KEYS:
             raise ValueError("Выберите цвет из разрешённой палитры.")
         self._require_owner_access(actor_id, owner_id)
         with self.db.transaction() as conn:
-            self._require_row(
+            self._require_primary_client(conn, client_id)
+            self._ensure_primary_preferences(conn, owner_id)
+            preference = self._require_row(
                 conn,
-                "SELECT id FROM crm_clients WHERE id = ? AND linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0",
-                (client_id,),
-                "В основной вкладке доступен только связанный с 1С клиент.",
+                "SELECT * FROM crm_primary_row_preferences WHERE owner_user_id = ? AND crm_client_id = ?",
+                (owner_id, client_id),
+                "Настройка основной строки не найдена.",
             )
+            if int(expected_order_version) != int(preference["order_version"]):
+                raise ValueError("Конфликт версии порядка. Загрузите актуальный список.")
             conn.execute(
-                """INSERT INTO crm_primary_row_preferences(owner_user_id, crm_client_id, color_key, position, updated_at)
-                   VALUES (?, ?, ?, ?, ?)
-                   ON CONFLICT(owner_user_id, crm_client_id) DO UPDATE SET
-                     color_key = excluded.color_key, position = excluded.position,
-                     order_version = crm_primary_row_preferences.order_version + 1, updated_at = excluded.updated_at""",
-                (owner_id, client_id, color_key, position, utc_now()),
+                """UPDATE crm_primary_row_preferences
+                   SET color_key = ?, order_version = order_version + 1, updated_at = ?
+                   WHERE owner_user_id = ? AND crm_client_id = ?""",
+                (color_key, utc_now(), owner_id, client_id),
             )
+            preference = conn.execute(
+                "SELECT * FROM crm_primary_row_preferences WHERE owner_user_id = ? AND crm_client_id = ?",
+                (owner_id, client_id),
+            ).fetchone()
+        return dict(preference)
+
+    def reorder_primary_client_for_actor(
+        self,
+        *,
+        actor_id: int,
+        owner_id: int,
+        client_id: int,
+        before_client_id: int | None,
+        after_client_id: int | None,
+        expected_order_version: int,
+    ) -> dict[str, Any]:
+        """Atomically place a linked card between validated primary-list neighbors."""
+        self._require_owner_access(actor_id, owner_id)
+        with self.db.transaction() as conn:
+            self._require_primary_client(conn, client_id)
+            self._ensure_primary_preferences(conn, owner_id)
+            rows = conn.execute(
+                """SELECT c.id AS crm_client_id, p.color_key, p.position, p.order_version
+                   FROM crm_clients c
+                   JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = c.id
+                   WHERE c.linked_counterparty_id IS NOT NULL AND COALESCE(c.is_inactive, 0) = 0
+                   ORDER BY p.position, c.name COLLATE NOCASE""",
+                (owner_id,),
+            ).fetchall()
+            by_id = {int(row["crm_client_id"]): row for row in rows}
+            version = max((int(row["order_version"]) for row in rows), default=0)
+            if int(expected_order_version) != version:
+                raise ValueError("Конфликт версии порядка. Загрузите актуальный список.")
+            if client_id not in by_id:
+                raise ValueError("Клиент отсутствует в основной вкладке.")
+            if before_client_id == client_id or after_client_id == client_id or before_client_id == after_client_id:
+                raise ValueError("Некорректные соседи для перемещения.")
+            ordered_ids = [int(row["crm_client_id"]) for row in rows if int(row["crm_client_id"]) != client_id]
+            for neighbor_id in (before_client_id, after_client_id):
+                if neighbor_id is not None and neighbor_id not in ordered_ids:
+                    raise ValueError("Соседняя строка не принадлежит основной вкладке.")
+            if before_client_id is not None and after_client_id is not None:
+                before_index = ordered_ids.index(before_client_id)
+                after_index = ordered_ids.index(after_client_id)
+                if after_index + 1 != before_index:
+                    raise ValueError("Соседние строки больше не образуют место вставки.")
+                insert_at = before_index
+            elif before_client_id is not None:
+                insert_at = ordered_ids.index(before_client_id)
+            elif after_client_id is not None:
+                insert_at = ordered_ids.index(after_client_id) + 1
+            else:
+                insert_at = len(ordered_ids)
+            ordered_ids.insert(insert_at, client_id)
+            next_version = version + 1
+            now = utc_now()
+            for position, ordered_client_id in enumerate(ordered_ids, start=1):
+                conn.execute(
+                    """UPDATE crm_primary_row_preferences
+                       SET position = ?, order_version = ?, updated_at = ?
+                       WHERE owner_user_id = ? AND crm_client_id = ?""",
+                    (position * 1000, next_version, now, owner_id, ordered_client_id),
+                )
+        return {"client_ids": ordered_ids, "order_version": next_version}
 
     def get_primary_row_preference_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> dict[str, Any] | None:
         self._require_owner_access(actor_id, owner_id)
         with self.db.connect() as conn:
-            self._require_row(
-                conn,
-                "SELECT id FROM crm_clients WHERE id = ? AND linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0",
-                (client_id,),
-                "В основной вкладке доступен только связанный с 1С клиент.",
-            )
+            self._require_primary_client(conn, client_id)
             row = conn.execute(
                 "SELECT * FROM crm_primary_row_preferences WHERE owner_user_id = ? AND crm_client_id = ?",
                 (owner_id, client_id),
@@ -934,6 +1066,7 @@ class CrmRepository:
             target = conn.execute("SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (assignment["tab_id"], owner_id)).fetchone()
             target_tab_id = int(target["id"]) if target else int(self._ensure_work_tab(owner_id)["id"])
             conn.execute("UPDATE crm_assignments SET tab_id = ?, archived_at = NULL, archived_by_user_id = NULL, archive_reason = NULL, updated_at = ? WHERE id = ?", (target_tab_id, now, assignment["id"]))
+            self._append_personal_preference(conn, owner_id, target_tab_id, client_id)
             conn.execute("UPDATE crm_clients SET is_inactive = 0, sync_status = 'local', sync_error = NULL, updated_at = ? WHERE id = ?", (now, client_id))
             conn.execute("UPDATE crm_sync_state SET version = ?, updated_at = ? WHERE crm_client_id = ?", (next_version, now, client_id))
             self._audit(conn, actor_id, owner_id, client_id, "restore_local_client", "")
@@ -957,6 +1090,7 @@ class CrmRepository:
             if not target:
                 target_tab_id = self._ensure_work_tab(owner_id)["id"]
             conn.execute("UPDATE crm_assignments SET tab_id = ?, archived_at = NULL, archived_by_user_id = NULL, archive_reason = NULL, updated_at = ? WHERE id = ?", (target_tab_id, now, assignment["id"]))
+            self._append_personal_preference(conn, owner_id, int(target_tab_id), client_id)
             self._audit(conn, actor_id, owner_id, client_id, "restore_assignment", "")
 
     def _audit(self, conn: sqlite3.Connection, actor_id: int, owner_id: int, client_id: int, action: str, reason: str) -> None:

@@ -516,7 +516,15 @@ def _crm_owner(repo: CrmRepository, current_user: dict[str, Any], requested_owne
     raise AssertionError("unreachable")
 
 
-def _serialize_crm_client(row: dict[str, Any], assignment: dict[str, Any] | None = None, tab: dict[str, Any] | None = None, *, version: int | None = None, row_preference: dict[str, Any] | None = None) -> dict[str, Any]:
+def _serialize_crm_client(
+    row: dict[str, Any],
+    assignment: dict[str, Any] | None = None,
+    tab: dict[str, Any] | None = None,
+    *,
+    version: int | None = None,
+    row_preference: dict[str, Any] | None = None,
+    primary_row_preference: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
         "name": row.get("name") or "",
@@ -537,6 +545,7 @@ def _serialize_crm_client(row: dict[str, Any], assignment: dict[str, Any] | None
         "updatedAt": row.get("updated_at") or "",
         "assignment": _serialize_crm_assignment(assignment, tab) if assignment else None,
         "rowPreference": _serialize_crm_row_preference(row_preference) if row_preference else None,
+        "primaryRowPreference": _serialize_crm_primary_row_preference(primary_row_preference) if primary_row_preference else None,
     }
 
 
@@ -1055,6 +1064,15 @@ def _serialize_crm_row_preference(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _serialize_crm_primary_row_preference(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "clientId": int(row["crm_client_id"]),
+        "colorKey": row.get("color_key"),
+        "position": int(row.get("position") or 0),
+        "orderVersion": int(row.get("order_version") or 0),
+    }
+
+
 def _crm_client_values(payload: dict[str, Any]) -> dict[str, Any]:
     fields = {
         "documentName": "document_name", "fullName": "full_name", "inn": "inn", "kpp": "kpp",
@@ -1144,6 +1162,32 @@ def reorder_crm_tab(
         _crm_error(exc)
 
 
+@app.post("/api/crm/primary/reorder")
+def reorder_primary_crm_clients(
+    payload: dict[str, Any],
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        try:
+            client_id = int(payload.get("clientId"))
+            expected_order_version = int(payload.get("expectedOrderVersion"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите клиента и ожидаемую версию порядка.") from exc
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        result = repo.reorder_primary_client_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            before_client_id=int(payload["beforeClientId"]) if payload.get("beforeClientId") is not None else None,
+            after_client_id=int(payload["afterClientId"]) if payload.get("afterClientId") is not None else None,
+            expected_order_version=expected_order_version,
+        )
+        return {"clientIds": result["client_ids"], "orderVersion": result["order_version"]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
 @app.get("/api/crm/clients")
 def list_crm_clients(
     owner_id: int | None = Query(None, alias="ownerId"),
@@ -1159,7 +1203,8 @@ def list_crm_clients(
             tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
             version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
             preference = repo.get_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"]), client_id=int(card["id"])) if assignment else None
-            items.append(_serialize_crm_client(card, assignment, tab, version=version, row_preference=preference))
+            primary_preference = repo.get_primary_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"])) if primary_only else None
+            items.append(_serialize_crm_client(card, assignment, tab, version=version, row_preference=preference, primary_row_preference=primary_preference))
         return {"ownerId": resolved_owner_id, "items": items}
     except Exception as exc:
         _crm_error(exc)
@@ -1531,6 +1576,29 @@ def save_crm_row_preference(client_id: int, payload: dict[str, Any], owner_id: i
         repo.set_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id, color_key=color_key, position=position)
         preference = repo.get_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id)
         return {"preference": _serialize_crm_row_preference(preference or {})}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.put("/api/crm/clients/{client_id}/primary-row-preference")
+def save_crm_primary_row_preference(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        color_key = payload.get("colorKey")
+        if color_key is not None:
+            color_key = str(color_key)
+        try:
+            expected_order_version = int(payload.get("expectedOrderVersion"))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Укажите ожидаемую версию порядка.") from exc
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        preference = repo.set_primary_row_color_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_id=client_id,
+            color_key=color_key,
+            expected_order_version=expected_order_version,
+        )
+        return {"preference": _serialize_crm_primary_row_preference(preference or {})}
     except Exception as exc:
         _crm_error(exc)
 

@@ -308,8 +308,8 @@ class CrmPersistenceTest(unittest.TestCase):
         self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=second["id"], tab_id=work["id"])
         self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key="blue", position=9000)
         self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=second["id"], color_key="green", position=1000)
-        self.repo.set_primary_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], color_key="pink", position=1000)
-        self.repo.set_primary_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=second["id"], color_key="orange", position=9000)
+        self.repo.set_primary_row_color_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], color_key="pink", expected_order_version=0)
+        self.repo.set_primary_row_color_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=second["id"], color_key="orange", expected_order_version=0)
 
         personal = self.repo.list_cards_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"])
         primary = self.repo.list_cards_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, primary_only=True)
