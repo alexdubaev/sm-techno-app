@@ -1392,10 +1392,10 @@ class WebDatabase(Database):
         return synced_count
 
     def merge_crm_client_fields_from_counterparty(self, client_id: int, remote: dict[str, Any]) -> None:
-        tracked = ("document_name", "email", "phone")
+        tracked = ("document_name", "email", "phone", "legal_address")
         now = utc_now()
         with self.transaction() as conn:
-            card = conn.execute("SELECT document_name, email, phone FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+            card = conn.execute("SELECT document_name, email, phone, legal_address FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
             state = conn.execute("SELECT version, last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)).fetchone()
             if card is None or state is None:
                 raise ValueError("Для объединения требуется синхронизированная CRM-карточка.")
@@ -1439,10 +1439,18 @@ class WebDatabase(Database):
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def resolve_crm_sync_conflict_with_remote(
-        self, client_id: int, conflict_id: int, *, expected_updated_at: str, resolved_by_user_id: int
+    def resolve_crm_sync_conflict(
+        self,
+        client_id: int,
+        conflict_id: int,
+        *,
+        choice: str,
+        expected_updated_at: str,
+        resolved_by_user_id: int,
     ) -> dict[str, Any]:
         tracked = {"document_name", "email", "phone"}
+        if choice not in {"local", "remote"}:
+            raise ValueError("Выберите локальное значение или значение из 1С.")
         now = utc_now()
         with self.transaction() as conn:
             conflict = conn.execute(
@@ -1463,29 +1471,39 @@ class WebDatabase(Database):
             try:
                 snapshot = json.loads(str(state["last_synced_snapshot"] or "{}"))
                 remote_value = json.loads(str(conflict["remote_value_json"] or "null"))
+                local_value = json.loads(str(conflict["local_value_json"] or "null"))
             except json.JSONDecodeError as exc:
                 raise ValueError("Конфликт синхронизации содержит некорректное значение.") from exc
-            if not isinstance(remote_value, str):
+            if not isinstance(remote_value, str) or not isinstance(local_value, str):
                 raise ValueError("Конфликт синхронизации содержит некорректное значение.")
             snapshot[field_name] = remote_value
-            conn.execute(
-                f"UPDATE crm_clients SET {field_name} = ?, updated_at = ? WHERE id = ?",
-                (remote_value, now, client_id),
-            )
+            resolved_value = remote_value if choice == "remote" else local_value
+            if choice == "remote":
+                conn.execute(
+                    f"UPDATE crm_clients SET {field_name} = ?, updated_at = ? WHERE id = ?",
+                    (remote_value, now, client_id),
+                )
             conn.execute(
                 """UPDATE crm_sync_conflicts
-                   SET status = 'resolved_remote', resolved_value_json = ?, resolved_by_user_id = ?,
+                   SET status = ?, resolved_value_json = ?, resolved_by_user_id = ?,
                        resolved_at = ?, updated_at = ?
                    WHERE id = ?""",
-                (json.dumps(remote_value, ensure_ascii=False), resolved_by_user_id, now, now, conflict_id),
+                (f"resolved_{choice}", json.dumps(resolved_value, ensure_ascii=False), resolved_by_user_id, now, now, conflict_id),
             )
             remaining = conn.execute(
                 "SELECT 1 FROM crm_sync_conflicts WHERE crm_client_id = ? AND status = 'open' LIMIT 1",
                 (client_id,),
             ).fetchone()
+            if remaining:
+                sync_status, sync_error = "conflict", ""
+            elif choice == "remote":
+                sync_status, sync_error = "synced", ""
+            else:
+                sync_status = "blocked_capability"
+                sync_error = "Локальное значение сохранено и ожидает безопасной условной записи в 1С."
             conn.execute(
-                "UPDATE crm_clients SET sync_status = ?, sync_error = '', updated_at = ? WHERE id = ?",
-                ("conflict" if remaining else "synced", now, client_id),
+                "UPDATE crm_clients SET sync_status = ?, sync_error = ?, updated_at = ? WHERE id = ?",
+                (sync_status, sync_error, now, client_id),
             )
             conn.execute(
                 "UPDATE crm_sync_state SET last_synced_snapshot = ?, updated_at = ? WHERE crm_client_id = ?",
@@ -1510,11 +1528,12 @@ class WebDatabase(Database):
                 raise ValueError("Клиент не найден.")
 
             if synced:
-                snapshot_row = conn.execute("SELECT document_name, email, phone FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+                snapshot_row = conn.execute("SELECT document_name, email, phone, legal_address FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
                 snapshot = json.dumps({
                     "document_name": snapshot_row["document_name"] or "",
                     "email": snapshot_row["email"] or "",
                     "phone": snapshot_row["phone"] or "",
+                    "legal_address": snapshot_row["legal_address"] or "",
                 }, ensure_ascii=False, sort_keys=True)
                 conn.execute(
                     """INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at)

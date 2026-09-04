@@ -243,7 +243,25 @@ class WebStockSyncService:
         )
         rows = client.list_counterparties()
         count = self.db.upsert_counterparties(rows)
-        self.db.upsert_crm_clients_from_counterparties(rows)
+        legacy_rows: list[dict[str, Any]] = []
+        for row in rows:
+            onec_key = str(row.get("onec_key") or "").strip()
+            counterparty = self.db.get_counterparty_by_onec_key(onec_key) if onec_key else None
+            card = self.db.get_crm_client_by_counterparty_id(int(counterparty["id"])) if counterparty else None
+            if not card:
+                legacy_rows.append(row)
+                continue
+            try:
+                self.db.merge_crm_client_fields_from_counterparty(int(card["id"]), row)
+            except ValueError:
+                legacy_rows.append(row)
+        if legacy_rows:
+            self.db.upsert_crm_clients_from_counterparties(legacy_rows)
+            for row in legacy_rows:
+                counterparty = self.db.get_counterparty_by_onec_key(str(row.get("onec_key") or ""))
+                card = self.db.get_crm_client_by_counterparty_id(int(counterparty["id"])) if counterparty else None
+                if card:
+                    self.db.update_crm_client_sync_state(int(card["id"]), sync_status="synced", synced=True)
         return count
 
     def run_due_crm_sync_jobs(self, *, limit: int = 20) -> dict[str, int]:

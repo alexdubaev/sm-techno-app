@@ -57,7 +57,7 @@ class CrmPersistenceTest(unittest.TestCase):
         with self.db.connect() as conn:
             state = conn.execute("SELECT last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (self.client["id"],)).fetchone()
 
-        self.assertEqual('{"document_name": "Потенциальный клиент", "email": "base@example.test", "phone": ""}', state["last_synced_snapshot"])
+        self.assertEqual('{"document_name": "Потенциальный клиент", "email": "base@example.test", "legal_address": "", "phone": ""}', state["last_synced_snapshot"])
 
     def test_three_way_merge_preserves_local_conflict_and_applies_remote_only_field(self) -> None:
         with self.db.transaction() as conn:
