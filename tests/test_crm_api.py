@@ -832,6 +832,56 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("pending", job["status"])
         self.assertTrue(json.loads(job["payload"])["post_uncertain"])
 
+    def test_create_worker_blocks_a_non_retriable_validation_error(self) -> None:
+        """A rejected payload is not an uncertain POST and must not be retried."""
+        class ValidationRejectingOneC:
+            def find_counterparty_by_identity(self, **_: object) -> None:
+                return None
+
+            def create_counterparty(self, _: dict[str, object]) -> dict[str, object]:
+                raise OneCClientError("1С вернула HTTP 400: некорректные реквизиты")
+
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Некорректные реквизиты", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        self.service.build_user_client = lambda **_: ValidationRejectingOneC()  # type: ignore[method-assign]
+
+        result = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute("SELECT status, available_at FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchone()
+            card = conn.execute("SELECT sync_status FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+
+        self.assertEqual({"processed": 1, "blocked": 1}, result)
+        self.assertEqual("blocked_validation", job["status"])
+        self.assertEqual("blocked_validation", card["sync_status"])
+
+    def test_create_worker_blocks_a_metadata_error_without_retry(self) -> None:
+        """A publication capability error cannot become safe by retrying the same payload."""
+        class MetadataRejectingOneC:
+            def find_counterparty_by_identity(self, **_: object) -> None:
+                return None
+
+            def create_counterparty(self, _: dict[str, object]) -> dict[str, object]:
+                raise OneCClientError("В OData metadata Контрагенты не найдено обязательное поле")
+
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Неполная публикация", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        self.service.build_user_client = lambda **_: MetadataRejectingOneC()  # type: ignore[method-assign]
+
+        result = self.service.run_due_crm_sync_jobs()
+        with self.service.db.connect() as conn:
+            job = conn.execute("SELECT status FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchone()
+
+        self.assertEqual({"processed": 1, "blocked": 1}, result)
+        self.assertEqual("blocked_validation", job["status"])
+
     def test_create_worker_blocks_a_preexisting_identity_for_manual_linking(self) -> None:
         class ExistingOneC:
             def __init__(self) -> None:

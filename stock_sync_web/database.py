@@ -1004,7 +1004,7 @@ class WebDatabase(Database):
         message: str,
         status: str = "blocked_capability",
     ) -> None:
-        if status not in {"blocked_capability", "blocked_duplicate", "blocked_credentials"}:
+        if status not in {"blocked_capability", "blocked_duplicate", "blocked_credentials", "blocked_validation"}:
             raise ValueError("Недопустимый статус задания синхронизации.")
         now = utc_now()
         with self.transaction() as conn:

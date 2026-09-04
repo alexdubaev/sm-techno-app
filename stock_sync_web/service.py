@@ -330,6 +330,13 @@ class WebStockSyncService:
                     status="blocked_credentials",
                 )
                 return "blocked"
+            if self._is_onec_non_retriable_error(exc):
+                self.db.block_crm_sync_job(
+                    job_id,
+                    message=f"1С отклонила данные для отправки: {exc}",
+                    status="blocked_validation",
+                )
+                return "blocked"
             recovered = self._find_counterparty_by_identity(onec_client, card)
             if recovered:
                 self._complete_crm_create_job(job_id, client_id, recovered, card)
@@ -889,6 +896,11 @@ class WebStockSyncService:
     def _is_onec_access_denied(exc: OneCClientError) -> bool:
         message = str(exc).casefold()
         return "http 401" in message or "http 403" in message
+
+    @staticmethod
+    def _is_onec_non_retriable_error(exc: OneCClientError) -> bool:
+        message = str(exc).casefold()
+        return "http 400" in message or "metadata" in message or "метадан" in message
 
     def _send_crm_client_to_onec(
         self,
