@@ -14,6 +14,7 @@
   CrmReminder,
   CrmClient,
   CrmRowPreference,
+  CrmSyncConflict,
   CrmTab,
   CrmWorkspaceClient,
   GeneratedDocument,
@@ -265,6 +266,11 @@ export type CrmClientsQuery = {
   ownerId?: number;
   tabId?: number;
   primaryOnly?: boolean;
+};
+
+export type ResolveCrmSyncConflictPayload = {
+  choice: "local" | "remote";
+  expectedUpdatedAt: string;
 };
 
 export type CreateCommercialOfferPayload = {
@@ -797,6 +803,31 @@ export async function fetchCrmAudit(clientId: number, ownerId?: number): Promise
     `/api/crm/clients/${clientId}/audit${buildCrmQuery({ ownerId })}`,
   );
   return result.items;
+}
+
+export async function fetchCrmSyncConflicts(clientId: number, ownerId?: number): Promise<CrmSyncConflict[]> {
+  const result = await requestJson<{ items: CrmSyncConflict[] }>(
+    `/api/crm/clients/${clientId}/sync-conflicts${buildCrmQuery({ ownerId })}`,
+  );
+  return result.items;
+}
+
+export async function resolveCrmSyncConflict(
+  clientId: number,
+  conflictId: number,
+  payload: ResolveCrmSyncConflictPayload,
+  ownerId?: number,
+): Promise<CrmWorkspaceClient> {
+  const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients/${clientId}/sync-conflicts/${conflictId}/resolve${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось разрешить конфликт синхронизации.",
+  );
+  return result.client;
 }
 
 export async function createCrmEvent(

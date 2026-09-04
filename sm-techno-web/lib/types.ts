@@ -184,12 +184,22 @@ export type CrmWorkspaceClient = {
   phone: string;
   notes: string;
   linkedCounterpartyId: number | null;
-  syncStatus: "local" | "synced" | "sync_error" | "pending" | "blocked_capability" | "blocked_credentials" | "archived";
+  syncStatus: "local" | "synced" | "sync_error" | "pending" | "blocked_capability" | "blocked_credentials" | "conflict" | "archived";
   syncError: string;
   createdAt: string;
   updatedAt: string;
   assignment: CrmAssignment | null;
   rowPreference?: CrmRowPreference | null;
+};
+
+export type CrmSyncConflict = {
+  id: number;
+  fieldName: string;
+  baseValue: string;
+  localValue: string;
+  remoteValue: string;
+  sourceVersion: number;
+  updatedAt: string;
 };
 
 export type CrmLinkCandidate = {

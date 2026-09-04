@@ -12,6 +12,7 @@ import {
   createCrmReminder,
   fetchCrmClients,
   fetchCrmAudit,
+  fetchCrmSyncConflicts,
   fetchCrmLinkCandidates,
   fetchCrmContacts,
   fetchCrmEvents,
@@ -20,6 +21,7 @@ import {
   fetchUsers,
   moveCrmClient,
   removeCrmAssignment,
+  resolveCrmSyncConflict,
   retryCrmOnecCreate,
   restoreLocalCrmClient,
   saveCrmRowPreference,
@@ -27,10 +29,10 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import type { AppUser, CrmAuditAction, CrmContact, CrmEvent, CrmLinkCandidate, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/types";
+import type { AppUser, CrmAuditAction, CrmContact, CrmEvent, CrmLinkCandidate, CrmReminder, CrmSyncConflict, CrmTab, CrmWorkspaceClient } from "@/lib/types";
 
 type ActiveTab = "primary" | number;
-type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "blocked_credentials" | "sync_error";
+type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "blocked_credentials" | "conflict" | "sync_error";
 
 const PRIMARY_TAB: { id: ActiveTab; name: string; systemKind: "primary" } = {
   id: "primary",
@@ -53,7 +55,7 @@ const ROW_COLORS = [
   ["gray", "Серый", "#E5E7EB"],
 ] as const;
 
-const colorByKey = new Map(ROW_COLORS.map(([key, _label, color]) => [key, color]));
+const colorByKey = new Map<string, string>(ROW_COLORS.map(([key, _label, color]) => [key, color]));
 
 function emptyClientForm() {
   return { documentName: "", city: "", contactPerson: "", email: "", phone: "", notes: "" };
@@ -220,7 +222,7 @@ export function CrmWorkspace() {
     setIsExporting(true);
     setError(null);
     try {
-      await downloadCrmExportFile({ scope, tabId: scope === "tab" ? activeTab : undefined, ownerId });
+      await downloadCrmExportFile({ scope, tabId: activeTab === "primary" ? undefined : activeTab, ownerId });
       setNotice(scope === "tab" ? "Выгрузка текущей вкладки началась." : "Выгрузка всех клиентов началась.");
     } catch (cause) {
       setError(errorMessage(cause, "Не удалось выгрузить CRM в Excel."));
@@ -277,7 +279,7 @@ export function CrmWorkspace() {
               <label className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)]">
                 <span>Синхронизация</span>
                 <select value={syncFilter} onChange={(event) => setSyncFilter(event.target.value as SyncFilter)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]">
-                  <option value="all">Все</option><option value="synced">Связанные с 1С</option><option value="local">Локальные</option><option value="pending">Ожидают отправки</option><option value="blocked_capability">Заблокировано</option><option value="blocked_credentials">Нужны учётные данные 1С</option><option value="sync_error">С ошибкой</option>
+                  <option value="all">Все</option><option value="synced">Связанные с 1С</option><option value="local">Локальные</option><option value="pending">Ожидают отправки</option><option value="blocked_capability">Заблокировано</option><option value="blocked_credentials">Нужны учётные данные 1С</option><option value="conflict">Конфликт</option><option value="sync_error">С ошибкой</option>
                 </select>
               </label>
             </div>
@@ -289,7 +291,7 @@ export function CrmWorkspace() {
       </div>
 
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
-      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} onChanged={() => void loadWorkspace(activeTab, { silent: true })} onClose={() => setSelectedClient(null)} /> : null}
+      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canResolveSyncConflicts={isAdmin || ownerId === user.id} onChanged={() => void loadWorkspace(activeTab, { silent: true })} onClose={() => setSelectedClient(null)} /> : null}
     </section>
   );
 }
@@ -314,24 +316,25 @@ type RowProps = { activeTab: ActiveTab; client: CrmWorkspaceClient; color: strin
 
 function Company({ client, onOpenAssignment }: { client: CrmWorkspaceClient; onOpenAssignment: (tab: ActiveTab) => void }) { return <div><div className="font-semibold">{client.documentName || client.fullName || client.name}</div><div className="mt-1 flex flex-wrap items-center gap-1.5"><span className="text-[10px] text-[var(--text-secondary)]">ИНН {client.inn || "не указан"}</span>{client.linkedCounterpartyId ? <button type="button" onClick={() => onOpenAssignment(client.assignment?.tabId ?? "primary")} className="rounded-full border border-[var(--border-color)] bg-white/75 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand-dark)] hover:bg-white">{client.assignment?.tabName || "Без вкладки"}</button> : null}</div></div>; }
 function Contact({ client }: { client: CrmWorkspaceClient }) { return <div className="space-y-0.5"><div>{client.phone || "Телефон не указан"}</div><div className="text-[11px] text-[var(--text-secondary)]">{client.email || "Почта не указана"}</div></div>; }
-function Status({ status }: { status: CrmWorkspaceClient["syncStatus"] }) { const labels = { synced: "1С", local: "Локальный", pending: "Ожидает отправки", blocked_capability: "Отправка заблокирована", blocked_credentials: "Нужны учётные данные 1С", sync_error: "Ошибка", archived: "В архиве" }; const tone = status === "synced" ? "bg-[#DCFCE7] text-[#166534]" : status === "pending" ? "bg-[#FEF3C7] text-[#92400E]" : status === "sync_error" || status === "blocked_capability" || status === "blocked_credentials" ? "bg-[#FEE2E2] text-[#B91C1C]" : "bg-[#F1F5F9] text-[#475569]"; return <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${tone}`}>{labels[status]}</span>; }
+function Status({ status }: { status: CrmWorkspaceClient["syncStatus"] }) { const labels = { synced: "1С", local: "Локальный", pending: "Ожидает отправки", blocked_capability: "Отправка заблокирована", blocked_credentials: "Нужны учётные данные 1С", conflict: "Конфликт", sync_error: "Ошибка", archived: "В архиве" }; const tone = status === "synced" ? "bg-[#DCFCE7] text-[#166534]" : status === "pending" ? "bg-[#FEF3C7] text-[#92400E]" : status === "conflict" || status === "sync_error" || status === "blocked_capability" || status === "blocked_credentials" ? "bg-[#FEE2E2] text-[#B91C1C]" : "bg-[#F1F5F9] text-[#475569]"; return <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${tone}`}>{labels[status]}</span>; }
 function Actions({ activeTab, client, color, tabs, onColor, onMove, onOpenClient }: RowProps) { const canColor = activeTab !== "primary"; return <div className="flex flex-wrap items-center gap-1.5"><button type="button" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold hover:bg-[#F6F8FB]">Открыть</button><select aria-label={`Переместить ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-8 max-w-[136px] rounded-[8px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">Переместить…</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select>{canColor ? <details className="relative"><summary className="flex h-8 cursor-pointer list-none items-center rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет строки</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details> : null}</div>; }
 function LoadingRows() { return <div className="mt-4 space-y-2" aria-label="Загрузка клиентов">{[1, 2, 3, 4].map((row) => <div key={row} className="h-16 animate-pulse rounded-[12px] bg-[#F3F6FA]" />)}</div>; }
 function Message({ children, tone }: { children: string; tone: "error" | "success" }) { return <div className={`mt-3 rounded-[10px] border px-3 py-2 text-[11px] ${tone === "error" ? "border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBE6CA] bg-[#F0FDF4] text-[#166534]"}`}>{children}</div>; }
 function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: ReturnType<typeof emptyClientForm>; isSaving: boolean; onChange: (form: ReturnType<typeof emptyClientForm>) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { const update = (key: keyof ReturnType<typeof emptyClientForm>, value: string) => onChange({ ...form, [key]: value }); return <div role="dialog" aria-modal="true" aria-labelledby="crm-new-client-title" className="fixed inset-0 z-50 flex items-end bg-[#07162e]/35 p-2 sm:items-center sm:justify-center sm:p-4"><form onSubmit={onSubmit} className="w-full max-w-[620px] rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><h2 id="crm-new-client-title" className="text-[19px] font-bold tracking-[-0.03em]">Новый локальный клиент</h2><p className="mt-1 text-[11px] text-[var(--text-secondary)]">Будет сохранён локально во вкладке «В работе» без отправки в 1С.</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Наименование компании *" value={form.documentName} onChange={(value) => update("documentName", value)} autoFocus /><Field label="Город" value={form.city} onChange={(value) => update("city", value)} /><Field label="Контактное лицо" value={form.contactPerson} onChange={(value) => update("contactPerson", value)} /><Field label="Телефон" value={form.phone} onChange={(value) => update("phone", value)} type="tel" /><Field label="Почта" value={form.email} onChange={(value) => update("email", value)} type="email" /><label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Комментарий</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-10 rounded-[10px] border border-[var(--border-color)] px-3 py-2 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-10 rounded-[11px] px-3 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Отмена</button><button type="submit" disabled={isSaving} className="app-action-button h-10 rounded-[11px] px-4 text-[12px]">{isSaving ? "Сохраняем…" : "Добавить клиента"}</button></div></form></div>; }
 
-function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, onClose }: { client: CrmWorkspaceClient; ownerId: number; ownerName: string; isAdmin: boolean; onChanged: () => void; onClose: () => void }) {
+function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canResolveSyncConflicts, onChanged, onClose }: { client: CrmWorkspaceClient; ownerId: number; ownerName: string; isAdmin: boolean; canResolveSyncConflicts: boolean; onChanged: () => void; onClose: () => void }) {
   const [currentClient, setCurrentClient] = useState(client);
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [events, setEvents] = useState<CrmEvent[]>([]);
   const [reminders, setReminders] = useState<CrmReminder[]>([]);
   const [audit, setAudit] = useState<CrmAuditAction[]>([]);
+  const [syncConflicts, setSyncConflicts] = useState<CrmSyncConflict[]>([]);
   const [linkCandidates, setLinkCandidates] = useState<CrmLinkCandidate[]>([]);
   const [linkCandidate, setLinkCandidate] = useState<CrmLinkCandidate | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "archive" | "restore" | "remove" | "link" | "retry" | "queue" | null>(null);
+  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "archive" | "restore" | "remove" | "link" | "retry" | "queue" | "resolve" | null>(null);
   const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", isPrimary: false });
   const [eventForm, setEventForm] = useState({ kind: "comment", body: "" });
   const [reminderDueAt, setReminderDueAt] = useState("");
@@ -340,25 +343,32 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
   const [isRemoveAssignmentConfirmationOpen, setIsRemoveAssignmentConfirmationOpen] = useState(false);
   const [isRetryConfirmationOpen, setIsRetryConfirmationOpen] = useState(false);
   const [isCreateConfirmationOpen, setIsCreateConfirmationOpen] = useState(false);
+  const [syncConflictResolution, setSyncConflictResolution] = useState<{ conflict: CrmSyncConflict; choice: "local" | "remote" } | null>(null);
+  const isResolvingSyncConflict = useRef(false);
 
-  useEffect(() => { setCurrentClient(client); setIsArchiveConfirmationOpen(false); setIsRemoveAssignmentConfirmationOpen(false); setIsRetryConfirmationOpen(false); setIsCreateConfirmationOpen(false); setLinkCandidate(null); setNotice(null); }, [client]);
+  useEffect(() => { setCurrentClient(client); setIsArchiveConfirmationOpen(false); setIsRemoveAssignmentConfirmationOpen(false); setIsRetryConfirmationOpen(false); setIsCreateConfirmationOpen(false); setLinkCandidate(null); setSyncConflictResolution(null); setNotice(null); }, [client]);
 
   const refreshAudit = useCallback(async () => {
     setAudit(await fetchCrmAudit(currentClient.id, ownerId));
+  }, [currentClient.id, ownerId]);
+
+  const refreshSyncConflicts = useCallback(async () => {
+    setSyncConflicts(await fetchCrmSyncConflicts(currentClient.id, ownerId));
   }, [currentClient.id, ownerId]);
 
   useEffect(() => {
     let active = true;
     setIsLoading(true);
     setError(null);
-    void Promise.all([fetchCrmContacts(currentClient.id, ownerId), fetchCrmEvents(currentClient.id, ownerId), fetchCrmReminders(ownerId), fetchCrmAudit(currentClient.id, ownerId), fetchCrmLinkCandidates(currentClient.id, ownerId)])
-      .then(([nextContacts, nextEvents, nextReminders, nextAudit, nextCandidates]) => {
+    void Promise.all([fetchCrmContacts(currentClient.id, ownerId), fetchCrmEvents(currentClient.id, ownerId), fetchCrmReminders(ownerId), fetchCrmAudit(currentClient.id, ownerId), fetchCrmLinkCandidates(currentClient.id, ownerId), fetchCrmSyncConflicts(currentClient.id, ownerId)])
+      .then(([nextContacts, nextEvents, nextReminders, nextAudit, nextCandidates, nextConflicts]) => {
         if (!active) return;
         setContacts(nextContacts);
         setEvents(nextEvents);
         setReminders(nextReminders.filter((reminder) => reminder.clientId === client.id));
         setAudit(nextAudit);
         setLinkCandidates(nextCandidates);
+        setSyncConflicts(nextConflicts);
       })
       .catch((cause) => {
         if (active) setError(errorMessage(cause, "Не удалось загрузить карточку клиента."));
@@ -497,6 +507,25 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
     } finally { setIsSaving(null); }
   };
 
+  const resolveSyncConflict = async () => {
+    if (!syncConflictResolution || isResolvingSyncConflict.current) return;
+    const { conflict, choice } = syncConflictResolution;
+    isResolvingSyncConflict.current = true;
+    setIsSaving("resolve"); setError(null);
+    try {
+      const resolved = await resolveCrmSyncConflict(currentClient.id, conflict.id, { choice, expectedUpdatedAt: conflict.updatedAt }, ownerId);
+      setCurrentClient(resolved);
+      setSyncConflictResolution(null);
+      await refreshSyncConflicts();
+      await refreshAudit();
+      onChanged();
+      setNotice(choice === "local" ? "Локальное значение сохранено для конфликта синхронизации." : "Значение из 1С принято для конфликта синхронизации.");
+    } catch (cause) {
+      setSyncConflictResolution(null);
+      setError(errorMessage(cause, "Не удалось разрешить конфликт синхронизации."));
+    } finally { isResolvingSyncConflict.current = false; setIsSaving(null); }
+  };
+
   const canManageLocalClient = isAdmin && currentClient.linkedCounterpartyId === null;
   const canRemoveAssignment = isAdmin && currentClient.linkedCounterpartyId !== null && currentClient.assignment !== null && currentClient.assignment.archivedAt === null;
   const canConfirmExistingLink = currentClient.linkedCounterpartyId === null && currentClient.syncStatus !== "archived";
@@ -581,6 +610,10 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, onChanged, on
                 </AlertDialogContent>
               </AlertDialog>
             </DetailSection> : null}
+            <DetailSection title="Конфликты синхронизации">
+              <DetailEmpty items={syncConflicts} empty="Открытых конфликтов синхронизации нет." render={(conflict) => <div key={conflict.id} className="rounded-[9px] bg-[#FFF9E8] px-2.5 py-2 text-[11px]"><div className="font-semibold">{syncConflictFieldLabel(conflict.fieldName)}</div><div className="mt-1 grid gap-1 text-[var(--text-secondary)]"><span><strong className="text-[var(--text-primary)]">CRM:</strong> {formatSyncConflictValue(conflict.localValue)}</span><span><strong className="text-[var(--text-primary)]">1С:</strong> {formatSyncConflictValue(conflict.remoteValue)}</span></div>{canResolveSyncConflicts ? <div className="mt-2 flex flex-wrap gap-2"><button type="button" onClick={() => setSyncConflictResolution({ conflict, choice: "local" })} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">Оставить локальное</button><button type="button" onClick={() => setSyncConflictResolution({ conflict, choice: "remote" })} disabled={isSaving !== null} className="app-action-button h-8 rounded-[8px] px-2 text-[10px]">Принять из 1С</button></div> : null}</div>} />
+              <AlertDialog open={syncConflictResolution !== null} onOpenChange={(open) => { if (!open) setSyncConflictResolution(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Подтверждение разрешения конфликта</AlertDialogTitle><AlertDialogDescription>{syncConflictResolution ? <>Разрешить только этот конфликт клиента «{currentClient.documentName || currentClient.name}» по полю «{syncConflictFieldLabel(syncConflictResolution.conflict.fieldName)}», выбрав значение «{formatSyncConflictValue(syncConflictResolution.choice === "local" ? syncConflictResolution.conflict.localValue : syncConflictResolution.conflict.remoteValue)}»? Выбор необратимо разрешит этот открытый конфликт для текущей карточки.</> : null}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void resolveSyncConflict()} disabled={isSaving !== null}>{isSaving === "resolve" ? "Разрешаем…" : "Подтвердить"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+            </DetailSection>
             {canManageLocalClient ? <DetailSection title="Административные действия"><p className="text-[11px] text-[var(--text-secondary)]">CRM сотрудника: {ownerName}</p>{currentClient.syncStatus === "archived" ? <button type="button" onClick={() => void restoreLocalClient()} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "restore" ? "Восстанавливаем…" : "Восстановить локального клиента"}</button> : <><button type="button" onClick={() => setIsArchiveConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 text-[11px] font-semibold text-[#B91C1C]">Архивировать локального клиента</button>{isArchiveConfirmationOpen ? <div role="alertdialog" aria-label="Подтверждение архивации" className="grid gap-2 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] p-3 text-[11px]"><p>Подтвердите архивирование «{currentClient.documentName || currentClient.name}» в CRM сотрудника «{ownerName}». Активные напоминания будут отменены, история сохранится.</p><label className="grid gap-1"><span className="font-semibold">Причина</span><textarea value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} className="min-h-16 rounded-[8px] border border-[#F4B9B9] bg-white px-2 py-1.5" /></label><div className="flex gap-2"><button type="button" onClick={() => setIsArchiveConfirmationOpen(false)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void archiveLocalClient()} disabled={isSaving !== null} className="h-8 rounded-[8px] bg-[#B91C1C] px-3 font-semibold text-white">{isSaving === "archive" ? "Архивируем…" : "Подтвердить архивирование"}</button></div></div> : null}</>}</DetailSection> : null}
             {canRemoveAssignment ? <DetailSection title="Административные действия"><p className="text-[11px] text-[var(--text-secondary)]">CRM сотрудника: {ownerName}</p><button type="button" onClick={() => setIsRemoveAssignmentConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F0D98A] bg-[#FFF9E8] px-3 text-[11px] font-semibold text-[#92400E]">Оставить только в основной вкладке</button><AlertDialog open={isRemoveAssignmentConfirmationOpen} onOpenChange={setIsRemoveAssignmentConfirmationOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Подтверждение удаления из личной вкладки</AlertDialogTitle><AlertDialogDescription>Оставить «{currentClient.documentName || currentClient.name}» только в основной вкладке «Клиенты 1С» CRM сотрудника «{ownerName}»? Карточка останется в основной вкладке «Клиенты 1С», а история и напоминания сохранятся.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeAssignment()} disabled={isSaving !== null}>{isSaving === "remove" ? "Удаляем…" : "Подтвердить"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></DetailSection> : null}
             <DetailSection title="Журнал действий"><DetailEmpty items={audit} empty="Административных действий пока нет." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{auditActionLabel(item.action)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.reason || "Без комментария"}</div></div>} /></DetailSection>
@@ -595,6 +628,8 @@ function DetailSection({ title, children }: { title: string; children: React.Rea
 function DetailEmpty<T extends { id: number }>({ items, empty, render }: { items: T[]; empty: string; render: (item: T) => React.ReactNode }) { return <div className="grid gap-2">{items.length ? items.map(render) : <p className="text-[11px] text-[var(--text-secondary)]">{empty}</p>}</div>; }
 function eventLabel(kind: string) { return ({ comment: "Комментарий", call: "Звонок", meeting: "Встреча", email: "Письмо" } as Record<string, string>)[kind] ?? kind; }
 function auditActionLabel(action: string) { return ({ archive_local_client: "Локальный клиент архивирован", restore_local_client: "Локальный клиент восстановлен", archive_assignment: "Назначение архивировано", restore_assignment: "Назначение восстановлено", remove_assignment: "Оставлен только в основной вкладке" } as Record<string, string>)[action] ?? action; }
+function syncConflictFieldLabel(fieldName: string) { return ({ documentName: "Наименование", email: "Почта", phone: "Телефон" } as Record<string, string>)[fieldName] ?? fieldName; }
+function formatSyncConflictValue(value: unknown) { if (value === null || value === undefined || value === "") return "Не указано"; return typeof value === "string" ? value : JSON.stringify(value); }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value || "Только что" : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }); }
 function Field({ label, value, onChange, type = "text", autoFocus = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; autoFocus?: boolean }) { return <label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>{label}</span><input autoFocus={autoFocus} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label>; }
 function errorMessage(cause: unknown, fallback: string) { return cause instanceof Error && cause.message.trim() ? cause.message : fallback; }

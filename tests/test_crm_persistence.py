@@ -84,6 +84,36 @@ class CrmPersistenceTest(unittest.TestCase):
         self.assertEqual("conflict", card["sync_status"])
         self.assertEqual([("document_name", '"Альфа"', '"Альфа — локально"', '"Альфа — 1С"', "open")], [tuple(row) for row in conflicts])
 
+    def test_repeated_three_way_merge_updates_the_existing_open_conflict(self) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE crm_clients SET document_name = ?, sync_status = 'synced' WHERE id = ?",
+                ("Альфа — локально", self.client["id"]),
+            )
+            conn.execute(
+                "INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at) VALUES (?, 3, ?, '2026-09-04T00:00:00')",
+                (self.client["id"], '{"document_name": "Альфа", "email": "", "phone": ""}'),
+            )
+
+        self.db.merge_crm_client_fields_from_counterparty(
+            self.client["id"],
+            {"document_name": "Альфа — 1С (первая версия)", "email": "", "phone": ""},
+        )
+        self.db.merge_crm_client_fields_from_counterparty(
+            self.client["id"],
+            {"document_name": "Альфа — 1С (актуальная версия)", "email": "", "phone": ""},
+        )
+        with self.db.connect() as conn:
+            conflicts = conn.execute(
+                "SELECT local_value_json, remote_value_json, status FROM crm_sync_conflicts WHERE crm_client_id = ?",
+                (self.client["id"],),
+            ).fetchall()
+
+        self.assertEqual(
+            [('"Альфа — локально"', '"Альфа — 1С (актуальная версия)"', "open")],
+            [tuple(conflict) for conflict in conflicts],
+        )
+
     def test_tab_deletion_reassigns_clients_atomically(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
         follow_up = self.repo.create_tab(self.owner_id, "Перезвонить")

@@ -42,6 +42,19 @@ class CrmApiTest(unittest.TestCase):
     def as_user(self, user_id: int, role: str = "user") -> None:
         self.current_user = {"id": user_id, "role": role, "username": "test"}
 
+    def create_open_sync_conflict(self) -> tuple[int, dict[str, object]]:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Базовое имя"}).json()
+        client_id = created["client"]["id"]
+        self.service.db.update_crm_client_sync_state(client_id, sync_status="synced", synced=True)
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE crm_clients SET document_name = ? WHERE id = ?", ("Локальное имя", client_id))
+        self.service.db.merge_crm_client_fields_from_counterparty(
+            client_id,
+            {"document_name": "Имя из 1С", "email": "", "phone": ""},
+        )
+        conflict = self.client.get(f"/api/crm/clients/{client_id}/sync-conflicts").json()["items"][0]
+        return client_id, conflict
+
     def test_local_card_is_created_in_own_work_tab_without_onec(self) -> None:
         response = self.client.post("/api/crm/clients", json={"documentName": "Новый лид"})
 
@@ -138,6 +151,32 @@ class CrmApiTest(unittest.TestCase):
             [{"fieldName": "documentName", "localValue": "Локальное имя", "remoteValue": "Имя из 1С", "sourceVersion": 1}],
             [{key: item[key] for key in ("fieldName", "localValue", "remoteValue", "sourceVersion")} for item in listed.json()["items"]],
         )
+
+    def test_other_owner_cannot_read_or_resolve_a_sync_conflict(self) -> None:
+        client_id, conflict = self.create_open_sync_conflict()
+
+        self.as_user(self.other_id)
+        listed = self.client.get(f"/api/crm/clients/{client_id}/sync-conflicts")
+        resolved = self.client.post(
+            f"/api/crm/clients/{client_id}/sync-conflicts/{conflict['id']}/resolve",
+            json={"choice": "remote", "expectedUpdatedAt": conflict["updatedAt"]},
+        )
+
+        self.assertEqual(403, listed.status_code)
+        self.assertEqual(403, resolved.status_code)
+
+    def test_stale_sync_conflict_version_keeps_the_conflict_open(self) -> None:
+        client_id, conflict = self.create_open_sync_conflict()
+
+        resolved = self.client.post(
+            f"/api/crm/clients/{client_id}/sync-conflicts/{conflict['id']}/resolve",
+            json={"choice": "remote", "expectedUpdatedAt": "устаревшая-версия"},
+        )
+        listed = self.client.get(f"/api/crm/clients/{client_id}/sync-conflicts")
+
+        self.assertEqual(409, resolved.status_code)
+        self.assertIn("уже изменён", resolved.json()["detail"])
+        self.assertEqual([conflict["id"]], [item["id"] for item in listed.json()["items"]])
 
     def test_owner_can_resolve_current_sync_conflict_with_remote_value(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Базовое имя"}).json()

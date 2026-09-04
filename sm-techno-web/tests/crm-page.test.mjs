@@ -1,12 +1,91 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { createRequire } from "node:module";
+import vm from "node:vm";
+
+const require = createRequire(import.meta.url);
+const ts = require("../node_modules/typescript/lib/typescript.js");
 
 const crmPageUrl = new URL("../app/crm/page.tsx", import.meta.url);
 const crmWorkspaceUrl = new URL("../components/crm-workspace.tsx", import.meta.url);
 const crmApiUrl = new URL("../lib/api.ts", import.meta.url);
 const crmTypesUrl = new URL("../lib/types.ts", import.meta.url);
 const appShellUrl = new URL("../components/app-shell.tsx", import.meta.url);
+
+async function loadCrmApiForContractTest() {
+  const source = await readFile(crmApiUrl, "utf8");
+  const executableSource = source.replace(
+    'import { loadAuthTokenFromStorage } from "@/lib/storage";',
+    "const loadAuthTokenFromStorage = () => null;",
+  );
+  const compiled = ts.transpileModule(executableSource, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const commonJsModule = { exports: {} };
+  vm.runInNewContext(compiled, {
+    AbortController,
+    AbortSignal,
+    Headers,
+    URLSearchParams,
+    Response,
+    fetch: globalThis.fetch,
+    window: { setTimeout, clearTimeout },
+    module: commonJsModule,
+    exports: commonJsModule.exports,
+  });
+  return commonJsModule.exports;
+}
+
+test("CRM conflict transport keeps resolution scoped to the selected owner", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof URL ? input.href : input instanceof Request ? input.url : input;
+    requests.push({ url, method: init?.method ?? "GET", body: init?.body ?? null });
+    return new Response(JSON.stringify(requests.length === 1 ? {
+      items: [{ id: 9, fieldName: "documentName", localValue: "CRM", remoteValue: "1С", updatedAt: "2026-09-04T10:00:00Z" }],
+    } : { client: { id: 42 } }), { status: 200 });
+  };
+
+  try {
+    const api = await loadCrmApiForContractTest();
+    const conflicts = await api.fetchCrmSyncConflicts(42, 7);
+    await api.resolveCrmSyncConflict(42, conflicts[0].id, {
+      choice: "remote",
+      expectedUpdatedAt: conflicts[0].updatedAt,
+    }, 7);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requests, [
+    { url: "/api/crm/clients/42/sync-conflicts?ownerId=7", method: "GET", body: null },
+    {
+      url: "/api/crm/clients/42/sync-conflicts/9/resolve?ownerId=7",
+      method: "POST",
+      body: JSON.stringify({ choice: "remote", expectedUpdatedAt: "2026-09-04T10:00:00Z" }),
+    },
+  ]);
+});
+
+test("CRM detail presents explicit, irreversible 1C conflict resolution and refreshes the result", async () => {
+  const [workspace, api] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+  ]);
+
+  assert.match(api, /export async function fetchCrmSyncConflicts/);
+  assert.match(api, /export async function resolveCrmSyncConflict/);
+  assert.match(workspace, /Конфликты синхронизации/);
+  assert.match(workspace, /Оставить локальное/);
+  assert.match(workspace, /Принять из 1С/);
+  assert.match(workspace, /Не указано/);
+  assert.match(workspace, /необратимо/);
+  assert.match(workspace, /resolveCrmSyncConflict\(currentClient\.id, conflict\.id, \{ choice, expectedUpdatedAt: conflict\.updatedAt \}, ownerId\)/);
+  assert.match(workspace, /await refreshSyncConflicts\(\)/);
+  assert.match(workspace, /<AlertDialog open=\{syncConflictResolution !== null\}/);
+});
 
 test("CRM surface is reachable from navigation and exposes the core workspace", async () => {
   const [page, workspace, api, types, shell] = await Promise.all([
@@ -64,7 +143,7 @@ test("administrator CRM workspace keeps the selected owner explicit across actio
   assert.match(workspace, /moveCrmClient\(client\.id, targetTabId, ownerId\)/);
   assert.match(workspace, /removeCrmAssignment\(client\.id, ownerId\)/);
   assert.match(workspace, /saveCrmRowPreference\(client\.id, \{ tabId: activeTab, colorKey, position: previous\?\.position \?\? 0 \}, ownerId\)/);
-  assert.match(workspace, /downloadCrmExportFile\(\{ scope, tabId: scope === "tab" \? activeTab : undefined, ownerId \}\)/);
+  assert.match(workspace, /downloadCrmExportFile\(\{ scope, tabId: activeTab === "primary" \? undefined : activeTab, ownerId \}\)/);
   assert.match(workspace, /fetchCrmContacts\(currentClient\.id, ownerId\)/);
   assert.match(workspace, /fetchCrmEvents\(currentClient\.id, ownerId\)/);
   assert.match(workspace, /fetchCrmReminders\(ownerId\)/);
