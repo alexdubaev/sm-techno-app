@@ -190,6 +190,7 @@ export type CrmWorkspaceClient = {
   updatedAt: string;
   assignment: CrmAssignment | null;
   rowPreference?: CrmRowPreference | null;
+  primaryRowPreference?: CrmPrimaryRowPreference | null;
 };
 
 export type CrmSyncConflict = {
@@ -215,6 +216,19 @@ export type CrmRowPreference = {
   clientId: number;
   colorKey: string | null;
   position: number;
+  orderVersion: number;
+};
+
+export type CrmPrimaryRowPreference = {
+  clientId: number;
+  colorKey: string | null;
+  position: number;
+  orderVersion: number;
+};
+
+export type CrmPrimaryListResponse = {
+  ownerId: number;
+  items: CrmWorkspaceClient[];
   orderVersion: number;
 };
 

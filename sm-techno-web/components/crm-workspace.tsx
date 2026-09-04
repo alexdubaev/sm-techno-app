@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
 
 import {
   archiveLocalCrmClient,
@@ -11,6 +11,7 @@ import {
   createCrmEvent,
   createCrmReminder,
   fetchCrmClients,
+  fetchPrimaryCrmClients,
   fetchCrmAudit,
   fetchCrmSyncConflicts,
   fetchCrmLinkCandidates,
@@ -25,6 +26,8 @@ import {
   retryCrmOnecCreate,
   restoreLocalCrmClient,
   saveCrmRowPreference,
+  saveCrmPrimaryRowPreference,
+  reorderPrimaryCrmClients,
   sendCrmClientToOneC,
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
@@ -33,6 +36,7 @@ import type { AppUser, CrmAuditAction, CrmContact, CrmEvent, CrmLinkCandidate, C
 
 type ActiveTab = "primary" | number;
 type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "blocked_credentials" | "conflict" | "sync_error";
+type PrimaryOrderMode = "manual" | "name";
 
 const PRIMARY_TAB: { id: ActiveTab; name: string; systemKind: "primary" } = {
   id: "primary",
@@ -70,6 +74,8 @@ export function CrmWorkspace() {
   const [clients, setClients] = useState<CrmWorkspaceClient[]>([]);
   const [search, setSearch] = useState("");
   const [syncFilter, setSyncFilter] = useState<SyncFilter>("all");
+  const [primaryOrderMode, setPrimaryOrderMode] = useState<PrimaryOrderMode>("manual");
+  const [primaryOrderVersion, setPrimaryOrderVersion] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -101,13 +107,16 @@ export function CrmWorkspace() {
     setError(null);
 
     try {
-      const [nextTabs, nextClients] = await Promise.all([
-        fetchCrmTabs(ownerId),
-        fetchCrmClients(tab === "primary" ? { ownerId, primaryOnly: true } : { ownerId, tabId: tab }),
+      const nextTabsPromise = fetchCrmTabs(ownerId);
+      const [nextTabs, primaryResult, personalClients] = await Promise.all([
+        nextTabsPromise,
+        tab === "primary" ? fetchPrimaryCrmClients(ownerId) : Promise.resolve(null),
+        tab === "primary" ? Promise.resolve(null) : fetchCrmClients({ ownerId, tabId: tab }),
       ]);
       if (id !== requestId.current) return;
       setTabs(nextTabs);
-      setClients(nextClients);
+      setClients(primaryResult?.items ?? personalClients ?? []);
+      if (primaryResult) setPrimaryOrderVersion(primaryResult.orderVersion);
     } catch (cause) {
       if (id === requestId.current) setError(errorMessage(cause, "Не удалось загрузить CRM."));
     } finally {
@@ -129,7 +138,7 @@ export function CrmWorkspace() {
 
   const visibleClients = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("ru-RU");
-    return clients.filter((client) => {
+    const filtered = clients.filter((client) => {
       const matchesStatus = syncFilter === "all" || client.syncStatus === syncFilter;
       if (!matchesStatus) return false;
       if (!needle) return true;
@@ -138,7 +147,13 @@ export function CrmWorkspace() {
         .toLocaleLowerCase("ru-RU")
         .includes(needle);
     });
-  }, [clients, search, syncFilter]);
+    if (activeTab === "primary" && primaryOrderMode === "name") {
+      return [...filtered].sort((left, right) => (left.documentName || left.name).localeCompare(right.documentName || right.name, "ru"));
+    }
+    return filtered;
+  }, [activeTab, clients, primaryOrderMode, search, syncFilter]);
+
+  const isPrimaryManualOrderAvailable = activeTab === "primary" && primaryOrderMode === "manual" && !search.trim() && syncFilter === "all";
 
   const chooseTab = (tab: ActiveTab) => {
     setSearch("");
@@ -199,7 +214,28 @@ export function CrmWorkspace() {
   };
 
   const setRowColor = async (client: CrmWorkspaceClient, colorKey: string | null) => {
-    if (activeTab === "primary") return;
+    if (activeTab === "primary") {
+      const previous = client.primaryRowPreference ?? null;
+      setClients((current) => current.map((item) => item.id === client.id ? {
+        ...item,
+        primaryRowPreference: {
+          clientId: client.id,
+          colorKey,
+          position: previous?.position ?? 0,
+          orderVersion: previous?.orderVersion ?? primaryOrderVersion,
+        },
+      } : item));
+      try {
+        const preference = await saveCrmPrimaryRowPreference(client.id, { colorKey, expectedOrderVersion: primaryOrderVersion }, ownerId);
+        setClients((current) => current.map((item) => item.id === client.id ? { ...item, primaryRowPreference: preference } : item));
+        setPrimaryOrderVersion(preference.orderVersion);
+        setNotice("Оформление строки сохранено.");
+      } catch (cause) {
+        await loadWorkspace("primary", { silent: true });
+        setError(`${errorMessage(cause, "Не удалось сохранить цвет строки.")} Изменение не сохранено; список обновлён.`);
+      }
+      return;
+    }
     const previous = client.rowPreference ?? null;
     setClients((current) => current.map((item) => item.id === client.id ? {
       ...item,
@@ -212,6 +248,34 @@ export function CrmWorkspace() {
       setClients((current) => current.map((item) => item.id === client.id ? { ...item, rowPreference: previous } : item));
       setError(errorMessage(cause, "Не удалось сохранить цвет. Изменение отменено."));
     }
+  };
+
+  const reorderPrimaryClients = async (clientId: number, insertionIndex: number) => {
+    const reordered = moveClientInList(clients, clientId, insertionIndex);
+    const nextIndex = reordered.findIndex((client) => client.id === clientId);
+    if (nextIndex < 0 || reordered.every((client, index) => client.id === clients[index]?.id)) return;
+
+    setClients(reordered);
+    setError(null);
+    try {
+      const result = await reorderPrimaryCrmClients({
+        clientId,
+        beforeClientId: reordered[nextIndex + 1]?.id ?? null,
+        afterClientId: reordered[nextIndex - 1]?.id ?? null,
+        expectedOrderVersion: primaryOrderVersion,
+      }, ownerId);
+      setPrimaryOrderVersion(result.orderVersion);
+      setNotice("Порядок клиентов сохранён.");
+    } catch (cause) {
+      await loadWorkspace("primary", { silent: true });
+      setError(`${errorMessage(cause, "Не удалось сохранить порядок клиентов.")} Изменение порядка не сохранено; список обновлён.`);
+    }
+  };
+
+  const returnToPrimaryManualOrder = () => {
+    setPrimaryOrderMode("manual");
+    setSearch("");
+    setSyncFilter("all");
   };
 
   const exportCrm = async (scope: "all" | "tab") => {
@@ -282,10 +346,12 @@ export function CrmWorkspace() {
                   <option value="all">Все</option><option value="synced">Связанные с 1С</option><option value="local">Локальные</option><option value="pending">Ожидают отправки</option><option value="blocked_capability">Заблокировано</option><option value="blocked_credentials">Нужны учётные данные 1С</option><option value="conflict">Конфликт</option><option value="sync_error">С ошибкой</option>
                 </select>
               </label>
+              {activeTab === "primary" ? <label className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Порядок</span><select value={primaryOrderMode} onChange={(event) => setPrimaryOrderMode(event.target.value as PrimaryOrderMode)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"><option value="manual">Мой порядок</option><option value="name">По названию</option></select></label> : null}
             </div>
+            {activeTab === "primary" && !isPrimaryManualOrderAvailable ? <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[10px] bg-[#F6F8FB] px-3 py-2 text-[11px] text-[var(--text-secondary)]"><span>Перемещение доступно только в режиме «Мой порядок» без поиска и фильтров.</span><button type="button" onClick={returnToPrimaryManualOrder} className="font-semibold text-[var(--brand-dark)] underline underline-offset-2">Вернуться к «Мой порядок»</button></div> : null}
             {error ? <Message tone="error">{error}</Message> : null}
             {notice ? <Message tone="success">{notice}</Message> : null}
-            {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} onColor={setRowColor} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
+            {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} manualOrderEnabled={isPrimaryManualOrderAvailable} onColor={setRowColor} onReorder={reorderPrimaryClients} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
           </div>
         </div>
       </div>
@@ -300,24 +366,71 @@ function TabButton({ active, label, onClick }: { active: boolean; label: string;
   return <button type="button" onClick={onClick} className={`h-10 shrink-0 rounded-[11px] px-3 text-left text-[12px] font-semibold transition xl:w-full ${active ? "bg-[var(--brand-dark)] text-white shadow-[0_6px_14px_rgba(7,22,46,0.16)]" : "text-[var(--text-primary)] hover:bg-[#F6F8FB]"}`}>{label}</button>;
 }
 
-function ClientList({ activeTab, clients, tabs, onColor, onMove, onOpenAssignment, onOpenClient }: { activeTab: ActiveTab; clients: CrmWorkspaceClient[]; tabs: CrmTab[]; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void }) {
+function ClientList({ activeTab, clients, tabs, manualOrderEnabled, onColor, onReorder, onMove, onOpenAssignment, onOpenClient }: { activeTab: ActiveTab; clients: CrmWorkspaceClient[]; tabs: CrmTab[]; manualOrderEnabled: boolean; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onReorder: (clientId: number, insertionIndex: number) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void }) {
+  const [drag, setDrag] = useState<{ clientId: number; insertionIndex: number } | null>(null);
+  const startDrag = (clientId: number) => setDrag({ clientId, insertionIndex: clients.findIndex((client) => client.id === clientId) });
+  const cancelDrag = () => setDrag(null);
+  const finishDrag = () => {
+    if (!drag) return;
+    const completed = drag;
+    setDrag(null);
+    if (completed.insertionIndex !== clients.findIndex((client) => client.id === completed.clientId)) onReorder(completed.clientId, completed.insertionIndex);
+  };
+  const updatePointerTarget = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!drag) return;
+    const row = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-crm-row-id]");
+    const clientId = Number(row?.dataset.crmRowId);
+    const targetIndex = clients.findIndex((client) => client.id === clientId);
+    if (targetIndex < 0 || !row) return;
+    const insertionIndex = targetIndex + (event.clientY > row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2 ? 1 : 0);
+    setDrag((current) => current && current.insertionIndex !== insertionIndex ? { ...current, insertionIndex } : current);
+  };
+  const moveByKeyboard = (clientId: number, event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === "Escape" && drag?.clientId === clientId) { event.preventDefault(); cancelDrag(); return; }
+    if (event.key === " " || event.key === "Enter") { event.preventDefault(); if (drag?.clientId === clientId) finishDrag(); else startDrag(clientId); return; }
+    if ((event.key !== "ArrowUp" && event.key !== "ArrowDown") || drag?.clientId !== clientId) return;
+    event.preventDefault();
+    const currentOrder = moveClientInList(clients, clientId, drag.insertionIndex);
+    const currentIndex = currentOrder.findIndex((client) => client.id === clientId);
+    const nextIndex = Math.max(0, Math.min(currentOrder.length - 1, currentIndex + (event.key === "ArrowUp" ? -1 : 1)));
+    setDrag((current) => current ? { ...current, insertionIndex: insertionIndexForPosition(clients, clientId, nextIndex) } : current);
+  };
+  const dragControlsFor = (client: CrmWorkspaceClient): DragControls | undefined => manualOrderEnabled ? {
+    isGrabbed: drag?.clientId === client.id,
+    onPointerDown: (event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); startDrag(client.id); },
+    onPointerMove: updatePointerTarget,
+    onPointerUp: finishDrag,
+    onPointerCancel: cancelDrag,
+    onKeyDown: (event) => moveByKeyboard(client.id, event),
+  } : undefined;
+
   if (!clients.length) return <div className="py-12 text-center"><p className="text-[14px] font-semibold">Клиентов пока нет</p><p className="mt-1 text-[12px] text-[var(--text-secondary)]">Добавьте локального клиента или выберите компанию из «Клиенты 1С».</p></div>;
   return <>
-    <div className="mt-4 hidden overflow-x-auto lg:block"><table className="w-full min-w-[930px] border-separate border-spacing-0 text-left"><thead><tr className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-secondary)]"><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Компания</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Контакты</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Город</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Синхронизация</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Действия</th></tr></thead><tbody>{clients.map((client) => <ClientTableRow key={client.id} activeTab={activeTab} client={client} color={client.rowPreference?.colorKey ?? null} tabs={tabs} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} />)}</tbody></table></div>
-    <div className="mt-4 grid gap-2 lg:hidden">{clients.map((client) => <ClientCard key={client.id} activeTab={activeTab} client={client} color={client.rowPreference?.colorKey ?? null} tabs={tabs} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} />)}</div>
+    {manualOrderEnabled ? <p id="crm-manual-order-help" className="sr-only" aria-live="polite">{drag ? "Перемещение активно. Стрелки меняют позицию, Enter сохраняет, Escape отменяет." : "Для перемещения используйте кнопку у строки."}</p> : null}
+    <div className="mt-4 hidden overflow-x-auto lg:block"><table className="w-full min-w-[980px] border-separate border-spacing-0 text-left"><thead><tr className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-secondary)]">{manualOrderEnabled ? <th className="w-12 border-b border-[var(--border-color)] px-2 py-2 font-semibold"><span className="sr-only">Порядок</span></th> : null}<th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Компания</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Контакты</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Город</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Синхронизация</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Действия</th></tr></thead><tbody>{clients.map((client, index) => <Fragment key={client.id}>{drag?.insertionIndex === index ? <InsertionRow columns={manualOrderEnabled ? 6 : 5} /> : null}<ClientTableRow activeTab={activeTab} client={client} color={activeTab === "primary" ? client.primaryRowPreference?.colorKey ?? null : client.rowPreference?.colorKey ?? null} tabs={tabs} dragControls={dragControlsFor(client)} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} /></Fragment>)}{drag?.insertionIndex === clients.length ? <InsertionRow columns={manualOrderEnabled ? 6 : 5} /> : null}</tbody></table></div>
+    <div className="mt-4 grid gap-2 lg:hidden">{clients.map((client, index) => <Fragment key={client.id}>{drag?.insertionIndex === index ? <InsertionMarker /> : null}<ClientCard activeTab={activeTab} client={client} color={activeTab === "primary" ? client.primaryRowPreference?.colorKey ?? null : client.rowPreference?.colorKey ?? null} tabs={tabs} dragControls={dragControlsFor(client)} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} /></Fragment>)}{drag?.insertionIndex === clients.length ? <InsertionMarker /> : null}</div>
   </>;
 }
 
-function ClientTableRow(props: RowProps) { const { client, color } = props; return <tr style={color ? { backgroundColor: colorByKey.get(color) } : undefined} className="text-[12px] text-[var(--text-primary)]"><td className="border-b border-[var(--border-color)] px-3 py-3"><Company client={client} onOpenAssignment={props.onOpenAssignment} /></td><td className="border-b border-[var(--border-color)] px-3 py-3"><Contact client={client} /></td><td className="border-b border-[var(--border-color)] px-3 py-3 text-[var(--text-secondary)]">{client.city || "—"}</td><td className="border-b border-[var(--border-color)] px-3 py-3"><Status status={client.syncStatus} /></td><td className="border-b border-[var(--border-color)] px-3 py-3"><Actions {...props} /></td></tr>; }
+function InsertionRow({ columns }: { columns: number }) { return <tr aria-hidden="true"><td colSpan={columns} className="p-0"><div className="h-1 rounded-full bg-[var(--brand-yellow)]" /></td></tr>; }
+function InsertionMarker() { return <div aria-hidden="true" className="h-1 rounded-full bg-[var(--brand-yellow)]" />; }
 
-function ClientCard(props: RowProps) { const { client, color } = props; return <article style={color ? { backgroundColor: colorByKey.get(color) } : undefined} className="rounded-[14px] border border-[var(--border-color)] px-3 py-3"><div className="flex items-start justify-between gap-3"><Company client={client} onOpenAssignment={props.onOpenAssignment} /><Status status={client.syncStatus} /></div><div className="mt-3 grid gap-2 text-[11px] text-[var(--text-secondary)]"><Contact client={client} /><span>{client.city || "Город не указан"}</span></div><div className="mt-3"><Actions {...props} /></div></article>; }
+function ClientTableRow(props: RowProps) { const { client, color } = props; return <tr data-crm-row-id={client.id} style={color ? { backgroundColor: colorByKey.get(color) } : undefined} className="text-[12px] text-[var(--text-primary)]">{props.dragControls ? <td className="border-b border-[var(--border-color)] px-2 py-3"><DragHandle client={client} controls={props.dragControls} /></td> : null}<td className="border-b border-[var(--border-color)] px-3 py-3"><Company client={client} onOpenAssignment={props.onOpenAssignment} /></td><td className="border-b border-[var(--border-color)] px-3 py-3"><Contact client={client} /></td><td className="border-b border-[var(--border-color)] px-3 py-3 text-[var(--text-secondary)]">{client.city || "—"}</td><td className="border-b border-[var(--border-color)] px-3 py-3"><Status status={client.syncStatus} /></td><td className="border-b border-[var(--border-color)] px-3 py-3"><Actions {...props} /></td></tr>; }
 
-type RowProps = { activeTab: ActiveTab; client: CrmWorkspaceClient; color: string | null; tabs: CrmTab[]; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void };
+function ClientCard(props: RowProps) { const { client, color } = props; return <article data-crm-row-id={client.id} style={color ? { backgroundColor: colorByKey.get(color) } : undefined} className="rounded-[14px] border border-[var(--border-color)] px-3 py-3"><div className="flex items-start justify-between gap-3">{props.dragControls ? <DragHandle client={client} controls={props.dragControls} /> : null}<Company client={client} onOpenAssignment={props.onOpenAssignment} /><Status status={client.syncStatus} /></div><div className="mt-3 grid gap-2 text-[11px] text-[var(--text-secondary)]"><Contact client={client} /><span>{client.city || "Город не указан"}</span></div><div className="mt-3"><Actions {...props} /></div></article>; }
+
+type DragControls = { isGrabbed: boolean; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: () => void; onPointerCancel: () => void; onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void };
+type RowProps = { activeTab: ActiveTab; client: CrmWorkspaceClient; color: string | null; tabs: CrmTab[]; dragControls?: DragControls; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void };
+
+function DragHandle({ client, controls }: { client: CrmWorkspaceClient; controls: DragControls }) { return <button type="button" aria-label={`Переместить ${client.documentName || client.name}`} aria-pressed={controls.isGrabbed} aria-describedby="crm-manual-order-help" onPointerDown={controls.onPointerDown} onPointerMove={controls.onPointerMove} onPointerUp={controls.onPointerUp} onPointerCancel={controls.onPointerCancel} onKeyDown={controls.onKeyDown} className="flex size-8 touch-none items-center justify-center rounded-[8px] text-[var(--text-secondary)] hover:bg-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" title="Переместить">⠿</button>; }
+
+function moveClientInList(clients: CrmWorkspaceClient[], clientId: number, insertionIndex: number) { const sourceIndex = clients.findIndex((client) => client.id === clientId); if (sourceIndex < 0) return clients; const withoutSource = clients.filter((client) => client.id !== clientId); const targetIndex = Math.max(0, Math.min(withoutSource.length, insertionIndex - (sourceIndex < insertionIndex ? 1 : 0))); return [...withoutSource.slice(0, targetIndex), clients[sourceIndex], ...withoutSource.slice(targetIndex)]; }
+function insertionIndexForPosition(clients: CrmWorkspaceClient[], clientId: number, desiredIndex: number) { for (let insertionIndex = 0; insertionIndex <= clients.length; insertionIndex += 1) if (moveClientInList(clients, clientId, insertionIndex).findIndex((client) => client.id === clientId) === desiredIndex) return insertionIndex; return 0; }
 
 function Company({ client, onOpenAssignment }: { client: CrmWorkspaceClient; onOpenAssignment: (tab: ActiveTab) => void }) { return <div><div className="font-semibold">{client.documentName || client.fullName || client.name}</div><div className="mt-1 flex flex-wrap items-center gap-1.5"><span className="text-[10px] text-[var(--text-secondary)]">ИНН {client.inn || "не указан"}</span>{client.linkedCounterpartyId ? <button type="button" onClick={() => onOpenAssignment(client.assignment?.tabId ?? "primary")} className="rounded-full border border-[var(--border-color)] bg-white/75 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand-dark)] hover:bg-white">{client.assignment?.tabName || "Без вкладки"}</button> : null}</div></div>; }
 function Contact({ client }: { client: CrmWorkspaceClient }) { return <div className="space-y-0.5"><div>{client.phone || "Телефон не указан"}</div><div className="text-[11px] text-[var(--text-secondary)]">{client.email || "Почта не указана"}</div></div>; }
 function Status({ status }: { status: CrmWorkspaceClient["syncStatus"] }) { const labels = { synced: "1С", local: "Локальный", pending: "Ожидает отправки", blocked_capability: "Отправка заблокирована", blocked_credentials: "Нужны учётные данные 1С", conflict: "Конфликт", sync_error: "Ошибка", archived: "В архиве" }; const tone = status === "synced" ? "bg-[#DCFCE7] text-[#166534]" : status === "pending" ? "bg-[#FEF3C7] text-[#92400E]" : status === "conflict" || status === "sync_error" || status === "blocked_capability" || status === "blocked_credentials" ? "bg-[#FEE2E2] text-[#B91C1C]" : "bg-[#F1F5F9] text-[#475569]"; return <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${tone}`}>{labels[status]}</span>; }
-function Actions({ activeTab, client, color, tabs, onColor, onMove, onOpenClient }: RowProps) { const canColor = activeTab !== "primary"; return <div className="flex flex-wrap items-center gap-1.5"><button type="button" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold hover:bg-[#F6F8FB]">Открыть</button><select aria-label={`Переместить ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-8 max-w-[136px] rounded-[8px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">Переместить…</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select>{canColor ? <details className="relative"><summary className="flex h-8 cursor-pointer list-none items-center rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет строки</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details> : null}</div>; }
+function Actions({ client, color, tabs, onColor, onMove, onOpenClient }: RowProps) { return <div className="flex flex-wrap items-center gap-1.5"><button type="button" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold hover:bg-[#F6F8FB]">Открыть</button><select aria-label={`Переместить ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-8 max-w-[136px] rounded-[8px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">Переместить…</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select><details className="relative"><summary className="flex h-8 cursor-pointer list-none items-center rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет строки</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details></div>; }
 function LoadingRows() { return <div className="mt-4 space-y-2" aria-label="Загрузка клиентов">{[1, 2, 3, 4].map((row) => <div key={row} className="h-16 animate-pulse rounded-[12px] bg-[#F3F6FA]" />)}</div>; }
 function Message({ children, tone }: { children: string; tone: "error" | "success" }) { return <div className={`mt-3 rounded-[10px] border px-3 py-2 text-[11px] ${tone === "error" ? "border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBE6CA] bg-[#F0FDF4] text-[#166534]"}`}>{children}</div>; }
 function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: ReturnType<typeof emptyClientForm>; isSaving: boolean; onChange: (form: ReturnType<typeof emptyClientForm>) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { const update = (key: keyof ReturnType<typeof emptyClientForm>, value: string) => onChange({ ...form, [key]: value }); return <div role="dialog" aria-modal="true" aria-labelledby="crm-new-client-title" className="fixed inset-0 z-50 flex items-end bg-[#07162e]/35 p-2 sm:items-center sm:justify-center sm:p-4"><form onSubmit={onSubmit} className="w-full max-w-[620px] rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><h2 id="crm-new-client-title" className="text-[19px] font-bold tracking-[-0.03em]">Новый локальный клиент</h2><p className="mt-1 text-[11px] text-[var(--text-secondary)]">Будет сохранён локально во вкладке «В работе» без отправки в 1С.</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Наименование компании *" value={form.documentName} onChange={(value) => update("documentName", value)} autoFocus /><Field label="Город" value={form.city} onChange={(value) => update("city", value)} /><Field label="Контактное лицо" value={form.contactPerson} onChange={(value) => update("contactPerson", value)} /><Field label="Телефон" value={form.phone} onChange={(value) => update("phone", value)} type="tel" /><Field label="Почта" value={form.email} onChange={(value) => update("email", value)} type="email" /><label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Комментарий</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-10 rounded-[10px] border border-[var(--border-color)] px-3 py-2 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-10 rounded-[11px] px-3 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Отмена</button><button type="submit" disabled={isSaving} className="app-action-button h-10 rounded-[11px] px-4 text-[12px]">{isSaving ? "Сохраняем…" : "Добавить клиента"}</button></div></form></div>; }

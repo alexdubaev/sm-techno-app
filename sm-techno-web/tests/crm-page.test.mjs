@@ -152,7 +152,7 @@ test("administrator CRM workspace keeps the selected owner explicit across actio
   assert.match(workspace, /fetchUsers/);
   assert.match(workspace, /CRM сотрудника/);
   assert.match(workspace, /fetchCrmTabs\(ownerId\)/);
-  assert.match(workspace, /fetchCrmClients\(tab === "primary" \? \{ ownerId, primaryOnly: true \}/);
+  assert.match(workspace, /fetchPrimaryCrmClients\(ownerId\)/);
   assert.match(workspace, /moveCrmClient\(client\.id, targetTabId, ownerId\)/);
   assert.match(workspace, /removeCrmAssignment\(client\.id, ownerId\)/);
   assert.match(workspace, /saveCrmRowPreference\(client\.id, \{ tabId: activeTab, colorKey, position: previous\?\.position \?\? 0 \}, ownerId\)/);
@@ -250,4 +250,68 @@ test("CRM 1C create and retry confirmations use the shared accessible alert dial
   assert.match(workspace, /<AlertDialogAction onClick=\{\(\) => void retryBlockedOnecCreate\(\)\}/);
   assert.match(workspace, /setIsCreateConfirmationOpen\(false\);\s+setError\(errorMessage\(cause, "Не удалось поставить создание в 1С в очередь\."\)\);/);
   assert.match(workspace, /setIsRetryConfirmationOpen\(false\);\s+setError\(errorMessage\(cause, "Не удалось повторно поставить создание в 1С в очередь\."\)\);/);
+});
+
+test("primary CRM transport keeps color and versioned reorder owner-scoped", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof URL ? input.href : input instanceof Request ? input.url : input;
+    requests.push({ url, method: init?.method ?? "GET", body: init?.body ?? null });
+    const payloads = [
+      { ownerId: 7, orderVersion: 4, items: [] },
+      { preference: { clientId: 42, colorKey: "pink", position: 1000, orderVersion: 5 } },
+      { clientIds: [11, 42, 31], orderVersion: 6 },
+    ];
+    return new Response(JSON.stringify(payloads[requests.length - 1]), { status: 200 });
+  };
+
+  try {
+    const api = await loadCrmApiForContractTest();
+    const primary = await api.fetchPrimaryCrmClients(7);
+    assert.equal(primary.orderVersion, 4);
+    await api.saveCrmPrimaryRowPreference(42, { colorKey: "pink", expectedOrderVersion: 4 }, 7);
+    await api.reorderPrimaryCrmClients({
+      clientId: 42,
+      beforeClientId: 31,
+      afterClientId: 11,
+      expectedOrderVersion: 5,
+    }, 7);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requests, [
+    { url: "/api/crm/clients?ownerId=7&primaryOnly=true", method: "GET", body: null },
+    {
+      url: "/api/crm/clients/42/primary-row-preference?ownerId=7",
+      method: "PUT",
+      body: JSON.stringify({ colorKey: "pink", expectedOrderVersion: 4 }),
+    },
+    {
+      url: "/api/crm/primary/reorder?ownerId=7",
+      method: "POST",
+      body: JSON.stringify({ clientId: 42, beforeClientId: 31, afterClientId: 11, expectedOrderVersion: 5 }),
+    },
+  ]);
+});
+
+test("primary CRM list has an accessible manual-order control and preserves its own row preference", async () => {
+  const [workspace, types] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmTypesUrl, "utf8"),
+  ]);
+
+  assert.match(types, /export type CrmPrimaryRowPreference/);
+  assert.match(types, /primaryRowPreference\?: CrmPrimaryRowPreference \| null/);
+  assert.match(workspace, /client\.primaryRowPreference\?\.colorKey/);
+  assert.match(workspace, /Мой порядок/);
+  assert.match(workspace, /Вернуться к «Мой порядок»/);
+  assert.match(workspace, /aria-label=\{`Переместить \$\{client\.documentName \|\| client\.name\}`\}/);
+  assert.match(workspace, /onKeyDown/);
+  assert.match(workspace, /Escape/);
+  assert.match(workspace, /beforeClientId/);
+  assert.match(workspace, /afterClientId/);
+  assert.match(workspace, /expectedOrderVersion: primaryOrderVersion/);
+  assert.match(workspace, /Изменение порядка не сохранено/);
 });

@@ -11,6 +11,8 @@
   CrmContact,
   CrmEvent,
   CrmLinkCandidate,
+  CrmPrimaryListResponse,
+  CrmPrimaryRowPreference,
   CrmReminder,
   CrmClient,
   CrmRowPreference,
@@ -755,6 +757,12 @@ export async function fetchCrmClients(query: CrmClientsQuery = {}): Promise<CrmW
   return result.items;
 }
 
+export async function fetchPrimaryCrmClients(ownerId: number): Promise<CrmPrimaryListResponse> {
+  return requestJson<CrmPrimaryListResponse>(
+    `/api/crm/clients${buildCrmQuery({ ownerId, primaryOnly: true })}`,
+  );
+}
+
 export async function downloadCrmExportFile(params: {
   scope: "all" | "tab";
   tabId?: number;
@@ -979,6 +987,43 @@ export async function saveCrmRowPreference(
     "Не удалось сохранить оформление строки.",
   );
   return result.preference;
+}
+
+export async function saveCrmPrimaryRowPreference(
+  clientId: number,
+  payload: { colorKey: string | null; expectedOrderVersion: number },
+  ownerId: number,
+): Promise<CrmPrimaryRowPreference> {
+  const result = await requestJsonWithInit<{ preference: CrmPrimaryRowPreference }>(
+    `/api/crm/clients/${clientId}/primary-row-preference${buildCrmQuery({ ownerId })}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить цвет строки.",
+  );
+  return result.preference;
+}
+
+export async function reorderPrimaryCrmClients(
+  payload: {
+    clientId: number;
+    beforeClientId: number | null;
+    afterClientId: number | null;
+    expectedOrderVersion: number;
+  },
+  ownerId: number,
+): Promise<{ clientIds: number[]; orderVersion: number }> {
+  return requestJsonWithInit<{ clientIds: number[]; orderVersion: number }>(
+    `/api/crm/primary/reorder${buildCrmQuery({ ownerId })}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось сохранить порядок клиентов.",
+  );
 }
 
 export async function archiveLocalCrmClient(
