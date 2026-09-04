@@ -1160,9 +1160,32 @@ def create_crm_client(
 ) -> dict[str, Any]:
     try:
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        card = repo.create_local_client(actor_id=resolved_owner_id, values=_crm_client_values(payload))
+        values = _crm_client_values(payload)
+        initial_contact = {
+            "name": str(values.pop("contact_person", "") or ""),
+            "email": str(values.pop("email", "") or ""),
+            "phone": str(values.pop("phone", "") or ""),
+        }
+        initial_comment = str(values.pop("notes", "") or "")
+        card = repo.create_local_client(actor_id=resolved_owner_id, values=values)
         work_tab = repo.ensure_work_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id)
         assignment = repo.assign_client_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]), tab_id=int(work_tab["id"]))
+        if initial_contact["name"].strip():
+            repo.add_contact_for_actor(
+                actor_id=actor_id,
+                owner_id=resolved_owner_id,
+                client_id=int(card["id"]),
+                is_primary=True,
+                **initial_contact,
+            )
+        if initial_comment.strip():
+            repo.add_event_for_actor(
+                actor_id=actor_id,
+                owner_id=resolved_owner_id,
+                client_id=int(card["id"]),
+                kind="comment",
+                body=initial_comment,
+            )
         version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
         return {"ownerId": resolved_owner_id, "client": _serialize_crm_client(card, assignment, work_tab, version=version), "assignment": _serialize_crm_assignment(assignment, work_tab)}
     except Exception as exc:

@@ -436,6 +436,34 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(400, response.status_code)
         self.assertIn("10 цифр", response.json()["detail"])
 
+    def test_new_lead_stores_initial_contact_and_comment_in_the_owner_crm(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={
+                "documentName": "Личный первый контакт",
+                "contactPerson": "Анна",
+                "email": "anna@example.test",
+                "phone": "+7 900 000-00-00",
+                "notes": "Перезвонить после выставки",
+            },
+        )
+        client_id = created.json()["client"]["id"]
+
+        contacts = self.client.get(f"/api/crm/clients/{client_id}/contacts")
+        events = self.client.get(f"/api/crm/clients/{client_id}/events")
+        with self.service.db.connect() as conn:
+            card = conn.execute("SELECT contact_person, email, phone, notes FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+
+        self.assertEqual(201, created.status_code)
+        self.assertEqual("", created.json()["client"]["email"])
+        self.assertEqual("", created.json()["client"]["phone"])
+        self.assertEqual([{"name": "Анна", "email": "anna@example.test", "phone": "+7 900 000-00-00", "isPrimary": True}], [
+            {key: contact[key] for key in ("name", "email", "phone", "isPrimary")}
+            for contact in contacts.json()["items"]
+        ])
+        self.assertEqual(["Перезвонить после выставки"], [event["body"] for event in events.json()["items"]])
+        self.assertEqual((None, None, None, None), tuple(card))
+
     def test_explicit_onec_create_persists_a_job_without_calling_onec(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
