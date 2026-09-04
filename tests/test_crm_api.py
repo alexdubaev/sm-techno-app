@@ -486,6 +486,23 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(self.owner_id, job["author_user_id"])
         self.assertEqual("pending", job["status"])
 
+    def test_explicit_onec_create_persists_a_stable_idempotency_key(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Идемпотентный лид", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        self.assertEqual(202, self.client.post(f"/api/crm/clients/{client_id}/send-to-onec").status_code)
+        with self.service.db.connect() as conn:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(crm_sync_jobs)").fetchall()}
+            jobs = conn.execute("SELECT id, idempotency_key FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchall()
+
+        self.assertIn("idempotency_key", columns)
+        self.assertEqual(1, len(jobs))
+        self.assertEqual(f"crm-create-{client_id}", jobs[0]["idempotency_key"])
+
     def test_archived_local_lead_never_runs_an_already_queued_onec_create(self) -> None:
         """An administrative archive must cancel the pending remote-create intent."""
         class RecordingOneC:

@@ -458,9 +458,9 @@ class CrmRepository:
             if not pending:
                 conn.execute(
                     """INSERT INTO crm_sync_jobs(crm_client_id, author_user_id, operation, payload, status,
-                       attempt_count, available_at, created_at, updated_at)
-                       VALUES (?, ?, 'create', ?, 'pending', 0, ?, ?, ?)""",
-                    (client_id, actor_id, json.dumps({"source_version": version}), now, now, now),
+                        attempt_count, idempotency_key, available_at, created_at, updated_at)
+                        VALUES (?, ?, 'create', ?, 'pending', 0, ?, ?, ?, ?)""",
+                    (client_id, actor_id, json.dumps({"source_version": version}), f"crm-create-{client_id}", now, now, now),
                 )
                 self._audit(conn, actor_id, owner_id, client_id, "enqueue_onec_create", "")
             conn.execute(

@@ -268,6 +268,7 @@ CREATE TABLE IF NOT EXISTS crm_sync_jobs (
     payload TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     attempt_count INTEGER NOT NULL DEFAULT 0,
+    idempotency_key TEXT,
     available_at TEXT NOT NULL,
     claimed_at TEXT,
     created_at TEXT NOT NULL,
@@ -477,6 +478,11 @@ class WebDatabase(Database):
             conn.execute(f"UPDATE crm_clients SET {text_column} = '' WHERE {text_column} IS NULL")
 
         self._backfill_crm_client_inferred_fields(conn)
+
+        job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(crm_sync_jobs)").fetchall()}
+        if "idempotency_key" not in job_columns:
+            conn.execute("ALTER TABLE crm_sync_jobs ADD COLUMN idempotency_key TEXT")
+        conn.execute("UPDATE crm_sync_jobs SET idempotency_key = 'crm-sync-' || id WHERE idempotency_key IS NULL")
 
         # Existing accounts get their immutable personal workspace during the
         # idempotent migration; new accounts are handled by create_user().
