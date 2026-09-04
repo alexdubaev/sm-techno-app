@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import tempfile
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -61,9 +61,10 @@ async def _app_lifespan(_: FastAPI):
         yield
     finally:
         stop.set()
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task
+        # Do not cancel an asyncio.to_thread wrapper: cancellation does not
+        # stop its already-running 1C call.  Draining this task keeps a
+        # shutdown from overlapping that call with a subsequent app start.
+        await task
 
 ALLOWED_ORIGINS = [
     origin.strip()

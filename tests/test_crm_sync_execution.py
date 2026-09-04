@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import threading
 import time
@@ -68,6 +69,18 @@ class CreatingOneC(RecordingOneC):
         }
 
 
+class BlockingCreateOneC(CreatingOneC):
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = threading.Event()
+
+    def create_counterparty(self, card: dict[str, object]) -> dict[str, object]:
+        self.created.set()
+        if not self.release.wait(timeout=2):
+            raise RuntimeError("test create was not released")
+        return super().create_counterparty(card)
+
+
 class CrmSyncExecutionTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -97,11 +110,22 @@ class CrmSyncExecutionTest(unittest.TestCase):
             return fake
 
         self.service.build_user_client = build_user_client  # type: ignore[method-assign]
-        response = self.client.post("/api/crm/sync?ownerId=999")
+        stock_sync_api.app.dependency_overrides[stock_sync_api._get_current_user] = lambda: {
+            "id": self.admin_id,
+            "role": "admin",
+        }
+        response = self.client.post(f"/api/crm/sync?ownerId={self.owner_id}")
 
         self.assertEqual(200, response.status_code, response.text)
         self.assertEqual({"status": "synced", "counterparties": 0}, response.json())
-        self.assertEqual([self.owner_id], fake.user_ids)
+        self.assertEqual([self.admin_id], fake.user_ids)
+
+    def test_crm_refresh_endpoint_requires_authentication(self) -> None:
+        stock_sync_api.app.dependency_overrides.pop(stock_sync_api._get_current_user)
+
+        response = self.client.post("/api/crm/sync")
+
+        self.assertEqual(401, response.status_code)
 
     def test_concurrent_crm_refresh_is_coalesced_without_second_onec_read(self) -> None:
         fake = BlockingOneC()
@@ -156,4 +180,33 @@ class CrmSyncExecutionTest(unittest.TestCase):
                 time.sleep(0.05)
 
         self.assertTrue(fake.created.is_set())
+        self.assertEqual("synced", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
+
+    def test_app_lifecycle_waits_for_an_inflight_worker_before_shutdown(self) -> None:
+        repo = CrmRepository(self.service.db)
+        card, _assignment, _tab = repo.create_local_lead_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            values={"document_name": "Draining lead", "inn": "7707083893", "kpp": "770701001"},
+            initial_contact={},
+            initial_comment="",
+        )
+        repo.enqueue_onec_create_for_actor(
+            actor_id=self.owner_id, owner_id=self.owner_id, client_id=int(card["id"])
+        )
+        fake = BlockingCreateOneC()
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+        async def shutdown_scenario() -> None:
+            lifespan = stock_sync_api._app_lifespan(stock_sync_api.app)
+            await lifespan.__aenter__()
+            self.assertTrue(await asyncio.to_thread(fake.created.wait, 1))
+            shutdown = asyncio.create_task(lifespan.__aexit__(None, None, None))
+            try:
+                await asyncio.sleep(0.1)
+                self.assertFalse(shutdown.done(), "shutdown must drain the worker's remote call")
+            finally:
+                fake.release.set()
+            await asyncio.wait_for(shutdown, timeout=2)
+
+        asyncio.run(shutdown_scenario())
         self.assertEqual("synced", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
