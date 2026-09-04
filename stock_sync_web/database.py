@@ -1407,8 +1407,12 @@ class WebDatabase(Database):
                 raise ValueError("Клиент не найден.")
 
             if synced:
-                snapshot_row = conn.execute("SELECT document_name FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
-                snapshot = json.dumps({"document_name": snapshot_row["document_name"] or ""}, ensure_ascii=False, sort_keys=True)
+                snapshot_row = conn.execute("SELECT document_name, email, phone FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+                snapshot = json.dumps({
+                    "document_name": snapshot_row["document_name"] or "",
+                    "email": snapshot_row["email"] or "",
+                    "phone": snapshot_row["phone"] or "",
+                }, ensure_ascii=False, sort_keys=True)
                 conn.execute(
                     """INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at)
                        VALUES (?, 1, ?, ?)
