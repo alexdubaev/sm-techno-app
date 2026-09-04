@@ -137,6 +137,15 @@ class CrmRepository:
         if actor_id != owner_id and not self._is_admin(conn, actor_id):
             raise PermissionError("Нельзя открывать чужую CRM.")
 
+    def _require_sync_conflict_access(self, conn: sqlite3.Connection, actor_id: int, owner_id: int, client_id: int) -> None:
+        """Keep shared primary rows visible without exposing another user's field conflicts."""
+        client = self._require_client_access(conn, actor_id, client_id)
+        is_admin = self._is_admin(conn, actor_id)
+        if actor_id != owner_id and not is_admin:
+            raise PermissionError("Нельзя открывать чужую CRM.")
+        if not is_admin and int(client["crm_owner_user_id"] or 0) != int(actor_id):
+            raise PermissionError("Конфликт реквизитов доступен только автору или администратору.")
+
     def _get_tab(self, owner_id: int, tab_id: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             row = conn.execute("SELECT * FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id)).fetchone()
@@ -608,7 +617,7 @@ class CrmRepository:
         self, *, actor_id: int, owner_id: int, client_id: int
     ) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
-            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            self._require_sync_conflict_access(conn, actor_id, owner_id, client_id)
         return self.db.list_crm_sync_conflicts(client_id)
 
     def resolve_sync_conflict_for_actor(
@@ -622,7 +631,7 @@ class CrmRepository:
         expected_updated_at: str,
     ) -> dict[str, Any]:
         with self.db.connect() as conn:
-            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            self._require_sync_conflict_access(conn, actor_id, owner_id, client_id)
         return self.db.resolve_crm_sync_conflict(
             client_id,
             conflict_id,

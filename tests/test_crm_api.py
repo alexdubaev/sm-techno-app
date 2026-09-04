@@ -176,6 +176,29 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(403, listed.status_code)
         self.assertEqual(403, resolved.status_code)
 
+    def test_non_author_cannot_read_or_resolve_a_linked_card_sync_conflict(self) -> None:
+        """A shared primary-list row does not make its field conflict public."""
+        created = self.client.post("/api/crm/clients", json={"documentName": "Общий конфликт"}).json()
+        client_id = created["client"]["id"]
+        self.link_primary_client(client_id, 865)
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE crm_clients SET document_name = ? WHERE id = ?", ("Локальное значение", client_id))
+        self.service.db.merge_crm_client_fields_from_counterparty(
+            client_id,
+            {"document_name": "Значение из 1С", "email": "", "phone": ""},
+        )
+        conflict = self.client.get(f"/api/crm/clients/{client_id}/sync-conflicts").json()["items"][0]
+
+        self.as_user(self.other_id)
+        listed = self.client.get(f"/api/crm/clients/{client_id}/sync-conflicts")
+        resolved = self.client.post(
+            f"/api/crm/clients/{client_id}/sync-conflicts/{conflict['id']}/resolve",
+            json={"choice": "remote", "expectedUpdatedAt": conflict["updatedAt"]},
+        )
+
+        self.assertEqual(403, listed.status_code)
+        self.assertEqual(403, resolved.status_code)
+
     def test_stale_sync_conflict_version_keeps_the_conflict_open(self) -> None:
         client_id, conflict = self.create_open_sync_conflict()
 
