@@ -436,6 +436,34 @@ class CrmApiTest(unittest.TestCase):
         self.assertIsNone(card["linked_counterparty_id"])
         self.assertEqual("archived", card["sync_status"])
 
+    def test_archived_local_lead_cannot_queue_another_onec_create(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Закрытый лид", "inn": "7707083893", "kpp": "770701001"},
+        ).json()
+        client_id = created["client"]["id"]
+
+        self.as_user(self.admin_id, "admin")
+        archived = self.client.post(
+            f"/api/crm/clients/{client_id}/local-archive?ownerId={self.owner_id}",
+            json={"reason": "Отменено", "expectedVersion": created["client"]["version"]},
+        )
+        self.as_user(self.owner_id)
+        requeue = self.client.post(f"/api/crm/clients/{client_id}/send-to-onec")
+        with self.service.db.connect() as conn:
+            jobs = conn.execute(
+                "SELECT status FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)
+            ).fetchall()
+            card = conn.execute(
+                "SELECT sync_status FROM crm_clients WHERE id = ?", (client_id,)
+            ).fetchone()
+
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assertEqual(400, requeue.status_code)
+        self.assertIn("архив", requeue.json()["detail"].casefold())
+        self.assertEqual([], jobs)
+        self.assertEqual("archived", card["sync_status"])
+
     def test_create_worker_blocks_missing_submitter_onec_credentials_without_fallback(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
