@@ -340,23 +340,43 @@ class WebStockSyncService:
             return "blocked"
         try:
             existing = self._find_counterparty_by_identity(onec_client, card)
-            if existing:
-                if payload.get("post_uncertain"):
-                    self._complete_crm_create_job(job_id, client_id, existing, card)
-                    return "completed"
+        except OneCClientError as exc:
+            if self._is_onec_access_denied(exc):
                 self.db.block_crm_sync_job(
                     job_id,
-                    message="В 1С уже найден контрагент с такими реквизитами. Подтвердите связывание вручную.",
-                    status="blocked_duplicate",
+                    message=f"Доступ 1С автора заявки отклонён: {exc}",
+                    status="blocked_credentials",
                 )
                 return "blocked"
-            if payload.get("post_uncertain"):
-                self.db.retry_crm_sync_job(
+            if self._is_onec_non_retriable_error(exc):
+                self.db.block_crm_sync_job(
                     job_id,
-                    message="Ожидается подтверждение результата предыдущего POST в 1С; повторная отправка не выполняется.",
-                    payload=payload,
+                    message=f"1С отклонила данные для отправки: {exc}",
+                    status="blocked_validation",
                 )
-                return "retried"
+                return "blocked"
+            self.db.retry_crm_sync_job(job_id, message=str(exc), payload=payload)
+            return "retried"
+
+        if existing:
+            if payload.get("post_uncertain"):
+                self._complete_crm_create_job(job_id, client_id, existing, card)
+                return "completed"
+            self.db.block_crm_sync_job(
+                job_id,
+                message="В 1С уже найден контрагент с такими реквизитами. Подтвердите связывание вручную.",
+                status="blocked_duplicate",
+            )
+            return "blocked"
+        if payload.get("post_uncertain"):
+            self.db.retry_crm_sync_job(
+                job_id,
+                message="Ожидается подтверждение результата предыдущего POST в 1С; повторная отправка не выполняется.",
+                payload=payload,
+            )
+            return "retried"
+
+        try:
             created = onec_client.create_counterparty(card)
         except OneCClientError as exc:
             if self._is_onec_access_denied(exc):
@@ -373,7 +393,10 @@ class WebStockSyncService:
                     status="blocked_validation",
                 )
                 return "blocked"
-            recovered = self._find_counterparty_by_identity(onec_client, card)
+            try:
+                recovered = self._find_counterparty_by_identity(onec_client, card)
+            except OneCClientError:
+                recovered = None
             if recovered:
                 self._complete_crm_create_job(job_id, client_id, recovered, card)
                 return "completed"
