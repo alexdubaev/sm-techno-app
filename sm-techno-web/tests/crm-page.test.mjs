@@ -315,3 +315,14 @@ test("primary CRM list has an accessible manual-order control and preserves its 
   assert.match(workspace, /expectedOrderVersion: primaryOrderVersion/);
   assert.match(workspace, /Изменение порядка не сохранено/);
 });
+
+test("primary pointer reorder rejects secondary input, retains Escape cancellation, and ignores stale failure reloads", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /if \(!event\.isPrimary \|\| \(event\.pointerType === "mouse" && event\.button !== 0\)\) return;/);
+  assert.match(workspace, /event\.currentTarget\.focus\(\);/);
+  assert.match(workspace, /event\.key === "Escape" && drag\?\.clientId === clientId/);
+  assert.match(workspace, /const currentView = useRef\(\{ activeTab, ownerId \}\);/);
+  assert.match(workspace, /fetchPrimaryCrmClients\(requestOwnerId\)/);
+  assert.match(workspace, /currentView\.current\.activeTab !== "primary" \|\| currentView\.current\.ownerId !== requestOwnerId/);
+});

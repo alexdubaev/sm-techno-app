@@ -86,6 +86,8 @@ export function CrmWorkspace() {
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState(emptyClientForm);
   const requestId = useRef(0);
+  const currentView = useRef({ activeTab, ownerId });
+  currentView.current = { activeTab, ownerId };
 
   useEffect(() => {
     let active = true;
@@ -156,6 +158,7 @@ export function CrmWorkspace() {
   const isPrimaryManualOrderAvailable = activeTab === "primary" && primaryOrderMode === "manual" && !search.trim() && syncFilter === "all";
 
   const chooseTab = (tab: ActiveTab) => {
+    currentView.current = { activeTab: tab, ownerId };
     setSearch("");
     setSyncFilter("all");
     setActiveTab(tab);
@@ -213,8 +216,22 @@ export function CrmWorkspace() {
     }
   };
 
+  const isCurrentPrimaryView = (requestOwnerId: number) => currentView.current.activeTab === "primary" && currentView.current.ownerId === requestOwnerId;
+  const reloadPrimaryAfterFailure = async (requestOwnerId: number) => {
+    try {
+      const primary = await fetchPrimaryCrmClients(requestOwnerId);
+      if (currentView.current.activeTab !== "primary" || currentView.current.ownerId !== requestOwnerId) return "stale";
+      setClients(primary.items);
+      setPrimaryOrderVersion(primary.orderVersion);
+      return "reloaded";
+    } catch {
+      return isCurrentPrimaryView(requestOwnerId) ? "reload_failed" : "stale";
+    }
+  };
+
   const setRowColor = async (client: CrmWorkspaceClient, colorKey: string | null) => {
     if (activeTab === "primary") {
+      const requestOwnerId = ownerId;
       const previous = client.primaryRowPreference ?? null;
       setClients((current) => current.map((item) => item.id === client.id ? {
         ...item,
@@ -226,13 +243,15 @@ export function CrmWorkspace() {
         },
       } : item));
       try {
-        const preference = await saveCrmPrimaryRowPreference(client.id, { colorKey, expectedOrderVersion: primaryOrderVersion }, ownerId);
+        const preference = await saveCrmPrimaryRowPreference(client.id, { colorKey, expectedOrderVersion: primaryOrderVersion }, requestOwnerId);
+        if (!isCurrentPrimaryView(requestOwnerId)) return;
         setClients((current) => current.map((item) => item.id === client.id ? { ...item, primaryRowPreference: preference } : item));
         setPrimaryOrderVersion(preference.orderVersion);
         setNotice("Оформление строки сохранено.");
       } catch (cause) {
-        await loadWorkspace("primary", { silent: true });
-        setError(`${errorMessage(cause, "Не удалось сохранить цвет строки.")} Изменение не сохранено; список обновлён.`);
+        const reload = await reloadPrimaryAfterFailure(requestOwnerId);
+        if (reload === "reloaded") setError(`${errorMessage(cause, "Не удалось сохранить цвет строки.")} Изменение не сохранено; список обновлён.`);
+        if (reload === "reload_failed") setError(`${errorMessage(cause, "Не удалось сохранить цвет строки.")} Изменение не сохранено; не удалось обновить список.`);
       }
       return;
     }
@@ -251,6 +270,7 @@ export function CrmWorkspace() {
   };
 
   const reorderPrimaryClients = async (clientId: number, insertionIndex: number) => {
+    const requestOwnerId = ownerId;
     const reordered = moveClientInList(clients, clientId, insertionIndex);
     const nextIndex = reordered.findIndex((client) => client.id === clientId);
     if (nextIndex < 0 || reordered.every((client, index) => client.id === clients[index]?.id)) return;
@@ -263,12 +283,14 @@ export function CrmWorkspace() {
         beforeClientId: reordered[nextIndex + 1]?.id ?? null,
         afterClientId: reordered[nextIndex - 1]?.id ?? null,
         expectedOrderVersion: primaryOrderVersion,
-      }, ownerId);
+      }, requestOwnerId);
+      if (!isCurrentPrimaryView(requestOwnerId)) return;
       setPrimaryOrderVersion(result.orderVersion);
       setNotice("Порядок клиентов сохранён.");
     } catch (cause) {
-      await loadWorkspace("primary", { silent: true });
-      setError(`${errorMessage(cause, "Не удалось сохранить порядок клиентов.")} Изменение порядка не сохранено; список обновлён.`);
+      const reload = await reloadPrimaryAfterFailure(requestOwnerId);
+      if (reload === "reloaded") setError(`${errorMessage(cause, "Не удалось сохранить порядок клиентов.")} Изменение порядка не сохранено; список обновлён.`);
+      if (reload === "reload_failed") setError(`${errorMessage(cause, "Не удалось сохранить порядок клиентов.")} Изменение порядка не сохранено; не удалось обновить список.`);
     }
   };
 
@@ -304,7 +326,7 @@ export function CrmWorkspace() {
           <p className="mt-1 text-[12px] text-[var(--text-secondary)]">Клиенты, личные вкладки и быстрые действия менеджера.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { requestId.current += 1; setSelectedClient(null); setActiveTab("primary"); setOwnerId(Number(event.target.value)); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
+          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
           <details className="relative">
             <summary className="flex h-10 cursor-pointer list-none items-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">{isExporting ? "Выгружаем…" : "Выгрузить Excel"}</summary>
             <div className="absolute right-0 z-20 mt-1 grid w-52 gap-1 rounded-[12px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]">
@@ -397,7 +419,7 @@ function ClientList({ activeTab, clients, tabs, manualOrderEnabled, onColor, onR
   };
   const dragControlsFor = (client: CrmWorkspaceClient): DragControls | undefined => manualOrderEnabled ? {
     isGrabbed: drag?.clientId === client.id,
-    onPointerDown: (event) => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); startDrag(client.id); },
+    onPointerDown: (event) => { if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return; event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); startDrag(client.id); },
     onPointerMove: updatePointerTarget,
     onPointerUp: finishDrag,
     onPointerCancel: cancelDrag,
