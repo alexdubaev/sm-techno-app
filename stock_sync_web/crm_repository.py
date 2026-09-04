@@ -810,6 +810,11 @@ class CrmRepository:
             next_version = current_version + 1
             conn.execute("UPDATE crm_assignments SET archived_at = ?, archived_by_user_id = ?, archive_reason = ?, updated_at = ? WHERE id = ?", (now, actor_id, reason.strip() or None, now, assignment["id"]))
             conn.execute("UPDATE crm_reminders SET status = 'cancelled', cancelled_at = ?, updated_at = ? WHERE owner_user_id = ? AND crm_client_id = ? AND status = 'active'", (now, now, owner_id, client_id))
+            conn.execute(
+                """UPDATE crm_sync_jobs SET status = 'completed', claimed_at = NULL, updated_at = ?
+                   WHERE crm_client_id = ? AND operation = 'create' AND status = 'pending'""",
+                (now, client_id),
+            )
             conn.execute("UPDATE crm_clients SET is_inactive = 1, sync_status = 'archived', sync_error = ?, updated_at = ? WHERE id = ?", (reason.strip() or None, now, client_id))
             conn.execute("UPDATE crm_sync_state SET version = ?, updated_at = ? WHERE crm_client_id = ?", (next_version, now, client_id))
             self._audit(conn, actor_id, owner_id, client_id, "archive_local_client", reason)
