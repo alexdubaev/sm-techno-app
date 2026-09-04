@@ -445,7 +445,7 @@ test("CRM workspace manages only custom personal tabs and edits company requisit
 test("CRM tab mutations ignore stale owner results and keep dialog errors announced inside the modal", async () => {
   const workspace = await readFile(crmWorkspaceUrl, "utf8");
 
-  assert.match(workspace, /const isCurrentWorkspaceView = \(requestTab: ActiveTab, requestOwnerId: number\)/);
+  assert.match(workspace, /const isCurrentWorkspaceView = useCallback\(\(requestTab: ActiveTab, requestOwnerId: number\)/);
   assert.match(workspace, /if \(!isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) return;/);
   assert.match(workspace, /reloadAfterTabFailure\(requestTab, requestOwnerId,/);
   assert.match(workspace, /role="alert" aria-live="assertive"/);
@@ -454,7 +454,7 @@ test("CRM tab mutations ignore stale owner results and keep dialog errors announ
 test("CRM tab create and delete re-enable controls after selecting their destination tab", async () => {
   const workspace = await readFile(crmWorkspaceUrl, "utf8");
 
-  assert.match(workspace, /const isCurrentWorkspaceOwner = \(requestOwnerId: number\)/);
+  assert.match(workspace, /const isCurrentWorkspaceOwner = useCallback\(\(requestOwnerId: number\)/);
   assert.match(workspace, /if \(isCurrentWorkspaceOwner\(requestOwnerId\)\) setIsSavingTab\(false\);/);
   assert.doesNotMatch(workspace, /if \(isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) setIsSavingTab\(false\);/);
 });
@@ -526,4 +526,14 @@ test("CRM reminder rollback is limited to failed transitions, shared refresh fol
   assert.match(workspace, /await loadWorkspace\(latestView\.activeTab, \{ silent \}\);/);
   assert.match(workspace, /if \(!canManageReminders\) return;/);
   assert.match(workspace, /canManageReminders \? <form onSubmit=\{saveReminder\}/);
+});
+
+test("CRM refresh stale-view helpers precede their callback and submits use non-deprecated event types", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /type SubmitEvent/);
+  assert.doesNotMatch(workspace, /type FormEvent/);
+  assert.doesNotMatch(workspace, /FormEvent<HTMLFormElement>/);
+  assert.ok(workspace.indexOf("const isCurrentWorkspaceOwner") < workspace.indexOf("const refreshWorkspace"));
+  assert.ok(workspace.indexOf("const isCurrentWorkspaceView") < workspace.indexOf("const refreshWorkspace"));
 });
