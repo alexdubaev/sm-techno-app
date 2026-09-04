@@ -873,11 +873,20 @@ class CrmRepository:
                 (owner_id, client_id),
                 "Настройка основной строки не найдена.",
             )
-            if int(expected_order_version) != int(preference["order_version"]):
+            current_order_version = conn.execute(
+                "SELECT COALESCE(MAX(order_version), 0) AS value FROM crm_primary_row_preferences WHERE owner_user_id = ?",
+                (owner_id,),
+            ).fetchone()["value"]
+            if int(expected_order_version) != int(current_order_version):
                 raise ValueError("Конфликт версии порядка. Загрузите актуальный список.")
+            next_order_version = int(current_order_version) + 1
+            conn.execute(
+                "UPDATE crm_primary_row_preferences SET order_version = ?, updated_at = ? WHERE owner_user_id = ?",
+                (next_order_version, utc_now(), owner_id),
+            )
             conn.execute(
                 """UPDATE crm_primary_row_preferences
-                   SET color_key = ?, order_version = order_version + 1, updated_at = ?
+                   SET color_key = ?, updated_at = ?
                    WHERE owner_user_id = ? AND crm_client_id = ?""",
                 (color_key, utc_now(), owner_id, client_id),
             )

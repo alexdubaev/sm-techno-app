@@ -306,6 +306,29 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(5000, response.json()["preference"]["position"])
         self.assertEqual("pink", listed.json()["items"][0]["primaryRowPreference"]["colorKey"])
 
+    def test_primary_color_update_accepts_latest_list_order_version_for_another_row(self) -> None:
+        first = self.client.post("/api/crm/clients", json={"documentName": "Первая связанная"}).json()["client"]["id"]
+        second = self.client.post("/api/crm/clients", json={"documentName": "Вторая связанная"}).json()["client"]["id"]
+        self.link_primary_client(first, 605)
+        self.link_primary_client(second, 606)
+
+        first_update = self.client.put(
+            f"/api/crm/clients/{first}/primary-row-preference",
+            json={"colorKey": "blue", "expectedOrderVersion": 0},
+        )
+        current = self.client.get("/api/crm/clients?primaryOnly=true")
+        second_update = self.client.put(
+            f"/api/crm/clients/{second}/primary-row-preference",
+            json={"colorKey": "pink", "expectedOrderVersion": current.json()["orderVersion"]},
+        )
+        updated = self.client.get("/api/crm/clients?primaryOnly=true")
+
+        self.assertEqual(200, first_update.status_code)
+        self.assertEqual(1, current.json()["orderVersion"])
+        self.assertEqual(200, second_update.status_code)
+        self.assertEqual(2, updated.json()["orderVersion"])
+        self.assertEqual(["blue", "pink"], [item["primaryRowPreference"]["colorKey"] for item in updated.json()["items"]])
+
     def test_primary_reorder_uses_neighbors_and_rejects_stale_version_without_erasing_color(self) -> None:
         first = self.client.post("/api/crm/clients", json={"documentName": "Первая"}).json()["client"]["id"]
         second = self.client.post("/api/crm/clients", json={"documentName": "Вторая"}).json()["client"]["id"]
