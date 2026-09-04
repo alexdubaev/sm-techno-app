@@ -164,7 +164,33 @@ class CrmApiTest(unittest.TestCase):
             conflict_row = conn.execute("SELECT status, resolved_value_json, resolved_by_user_id FROM crm_sync_conflicts WHERE id = ?", (conflict["id"],)).fetchone()
             snapshot = conn.execute("SELECT last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)).fetchone()
         self.assertEqual(("resolved_remote", '"Имя из 1С"', self.owner_id), tuple(conflict_row))
-        self.assertEqual('{"document_name": "Имя из 1С", "email": "", "phone": ""}', snapshot["last_synced_snapshot"])
+        self.assertEqual("Имя из 1С", json.loads(snapshot["last_synced_snapshot"])["document_name"])
+
+    def test_owner_can_keep_local_value_when_safe_remote_write_is_unavailable(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Базовое имя"}).json()
+        client_id = created["client"]["id"]
+        self.service.db.update_crm_client_sync_state(client_id, sync_status="synced", synced=True)
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE crm_clients SET document_name = ? WHERE id = ?", ("Локальное имя", client_id))
+        self.service.db.merge_crm_client_fields_from_counterparty(
+            client_id,
+            {"document_name": "Имя из 1С", "email": "", "phone": ""},
+        )
+        conflict = self.client.get(f"/api/crm/clients/{client_id}/sync-conflicts").json()["items"][0]
+
+        resolved = self.client.post(
+            f"/api/crm/clients/{client_id}/sync-conflicts/{conflict['id']}/resolve",
+            json={"choice": "local", "expectedUpdatedAt": conflict["updatedAt"]},
+        )
+
+        self.assertEqual(200, resolved.status_code, resolved.text)
+        self.assertEqual("Локальное имя", resolved.json()["client"]["documentName"])
+        self.assertEqual("blocked_capability", resolved.json()["client"]["syncStatus"])
+        with self.service.db.connect() as conn:
+            conflict_row = conn.execute("SELECT status, resolved_value_json, resolved_by_user_id FROM crm_sync_conflicts WHERE id = ?", (conflict["id"],)).fetchone()
+            snapshot = conn.execute("SELECT last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)).fetchone()
+        self.assertEqual(("resolved_local", '"Локальное имя"', self.owner_id), tuple(conflict_row))
+        self.assertEqual("Имя из 1С", json.loads(snapshot["last_synced_snapshot"])["document_name"])
 
     def test_owner_can_save_palette_preference_for_own_row(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Лид с цветом"}).json()

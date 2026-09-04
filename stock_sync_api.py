@@ -1331,18 +1331,20 @@ def resolve_crm_sync_conflict(
     owner_id: int | None = Query(None, alias="ownerId"),
     current_user: dict[str, Any] = Depends(_get_current_user),
 ) -> dict[str, Any]:
-    if str(payload.get("choice") or "") != "remote":
-        raise HTTPException(status_code=400, detail="Пока можно применить только значение из 1С.")
+    choice = str(payload.get("choice") or "")
+    if choice not in {"local", "remote"}:
+        raise HTTPException(status_code=400, detail="Выберите локальное значение или значение из 1С.")
     expected_updated_at = str(payload.get("expectedUpdatedAt") or "").strip()
     if not expected_updated_at:
         raise HTTPException(status_code=400, detail="Укажите актуальную версию конфликта.")
     try:
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        card = repo.resolve_sync_conflict_with_remote_for_actor(
+        card = repo.resolve_sync_conflict_for_actor(
             actor_id=actor_id,
             owner_id=resolved_owner_id,
             client_id=client_id,
             conflict_id=conflict_id,
+            choice=choice,
             expected_updated_at=expected_updated_at,
         )
         assignment = repo.get_assignment_for_actor(

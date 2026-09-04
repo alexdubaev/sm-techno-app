@@ -561,20 +561,22 @@ class CrmRepository:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self.db.list_crm_sync_conflicts(client_id)
 
-    def resolve_sync_conflict_with_remote_for_actor(
+    def resolve_sync_conflict_for_actor(
         self,
         *,
         actor_id: int,
         owner_id: int,
         client_id: int,
         conflict_id: int,
+        choice: str,
         expected_updated_at: str,
     ) -> dict[str, Any]:
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
-        return self.db.resolve_crm_sync_conflict_with_remote(
+        return self.db.resolve_crm_sync_conflict(
             client_id,
             conflict_id,
+            choice=choice,
             expected_updated_at=expected_updated_at,
             resolved_by_user_id=actor_id,
         )
