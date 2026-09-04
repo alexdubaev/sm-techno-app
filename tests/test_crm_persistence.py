@@ -47,7 +47,7 @@ class CrmPersistenceTest(unittest.TestCase):
             tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
 
         self.assertTrue({"city", "website"}.issubset(columns))
-        self.assertTrue({"crm_tabs", "crm_assignments", "crm_contacts", "crm_events", "crm_reminders", "crm_row_preferences", "crm_audit_actions", "crm_sync_state", "crm_sync_jobs"}.issubset(tables))
+        self.assertTrue({"crm_tabs", "crm_assignments", "crm_contacts", "crm_events", "crm_reminders", "crm_row_preferences", "crm_audit_actions", "crm_sync_state", "crm_sync_jobs", "crm_sync_conflicts"}.issubset(tables))
         self.assertEqual("Потенциальный клиент", self.db.get_crm_client(self.client["id"])["document_name"])
 
     def test_tab_deletion_reassigns_clients_atomically(self) -> None:

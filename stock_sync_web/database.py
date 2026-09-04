@@ -276,6 +276,25 @@ CREATE TABLE IF NOT EXISTS crm_sync_jobs (
     FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
     FOREIGN KEY(author_user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS crm_sync_conflicts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    crm_client_id INTEGER NOT NULL,
+    field_name TEXT NOT NULL,
+    base_value_json TEXT NOT NULL,
+    local_value_json TEXT NOT NULL,
+    remote_value_json TEXT NOT NULL,
+    source_version INTEGER NOT NULL,
+    remote_version TEXT,
+    status TEXT NOT NULL DEFAULT 'open',
+    resolved_value_json TEXT,
+    resolved_by_user_id INTEGER,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(resolved_by_user_id) REFERENCES users(id)
+);
 """
 
 
@@ -511,6 +530,8 @@ class WebDatabase(Database):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_events_owner_client ON crm_events(owner_user_id, crm_client_id, created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_reminders_owner_status_due ON crm_reminders(owner_user_id, status, due_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_sync_jobs_status_available ON crm_sync_jobs(status, available_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_sync_conflicts_client_status ON crm_sync_conflicts(crm_client_id, status)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_sync_conflicts_open_unique ON crm_sync_conflicts(crm_client_id, field_name) WHERE status = 'open'")
         conn.executescript(
             """
             CREATE TRIGGER IF NOT EXISTS trg_crm_assignment_tab_owner_insert
