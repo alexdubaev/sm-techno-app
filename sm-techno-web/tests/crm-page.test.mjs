@@ -537,3 +537,26 @@ test("CRM refresh stale-view helpers precede their callback and submits use non-
   assert.ok(workspace.indexOf("const isCurrentWorkspaceOwner") < workspace.indexOf("const refreshWorkspace"));
   assert.ok(workspace.indexOf("const isCurrentWorkspaceView") < workspace.indexOf("const refreshWorkspace"));
 });
+
+test("foreign administrator workspace is read-only while lifecycle and conflict exceptions remain available", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /const canEditWorkspace = ownerId === user\.id;/);
+  assert.match(workspace, /if \(!canEditWorkspace\) return;/);
+  assert.match(workspace, /canEditWorkspace \? <button type="button" onClick=\{\(\) => setIsAdding\(true\)\}/);
+  assert.match(workspace, /canEditWorkspace \? <button type="button" onClick=\{\(\) => openTabEditor\("new"\)\}/);
+  assert.match(workspace, /const isManualOrderAvailable = canEditWorkspace && \(isPrimaryManualOrderAvailable \|\| isPersonalManualOrderAvailable\);/);
+  assert.match(workspace, /canEditWorkspace=\{canEditWorkspace\}/);
+  assert.match(workspace, /canEditWorkspace && currentClient\.linkedCounterpartyId === null/);
+  assert.match(workspace, /canManageLocalClient = isAdmin/);
+  assert.match(workspace, /canRemoveAssignment = isAdmin/);
+  assert.match(workspace, /canResolveSyncConflicts=\{isAdmin \|\| canEditWorkspace\}/);
+});
+
+test("owner switches reset new-client state and normal writes ignore stale owner responses", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /setSelectedClient\(null\); setIsAdding\(false\); setForm\(emptyClientForm\(\)\); setTabEditor\(null\);/);
+  assert.match(workspace, /const requestOwnerId = ownerId;\s+const requestTab = activeTab;/);
+  assert.match(workspace, /if \(!isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) return;/);
+});

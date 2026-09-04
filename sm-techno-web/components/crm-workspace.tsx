@@ -89,6 +89,7 @@ export function CrmWorkspace() {
   const { user, isAdmin } = useAuth();
   const [owners, setOwners] = useState<AppUser[]>([]);
   const [ownerId, setOwnerId] = useState(user.id);
+  const canEditWorkspace = ownerId === user.id;
   const [tabs, setTabs] = useState<CrmTab[]>([]);
   const [activeTab, setActiveTab] = useState<ActiveTab>("primary");
   const [clients, setClients] = useState<CrmWorkspaceClient[]>([]);
@@ -228,7 +229,7 @@ export function CrmWorkspace() {
   const personalOrderVersion = clients.reduce((version, client) => Math.max(version, client.rowPreference?.orderVersion ?? 0), 0);
   const isPrimaryManualOrderAvailable = activeTab === "primary" && primaryOrderMode === "manual" && !search.trim() && syncFilter === "all";
   const isPersonalManualOrderAvailable = activeTab !== "primary" && !search.trim() && syncFilter === "all";
-  const isManualOrderAvailable = isPrimaryManualOrderAvailable || isPersonalManualOrderAvailable;
+  const isManualOrderAvailable = canEditWorkspace && (isPrimaryManualOrderAvailable || isPersonalManualOrderAvailable);
 
   const chooseTab = (tab: ActiveTab) => {
     currentView.current = { activeTab: tab, ownerId };
@@ -239,10 +240,13 @@ export function CrmWorkspace() {
 
   const submitClient = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canEditWorkspace) return;
     if (!form.documentName.trim()) {
       setError("Укажите наименование компании.");
       return;
     }
+    const requestOwnerId = ownerId;
+    const requestTab = activeTab;
     setIsSaving(true);
     setError(null);
     try {
@@ -253,29 +257,36 @@ export function CrmWorkspace() {
         email: form.email.trim(),
         phone: form.phone.trim(),
         notes: form.notes.trim(),
-      }, ownerId);
+      }, requestOwnerId);
+      if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setForm(emptyClientForm());
       setIsAdding(false);
       setNotice("Клиент добавлен во вкладку «В работе».");
       const workTab = tabs.find((tab) => tab.systemKind === "work");
-      chooseTab(workTab?.id ?? activeTab);
-      if (workTab?.id === activeTab) await loadWorkspace(activeTab, { silent: true });
+      chooseTab(workTab?.id ?? requestTab);
+      if (workTab?.id === requestTab) await loadWorkspace(requestTab, { silent: true });
     } catch (cause) {
+      if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setError(errorMessage(cause, "Не удалось добавить клиента."));
     } finally {
-      setIsSaving(false);
+      if (isCurrentWorkspaceOwner(requestOwnerId)) setIsSaving(false);
     }
   };
 
   const moveClient = async (client: CrmWorkspaceClient, targetTabId: number) => {
+    if (!canEditWorkspace) return;
     const target = tabs.find((tab) => tab.id === targetTabId);
     if (!target) return;
+    const requestOwnerId = ownerId;
+    const requestTab = activeTab;
     try {
       const savedAssignment = await moveCrmClient(client.id, targetTabId, ownerId);
+      if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setClients((current) => current.map((item) => item.id === client.id ? { ...item, assignment: savedAssignment } : item));
       setNotice(client.assignment ? `Клиент перемещён во вкладку «${target.name}».` : `Клиент добавлен во вкладку «${target.name}».`);
-      await loadWorkspace(activeTab, { silent: true });
+      await loadWorkspace(requestTab, { silent: true });
     } catch (cause) {
+      if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setError(errorMessage(cause, client.assignment ? "Не удалось переместить клиента. Изменение отменено." : "Не удалось добавить клиента во вкладку. Изменение отменено."));
     }
   };
@@ -294,6 +305,7 @@ export function CrmWorkspace() {
   };
 
   const setRowColor = async (client: CrmWorkspaceClient, colorKey: string | null) => {
+    if (!canEditWorkspace) return;
     if (activeTab === "primary") {
       const requestOwnerId = ownerId;
       const previous = client.primaryRowPreference ?? null;
@@ -334,6 +346,7 @@ export function CrmWorkspace() {
   };
 
   const reorderPrimaryClients = async (clientId: number, insertionIndex: number) => {
+    if (!canEditWorkspace) return;
     const requestOwnerId = ownerId;
     const reordered = moveClientInList(clients, clientId, insertionIndex);
     const nextIndex = reordered.findIndex((client) => client.id === clientId);
@@ -370,7 +383,7 @@ export function CrmWorkspace() {
   };
 
   const reorderPersonalClients = async (clientId: number, insertionIndex: number) => {
-    if (activeTab === "primary") return;
+    if (!canEditWorkspace || activeTab === "primary") return;
     const requestTab = activeTab;
     const requestOwnerId = ownerId;
     const reordered = moveClientInList(clients, clientId, insertionIndex);
@@ -433,6 +446,7 @@ export function CrmWorkspace() {
   };
 
   const openTabEditor = (tab: CrmTab | "new") => {
+    if (!canEditWorkspace) return;
     setTabEditor(tab);
     setTabName(tab === "new" ? "" : tab.name);
     setError(null);
@@ -446,6 +460,7 @@ export function CrmWorkspace() {
 
   const saveTab = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canEditWorkspace) return;
     const name = tabName.trim();
     if (!name) { setError("Укажите название личной вкладки."); return; }
     if (!tabEditor) return;
@@ -471,6 +486,7 @@ export function CrmWorkspace() {
   };
 
   const removeTab = async () => {
+    if (!canEditWorkspace) return;
     if (!tabPendingDelete || replacementTabId === null) return;
     const tab = tabPendingDelete;
     const requestOwnerId = ownerId;
@@ -501,7 +517,7 @@ export function CrmWorkspace() {
           <p className="mt-1 text-[12px] text-[var(--text-secondary)]">Клиенты, личные вкладки и быстрые действия менеджера.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setTabEditor(null); setTabPendingDelete(null); setIsSavingTab(false); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
+          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setIsAdding(false); setForm(emptyClientForm()); setTabEditor(null); setTabPendingDelete(null); setIsSavingTab(false); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
           <details className="relative">
             <summary className="flex h-10 cursor-pointer list-none items-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">{isExporting ? "Выгружаем…" : "Выгрузить Excel"}</summary>
             <div className="absolute right-0 z-20 mt-1 grid w-52 gap-1 rounded-[12px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]">
@@ -512,19 +528,17 @@ export function CrmWorkspace() {
           <button type="button" onClick={() => void refreshWorkspace(activeTab, { silent: true })} disabled={isRefreshing} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:opacity-60">
             {isRefreshing ? "Обновляем…" : "Обновить"}
           </button>
-          <button type="button" onClick={() => setIsAdding(true)} className="app-action-button h-10 rounded-[12px] px-4 text-[12px]">
-            Добавить клиента
-          </button>
+          {canEditWorkspace ? <button type="button" onClick={() => setIsAdding(true)} className="app-action-button h-10 rounded-[12px] px-4 text-[12px]">Добавить клиента</button> : null}
         </div>
       </header>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[238px_minmax(0,1fr)]">
         <aside className="rounded-[20px] border border-[var(--border-color)] bg-white/88 p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.04)]">
           <p className="px-2.5 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">Вкладки</p>
-          <button type="button" onClick={() => openTabEditor("new")} className="mb-2 h-9 w-full rounded-[10px] border border-dashed border-[var(--border-color)] px-2 text-[11px] font-semibold text-[var(--brand-dark)] hover:bg-[#F6F8FB]">Новая вкладка</button>
+          {canEditWorkspace ? <button type="button" onClick={() => openTabEditor("new")} className="mb-2 h-9 w-full rounded-[10px] border border-dashed border-[var(--border-color)] px-2 text-[11px] font-semibold text-[var(--brand-dark)] hover:bg-[#F6F8FB]">Новая вкладка</button> : null}
           <nav className="flex gap-1 overflow-x-auto xl:flex-col" aria-label="Вкладки CRM">
             <TabButton active={activeTab === "primary"} label={PRIMARY_TAB.name} onClick={() => chooseTab("primary")} />
-            {tabs.map((tab) => <div key={tab.id} className="flex min-w-max items-center gap-1 xl:min-w-0"><TabButton active={activeTab === tab.id} label={tab.name} onClick={() => chooseTab(tab.id)} />{tab.systemKind === "custom" ? <><button type="button" aria-label={`Переименовать вкладку ${tab.name}`} onClick={() => openTabEditor(tab)} className="h-8 rounded-[8px] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[#F6F8FB]">✎</button><button type="button" aria-label={`Удалить вкладку ${tab.name}`} onClick={() => { setTabPendingDelete(tab); setReplacementTabId(tabs.find((item) => item.systemKind === "work")?.id ?? null); }} className="h-8 rounded-[8px] px-2 text-[11px] text-[#B91C1C] hover:bg-[#FEF2F2]">×</button></> : null}</div>)}
+            {tabs.map((tab) => <div key={tab.id} className="flex min-w-max items-center gap-1 xl:min-w-0"><TabButton active={activeTab === tab.id} label={tab.name} onClick={() => chooseTab(tab.id)} />{canEditWorkspace && tab.systemKind === "custom" ? <><button type="button" aria-label={`Переименовать вкладку ${tab.name}`} onClick={() => openTabEditor(tab)} className="h-8 rounded-[8px] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[#F6F8FB]">✎</button><button type="button" aria-label={`Удалить вкладку ${tab.name}`} onClick={() => { setTabPendingDelete(tab); setReplacementTabId(tabs.find((item) => item.systemKind === "work")?.id ?? null); }} className="h-8 rounded-[8px] px-2 text-[11px] text-[#B91C1C] hover:bg-[#FEF2F2]">×</button></> : null}</div>)}
           </nav>
           <p className="mt-3 border-t border-[var(--border-color)] px-2.5 pt-3 text-[10px] leading-4 text-[var(--text-secondary)]">
             «Клиенты 1С» и «В работе» — постоянные вкладки. Новые клиенты автоматически попадают в «В работе».
@@ -549,7 +563,7 @@ export function CrmWorkspace() {
             {!isManualOrderAvailable ? <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[10px] bg-[#F6F8FB] px-3 py-2 text-[11px] text-[var(--text-secondary)]"><span>Перемещение доступно только без поиска и фильтров{activeTab === "primary" ? " в режиме «Мой порядок»" : ""}.</span>{activeTab === "primary" ? <button type="button" onClick={returnToPrimaryManualOrder} className="font-semibold text-[var(--brand-dark)] underline underline-offset-2">Вернуться к «Мой порядок»</button> : null}</div> : null}
             {error ? <Message tone="error">{error}</Message> : null}
             {notice ? <Message tone="success">{notice}</Message> : null}
-            {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} manualOrderEnabled={isManualOrderAvailable} onColor={setRowColor} onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
+            {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} canEditWorkspace={canEditWorkspace} manualOrderEnabled={isManualOrderAvailable} onColor={setRowColor} onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
           </div>
         </div>
       </div>
@@ -557,7 +571,7 @@ export function CrmWorkspace() {
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
       {tabEditor ? <form role="dialog" aria-modal="true" aria-labelledby="crm-tab-editor-title" onSubmit={saveTab} className="fixed inset-0 z-50 flex items-center justify-center bg-[#07162e]/35 p-4"><div className="w-full max-w-sm rounded-[18px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"><h2 id="crm-tab-editor-title" className="text-[16px] font-bold">{tabEditor === "new" ? "Новая вкладка" : "Переименовать вкладку"}</h2>{error ? <div role="alert" aria-live="assertive" className="mt-3 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C]">{error}</div> : null}<label className="mt-4 grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Название</span><input autoFocus value={tabName} onChange={(event) => setTabName(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTabEditor(null)} className="h-9 rounded-[9px] px-3 text-[11px] font-semibold text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={isSavingTab} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSavingTab ? "Сохраняем…" : "Сохранить"}</button></div></div></form> : null}
       <AlertDialog open={tabPendingDelete !== null} onOpenChange={(open) => { if (!open) setTabPendingDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Удалить вкладку</AlertDialogTitle><AlertDialogDescription>Карточки и история из вкладки «{tabPendingDelete?.name}» сохранятся. Выберите личную вкладку для переноса; по умолчанию выбрана «В работе».</AlertDialogDescription></AlertDialogHeader><label className="grid gap-1 text-[12px] font-medium"><span>Перенести карточки в</span><select value={replacementTabId ?? ""} onChange={(event) => setReplacementTabId(Number(event.target.value))} className="h-10 rounded-[9px] border border-[var(--border-color)] bg-white px-2">{tabs.filter((tab) => tab.id !== tabPendingDelete?.id).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select></label><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeTab()} disabled={isSavingTab || replacementTabId === null}>{isSavingTab ? "Удаляем…" : "Удалить вкладку"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canManageReminders={ownerId === user.id} canResolveSyncConflicts={isAdmin || ownerId === user.id} onChanged={() => void loadWorkspace(activeTab, { silent: true })} onClose={() => setSelectedClient(null)} /> : null}
+      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canEditWorkspace={canEditWorkspace} canManageReminders={canEditWorkspace} canResolveSyncConflicts={isAdmin || canEditWorkspace} onChanged={() => void loadWorkspace(activeTab, { silent: true })} onClose={() => setSelectedClient(null)} /> : null}
     </section>
   );
 }
@@ -566,7 +580,7 @@ function TabButton({ active, label, onClick }: { active: boolean; label: string;
   return <button type="button" onClick={onClick} className={`h-10 shrink-0 rounded-[11px] px-3 text-left text-[12px] font-semibold transition xl:w-full ${active ? "bg-[var(--brand-dark)] text-white shadow-[0_6px_14px_rgba(7,22,46,0.16)]" : "text-[var(--text-primary)] hover:bg-[#F6F8FB]"}`}>{label}</button>;
 }
 
-function ClientList({ activeTab, clients, tabs, manualOrderEnabled, onColor, onReorder, onMove, onOpenAssignment, onOpenClient }: { activeTab: ActiveTab; clients: CrmWorkspaceClient[]; tabs: CrmTab[]; manualOrderEnabled: boolean; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onReorder: (clientId: number, insertionIndex: number) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void }) {
+function ClientList({ activeTab, clients, tabs, canEditWorkspace, manualOrderEnabled, onColor, onReorder, onMove, onOpenAssignment, onOpenClient }: { activeTab: ActiveTab; clients: CrmWorkspaceClient[]; tabs: CrmTab[]; canEditWorkspace: boolean; manualOrderEnabled: boolean; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onReorder: (clientId: number, insertionIndex: number) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void }) {
   const [drag, setDrag] = useState<{ clientId: number; insertionIndex: number } | null>(null);
   const startDrag = (clientId: number) => setDrag({ clientId, insertionIndex: clients.findIndex((client) => client.id === clientId) });
   const cancelDrag = () => setDrag(null);
@@ -607,8 +621,8 @@ function ClientList({ activeTab, clients, tabs, manualOrderEnabled, onColor, onR
   if (!clients.length) return <div className="py-12 text-center"><p className="text-[14px] font-semibold">Клиентов пока нет</p><p className="mt-1 text-[12px] text-[var(--text-secondary)]">Добавьте локального клиента или выберите компанию из «Клиенты 1С».</p></div>;
   return <>
     {manualOrderEnabled ? <p id="crm-manual-order-help" className="sr-only" aria-live="polite">{drag ? "Перемещение активно. Стрелки меняют позицию, Enter сохраняет, Escape отменяет." : "Для перемещения используйте кнопку у строки."}</p> : null}
-    <div className="mt-4 hidden overflow-x-auto lg:block"><table className="w-full min-w-[980px] border-separate border-spacing-0 text-left"><thead><tr className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-secondary)]">{manualOrderEnabled ? <th className="w-12 border-b border-[var(--border-color)] px-2 py-2 font-semibold"><span className="sr-only">Порядок</span></th> : null}<th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Компания</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Контакты</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Город</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Синхронизация</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Действия</th></tr></thead><tbody>{clients.map((client, index) => <Fragment key={client.id}>{drag?.insertionIndex === index ? <InsertionRow columns={manualOrderEnabled ? 6 : 5} /> : null}<ClientTableRow activeTab={activeTab} client={client} color={activeTab === "primary" ? client.primaryRowPreference?.colorKey ?? null : client.rowPreference?.colorKey ?? null} tabs={tabs} dragControls={dragControlsFor(client)} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} /></Fragment>)}{drag?.insertionIndex === clients.length ? <InsertionRow columns={manualOrderEnabled ? 6 : 5} /> : null}</tbody></table></div>
-    <div className="mt-4 grid gap-2 lg:hidden">{clients.map((client, index) => <Fragment key={client.id}>{drag?.insertionIndex === index ? <InsertionMarker /> : null}<ClientCard activeTab={activeTab} client={client} color={activeTab === "primary" ? client.primaryRowPreference?.colorKey ?? null : client.rowPreference?.colorKey ?? null} tabs={tabs} dragControls={dragControlsFor(client)} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} /></Fragment>)}{drag?.insertionIndex === clients.length ? <InsertionMarker /> : null}</div>
+    <div className="mt-4 hidden overflow-x-auto lg:block"><table className="w-full min-w-[980px] border-separate border-spacing-0 text-left"><thead><tr className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-secondary)]">{manualOrderEnabled ? <th className="w-12 border-b border-[var(--border-color)] px-2 py-2 font-semibold"><span className="sr-only">Порядок</span></th> : null}<th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Компания</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Контакты</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Город</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Синхронизация</th><th className="border-b border-[var(--border-color)] px-3 py-2 font-semibold">Действия</th></tr></thead><tbody>{clients.map((client, index) => <Fragment key={client.id}>{drag?.insertionIndex === index ? <InsertionRow columns={manualOrderEnabled ? 6 : 5} /> : null}<ClientTableRow activeTab={activeTab} client={client} color={activeTab === "primary" ? client.primaryRowPreference?.colorKey ?? null : client.rowPreference?.colorKey ?? null} tabs={tabs} canEditWorkspace={canEditWorkspace} dragControls={dragControlsFor(client)} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} /></Fragment>)}{drag?.insertionIndex === clients.length ? <InsertionRow columns={manualOrderEnabled ? 6 : 5} /> : null}</tbody></table></div>
+    <div className="mt-4 grid gap-2 lg:hidden">{clients.map((client, index) => <Fragment key={client.id}>{drag?.insertionIndex === index ? <InsertionMarker /> : null}<ClientCard activeTab={activeTab} client={client} color={activeTab === "primary" ? client.primaryRowPreference?.colorKey ?? null : client.rowPreference?.colorKey ?? null} tabs={tabs} canEditWorkspace={canEditWorkspace} dragControls={dragControlsFor(client)} onColor={onColor} onMove={onMove} onOpenAssignment={onOpenAssignment} onOpenClient={onOpenClient} /></Fragment>)}{drag?.insertionIndex === clients.length ? <InsertionMarker /> : null}</div>
   </>;
 }
 
@@ -620,7 +634,7 @@ function ClientTableRow(props: RowProps) { const { client, color } = props; retu
 function ClientCard(props: RowProps) { const { client, color } = props; return <article data-crm-row-id={client.id} style={color ? { backgroundColor: colorByKey.get(color) } : undefined} className="rounded-[14px] border border-[var(--border-color)] px-3 py-3"><div className="flex items-start justify-between gap-3">{props.dragControls ? <DragHandle client={client} controls={props.dragControls} /> : null}<Company client={client} onOpenAssignment={props.onOpenAssignment} /><Status status={client.syncStatus} /></div><div className="mt-3 grid gap-2 text-[11px] text-[var(--text-secondary)]"><Contact client={client} /><span>{client.city || "Город не указан"}</span></div><div className="mt-3"><Actions {...props} /></div></article>; }
 
 type DragControls = { isGrabbed: boolean; onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void; onPointerUp: () => void; onPointerCancel: () => void; onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void };
-type RowProps = { activeTab: ActiveTab; client: CrmWorkspaceClient; color: string | null; tabs: CrmTab[]; dragControls?: DragControls; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void };
+type RowProps = { activeTab: ActiveTab; client: CrmWorkspaceClient; color: string | null; tabs: CrmTab[]; canEditWorkspace: boolean; dragControls?: DragControls; onColor: (client: CrmWorkspaceClient, color: string | null) => void; onMove: (client: CrmWorkspaceClient, tabId: number) => void; onOpenAssignment: (tab: ActiveTab) => void; onOpenClient: (client: CrmWorkspaceClient) => void };
 
 function DragHandle({ client, controls }: { client: CrmWorkspaceClient; controls: DragControls }) { return <button type="button" aria-label={`Переместить ${client.documentName || client.name}`} aria-pressed={controls.isGrabbed} aria-describedby="crm-manual-order-help" onPointerDown={controls.onPointerDown} onPointerMove={controls.onPointerMove} onPointerUp={controls.onPointerUp} onPointerCancel={controls.onPointerCancel} onKeyDown={controls.onKeyDown} className="flex size-8 touch-none items-center justify-center rounded-[8px] text-[var(--text-secondary)] hover:bg-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" title="Переместить">⠿</button>; }
 
@@ -630,12 +644,12 @@ function insertionIndexForPosition(clients: CrmWorkspaceClient[], clientId: numb
 function Company({ client, onOpenAssignment }: { client: CrmWorkspaceClient; onOpenAssignment: (tab: ActiveTab) => void }) { return <div><div className="font-semibold">{client.documentName || client.fullName || client.name}</div><div className="mt-1 flex flex-wrap items-center gap-1.5"><span className="text-[10px] text-[var(--text-secondary)]">ИНН {client.inn || "не указан"}</span>{client.linkedCounterpartyId ? <button type="button" onClick={() => onOpenAssignment(client.assignment?.tabId ?? "primary")} className="rounded-full border border-[var(--border-color)] bg-white/75 px-2 py-0.5 text-[10px] font-semibold text-[var(--brand-dark)] hover:bg-white">{client.assignment?.tabName || "Без вкладки"}</button> : null}</div></div>; }
 function Contact({ client }: { client: CrmWorkspaceClient }) { return <div className="space-y-0.5"><div>{client.phone || "Телефон не указан"}</div><div className="text-[11px] text-[var(--text-secondary)]">{client.email || "Почта не указана"}</div></div>; }
 function Status({ status }: { status: CrmWorkspaceClient["syncStatus"] }) { const labels = { synced: "1С", local: "Локальный", pending: "Ожидает отправки", blocked_capability: "Отправка заблокирована", blocked_credentials: "Нужны учётные данные 1С", conflict: "Конфликт", sync_error: "Ошибка", archived: "В архиве" }; const tone = status === "synced" ? "bg-[#DCFCE7] text-[#166534]" : status === "pending" ? "bg-[#FEF3C7] text-[#92400E]" : status === "conflict" || status === "sync_error" || status === "blocked_capability" || status === "blocked_credentials" ? "bg-[#FEE2E2] text-[#B91C1C]" : "bg-[#F1F5F9] text-[#475569]"; return <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${tone}`}>{labels[status]}</span>; }
-function Actions({ client, color, tabs, onColor, onMove, onOpenClient }: RowProps) { const tabActionLabel = client.assignment ? "Переместить…" : "Добавить во вкладку…"; return <div className="flex flex-wrap items-center gap-1.5"><button type="button" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold hover:bg-[#F6F8FB]">Открыть</button><select aria-label={`${client.assignment ? "Переместить" : "Добавить"} ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-8 max-w-[136px] rounded-[8px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">{tabActionLabel}</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select><details className="relative"><summary className="flex h-8 cursor-pointer list-none items-center rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет строки</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details></div>; }
+function Actions({ client, color, tabs, canEditWorkspace, onColor, onMove, onOpenClient }: RowProps) { const tabActionLabel = client.assignment ? "Переместить…" : "Добавить во вкладку…"; return <div className="flex flex-wrap items-center gap-1.5"><button type="button" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold hover:bg-[#F6F8FB]">Открыть</button>{canEditWorkspace ? <><select aria-label={`${client.assignment ? "Переместить" : "Добавить"} ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-8 max-w-[136px] rounded-[8px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">{tabActionLabel}</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select><details className="relative"><summary className="flex h-8 cursor-pointer list-none items-center rounded-[8px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет строки</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details></> : null}</div>; }
 function LoadingRows() { return <div className="mt-4 space-y-2" aria-label="Загрузка клиентов">{[1, 2, 3, 4].map((row) => <div key={row} className="h-16 animate-pulse rounded-[12px] bg-[#F3F6FA]" />)}</div>; }
 function Message({ children, tone }: { children: string; tone: "error" | "success" }) { return <div role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} className={`mt-3 rounded-[10px] border px-3 py-2 text-[11px] ${tone === "error" ? "border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBE6CA] bg-[#F0FDF4] text-[#166534]"}`}>{children}</div>; }
 function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: ReturnType<typeof emptyClientForm>; isSaving: boolean; onChange: (form: ReturnType<typeof emptyClientForm>) => void; onClose: () => void; onSubmit: (event: SubmitEvent<HTMLFormElement>) => void }) { const update = (key: keyof ReturnType<typeof emptyClientForm>, value: string) => onChange({ ...form, [key]: value }); return <div role="dialog" aria-modal="true" aria-labelledby="crm-new-client-title" className="fixed inset-0 z-50 flex items-end bg-[#07162e]/35 p-2 sm:items-center sm:justify-center sm:p-4"><form onSubmit={onSubmit} className="w-full max-w-[620px] rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><h2 id="crm-new-client-title" className="text-[19px] font-bold tracking-[-0.03em]">Новый локальный клиент</h2><p className="mt-1 text-[11px] text-[var(--text-secondary)]">Будет сохранён локально во вкладке «В работе» без отправки в 1С.</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Наименование компании *" value={form.documentName} onChange={(value) => update("documentName", value)} autoFocus /><Field label="Город" value={form.city} onChange={(value) => update("city", value)} /><Field label="Контактное лицо" value={form.contactPerson} onChange={(value) => update("contactPerson", value)} /><Field label="Телефон" value={form.phone} onChange={(value) => update("phone", value)} type="tel" /><Field label="Почта" value={form.email} onChange={(value) => update("email", value)} type="email" /><label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Комментарий</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-10 rounded-[10px] border border-[var(--border-color)] px-3 py-2 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-10 rounded-[11px] px-3 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Отмена</button><button type="submit" disabled={isSaving} className="app-action-button h-10 rounded-[11px] px-4 text-[12px]">{isSaving ? "Сохраняем…" : "Добавить клиента"}</button></div></form></div>; }
 
-function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageReminders, canResolveSyncConflicts, onChanged, onClose }: { client: CrmWorkspaceClient; ownerId: number; ownerName: string; isAdmin: boolean; canManageReminders: boolean; canResolveSyncConflicts: boolean; onChanged: () => void; onClose: () => void }) {
+function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canEditWorkspace, canManageReminders, canResolveSyncConflicts, onChanged, onClose }: { client: CrmWorkspaceClient; ownerId: number; ownerName: string; isAdmin: boolean; canEditWorkspace: boolean; canManageReminders: boolean; canResolveSyncConflicts: boolean; onChanged: () => void; onClose: () => void }) {
   const [currentClient, setCurrentClient] = useState(client);
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [events, setEvents] = useState<CrmEvent[]>([]);
@@ -698,6 +712,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
 
   const saveContact = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canEditWorkspace) return;
     if (!contactForm.name.trim()) { setError("Укажите имя контакта."); return; }
     const temporary: CrmContact = { id: -Date.now(), name: contactForm.name.trim(), phone: contactForm.phone.trim(), email: contactForm.email.trim(), isPrimary: contactForm.isPrimary, createdAt: "", updatedAt: "" };
     setContacts((current) => [...current, temporary]);
@@ -714,6 +729,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
 
   const saveEvent = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canEditWorkspace) return;
     if (!eventForm.body.trim()) { setError("Введите описание события."); return; }
     const temporary: CrmEvent = { id: -Date.now(), kind: eventForm.kind, body: eventForm.body.trim(), authorUserId: null, createdAt: new Date().toISOString(), updatedAt: "" };
     setEvents((current) => [...current, temporary]);
@@ -731,6 +747,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
   const saveReminder = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canManageReminders) return;
+    if (!canEditWorkspace) return;
     if (!reminderDueAt) { setError("Укажите дату и время напоминания."); return; }
     const temporary: CrmReminder = { id: -Date.now(), clientId: client.id, dueAt: reminderDueAt, status: "active", createdAt: new Date().toISOString(), completedAt: "", cancelledAt: "", updatedAt: "" };
     setReminders((current) => [...current, temporary]);
@@ -771,6 +788,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
 
   const saveCompanyRequisites = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!canEditWorkspace) return;
     if (!requisitesForm.documentName.trim()) { setError("Укажите наименование компании."); return; }
     setIsSaving("requisites");
     setError(null);
@@ -834,7 +852,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
   };
 
   const confirmExistingLink = async () => {
-    if (!linkCandidate) return;
+    if (!canEditWorkspace || !linkCandidate) return;
     setIsSaving("link"); setError(null);
     try {
       const linked = await confirmCrmExistingLink(currentClient.id, linkCandidate.id, currentClient.version, ownerId);
@@ -849,6 +867,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
   };
 
   const retryBlockedOnecCreate = async () => {
+    if (!canEditWorkspace) return;
     setIsSaving("retry"); setError(null);
     try {
       const retried = await retryCrmOnecCreate(currentClient.id, ownerId);
@@ -863,6 +882,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
   };
 
   const queueOnecCreate = async () => {
+    if (!canEditWorkspace) return;
     setIsSaving("queue"); setError(null);
     try {
       const queued = await sendCrmClientToOneC(currentClient.id, ownerId);
@@ -902,8 +922,8 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
 
   const canManageLocalClient = isAdmin && currentClient.linkedCounterpartyId === null;
   const canRemoveAssignment = isAdmin && currentClient.linkedCounterpartyId !== null && currentClient.assignment !== null && currentClient.assignment.archivedAt === null;
-  const canConfirmExistingLink = currentClient.linkedCounterpartyId === null && currentClient.syncStatus !== "archived";
-  const canQueueOnecCreate = currentClient.linkedCounterpartyId === null && currentClient.syncStatus === "local";
+  const canConfirmExistingLink = canEditWorkspace && currentClient.linkedCounterpartyId === null && currentClient.syncStatus !== "archived";
+  const canQueueOnecCreate = canEditWorkspace && currentClient.linkedCounterpartyId === null && currentClient.syncStatus === "local";
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="crm-client-detail-title" className="fixed inset-0 z-50 overflow-y-auto bg-[#07162e]/35 p-2 sm:p-5">
@@ -921,7 +941,7 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
         {isLoading ? <div className="mt-5"><LoadingRows /></div> : (
           <div className="mt-5 grid gap-4 lg:grid-cols-3">
             <DetailSection title="Реквизиты компании">
-              <form onSubmit={saveCompanyRequisites} className="grid gap-2">
+              {canEditWorkspace ? <form onSubmit={saveCompanyRequisites} className="grid gap-2">
                 <Field label="Наименование компании *" value={requisitesForm.documentName} onChange={(documentName) => setRequisitesForm((form) => ({ ...form, documentName }))} />
                 <Field label="Полное наименование" value={requisitesForm.fullName} onChange={(fullName) => setRequisitesForm((form) => ({ ...form, fullName }))} />
                 <div className="grid grid-cols-2 gap-2"><Field label="ИНН" value={requisitesForm.inn} onChange={(inn) => setRequisitesForm((form) => ({ ...form, inn }))} /><Field label="КПП" value={requisitesForm.kpp} onChange={(kpp) => setRequisitesForm((form) => ({ ...form, kpp }))} /></div>
@@ -929,24 +949,24 @@ function ClientDetailDialog({ client, ownerId, ownerName, isAdmin, canManageRemi
                 <Field label="Общий телефон компании" value={requisitesForm.phone} onChange={(phone) => setRequisitesForm((form) => ({ ...form, phone }))} type="tel" />
                 <Field label="Общая почта компании" value={requisitesForm.email} onChange={(email) => setRequisitesForm((form) => ({ ...form, email }))} type="email" />
                 <button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "requisites" ? "Сохраняем…" : "Сохранить реквизиты"}</button>
-              </form>
+              </form> : <p className="text-[11px] text-[var(--text-secondary)]">Реквизиты доступны только для просмотра.</p>}
             </DetailSection>
             <DetailSection title="Контакты">
-              <form onSubmit={saveContact} className="grid gap-2">
+              {canEditWorkspace ? <form onSubmit={saveContact} className="grid gap-2">
                 <Field label="Имя *" value={contactForm.name} onChange={(name) => setContactForm((form) => ({ ...form, name }))} />
                 <Field label="Телефон" value={contactForm.phone} onChange={(phone) => setContactForm((form) => ({ ...form, phone }))} type="tel" />
                 <Field label="Почта" value={contactForm.email} onChange={(email) => setContactForm((form) => ({ ...form, email }))} type="email" />
                 <label className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><input type="checkbox" checked={contactForm.isPrimary} onChange={(event) => setContactForm((form) => ({ ...form, isPrimary: event.target.checked }))} />Основной контакт</label>
                 <button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "contact" ? "Сохраняем…" : "Добавить контакт"}</button>
-              </form>
+              </form> : <p className="text-[11px] text-[var(--text-secondary)]">Контакты доступны только для просмотра.</p>}
               <DetailEmpty items={contacts} empty="Контактов пока нет." render={(contact) => <div key={contact.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{contact.name}{contact.isPrimary ? " · основной" : ""}</div><div className="mt-0.5 text-[var(--text-secondary)]">{[contact.phone, contact.email].filter(Boolean).join(" · ") || "Контакты не указаны"}</div></div>} />
             </DetailSection>
             <DetailSection title="История">
-              <form onSubmit={saveEvent} className="grid gap-2">
+              {canEditWorkspace ? <form onSubmit={saveEvent} className="grid gap-2">
                 <select value={eventForm.kind} onChange={(event) => setEventForm((form) => ({ ...form, kind: event.target.value }))} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px]"><option value="comment">Комментарий</option><option value="call">Звонок</option><option value="meeting">Встреча</option><option value="email">Письмо</option></select>
                 <textarea value={eventForm.body} onChange={(event) => setEventForm((form) => ({ ...form, body: event.target.value }))} placeholder="Что произошло?" className="min-h-20 rounded-[9px] border border-[var(--border-color)] px-2 py-2 text-[11px] outline-none focus:border-[var(--brand-yellow)]" />
                 <button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "event" ? "Сохраняем…" : "Добавить событие"}</button>
-              </form>
+              </form> : <p className="text-[11px] text-[var(--text-secondary)]">История доступна только для просмотра.</p>}
               <DetailEmpty items={events} empty="История пока пуста." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{eventLabel(item.kind)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.body}</div></div>} />
             </DetailSection>
             <DetailSection title="Напоминания">
