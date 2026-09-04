@@ -554,6 +554,13 @@ class CrmRepository:
             query += " ORDER BY name COLLATE NOCASE, id"
             return [dict(row) for row in conn.execute(query, params).fetchall()]
 
+    def list_sync_conflicts_for_actor(
+        self, *, actor_id: int, owner_id: int, client_id: int
+    ) -> list[dict[str, Any]]:
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+        return self.db.list_crm_sync_conflicts(client_id)
+
     def create_tab_for_actor(self, *, actor_id: int, owner_id: int, name: str) -> dict[str, Any]:
         self._require_owner_access(actor_id, owner_id)
         return self._create_tab(owner_id, name)

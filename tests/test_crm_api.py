@@ -120,6 +120,25 @@ class CrmApiTest(unittest.TestCase):
         missing_context = self.client.get(f"/api/crm/clients/{client_id}")
         self.assertEqual(400, missing_context.status_code)
 
+    def test_owner_can_read_the_current_sync_conflict_values(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Базовое имя"}).json()
+        client_id = created["client"]["id"]
+        self.service.db.update_crm_client_sync_state(client_id, sync_status="synced", synced=True)
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE crm_clients SET document_name = ? WHERE id = ?", ("Локальное имя", client_id))
+        self.service.db.merge_crm_client_fields_from_counterparty(
+            client_id,
+            {"document_name": "Имя из 1С", "email": "", "phone": ""},
+        )
+
+        listed = self.client.get(f"/api/crm/clients/{client_id}/sync-conflicts")
+
+        self.assertEqual(200, listed.status_code, listed.text)
+        self.assertEqual(
+            [{"fieldName": "documentName", "localValue": "Локальное имя", "remoteValue": "Имя из 1С", "sourceVersion": 1}],
+            [{key: item[key] for key in ("fieldName", "localValue", "remoteValue", "sourceVersion")} for item in listed.json()["items"]],
+        )
+
     def test_owner_can_save_palette_preference_for_own_row(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Лид с цветом"}).json()
         client_id = created["client"]["id"]

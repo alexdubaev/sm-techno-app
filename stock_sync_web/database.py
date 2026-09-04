@@ -1429,6 +1429,16 @@ class WebDatabase(Database):
                 conn.execute(f"UPDATE crm_clients SET {', '.join(assignments)}, updated_at = ? WHERE id = ?", (*values, now, client_id))
             conn.execute("UPDATE crm_sync_state SET last_synced_snapshot = ?, updated_at = ? WHERE crm_client_id = ?", (json.dumps(snapshot, ensure_ascii=False, sort_keys=True), now, client_id))
 
+    def list_crm_sync_conflicts(self, client_id: int) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM crm_sync_conflicts
+                   WHERE crm_client_id = ? AND status = 'open'
+                   ORDER BY id""",
+                (client_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def update_crm_client_sync_state(
         self,
         client_id: int,

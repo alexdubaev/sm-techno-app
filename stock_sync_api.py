@@ -558,6 +558,19 @@ def _serialize_crm_link_candidate(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _serialize_crm_sync_conflict(row: dict[str, Any]) -> dict[str, Any]:
+    field_names = {"document_name": "documentName"}
+    return {
+        "id": int(row["id"]),
+        "fieldName": field_names.get(str(row.get("field_name") or ""), str(row.get("field_name") or "")),
+        "baseValue": json.loads(str(row.get("base_value_json") or "null")),
+        "localValue": json.loads(str(row.get("local_value_json") or "null")),
+        "remoteValue": json.loads(str(row.get("remote_value_json") or "null")),
+        "sourceVersion": int(row.get("source_version") or 0),
+        "updatedAt": row.get("updated_at") or "",
+    }
+
+
 def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         counterparty_id = int(payload.get("counterpartyId"))
@@ -1290,6 +1303,22 @@ def list_existing_onec_link_candidates(
             actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
         )
         return {"items": [_serialize_crm_link_candidate(candidate) for candidate in candidates]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/clients/{client_id}/sync-conflicts")
+def list_crm_sync_conflicts(
+    client_id: int,
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        conflicts = repo.list_sync_conflicts_for_actor(
+            actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id
+        )
+        return {"ownerId": resolved_owner_id, "items": [_serialize_crm_sync_conflict(conflict) for conflict in conflicts]}
     except Exception as exc:
         _crm_error(exc)
 
