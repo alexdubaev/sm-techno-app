@@ -450,3 +450,11 @@ test("CRM tab mutations ignore stale owner results and keep dialog errors announ
   assert.match(workspace, /reloadAfterTabFailure\(requestTab, requestOwnerId,/);
   assert.match(workspace, /role="alert" aria-live="assertive"/);
 });
+
+test("CRM tab create and delete re-enable controls after selecting their destination tab", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /const isCurrentWorkspaceOwner = \(requestOwnerId: number\)/);
+  assert.match(workspace, /if \(isCurrentWorkspaceOwner\(requestOwnerId\)\) setIsSavingTab\(false\);/);
+  assert.doesNotMatch(workspace, /if \(isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) setIsSavingTab\(false\);/);
+});

@@ -190,6 +190,7 @@ export function CrmWorkspace() {
   };
 
   const isCurrentWorkspaceView = (requestTab: ActiveTab, requestOwnerId: number) => currentView.current.activeTab === requestTab && currentView.current.ownerId === requestOwnerId;
+  const isCurrentWorkspaceOwner = (requestOwnerId: number) => currentView.current.ownerId === requestOwnerId;
 
   const submitClient = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -429,7 +430,7 @@ export function CrmWorkspace() {
     } catch (cause) {
       await reloadAfterTabFailure(requestTab, requestOwnerId, errorMessage(cause, "Не удалось сохранить личную вкладку. Изменение отменено."));
     } finally {
-      if (isCurrentWorkspaceView(requestTab, requestOwnerId)) setIsSavingTab(false);
+      if (isCurrentWorkspaceOwner(requestOwnerId)) setIsSavingTab(false);
     }
   };
 
@@ -451,7 +452,7 @@ export function CrmWorkspace() {
     } catch (cause) {
       await reloadAfterTabFailure(requestTab, requestOwnerId, errorMessage(cause, "Не удалось удалить личную вкладку. Изменение отменено."));
     } finally {
-      if (isCurrentWorkspaceView(requestTab, requestOwnerId)) setIsSavingTab(false);
+      if (isCurrentWorkspaceOwner(requestOwnerId)) setIsSavingTab(false);
     }
   };
 
