@@ -50,6 +50,13 @@ class CrmPersistenceTest(unittest.TestCase):
         self.assertTrue({"crm_tabs", "crm_assignments", "crm_contacts", "crm_events", "crm_reminders", "crm_row_preferences", "crm_audit_actions", "crm_sync_state", "crm_sync_jobs", "crm_sync_conflicts"}.issubset(tables))
         self.assertEqual("Потенциальный клиент", self.db.get_crm_client(self.client["id"])["document_name"])
 
+    def test_confirmed_sync_records_a_base_snapshot_for_future_conflict_merge(self) -> None:
+        self.db.update_crm_client_sync_state(self.client["id"], sync_status="synced", synced=True)
+        with self.db.connect() as conn:
+            state = conn.execute("SELECT last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (self.client["id"],)).fetchone()
+
+        self.assertEqual('{"document_name": "Потенциальный клиент"}', state["last_synced_snapshot"])
+
     def test_tab_deletion_reassigns_clients_atomically(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
         follow_up = self.repo.create_tab(self.owner_id, "Перезвонить")

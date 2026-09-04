@@ -1406,6 +1406,16 @@ class WebDatabase(Database):
             if existing is None:
                 raise ValueError("Клиент не найден.")
 
+            if synced:
+                snapshot_row = conn.execute("SELECT document_name FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+                snapshot = json.dumps({"document_name": snapshot_row["document_name"] or ""}, ensure_ascii=False, sort_keys=True)
+                conn.execute(
+                    """INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at)
+                       VALUES (?, 1, ?, ?)
+                       ON CONFLICT(crm_client_id) DO UPDATE SET last_synced_snapshot = excluded.last_synced_snapshot, updated_at = excluded.updated_at""",
+                    (client_id, snapshot, now),
+                )
+
             if linked_counterparty_id is not None:
                 conn.execute(
                     """
