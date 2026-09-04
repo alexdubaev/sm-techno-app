@@ -7,6 +7,7 @@ import shutil
 import uuid
 from datetime import date, datetime
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounterpartySyncError
@@ -45,6 +46,7 @@ class WebStockSyncService:
         self.document_storage_dir = Path(document_storage_dir)
         self.document_exports_dir = self.document_storage_dir / "exports"
         self.document_exports_dir.mkdir(parents=True, exist_ok=True)
+        self._crm_refresh_lock = Lock()
 
     def bootstrap(self) -> bool:
         return self.db.ensure_default_admin()
@@ -263,6 +265,22 @@ class WebStockSyncService:
                 if card:
                     self.db.update_crm_client_sync_state(int(card["id"]), sync_status="synced", synced=True)
         return count
+
+    def sync_crm_counterparties_for_user(self, user_id: int) -> dict[str, int | str]:
+        """Pull the CRM catalogue once; overlapping in-process requests coalesce.
+
+        A coalesced caller returns immediately and reloads the local CRM data
+        being refreshed by the request that owns the lock.
+        """
+        if not self._crm_refresh_lock.acquire(blocking=False):
+            return {"status": "coalesced", "counterparties": 0}
+        try:
+            return {
+                "status": "synced",
+                "counterparties": self.sync_counterparties(user_id=int(user_id)),
+            }
+        finally:
+            self._crm_refresh_lock.release()
 
     def run_due_crm_sync_jobs(self, *, limit: int = 20) -> dict[str, int]:
         """Advance the durable CRM outbox only when safe 1C writes are available.

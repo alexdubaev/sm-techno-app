@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+import tempfile
+import threading
+import time
+import unittest
+import os
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+os.environ.setdefault("SM_TECHNO_INITIAL_ADMIN_PASSWORD", "crm-sync-test-password")
+
+import stock_sync_api
+from stock_sync_web.database import WebDatabase
+from stock_sync_web.crm_repository import CrmRepository
+from stock_sync_web.service import WebStockSyncService
+
+
+class RecordingOneC:
+    def __init__(self) -> None:
+        self.user_ids: list[int | None] = []
+
+    def list_counterparties(self) -> list[dict[str, str]]:
+        return []
+
+
+class BlockingOneC(RecordingOneC):
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def list_counterparties(self) -> list[dict[str, str]]:
+        self.entered.set()
+        if not self.release.wait(timeout=2):
+            raise RuntimeError("test refresh was not released")
+        return []
+
+
+class FailingThenWorkingOneC(RecordingOneC):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail = True
+
+    def list_counterparties(self) -> list[dict[str, str]]:
+        if self.fail:
+            raise RuntimeError("1C temporarily unavailable")
+        return []
+
+
+class CreatingOneC(RecordingOneC):
+    def __init__(self) -> None:
+        super().__init__()
+        self.created = threading.Event()
+
+    def find_counterparty_by_identity(self, **_: object) -> None:
+        return None
+
+    def create_counterparty(self, card: dict[str, object]) -> dict[str, object]:
+        self.created.set()
+        return {
+            "Ref_Key": "worker-created-1",
+            "Description": str(card["document_name"]),
+            "НаименованиеПолное": str(card["full_name"]),
+            "ИНН": str(card["inn"]),
+            "КПП": str(card["kpp"]),
+        }
+
+
+class CrmSyncExecutionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.service = WebStockSyncService(db=WebDatabase(Path(self.temp_dir.name) / "crm-sync.db"))
+        self.service.bootstrap()
+        self.owner_id = self.service.db.create_user(username="owner-sync", password="password", role="user")
+        self.admin_id = self.service.db.create_user(username="admin-sync", password="password", role="admin")
+        self.original_service = stock_sync_api.SERVICE
+        stock_sync_api.SERVICE = self.service
+        stock_sync_api.app.dependency_overrides[stock_sync_api._get_current_user] = lambda: {
+            "id": self.owner_id,
+            "role": "user",
+        }
+        self.client = TestClient(stock_sync_api.app)
+
+    def tearDown(self) -> None:
+        self.client.close()
+        stock_sync_api.app.dependency_overrides.clear()
+        stock_sync_api.SERVICE = self.original_service
+        self.temp_dir.cleanup()
+
+    def test_crm_refresh_endpoint_uses_authenticated_user_not_selected_owner(self) -> None:
+        fake = RecordingOneC()
+
+        def build_user_client(*, user_id: int | None = None, **_: object) -> RecordingOneC:
+            fake.user_ids.append(user_id)
+            return fake
+
+        self.service.build_user_client = build_user_client  # type: ignore[method-assign]
+        response = self.client.post("/api/crm/sync?ownerId=999")
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual({"status": "synced", "counterparties": 0}, response.json())
+        self.assertEqual([self.owner_id], fake.user_ids)
+
+    def test_concurrent_crm_refresh_is_coalesced_without_second_onec_read(self) -> None:
+        fake = BlockingOneC()
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+        first_result: dict[str, object] = {}
+
+        def refresh() -> None:
+            first_result.update(self.service.sync_crm_counterparties_for_user(self.owner_id))
+
+        thread = threading.Thread(target=refresh)
+        thread.start()
+        self.assertTrue(fake.entered.wait(timeout=1))
+        second_result = self.service.sync_crm_counterparties_for_user(self.owner_id)
+        fake.release.set()
+        thread.join(timeout=2)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual({"status": "synced", "counterparties": 0}, first_result)
+        self.assertEqual({"status": "coalesced", "counterparties": 0}, second_result)
+
+    def test_failed_crm_refresh_releases_coalescing_lock_for_retry(self) -> None:
+        fake = FailingThenWorkingOneC()
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+
+        with self.assertRaisesRegex(RuntimeError, "temporarily unavailable"):
+            self.service.sync_crm_counterparties_for_user(self.owner_id)
+        fake.fail = False
+
+        self.assertEqual(
+            {"status": "synced", "counterparties": 0},
+            self.service.sync_crm_counterparties_for_user(self.owner_id),
+        )
+
+    def test_app_lifecycle_advances_an_explicit_create_job(self) -> None:
+        repo = CrmRepository(self.service.db)
+        card, _assignment, _tab = repo.create_local_lead_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            values={"document_name": "Lifecycle lead", "inn": "7707083893", "kpp": "770701001"},
+            initial_contact={},
+            initial_comment="",
+        )
+        repo.enqueue_onec_create_for_actor(
+            actor_id=self.owner_id, owner_id=self.owner_id, client_id=int(card["id"])
+        )
+        fake = CreatingOneC()
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+
+        with TestClient(stock_sync_api.app):
+            deadline = time.monotonic() + 3
+            while not fake.created.is_set() and time.monotonic() < deadline:
+                time.sleep(0.05)
+
+        self.assertTrue(fake.created.is_set())
+        self.assertEqual("synced", self.service.db.get_crm_client(int(card["id"]))["sync_status"])

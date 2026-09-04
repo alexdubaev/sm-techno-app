@@ -1,8 +1,11 @@
 ﻿from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import tempfile
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +23,8 @@ from stock_sync_web.crm_repository import CrmRepository
 
 APP_TITLE = "SM Techno Stock Sync API"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+CRM_SYNC_WORKER_POLL_SECONDS = 1.0
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,13 +39,39 @@ class DraftLine:
 SERVICE = WebStockSyncService()
 SERVICE.bootstrap()
 
+
+@asynccontextmanager
+async def _app_lifespan(_: FastAPI):
+    """Advance the durable CRM outbox without blocking the ASGI event loop."""
+    stop = asyncio.Event()
+
+    async def advance_crm_jobs() -> None:
+        while not stop.is_set():
+            try:
+                await asyncio.to_thread(SERVICE.run_due_crm_sync_jobs, limit=20)
+            except Exception:
+                LOGGER.exception("CRM sync worker iteration failed")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=CRM_SYNC_WORKER_POLL_SECONDS)
+            except asyncio.TimeoutError:
+                pass
+
+    task = asyncio.create_task(advance_crm_jobs())
+    try:
+        yield
+    finally:
+        stop.set()
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get("SM_TECHNO_ALLOWED_ORIGINS", "http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:3001,http://localhost:3001,https://sm-techno-stock.alexdubaev.chatgpt.site").split(",")
     if origin.strip()
 ]
 
-app = FastAPI(title=APP_TITLE, version="0.1.0")
+app = FastAPI(title=APP_TITLE, version="0.1.0", lifespan=_app_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -929,6 +960,17 @@ def sync_references(
         "contracts": contracts,
         "organizations": organizations,
     }
+
+
+@app.post("/api/crm/sync")
+def sync_crm_counterparties(
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, int | str]:
+    """Refresh CRM companies with the authenticated user's 1C credentials."""
+    try:
+        return SERVICE.sync_crm_counterparties_for_user(int(current_user["id"]))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/references/counterparties")
