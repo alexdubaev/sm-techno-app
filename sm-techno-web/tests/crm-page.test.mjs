@@ -16,6 +16,23 @@ const appShellUrl = new URL("../components/app-shell.tsx", import.meta.url);
 const mobileTypesUrl = new URL("../components/crm/mobile/types.ts", import.meta.url);
 const mobileUtilsUrl = new URL("../components/crm/mobile/mobile-crm-utils.ts", import.meta.url);
 
+async function loadMobileCrmUtilsForTest() {
+  const source = await readFile(mobileUtilsUrl, "utf8");
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const commonJsModule = { exports: {} };
+  vm.runInNewContext(compiled, {
+    Intl,
+    Date,
+    Map,
+    Number,
+    module: commonJsModule,
+    exports: commonJsModule.exports,
+  });
+  return commonJsModule.exports;
+}
+
 test("mobile CRM contracts expose detail sections and reminder helpers", async () => {
   const [mobileTypes, mobileUtils] = await Promise.all([
     readFile(mobileTypesUrl, "utf8"),
@@ -25,6 +42,60 @@ test("mobile CRM contracts expose detail sections and reminder helpers", async (
   assert.match(mobileTypes, /MobileDetailSection = "overview" \| "history" \| "reminders" \| "more"/);
   assert.match(mobileUtils, /export function getImportantReminders/);
   assert.match(mobileUtils, /export function getNearestActiveReminderByClient/);
+});
+
+test("mobile CRM reminder helpers classify Moscow urgency, filter, sort, and select nearest reminders", async () => {
+  const utils = await loadMobileCrmUtilsForTest();
+  const reminder = (id, clientId, dueAt, status = "active") => ({
+    id,
+    clientId,
+    dueAt,
+    status,
+    createdAt: dueAt,
+    completedAt: "",
+    cancelledAt: "",
+    updatedAt: dueAt,
+  });
+  const now = new Date("2026-09-04T20:30:00Z");
+  const items = [
+    reminder(1, 10, "2026-09-04T21:00:00Z"),
+    reminder(2, 10, "2026-09-04T20:00:00Z"),
+    reminder(3, 11, "2026-09-04T20:59:00Z"),
+    reminder(4, 11, "2026-09-04T20:00:00Z", "completed"),
+    reminder(5, 12, "2026-09-04T21:01:00Z"),
+    reminder(6, 13, "not-a-date"),
+  ];
+
+  assert.deepEqual(
+    utils.getImportantReminders(items, now).map(({ id, urgency }) => ({ id, urgency })),
+    [
+      { id: 2, urgency: "overdue" },
+      { id: 3, urgency: "today" },
+    ],
+  );
+
+  const atMoscowMidnight = new Date("2026-09-04T21:00:00Z");
+  assert.deepEqual(
+    utils.getImportantReminders([reminder(7, 14, "2026-09-04T20:59:00Z"), reminder(8, 14, "2026-09-04T21:00:00Z")], atMoscowMidnight)
+      .map(({ id, urgency }) => ({ id, urgency })),
+    [{ id: 7, urgency: "overdue" }, { id: 8, urgency: "today" }],
+  );
+
+  const nearest = utils.getNearestActiveReminderByClient([
+    reminder(9, 20, "2026-09-05T12:00:00Z"),
+    reminder(10, 20, "2026-09-05T10:00:00Z"),
+    reminder(11, 21, "2026-09-05T11:00:00Z", "cancelled"),
+    reminder(12, 21, "invalid"),
+    reminder(13, 22, "2026-09-05T09:00:00Z"),
+  ]);
+  assert.deepEqual([...nearest].map(([clientId, item]) => [clientId, item.id]), [[20, 10], [22, 13]]);
+});
+
+test("mobile CRM reminder helpers convert Moscow datetime-local values to and from UTC", async () => {
+  const utils = await loadMobileCrmUtilsForTest();
+
+  assert.equal(utils.moscowInputToUtc("2026-09-05T12:30"), "2026-09-05T09:30:00.000Z");
+  assert.equal(utils.utcToMoscowInput("2026-09-05T09:30:00.000Z"), "2026-09-05T12:30");
 });
 
 async function loadCrmApiForContractTest() {
