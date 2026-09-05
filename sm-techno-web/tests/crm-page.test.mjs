@@ -17,6 +17,7 @@ const appShellUrl = new URL("../components/app-shell.tsx", import.meta.url);
 const mobileTypesUrl = new URL("../components/crm/mobile/types.ts", import.meta.url);
 const mobileUtilsUrl = new URL("../components/crm/mobile/mobile-crm-utils.ts", import.meta.url);
 const mobileWorkspaceUrl = new URL("../components/crm/mobile/mobile-crm-workspace.tsx", import.meta.url);
+const mobileWorkspaceStateUrl = new URL("../components/crm/mobile/mobile-crm-workspace-state.ts", import.meta.url);
 
 async function loadMobileCrmUtilsForTest() {
   const source = await readFile(mobileUtilsUrl, "utf8");
@@ -33,6 +34,56 @@ async function loadMobileCrmUtilsForTest() {
     exports: commonJsModule.exports,
   });
   return commonJsModule.exports;
+}
+
+async function loadMobileCrmWorkspaceStateForTest() {
+  const source = await readFile(mobileWorkspaceStateUrl, "utf8").catch(() => "");
+  if (!source) return {};
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const commonJsModule = { exports: {} };
+  vm.runInNewContext(compiled, { module: commonJsModule, exports: commonJsModule.exports });
+  return commonJsModule.exports;
+}
+
+function workspaceClient(id, documentName = `Клиент ${id}`) {
+  return {
+    id,
+    version: 1,
+    name: documentName,
+    documentName,
+    fullName: documentName,
+    inn: "7700000000",
+    kpp: "770001001",
+    city: "Москва",
+    website: "",
+    contactPerson: "Ирина",
+    email: "client@example.test",
+    phone: "+79990000000",
+    notes: "",
+    linkedCounterpartyId: null,
+    syncStatus: "local",
+    syncError: "",
+    createdAt: "2026-09-05T09:00:00.000Z",
+    updatedAt: "2026-09-05T09:00:00.000Z",
+    assignment: null,
+    rowPreference: null,
+    primaryRowPreference: null,
+  };
+}
+
+function crmReminder(id, clientId, dueAt = "2026-09-05T10:00:00.000Z") {
+  return {
+    id,
+    clientId,
+    dueAt,
+    status: "active",
+    createdAt: "2026-09-05T09:00:00.000Z",
+    completedAt: "",
+    cancelledAt: "",
+    updatedAt: "2026-09-05T09:00:00.000Z",
+  };
 }
 
 test("mobile CRM contracts expose detail sections and reminder helpers", async () => {
@@ -59,6 +110,98 @@ test("CRM composes a strict presentational mobile branch with owner-scoped remin
   assert.match(workspace, /fetchCrmClient\(reminder\.clientId, ownerId\)/);
   assert.ok(mobileWorkspace, "mobile workspace composition module must exist");
   assert.doesNotMatch(mobileWorkspace, /from ["']@\/lib\/api["']/);
+});
+
+test("mobile CRM reminder state retains prior data on failure and rejects stale-owner results", async () => {
+  const state = await loadMobileCrmWorkspaceStateForTest();
+  assert.equal(typeof state.applyOwnerReminderLoad, "function");
+  assert.equal(typeof state.getOwnerReminders, "function");
+
+  const prior = { ownerId: 7, items: [crmReminder(1, 42)] };
+  const nextItems = [crmReminder(2, 84)];
+
+  assert.equal(state.applyOwnerReminderLoad(prior, 7, 7, undefined), prior);
+  assert.equal(state.applyOwnerReminderLoad(prior, 8, 7, nextItems), prior);
+
+  const accepted = state.applyOwnerReminderLoad(prior, 7, 7, nextItems);
+  assert.deepEqual(state.getOwnerReminders(accepted, 7).map((item) => item.id), [2]);
+  assert.equal(state.getOwnerReminders(accepted, 8).length, 0);
+});
+
+test("mobile CRM reminder navigation reuses loaded clients and preserves reminder detail context", async () => {
+  const state = await loadMobileCrmWorkspaceStateForTest();
+  assert.equal(typeof state.resolveReminderDetailSelection, "function");
+  assert.equal(typeof state.getMobileListContextOnClose, "function");
+
+  const loadedClient = workspaceClient(42);
+  const listContext = { search: "ирина", scrollTop: 384 };
+  const selection = await state.resolveReminderDetailSelection({
+    reminder: crmReminder(1, 42),
+    clients: [loadedClient],
+    ownerId: 7,
+    listContext,
+    fetchClient: async () => { throw new Error("loaded client must not be fetched"); },
+  });
+
+  assert.equal(selection.client, loadedClient);
+  assert.equal(selection.initialSection, "reminders");
+  assert.equal(state.getMobileListContextOnClose(selection), listContext);
+  assert.equal(selection.listContext.search, "ирина");
+  assert.equal(selection.listContext.scrollTop, 384);
+});
+
+test("mobile CRM reminder navigation loads out-of-tab clients with owner scope and leaves inputs unchanged on failure", async () => {
+  const state = await loadMobileCrmWorkspaceStateForTest();
+  assert.equal(typeof state.resolveReminderDetailSelection, "function");
+
+  const loadedClients = [workspaceClient(42)];
+  const outsideClient = workspaceClient(84, "Вне вкладки");
+  const listContext = { search: "вне", scrollTop: 512 };
+  const requests = [];
+  const selection = await state.resolveReminderDetailSelection({
+    reminder: crmReminder(2, 84),
+    clients: loadedClients,
+    ownerId: 7,
+    listContext,
+    fetchClient: async (clientId, ownerId) => {
+      requests.push({ clientId, ownerId });
+      return outsideClient;
+    },
+  });
+
+  assert.equal(selection.client, outsideClient);
+  assert.deepEqual(requests, [{ clientId: 84, ownerId: 7 }]);
+  assert.equal(selection.initialSection, "reminders");
+
+  await assert.rejects(
+    state.resolveReminderDetailSelection({
+      reminder: crmReminder(3, 126),
+      clients: loadedClients,
+      ownerId: 7,
+      listContext,
+      fetchClient: async () => { throw new Error("client load failed"); },
+    }),
+    /client load failed/,
+  );
+  assert.deepEqual(loadedClients.map((client) => client.id), [42]);
+  assert.deepEqual(listContext, { search: "вне", scrollTop: 512 });
+});
+
+test("CRM detail reminder mutations share the parent card and reminder refresh handler", async () => {
+  const [workspace, controller] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
+  ]);
+  const saveReminder = controller.slice(controller.indexOf("const saveReminder"), controller.indexOf("const transitionReminder"));
+  const transitionReminder = controller.slice(controller.indexOf("const transitionReminder"), controller.indexOf("const rescheduleReminder"));
+  const rescheduleReminder = controller.slice(controller.indexOf("const rescheduleReminder"), controller.indexOf("const saveCompanyRequisites"));
+
+  assert.match(saveReminder, /setReminderDueAt\(""\);\s+notifyChanged\(\);/);
+  assert.match(transitionReminder, /transitionSucceeded = true;\s+notifyChanged\(\);\s+await Promise\.all\(\[refreshReminders\(\), refreshAudit\(\)\]\);/);
+  assert.match(rescheduleReminder, /await rescheduleCrmReminder\([\s\S]+?\);\s+notifyChanged\(\);\s+await refreshReminders\(\);/);
+  assert.match(workspace, /const refreshAfterDetailChange = useCallback/);
+  assert.match(workspace, /onDetailChanged=\{refreshAfterDetailChange\}/);
+  assert.match(workspace, /onChanged=\{refreshAfterDetailChange\}/);
 });
 
 test("mobile CRM reminder helpers classify Moscow urgency, filter, sort, and select nearest reminders", async () => {
@@ -740,9 +883,11 @@ test("owner switches reset new-client state and normal writes ignore stale owner
   assert.match(workspace, /if \(!isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) return;/);
 });
 
-test("foreign detail keeps values visible and stale detail reloads", async () => {
+test("foreign detail keeps values visible and stale detail reloads through the shared handler", async () => {
   const workspace = await readFile(crmWorkspaceUrl, "utf8");
 
-  assert.match(workspace, /onChanged=\{\(requestOwnerId, requestTab\) => \{ if \(isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) void loadWorkspace\(requestTab, \{ silent: true \}\); \}\}/);
+  assert.match(workspace, /onChanged=\{refreshAfterDetailChange\}/);
+  assert.match(workspace, /if \(!isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) return;/);
+  assert.match(workspace, /void loadWorkspace\(requestTab, \{ silent: true \}\);\s+void refreshReminders\(requestOwnerId\);/);
   assert.match(workspace, /<ReadonlyCompanyRequisites client=\{currentClient\} \/>/);
 });

@@ -24,6 +24,15 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { MobileCrmWorkspace } from "@/components/crm/mobile/mobile-crm-workspace";
 import { getImportantReminders, getNearestActiveReminderByClient } from "@/components/crm/mobile/mobile-crm-utils";
+import {
+  applyOwnerReminderLoad,
+  createMobileDetailSelection,
+  getMobileListContextOnClose,
+  getOwnerReminders,
+  resolveReminderDetailSelection,
+  type MobileDetailSelection,
+  type OwnerReminderState,
+} from "@/components/crm/mobile/mobile-crm-workspace-state";
 import type { MobileDetailSection } from "@/components/crm/mobile/types";
 import { useCrmClientDetailController, type CrmClientDetailControllerOptions } from "@/components/crm/use-crm-client-detail";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -79,8 +88,8 @@ export function CrmWorkspace() {
   const [isExporting, setIsExporting] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [selectedClient, setSelectedClient] = useState<CrmWorkspaceClient | null>(null);
-  const [mobileDetail, setMobileDetail] = useState<{ client: CrmWorkspaceClient; initialSection: MobileDetailSection } | null>(null);
-  const [reminderState, setReminderState] = useState<{ ownerId: number; items: CrmReminder[] } | null>(null);
+  const [mobileDetail, setMobileDetail] = useState<MobileDetailSelection | null>(null);
+  const [reminderState, setReminderState] = useState<OwnerReminderState>(null);
   const [reminderError, setReminderError] = useState<{ ownerId: number; message: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +105,6 @@ export function CrmWorkspace() {
   const crmRefreshInFlight = useRef<{ ownerId: number; request: Promise<void> } | null>(null);
   const syncedOwnerId = useRef<number | null>(null);
   const reminderRequestId = useRef(0);
-  const mobileScrollTop = useRef(0);
   const currentView = useRef({ activeTab, ownerId });
   currentView.current = { activeTab, ownerId };
   const isCurrentWorkspaceView = useCallback((requestTab: ActiveTab, requestOwnerId: number) => currentView.current.activeTab === requestTab && currentView.current.ownerId === requestOwnerId, []);
@@ -119,18 +127,22 @@ export function CrmWorkspace() {
     const id = ++reminderRequestId.current;
     try {
       const items = await fetchCrmReminders(ownerId);
-      if (id !== reminderRequestId.current || !isCurrentWorkspaceOwner(ownerId)) return;
+      if (id !== reminderRequestId.current) return;
+      const activeOwnerId = currentView.current.ownerId;
+      setReminderState((current) => applyOwnerReminderLoad(current, activeOwnerId, ownerId, items));
+      if (activeOwnerId !== ownerId) return;
       setReminderError(null);
-      setReminderState({ ownerId, items });
     } catch (cause) {
-      if (id === reminderRequestId.current && isCurrentWorkspaceOwner(ownerId)) {
+      if (id === reminderRequestId.current) {
+        const activeOwnerId = currentView.current.ownerId;
+        setReminderState((current) => applyOwnerReminderLoad(current, activeOwnerId, ownerId, undefined));
+        if (activeOwnerId !== ownerId) return;
         setReminderError({ ownerId, message: errorMessage(cause, "Не удалось загрузить напоминания. Карточки клиентов не изменены.") });
       }
     }
-  }, [isCurrentWorkspaceOwner]);
+  }, []);
 
   useEffect(() => {
-    // oxlint-disable-next-line react/react-compiler -- Owner changes intentionally synchronize API-backed reminder state.
     void refreshReminders(ownerId);
   }, [ownerId, refreshReminders]);
 
@@ -162,6 +174,12 @@ export function CrmWorkspace() {
       }
     }
   }, [isCurrentWorkspaceView, ownerId]);
+
+  const refreshAfterDetailChange = useCallback((requestOwnerId: number, requestTab: ActiveTab) => {
+    if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
+    void loadWorkspace(requestTab, { silent: true });
+    void refreshReminders(requestOwnerId);
+  }, [isCurrentWorkspaceView, loadWorkspace, refreshReminders]);
 
   const syncCrmBeforeReload = useCallback(() => {
     if (!crmSyncInFlight.current) {
@@ -235,7 +253,7 @@ export function CrmWorkspace() {
     return filtered;
   }, [activeTab, clients, primaryOrderMode, search, syncFilter]);
 
-  const ownerReminders = useMemo(() => reminderState?.ownerId === ownerId ? reminderState.items : [], [ownerId, reminderState]);
+  const ownerReminders = useMemo(() => getOwnerReminders(reminderState, ownerId), [ownerId, reminderState]);
   const importantReminders = useMemo(() => getImportantReminders(ownerReminders), [ownerReminders]);
   const nearestReminderByClient = useMemo(() => getNearestActiveReminderByClient(ownerReminders), [ownerReminders]);
 
@@ -267,22 +285,30 @@ export function CrmWorkspace() {
   };
 
   const openMobileClient = (client: CrmWorkspaceClient, initialSection: MobileDetailSection = "overview") => {
-    mobileScrollTop.current = window.scrollY;
-    setMobileDetail({ client, initialSection });
+    setMobileDetail(createMobileDetailSelection(client, initialSection, { search, scrollTop: window.scrollY }));
   };
 
   const closeMobileClient = () => {
+    const listContext = mobileDetail ? getMobileListContextOnClose(mobileDetail) : null;
     setMobileDetail(null);
-    const scrollTop = mobileScrollTop.current;
-    window.requestAnimationFrame(() => window.scrollTo({ top: scrollTop }));
+    if (!listContext) return;
+    setSearch(listContext.search);
+    window.requestAnimationFrame(() => window.scrollTo({ top: listContext.scrollTop }));
   };
 
   const openReminder = async (reminder: CrmReminder) => {
     const requestOwnerId = ownerId;
+    const listContext = { search, scrollTop: window.scrollY };
     try {
-      const client = clients.find((item) => item.id === reminder.clientId) ?? await fetchCrmClient(reminder.clientId, ownerId);
+      const selection = await resolveReminderDetailSelection({
+        reminder,
+        clients,
+        ownerId,
+        listContext,
+        fetchClient: () => fetchCrmClient(reminder.clientId, ownerId),
+      });
       if (!isCurrentWorkspaceOwner(requestOwnerId)) return;
-      openMobileClient(client, "reminders");
+      setMobileDetail(selection);
     } catch (cause) {
       if (isCurrentWorkspaceOwner(requestOwnerId)) setError(errorMessage(cause, "Не удалось открыть клиента для напоминания. Список не изменён."));
     }
@@ -592,11 +618,7 @@ export function CrmWorkspace() {
           tabs={tabs}
           workspaceError={error}
           onCloseClient={closeMobileClient}
-          onDetailChanged={(requestOwnerId, requestTab) => {
-            if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
-            void loadWorkspace(requestTab, { silent: true });
-            void refreshReminders(requestOwnerId);
-          }}
+          onDetailChanged={refreshAfterDetailChange}
           onOpenClient={openMobileClient}
           onOpenReminder={(reminder) => void openReminder(reminder)}
           onSearchChange={setSearch}
@@ -611,7 +633,7 @@ export function CrmWorkspace() {
           <p className="mt-1 text-[12px] text-[var(--text-secondary)]">Клиенты, личные вкладки и быстрые действия менеджера.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); const cachedWorkspace = readCrmWorkspaceCache(nextOwnerId, "primary"); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setIsAdding(false); setForm(emptyClientForm()); setTabEditor(null); setMobileDetail(null); mobileScrollTop.current = 0; setTabPendingDelete(null); setIsSavingTab(false); setTabs(cachedWorkspace?.tabs ?? []); setClients(cachedWorkspace?.clients ?? []); setPrimaryOrderVersion(cachedWorkspace?.primaryOrderVersion ?? 0); setIsLoading(cachedWorkspace === null); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
+          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); const cachedWorkspace = readCrmWorkspaceCache(nextOwnerId, "primary"); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setIsAdding(false); setForm(emptyClientForm()); setTabEditor(null); setMobileDetail(null); setTabPendingDelete(null); setIsSavingTab(false); setTabs(cachedWorkspace?.tabs ?? []); setClients(cachedWorkspace?.clients ?? []); setPrimaryOrderVersion(cachedWorkspace?.primaryOrderVersion ?? 0); setIsLoading(cachedWorkspace === null); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
           <details className="relative">
             <summary className="flex h-10 cursor-pointer list-none items-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">{isExporting ? "Выгружаем…" : "Выгрузить Excel"}</summary>
             <div className="absolute right-0 z-20 mt-1 grid w-52 gap-1 rounded-[12px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]">
@@ -659,7 +681,7 @@ export function CrmWorkspace() {
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
       {tabEditor ? <form role="dialog" aria-modal="true" aria-labelledby="crm-tab-editor-title" onSubmit={saveTab} className="fixed inset-0 z-50 flex items-center justify-center bg-[#07162e]/35 p-4"><div className="w-full max-w-sm rounded-[18px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"><h2 id="crm-tab-editor-title" className="text-[16px] font-bold">{tabEditor === "new" ? "Новая вкладка" : "Переименовать вкладку"}</h2>{error ? <div role="alert" aria-live="assertive" className="mt-3 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C]">{error}</div> : null}<label className="mt-4 grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Название</span><input autoFocus value={tabName} onChange={(event) => setTabName(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTabEditor(null)} className="h-9 rounded-[9px] px-3 text-[11px] font-semibold text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={isSavingTab} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSavingTab ? "Сохраняем…" : "Сохранить"}</button></div></div></form> : null}
       <AlertDialog open={tabPendingDelete !== null} onOpenChange={(open) => { if (!open) setTabPendingDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Удалить вкладку</AlertDialogTitle><AlertDialogDescription>Карточки и история из вкладки «{tabPendingDelete?.name}» сохранятся. Выберите личную вкладку для переноса; по умолчанию выбрана «В работе».</AlertDialogDescription></AlertDialogHeader><label className="grid gap-1 text-[12px] font-medium"><span>Перенести карточки в</span><select value={replacementTabId ?? ""} onChange={(event) => setReplacementTabId(Number(event.target.value))} className="h-10 rounded-[9px] border border-[var(--border-color)] bg-white px-2">{tabs.filter((tab) => tab.id !== tabPendingDelete?.id).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select></label><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeTab()} disabled={isSavingTab || replacementTabId === null}>{isSavingTab ? "Удаляем…" : "Удалить вкладку"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} activeTab={activeTab} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canEditWorkspace={canEditWorkspace} canManageReminders={canEditWorkspace} canResolveSyncConflicts={isAdmin || canEditWorkspace} onChanged={(requestOwnerId, requestTab) => { if (isCurrentWorkspaceView(requestTab, requestOwnerId)) void loadWorkspace(requestTab, { silent: true }); }} onClose={() => { setSelectedClient(null); void refreshReminders(ownerId); }} /> : null}
+      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} activeTab={activeTab} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canEditWorkspace={canEditWorkspace} canManageReminders={canEditWorkspace} canResolveSyncConflicts={isAdmin || canEditWorkspace} onChanged={refreshAfterDetailChange} onClose={() => setSelectedClient(null)} /> : null}
       </div>
     </section>
   );

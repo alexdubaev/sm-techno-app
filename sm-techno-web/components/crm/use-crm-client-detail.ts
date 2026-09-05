@@ -287,6 +287,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       const saved = await createCrmReminder(currentClient.id, { dueAt: moscowInputToUtc(reminderDueAt) }, ownerId);
       setReminders((current) => current.map((item) => item.id === temporary.id ? saved : item));
       setReminderDueAt("");
+      notifyChanged();
     } catch (cause) {
       setReminders((current) => current.filter((item) => item.id !== temporary.id));
       setError(errorMessage(cause, "Не удалось добавить напоминание. Изменение отменено."));
@@ -306,8 +307,8 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       if (action === "complete") await completeCrmReminder(reminder.id, reminder.updatedAt, ownerId);
       else await cancelCrmReminder(reminder.id, reminder.updatedAt, ownerId);
       transitionSucceeded = true;
-      await Promise.all([refreshReminders(), refreshAudit()]);
       notifyChanged();
+      await Promise.all([refreshReminders(), refreshAudit()]);
       setNotice(action === "complete" ? "Напоминание отмечено выполненным." : "Напоминание отменено.");
     } catch (cause) {
       if (!transitionSucceeded) {
@@ -327,6 +328,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     setError(null);
     try {
       await rescheduleCrmReminder(currentClient.id, reminder.id, { dueAt: moscowInputToUtc(dueAtLocal), expectedUpdatedAt: reminder.updatedAt }, ownerId);
+      notifyChanged();
       await refreshReminders();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось перенести напоминание.");
