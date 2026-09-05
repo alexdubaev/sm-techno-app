@@ -12,6 +12,7 @@ from typing import Any
 
 from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounterpartySyncError
 from stock_sync_web.database import WebDatabase
+from stock_sync_web.settings import DEFAULT_SETTINGS
 
 CLIENT_PRICE_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templates" / "client_price_template.xlsx"
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -53,8 +54,6 @@ class WebStockSyncService:
         return self.db.ensure_default_admin()
 
     def get_system_settings(self) -> dict[str, str]:
-        from stock_sync_desktop.service import DEFAULT_SETTINGS
-
         current = DEFAULT_SETTINGS.copy()
         current.update(self.db.get_settings())
         current["username"] = ""

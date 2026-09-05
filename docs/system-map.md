@@ -7,7 +7,7 @@
 - `sm-techno-web/` - веб-интерфейс на Next.js
 - `stock_sync_api.py` - FastAPI entrypoint
 - `stock_sync_web/` - web-специфичная бизнес-логика и web-расширение БД
-- `stock_sync_desktop/` - базовая доменная логика склада, БД, Excel и интеграция с 1С
+- `stock_sync_desktop/` - используемая web-приложением базовая логика склада, БД, Excel и интеграция с 1С; имя пакета историческое, desktop-интерфейса в нём нет
 
 Дополнительно:
 
@@ -38,7 +38,6 @@
 - `stock_sync_desktop/database.py` - основная схема БД и инвентарная логика
 - `stock_sync_desktop/excel_tools.py` - импорт/экспорт Excel и клиентского прайса
 - `stock_sync_desktop/onec_api.py` - клиент обмена с 1С
-- `stock_sync_desktop/service.py` - legacy/shared helpers доменного слоя
 
 ## 3. Где находится что
 

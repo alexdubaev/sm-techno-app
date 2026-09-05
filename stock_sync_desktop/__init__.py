@@ -1,1 +1,1 @@
-"""Desktop app for stock control and 1C order sync."""
+"""Shared database, Excel, and 1C integration primitives for the web app."""

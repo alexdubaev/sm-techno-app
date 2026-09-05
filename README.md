@@ -12,13 +12,14 @@
 - `sm-techno-web/` — frontend на Next.js
 - `stock_sync_api.py` — backend на FastAPI
 - `stock_sync_web/` — бизнес-логика web-контура и работа с БД
+- `stock_sync_desktop/database.py` — общая схема БД и складская логика
+- `stock_sync_desktop/excel_tools.py` — общий импорт и экспорт Excel
+- `stock_sync_desktop/onec_api.py` — общий клиент интеграции с 1С
 - `scripts/` — запуск, остановка, backup/restore и служебные сценарии
 - `assets/` — логотипы и иконки приложения
 
-### Legacy-контур, оставлен в репозитории
-- `web_stock_app.py` — старая Streamlit-версия
-- `desktop_stock_app.py` — старая desktop-точка входа
-- `stock_sync_desktop/` — legacy desktop-логика
+Каталог `stock_sync_desktop/` сохранил историческое имя, но содержит используемый
+web-приложением общий слой. Старые Streamlit- и desktop-интерфейсы удалены.
 
 ## Что обновлено в текущем web-контуре
 
@@ -101,8 +102,6 @@ restore_db.bat
 ## Полезные документы
 
 - [README_NEXT_STOCK_WEB.md](D:\codex\sm-techno-app\README_NEXT_STOCK_WEB.md) — описание текущего web-контура
-- [README_STOCK_WEB.md](D:\codex\sm-techno-app\README_STOCK_WEB.md) — legacy Streamlit-версия
-- [README_STOCK_APP.md](D:\codex\sm-techno-app\README_STOCK_APP.md) — legacy desktop-версия
 
 ## Первый push в GitHub
 

@@ -74,8 +74,6 @@ git diff BASE_SHA..HEAD_SHA
 - `docs/`
 - `requirements.txt`
 - `stock_sync_api.py`
-- `web_stock_app.py`
-- `desktop_stock_app.py`
 - `stock_sync_web/`
 - `stock_sync_desktop/`
 - `tests/`

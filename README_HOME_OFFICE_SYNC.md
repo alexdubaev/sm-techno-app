@@ -11,7 +11,8 @@
 - `stock_sync_api.py`
 - папку `sm-techno-web`
 - папку `stock_sync_web`
-- папку `stock_sync_desktop`
+- папку `stock_sync_desktop` — используемый web-приложением общий слой БД, Excel и 1С;
+  desktop-интерфейса в ней больше нет
 - папку `scripts`
 - папку `assets`
 - `.bat`, `.ps1`, `.md`, `.vbs`

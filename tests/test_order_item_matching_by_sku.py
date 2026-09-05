@@ -5,8 +5,6 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from stock_sync_desktop.database import Database
-from stock_sync_desktop.service import StockSyncService
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.service import WebStockSyncService
 
@@ -178,31 +176,6 @@ class WebOrderItemMatchingBySkuTest(unittest.TestCase):
         self._temp_dir = tempfile.TemporaryDirectory()
         self.db = WebDatabase(db_path=Path(self._temp_dir.name) / "stock_sync.db")
         self.service = WebStockSyncService(db=self.db)
-
-    def tearDown(self) -> None:
-        self._temp_dir.cleanup()
-
-    def test_missing_sku_does_not_match_by_name_and_creates_item(self) -> None:
-        _assert_missing_sku_creates_local_item(self.service, self)
-
-    def test_missing_sku_ignores_stale_onec_key_and_creates_item(self) -> None:
-        _assert_missing_sku_ignores_stale_onec_key_and_creates_local_item(self.service, self)
-
-    def test_empty_sku_keeps_current_onec_key(self) -> None:
-        _assert_empty_sku_keeps_current_onec_key(self.service, self)
-
-    def test_existing_sku_uses_onec_item_without_name_lookup(self) -> None:
-        _assert_existing_sku_uses_onec_item(self.service, self)
-
-    def test_existing_sku_overrides_stale_onec_key(self) -> None:
-        _assert_existing_sku_overrides_stale_onec_key(self.service, self)
-
-
-class DesktopOrderItemMatchingBySkuTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self._temp_dir = tempfile.TemporaryDirectory()
-        self.db = Database(db_path=Path(self._temp_dir.name) / "stock_sync.db")
-        self.service = StockSyncService(db=self.db)
 
     def tearDown(self) -> None:
         self._temp_dir.cleanup()
