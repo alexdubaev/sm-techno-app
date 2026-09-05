@@ -1,16 +1,23 @@
-"use client";
+'use client';
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
-import { useRouter } from "next/navigation";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type SVGProps,
+} from 'react';
+import { useRouter } from 'next/navigation';
 
-import { AppShell } from "@/components/app-shell";
+import { AppShell } from '@/components/app-shell';
 import {
   ResizableTableHeader,
   useResizableColumns,
   type ResizableColumnConfig,
-} from "@/components/resizable-table";
+} from '@/components/resizable-table';
 import {
   downloadClientPriceFile,
   fetchMeta,
@@ -18,7 +25,7 @@ import {
   fetchStockItem,
   fetchSystemSettings,
   fetchWarehouses,
-} from "@/lib/api";
+} from '@/lib/api';
 import {
   clearStockDraftLinesFromStorage,
   loadCommercialOfferDraftLinesFromStorage,
@@ -29,7 +36,13 @@ import {
   saveStockDraftLinesToStorage,
   saveStockPageStateToStorage,
   type StockPageViewState,
-} from "@/lib/storage";
+} from '@/lib/storage';
+import {
+  createLatestRequestTracker,
+  ensureStockItemDetail,
+  mergeCatalogPage,
+  sortCatalogForExactSku,
+} from '@/lib/stock-mobile';
 import type {
   AppMeta,
   CommercialOfferDraftLine,
@@ -39,37 +52,67 @@ import type {
   SystemSettings,
   Warehouse,
   WarehouseBalance,
-} from "@/lib/types";
-import { calculateAmountWithoutVat, calculateVatAmount, parseVatPercent } from "@/lib/vat";
+} from '@/lib/types';
+import {
+  calculateAmountWithoutVat,
+  calculateVatAmount,
+  parseVatPercent,
+} from '@/lib/vat';
 
 const STOCK_TABLE_COLUMNS: ResizableColumnConfig[] = [
-  { key: "sku", width: 116, minWidth: 88, compactMinWidth: 76, maxWidth: 180 },
-  { key: "name", width: 264, minWidth: 178, compactMinWidth: 146, maxWidth: 440 },
-  { key: "warehouse", width: 156, minWidth: 110, compactMinWidth: 88, maxWidth: 240 },
-  { key: "category", width: 142, minWidth: 96, compactMinWidth: 82, maxWidth: 220 },
-  { key: "stock", width: 88, minWidth: 70, compactMinWidth: 60, maxWidth: 130 },
-  { key: "price", width: 96, minWidth: 78, compactMinWidth: 70, maxWidth: 150 },
-  { key: "amount", width: 110, minWidth: 88, compactMinWidth: 78, maxWidth: 170 },
+  { key: 'sku', width: 116, minWidth: 88, compactMinWidth: 76, maxWidth: 180 },
+  {
+    key: 'name',
+    width: 264,
+    minWidth: 178,
+    compactMinWidth: 146,
+    maxWidth: 440,
+  },
+  {
+    key: 'warehouse',
+    width: 156,
+    minWidth: 110,
+    compactMinWidth: 88,
+    maxWidth: 240,
+  },
+  {
+    key: 'category',
+    width: 142,
+    minWidth: 96,
+    compactMinWidth: 82,
+    maxWidth: 220,
+  },
+  { key: 'stock', width: 88, minWidth: 70, compactMinWidth: 60, maxWidth: 130 },
+  { key: 'price', width: 96, minWidth: 78, compactMinWidth: 70, maxWidth: 150 },
+  {
+    key: 'amount',
+    width: 110,
+    minWidth: 88,
+    compactMinWidth: 78,
+    maxWidth: 170,
+  },
 ];
 
 const DEFAULT_STATE: StockPageViewState = {
-  searchInput: "",
-  category: "",
+  searchInput: '',
+  category: '',
   onlyInStock: false,
-  sortOrder: "newest",
+  sortOrder: 'newest',
   activeWarehouseId: null,
   page: 1,
   pageSize: 20,
   selectedItemId: null,
   selectedCatalogRowKey: null,
   selectionCleared: false,
-  selectedQuantityInput: "1",
+  selectedQuantityInput: '1',
 };
 
-const CLIENT_PRICE_LABEL = "\u041f\u0440\u0430\u0439\u0441 \u0434\u043b\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430";
-const CLIENT_PRICE_LOADING_LABEL = "\u0413\u043e\u0442\u043e\u0432\u0438\u043c \u0444\u0430\u0439\u043b...";
+const CLIENT_PRICE_LABEL =
+  '\u041f\u0440\u0430\u0439\u0441 \u0434\u043b\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430';
+const CLIENT_PRICE_LOADING_LABEL =
+  '\u0413\u043e\u0442\u043e\u0432\u0438\u043c \u0444\u0430\u0439\u043b...';
 const CLIENT_PRICE_EXPORT_ERROR =
-  "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u0440\u0430\u0439\u0441 \u0434\u043b\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430.";
+  '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u0440\u0430\u0439\u0441 \u0434\u043b\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430.';
 
 export function StockPage() {
   const router = useRouter();
@@ -86,19 +129,25 @@ export function StockPage() {
   const [search, setSearch] = useState(DEFAULT_STATE.searchInput);
   const [category, setCategory] = useState(DEFAULT_STATE.category);
   const [onlyInStock, setOnlyInStock] = useState(DEFAULT_STATE.onlyInStock);
-  const [sortOrder, setSortOrder] = useState<StockSortOrder>(DEFAULT_STATE.sortOrder);
+  const [sortOrder, setSortOrder] = useState<StockSortOrder>(
+    DEFAULT_STATE.sortOrder,
+  );
   const [activeWarehouseId, setActiveWarehouseId] = useState<number | null>(
     DEFAULT_STATE.activeWarehouseId,
   );
   const [selectedItemId, setSelectedItemId] = useState<number | null>(
     DEFAULT_STATE.selectedItemId,
   );
-  const [selectedCatalogRowKey, setSelectedCatalogRowKey] = useState<string | null>(
-    DEFAULT_STATE.selectedCatalogRowKey,
+  const [selectedCatalogRowKey, setSelectedCatalogRowKey] = useState<
+    string | null
+  >(DEFAULT_STATE.selectedCatalogRowKey);
+  const [selectionCleared, setSelectionCleared] = useState(
+    DEFAULT_STATE.selectionCleared,
   );
-  const [selectionCleared, setSelectionCleared] = useState(DEFAULT_STATE.selectionCleared);
   const [selectedItem, setSelectedItem] = useState<StockItem | null>(null);
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState<number | null>(null);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<number | null>(
+    null,
+  );
   const [selectedQuantityInput, setSelectedQuantityInput] = useState(
     DEFAULT_STATE.selectedQuantityInput,
   );
@@ -106,20 +155,35 @@ export function StockPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isExportingClientPrice, setIsExportingClientPrice] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [commercialOfferNotice, setCommercialOfferNotice] = useState<string | null>(null);
+  const [commercialOfferNotice, setCommercialOfferNotice] = useState<
+    string | null
+  >(null);
   const [isHydrated, setIsHydrated] = useState(false);
-
-  const { containerRef, getWidth, onResizeStart, tableWidth } = useResizableColumns(
-    "sm-techno-stock-table-widths-v7",
-    STOCK_TABLE_COLUMNS,
-    { allowTightFit: true },
+  const [retryKey, setRetryKey] = useState(0);
+  const [mobileDetailItem, setMobileDetailItem] = useState<StockItem | null>(
+    null,
   );
+  const [isMobileDetailLoading, setIsMobileDetailLoading] = useState(false);
+  const [mobileDetailError, setMobileDetailError] = useState<string | null>(
+    null,
+  );
+  const [mobileCatalogRows, setMobileCatalogRows] = useState<StockItem[]>([]);
+
+  const { containerRef, getWidth, onResizeStart, tableWidth } =
+    useResizableColumns(
+      'sm-techno-stock-table-widths-v7',
+      STOCK_TABLE_COLUMNS,
+      { allowTightFit: true },
+    );
 
   // Выделение читается через refs, чтобы клик по строке не перезапускал
   // эффект загрузки каталога целиком.
   const selectedItemIdRef = useRef<number | null>(DEFAULT_STATE.selectedItemId);
-  const selectedCatalogRowKeyRef = useRef<string | null>(DEFAULT_STATE.selectedCatalogRowKey);
+  const selectedCatalogRowKeyRef = useRef<string | null>(
+    DEFAULT_STATE.selectedCatalogRowKey,
+  );
   const selectionClearedRef = useRef(DEFAULT_STATE.selectionCleared);
+  const mobileDetailRequestTrackerRef = useRef(createLatestRequestTracker());
 
   useEffect(() => {
     selectedItemIdRef.current = selectedItemId;
@@ -141,47 +205,50 @@ export function StockPage() {
 
     const savedState = loadStockPageStateFromStorage();
     if (savedState) {
-      if (typeof savedState.searchInput === "string") {
+      if (typeof savedState.searchInput === 'string') {
         setSearchInput(savedState.searchInput);
         setSearch(savedState.searchInput);
       }
-      if (typeof savedState.category === "string") {
+      if (typeof savedState.category === 'string') {
         setCategory(savedState.category);
       }
-      if (typeof savedState.onlyInStock === "boolean") {
+      if (typeof savedState.onlyInStock === 'boolean') {
         setOnlyInStock(savedState.onlyInStock);
       }
-      if (savedState.sortOrder === "newest" || savedState.sortOrder === "oldest") {
+      if (
+        savedState.sortOrder === 'newest' ||
+        savedState.sortOrder === 'oldest'
+      ) {
         setSortOrder(savedState.sortOrder);
       }
       if (
         savedState.activeWarehouseId === null ||
-        typeof savedState.activeWarehouseId === "number"
+        typeof savedState.activeWarehouseId === 'number'
       ) {
         setActiveWarehouseId(savedState.activeWarehouseId ?? null);
       }
-      if (typeof savedState.page === "number" && savedState.page > 0) {
+      if (typeof savedState.page === 'number' && savedState.page > 0) {
         setPage(savedState.page);
       }
-      if (typeof savedState.pageSize === "number" && savedState.pageSize > 0) {
+      if (typeof savedState.pageSize === 'number' && savedState.pageSize > 0) {
         setPageSize(savedState.pageSize);
       }
       if (
         savedState.selectedItemId === null ||
-        typeof savedState.selectedItemId === "number"
+        typeof savedState.selectedItemId === 'number'
       ) {
         setSelectedItemId(savedState.selectedItemId ?? null);
       }
       if (
         savedState.selectedCatalogRowKey === null ||
-        typeof savedState.selectedCatalogRowKey === "string"
+        typeof savedState.selectedCatalogRowKey === 'string'
       ) {
         setSelectedCatalogRowKey(savedState.selectedCatalogRowKey ?? null);
       }
-      if (typeof savedState.selectionCleared === "boolean") {
+      if (typeof savedState.selectionCleared === 'boolean') {
         setSelectionCleared(savedState.selectionCleared);
       }
-      if (typeof savedState.selectedQuantityInput === "string") {
+      if (typeof savedState.selectedQuantityInput === 'string') {
         setSelectedQuantityInput(savedState.selectedQuantityInput);
       }
     }
@@ -243,7 +310,7 @@ export function StockPage() {
     void fetchMeta()
       .then(setMeta)
       .catch(() => {
-        setError("Не удалось загрузить данные приложения.");
+        setError('Не удалось загрузить данные приложения.');
       });
 
     void fetchSystemSettings()
@@ -290,6 +357,11 @@ export function StockPage() {
         }
 
         setCatalog(response.items);
+        setMobileCatalogRows((current) =>
+          page === 1
+            ? response.items
+            : mergeCatalogPage(current, response.items, getCatalogRowKey),
+        );
         setCategories(response.categories);
         setTotal(response.total);
 
@@ -325,8 +397,10 @@ export function StockPage() {
 
         const matched =
           response.items.find(
-            (item) => getCatalogRowKey(item) === selectedCatalogRowKeyRef.current,
-          ) ?? response.items.find((item) => item.id === selectedItemIdRef.current);
+            (item) =>
+              getCatalogRowKey(item) === selectedCatalogRowKeyRef.current,
+          ) ??
+          response.items.find((item) => item.id === selectedItemIdRef.current);
         if (matched) {
           setSelectedItemId(matched.id);
           setSelectedCatalogRowKey(getCatalogRowKey(matched));
@@ -350,7 +424,7 @@ export function StockPage() {
       })
       .catch(() => {
         if (!cancelled) {
-          setError("Не удалось загрузить список остатков.");
+          setError('Не удалось загрузить список остатков.');
         }
       })
       .finally(() => {
@@ -368,6 +442,7 @@ export function StockPage() {
     onlyInStock,
     page,
     pageSize,
+    retryKey,
     search,
     sortOrder,
   ]);
@@ -390,7 +465,9 @@ export function StockPage() {
 
     if (
       selectedWarehouseId !== null &&
-      selectedWarehouseOptions.some((warehouse) => warehouse.warehouseId === selectedWarehouseId)
+      selectedWarehouseOptions.some(
+        (warehouse) => warehouse.warehouseId === selectedWarehouseId,
+      )
     ) {
       return;
     }
@@ -398,7 +475,9 @@ export function StockPage() {
     const draftMatch = draftLines.find(
       (line) =>
         line.itemId === selectedItem.id &&
-        selectedWarehouseOptions.some((warehouse) => warehouse.warehouseId === line.warehouseId),
+        selectedWarehouseOptions.some(
+          (warehouse) => warehouse.warehouseId === line.warehouseId,
+        ),
     );
 
     if (draftMatch) {
@@ -406,9 +485,14 @@ export function StockPage() {
       return;
     }
 
-    const preferredWarehouse = pickPreferredWarehouse(selectedItem, activeWarehouseId);
+    const preferredWarehouse = pickPreferredWarehouse(
+      selectedItem,
+      activeWarehouseId,
+    );
     setSelectedWarehouseId(
-      preferredWarehouse?.warehouseId ?? selectedWarehouseOptions[0]?.warehouseId ?? null,
+      preferredWarehouse?.warehouseId ??
+        selectedWarehouseOptions[0]?.warehouseId ??
+        null,
     );
   }, [
     activeWarehouseId,
@@ -448,7 +532,7 @@ export function StockPage() {
 
   useEffect(() => {
     if (!selectedItem) {
-      setSelectedQuantityInput("1");
+      setSelectedQuantityInput('1');
       return;
     }
 
@@ -467,19 +551,26 @@ export function StockPage() {
     [settings?.vat_percent],
   );
   const pricesIncludeVat = settings
-    ? settings.vat_included === "1" && settings.sum_includes_vat === "1"
+    ? settings.vat_included === '1' && settings.sum_includes_vat === '1'
     : true;
 
   const totals = useMemo(() => {
     const positions = draftLines.length;
     const quantity = draftLines.reduce((sum, line) => sum + line.quantity, 0);
-    const grossAmount = draftLines.reduce((sum, line) => sum + line.price * line.quantity, 0);
+    const grossAmount = draftLines.reduce(
+      (sum, line) => sum + line.price * line.quantity,
+      0,
+    );
     const vatAmount = calculateVatAmount(grossAmount, vatPercent, {
       includedInPrice: pricesIncludeVat,
     });
-    const amountWithoutVat = calculateAmountWithoutVat(grossAmount, vatPercent, {
-      includedInPrice: pricesIncludeVat,
-    });
+    const amountWithoutVat = calculateAmountWithoutVat(
+      grossAmount,
+      vatPercent,
+      {
+        includedInPrice: pricesIncludeVat,
+      },
+    );
 
     return {
       positions,
@@ -491,6 +582,10 @@ export function StockPage() {
   }, [draftLines, pricesIncludeVat, vatPercent]);
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const mobileCatalog = useMemo(
+    () => sortCatalogForExactSku(mobileCatalogRows, search),
+    [mobileCatalogRows, search],
+  );
 
   useEffect(() => {
     if (page > pageCount) {
@@ -500,12 +595,15 @@ export function StockPage() {
 
   const catalogCount = meta?.catalogCount ?? total;
   const priceLoaded = Boolean(meta?.priceLoaded);
-  const selectedAvailableQuantity = getAvailableUnits(selectedWarehouseBalance?.quantity ?? 0);
+  const selectedAvailableQuantity = getAvailableUnits(
+    selectedWarehouseBalance?.quantity ?? 0,
+  );
   const selectedQuantityParsed = parseQuantityInput(selectedQuantityInput);
   const selectedQuantityIsValid =
     Number.isFinite(selectedQuantityParsed) && selectedQuantityParsed > 0;
   const selectedQuantityWithinStock =
-    selectedQuantityIsValid && selectedQuantityParsed <= selectedAvailableQuantity;
+    selectedQuantityIsValid &&
+    selectedQuantityParsed <= selectedAvailableQuantity;
   const canAddSelectedItem =
     Boolean(selectedItem) &&
     Boolean(selectedWarehouseBalance) &&
@@ -515,17 +613,18 @@ export function StockPage() {
   const selectedWarehouseName =
     selectedWarehouseBalance?.warehouseName ??
     (activeWarehouseId !== null
-      ? warehouses.find((warehouse) => warehouse.id === activeWarehouseId)?.name ?? "Склад"
-      : "Выберите склад");
+      ? (warehouses.find((warehouse) => warehouse.id === activeWarehouseId)
+          ?.name ?? 'Склад')
+      : 'Выберите склад');
 
   const activeWarehouseName = useMemo(() => {
     if (activeWarehouseId === null) {
-      return "Все склады";
+      return 'Все склады';
     }
 
     return (
-      warehouses.find((warehouse) => warehouse.id === activeWarehouseId)?.name ??
-      "Выбранный склад"
+      warehouses.find((warehouse) => warehouse.id === activeWarehouseId)
+        ?.name ?? 'Выбранный склад'
     );
   }, [activeWarehouseId, warehouses]);
 
@@ -544,7 +643,11 @@ export function StockPage() {
         onlyInStock,
       });
     } catch (downloadError) {
-      setError(downloadError instanceof Error ? downloadError.message : CLIENT_PRICE_EXPORT_ERROR);
+      setError(
+        downloadError instanceof Error
+          ? downloadError.message
+          : CLIENT_PRICE_EXPORT_ERROR,
+      );
     } finally {
       setIsExportingClientPrice(false);
     }
@@ -555,7 +658,7 @@ export function StockPage() {
   ) => {
     setDraftLines((previous) => {
       const next =
-        typeof updater === "function"
+        typeof updater === 'function'
           ? (updater as (previous: DraftLine[]) => DraftLine[])(previous)
           : updater;
       saveStockDraftLinesToStorage(next);
@@ -567,7 +670,7 @@ export function StockPage() {
     saveDraftLinesToStorage(draftLines);
     clearStockDraftLinesFromStorage();
     setDraftLines([]);
-    router.push("/work-with-invoice");
+    router.push('/work-with-invoice');
   };
 
   const selectItem = (item: StockItem) => {
@@ -584,12 +687,47 @@ export function StockPage() {
     });
   };
 
+  const openMobileItem = (item: StockItem) => {
+    setSelectedItemId(item.id);
+    setSelectedCatalogRowKey(getCatalogRowKey(item));
+    setSelectedItem(item);
+    setSelectedWarehouseId(item.rowWarehouseId ?? activeWarehouseId);
+    setSelectionCleared(false);
+    setMobileDetailItem(item);
+    setMobileDetailError(null);
+    setIsMobileDetailLoading(true);
+    const requestId = mobileDetailRequestTrackerRef.current.begin();
+
+    void fetchStockItem(item.id)
+      .then((detailedItem) => {
+        const itemDetail = ensureStockItemDetail(detailedItem);
+        if (mobileDetailRequestTrackerRef.current.isCurrent(requestId)) {
+          setSelectedItem(itemDetail);
+          setMobileDetailItem(itemDetail);
+        }
+      })
+      .catch((detailError: unknown) => {
+        if (mobileDetailRequestTrackerRef.current.isCurrent(requestId)) {
+          setMobileDetailError(
+            detailError instanceof Error
+              ? detailError.message
+              : 'Не удалось загрузить остатки по складам.',
+          );
+        }
+      })
+      .finally(() => {
+        if (mobileDetailRequestTrackerRef.current.isCurrent(requestId)) {
+          setIsMobileDetailLoading(false);
+        }
+      });
+  };
+
   const clearSelection = () => {
     setSelectedItemId(null);
     setSelectedCatalogRowKey(null);
     setSelectedItem(null);
     setSelectedWarehouseId(null);
-    setSelectedQuantityInput("1");
+    setSelectedQuantityInput('1');
     setSelectionCleared(true);
   };
 
@@ -625,7 +763,9 @@ export function StockPage() {
 
       const existing = previous.find((line) => line.lineId === lineId);
       if (existing) {
-        return previous.map((line) => (line.lineId === lineId ? nextLine : line));
+        return previous.map((line) =>
+          line.lineId === lineId ? nextLine : line,
+        );
       }
 
       return [...previous, nextLine];
@@ -637,22 +777,28 @@ export function StockPage() {
       return;
     }
 
-    const safeQuantity = clampQuantity(selectedQuantityParsed, selectedWarehouseBalance.quantity);
+    const safeQuantity = clampQuantity(
+      selectedQuantityParsed,
+      selectedWarehouseBalance.quantity,
+    );
     if (safeQuantity <= 0) {
       return;
     }
 
-    const lineId = buildDraftLineKey(selectedItem.id, selectedWarehouseBalance.warehouseId);
+    const lineId = buildDraftLineKey(
+      selectedItem.id,
+      selectedWarehouseBalance.warehouseId,
+    );
     const nextLine: CommercialOfferDraftLine = {
       lineId,
       itemId: selectedItem.id,
       article: selectedItem.sku,
       name: selectedItem.name,
-      brand: selectedItem.categoryName || selectedItem.groupName || "",
+      brand: selectedItem.categoryName || selectedItem.groupName || '',
       qty: safeQuantity,
       priceVat: selectedItem.price,
-      deliveryTime: "",
-      note: "",
+      deliveryTime: '',
+      note: '',
       warehouseId: selectedWarehouseBalance.warehouseId,
       warehouseName: selectedWarehouseBalance.warehouseName,
     };
@@ -663,11 +809,15 @@ export function StockPage() {
 
     saveCommercialOfferDraftLinesToStorage(nextLines);
     setError(null);
-    setCommercialOfferNotice(`Позиция "${selectedItem.name}" добавлена в черновик КП.`);
+    setCommercialOfferNotice(
+      `Позиция "${selectedItem.name}" добавлена в черновик КП.`,
+    );
   };
 
   const removeDraftLine = (lineId: string) => {
-    setAndPersistDraftLines((previous) => previous.filter((line) => line.lineId !== lineId));
+    setAndPersistDraftLines((previous) =>
+      previous.filter((line) => line.lineId !== lineId),
+    );
   };
 
   const selectedItemTotalInDraft = useMemo(() => {
@@ -688,7 +838,7 @@ export function StockPage() {
           title="Прайс не загружен"
           description="Сначала загрузите локальный прайс. После этого здесь появятся позиции для быстрого поиска."
           actionLabel="Перейти к прайсу"
-          onAction={() => router.push("/work-with-price")}
+          onAction={() => router.push('/work-with-price')}
         />
       );
     }
@@ -767,14 +917,21 @@ export function StockPage() {
           {catalog.map((item) => {
             const rowKey = getCatalogRowKey(item);
             const isSelected = selectedCatalogRowKey === rowKey;
-            const rowLocationLabel = item.rowLocationLabel?.trim() || "";
+            const rowLocationLabel = item.rowLocationLabel?.trim() || '';
             const rowWarehouseId = item.rowWarehouseId;
             const rowLines =
               rowWarehouseId !== null
-                ? draftLines.filter((line) => line.lineId === buildDraftLineKey(item.id, rowWarehouseId))
+                ? draftLines.filter(
+                    (line) =>
+                      line.lineId ===
+                      buildDraftLineKey(item.id, rowWarehouseId),
+                  )
                 : draftLines.filter((line) => line.itemId === item.id);
             const itemLineCount = rowLines.length;
-            const itemDraftQuantity = rowLines.reduce((sum, line) => sum + line.quantity, 0);
+            const itemDraftQuantity = rowLines.reduce(
+              (sum, line) => sum + line.quantity,
+              0,
+            );
             const availableUnits = getCatalogRowAvailableUnits(item);
             const hasStock = availableUnits > 0;
 
@@ -782,27 +939,32 @@ export function StockPage() {
               <tr
                 key={rowKey}
                 aria-selected={isSelected}
-                onClick={() => (isSelected ? clearSelection() : selectItem(item))}
+                onClick={() =>
+                  isSelected ? clearSelection() : selectItem(item)
+                }
                 className={[
-                  "cursor-pointer transition-colors duration-200",
+                  'cursor-pointer transition-colors duration-200',
                   isSelected
-                    ? "bg-[#FFF8D9] shadow-[inset_3px_0_0_#FFC400]"
+                    ? 'bg-[#FFF8D9] shadow-[inset_3px_0_0_#FFC400]'
                     : itemLineCount > 0
-                      ? "bg-[#F3FBF6] shadow-[inset_3px_0_0_#16A34A]"
-                      : "bg-white hover:bg-[#F8FBFF]",
-                ].join(" ")}
+                      ? 'bg-[#F3FBF6] shadow-[inset_3px_0_0_#16A34A]'
+                      : 'bg-white hover:bg-[#F8FBFF]',
+                ].join(' ')}
               >
                 <td
                   className={[
-                    "border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] font-semibold tabular-nums",
+                    'border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] font-semibold tabular-nums',
                     item.isLinkedToOneC
-                      ? "text-[var(--stock-ok)]"
-                      : "text-[var(--text-primary)]",
-                  ].join(" ")}
+                      ? 'text-[var(--stock-ok)]'
+                      : 'text-[var(--text-primary)]',
+                  ].join(' ')}
                 >
                   <div className="flex items-center gap-2">
-                    <SelectionMarker selected={isSelected} inDraft={itemLineCount > 0} />
-                    <span className="truncate">{item.sku || "-"}</span>
+                    <SelectionMarker
+                      selected={isSelected}
+                      inDraft={itemLineCount > 0}
+                    />
+                    <span className="truncate">{item.sku || '-'}</span>
                   </div>
                 </td>
                 <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] text-[var(--text-primary)]">
@@ -823,11 +985,20 @@ export function StockPage() {
                     title={
                       rowLocationLabel
                         ? `${formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)} · ${rowLocationLabel}`
-                        : item.warehouseSummary || formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)
+                        : item.warehouseSummary ||
+                          formatWarehouseLabel(
+                            item,
+                            activeWarehouseName,
+                            activeWarehouseId,
+                          )
                     }
                   >
                     <span className="line-clamp-1">
-                      {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
+                      {formatWarehouseLabel(
+                        item,
+                        activeWarehouseName,
+                        activeWarehouseId,
+                      )}
                     </span>
                     {rowLocationLabel ? (
                       <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
@@ -837,10 +1008,16 @@ export function StockPage() {
                   </span>
                 </td>
                 <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] text-[var(--text-secondary)]">
-                  {item.categoryName || "-"}
+                  {item.categoryName || '-'}
                 </td>
                 <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] font-semibold tabular-nums">
-                  <span className={hasStock ? "text-[var(--stock-ok)]" : "text-[var(--stock-empty)]"}>
+                  <span
+                    className={
+                      hasStock
+                        ? 'text-[var(--stock-ok)]'
+                        : 'text-[var(--stock-empty)]'
+                    }
+                  >
                     {formatStockUnits(availableUnits)}
                   </span>
                 </td>
@@ -858,6 +1035,50 @@ export function StockPage() {
     );
   };
 
+  const renderMobileResults = () => {
+    if (!priceLoaded) {
+      return (
+        <EmptyStateCard
+          icon={<PackageIcon className="h-5 w-5 stroke-[1.8]" />}
+          title="Прайс не загружен"
+          description="Сначала загрузите локальный прайс. После этого здесь появятся позиции для быстрого поиска."
+          actionLabel="Перейти к прайсу"
+          onAction={() => router.push('/work-with-price')}
+        />
+      );
+    }
+
+    if (isLoading && catalog.length === 0) {
+      return <MobileStockSkeleton />;
+    }
+
+    if (error && catalog.length === 0) {
+      return (
+        <EmptyStateCard
+          icon={<PackageIcon className="h-5 w-5 stroke-[1.8]" />}
+          title={error}
+          description="Не удалось обновить остатки. Проверьте подключение и повторите запрос."
+          actionLabel="Повторить"
+          onAction={() => setRetryKey((current) => current + 1)}
+        />
+      );
+    }
+
+    if (!isLoading && catalog.length === 0) {
+      return (
+        <EmptyStateCard
+          icon={<SearchIcon className="h-5 w-5 stroke-[1.8]" />}
+          title="Ничего не найдено"
+          description="Проверьте артикул или название."
+        />
+      );
+    }
+
+    return (
+      <MobileStockResults catalog={mobileCatalog} onOpenItem={openMobileItem} />
+    );
+  };
+
   return (
     <AppShell>
       <div className="flex flex-col gap-2.5">
@@ -866,28 +1087,123 @@ export function StockPage() {
             <h1 className="text-[22px] font-[650] leading-none tracking-[-0.05em] text-[var(--text-primary)]">
               Остатки
             </h1>
-            <p className="mt-1 text-[11px] leading-[17px] text-[var(--text-secondary)]">
-              Быстрый поиск по прайсу и добавление позиций в счет клиента без лишних переходов.
+            <p className="mt-1 hidden text-[11px] leading-[17px] text-[var(--text-secondary)] md:block">
+              Быстрый поиск по прайсу и добавление позиций в счет клиента без
+              лишних переходов.
             </p>
           </div>
 
-          <div className="inline-flex min-h-[34px] w-full items-center gap-2 rounded-[14px] border border-[var(--border-color)] bg-white px-3 py-1.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)] sm:w-auto sm:min-w-[196px]">
+          <div className="hidden min-h-[34px] w-full items-center gap-2 rounded-[14px] border border-[var(--border-color)] bg-white px-3 py-1.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)] md:inline-flex md:w-auto md:min-w-[196px]">
             <span
               className={`h-2 w-2 rounded-full ${
-                priceLoaded ? "bg-[var(--stock-ok)]" : "bg-[var(--stock-empty)]"
+                priceLoaded ? 'bg-[var(--stock-ok)]' : 'bg-[var(--stock-empty)]'
               }`}
             />
             <div className="min-w-0 flex-1 text-[11px] font-semibold text-[var(--text-primary)]">
-              {priceLoaded ? "Прайс загружен" : "Прайс не загружен"}
+              {priceLoaded ? 'Прайс загружен' : 'Прайс не загружен'}
             </div>
             <div className="h-4 w-px bg-[var(--border-color)]" />
             <div className="text-[11px] tabular-nums text-[var(--text-secondary)]">
-              {catalogCount} {pluralizeWord(catalogCount, "позиция", "позиции", "позиций")}
+              {catalogCount}{' '}
+              {pluralizeWord(catalogCount, 'позиция', 'позиции', 'позиций')}
             </div>
           </div>
         </header>
 
-        <div className="grid gap-2.5 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
+        <div className="md:hidden">
+          <section className="rounded-[18px] bg-white p-3 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <div className="relative">
+              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
+                <SearchIcon className="h-5 w-5 stroke-[2]" />
+              </span>
+              <input
+                aria-label="Поиск по артикулу или названию"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Поиск по артикулу или названию"
+                className="h-[52px] w-full rounded-[14px] border border-[var(--border-color)] bg-white pl-12 pr-12 text-[16px] text-[var(--text-primary)] outline-none transition-all duration-200 placeholder:text-[#94A3B8] focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_4px_rgba(255,196,0,0.12)]"
+              />
+              {searchInput ? (
+                <button
+                  type="button"
+                  aria-label="Очистить поиск"
+                  onClick={() => setSearchInput('')}
+                  className="absolute right-2.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-[22px] leading-none text-[var(--text-secondary)] transition hover:bg-[#F1F5F9]"
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+            <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveWarehouseId(null);
+                  setPage(1);
+                }}
+                className={mobileWarehouseFilterClass(
+                  activeWarehouseId === null,
+                )}
+              >
+                Все склады
+              </button>
+              {warehouses.map((warehouse) => (
+                <button
+                  key={warehouse.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveWarehouseId(warehouse.id);
+                    setPage(1);
+                  }}
+                  className={mobileWarehouseFilterClass(
+                    activeWarehouseId === warehouse.id,
+                  )}
+                >
+                  {warehouse.name}
+                </button>
+              ))}
+            </div>
+            <label className="mt-3 inline-flex h-9 items-center gap-2 rounded-full border border-[var(--border-color)] px-3 text-[13px] font-medium text-[var(--text-primary)]">
+              <input
+                type="checkbox"
+                checked={onlyInStock}
+                onChange={(event) => {
+                  setOnlyInStock(event.target.checked);
+                  setPage(1);
+                }}
+                className="h-4 w-4 rounded border-[var(--border-color)] accent-[var(--brand-yellow)]"
+              />
+              Только в наличии
+            </label>
+          </section>
+
+          <section className="mt-3">{renderMobileResults()}</section>
+
+          {priceLoaded && !isLoading && mobileCatalogRows.length < total ? (
+            <button
+              type="button"
+              onClick={() => setPage((current) => current + 1)}
+              className="mt-3 flex h-11 w-full items-center justify-center rounded-[14px] border border-[var(--border-color)] bg-white text-[14px] font-semibold text-[var(--brand-dark)] shadow-[0_8px_20px_rgba(7,22,46,0.06)]"
+            >
+              Показать ещё
+            </button>
+          ) : null}
+
+          {error && catalog.length > 0 ? (
+            <div className="mt-3 rounded-[14px] border border-[#F9D4D4] bg-[#FEF2F2] px-4 py-3 text-[13px] text-[var(--stock-empty)]">
+              <p>{error}</p>
+              <button
+                type="button"
+                onClick={() => setRetryKey((current) => current + 1)}
+                className="mt-2 font-semibold underline underline-offset-2"
+              >
+                Повторить
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="hidden gap-2.5 md:grid xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
           <div className="min-w-0 space-y-2.5">
             <section className="rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(164px,210px)] lg:grid-cols-[minmax(0,1fr)_164px_164px_132px_188px]">
@@ -954,7 +1270,9 @@ export function StockPage() {
                   className="app-action-button app-action-button--lg"
                 >
                   <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />
-                  {isExportingClientPrice ? CLIENT_PRICE_LOADING_LABEL : CLIENT_PRICE_LABEL}
+                  {isExportingClientPrice
+                    ? CLIENT_PRICE_LOADING_LABEL
+                    : CLIENT_PRICE_LABEL}
                 </button>
               </div>
             </section>
@@ -999,7 +1317,9 @@ export function StockPage() {
                   <button
                     type="button"
                     disabled={page <= 1}
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    onClick={() =>
+                      setPage((current) => Math.max(1, current - 1))
+                    }
                     className="flex h-7 w-7 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-white text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     ‹
@@ -1010,7 +1330,9 @@ export function StockPage() {
                   <button
                     type="button"
                     disabled={page >= pageCount}
-                    onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                    onClick={() =>
+                      setPage((current) => Math.min(pageCount, current + 1))
+                    }
                     className="flex h-7 w-7 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-white text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     ›
@@ -1021,7 +1343,10 @@ export function StockPage() {
                   <select
                     value={pageSize}
                     onChange={(event) => {
-                      const nextPageSize = Number.parseInt(event.target.value, 10);
+                      const nextPageSize = Number.parseInt(
+                        event.target.value,
+                        10,
+                      );
                       setPageSize(nextPageSize);
                       setPage(1);
                     }}
@@ -1057,17 +1382,21 @@ export function StockPage() {
                     Выбранная позиция
                   </p>
                   <h2 className="mt-1 line-clamp-2 text-[13px] font-[650] leading-[1.15] text-[var(--text-primary)]">
-                    {selectedItem ? selectedItem.name : "Выберите товар из списка"}
+                    {selectedItem
+                      ? selectedItem.name
+                      : 'Выберите товар из списка'}
                   </h2>
                   <p className="mt-1 text-[10px] text-[var(--text-secondary)]">
                     {selectedItem
-                      ? `Артикул: ${selectedItem.sku || "-"} · Категория: ${selectedItem.categoryName || "-"}`
-                      : "Кликните по строке, чтобы открыть карточку товара."}
+                      ? `Артикул: ${selectedItem.sku || '-'} · Категория: ${selectedItem.categoryName || '-'}`
+                      : 'Кликните по строке, чтобы открыть карточку товара.'}
                   </p>
                 </div>
                 {selectedItem ? (
-                  <StatusBadge tone={selectedItem.isLinkedToOneC ? "success" : "warning"}>
-                    {selectedItem.isLinkedToOneC ? "Связана" : "Локальная"}
+                  <StatusBadge
+                    tone={selectedItem.isLinkedToOneC ? 'success' : 'warning'}
+                  >
+                    {selectedItem.isLinkedToOneC ? 'Связана' : 'Локальная'}
                   </StatusBadge>
                 ) : null}
               </div>
@@ -1078,9 +1407,14 @@ export function StockPage() {
                     <MiniCard
                       title="В наличии"
                       value={formatStockUnits(selectedAvailableQuantity)}
-                      tone={selectedAvailableQuantity > 0 ? "success" : "danger"}
+                      tone={
+                        selectedAvailableQuantity > 0 ? 'success' : 'danger'
+                      }
                     />
-                    <MiniCard title="Цена" value={formatMoney(selectedItem.price)} />
+                    <MiniCard
+                      title="Цена"
+                      value={formatMoney(selectedItem.price)}
+                    />
                   </div>
 
                   {selectedWarehouseOptions.length > 0 ? (
@@ -1089,15 +1423,23 @@ export function StockPage() {
                         Склад для счета
                       </label>
                       <select
-                        value={selectedWarehouseId ?? ""}
+                        value={selectedWarehouseId ?? ''}
                         onChange={(event) => {
-                          const nextValue = Number.parseInt(event.target.value, 10);
-                          setSelectedWarehouseId(Number.isFinite(nextValue) ? nextValue : null);
+                          const nextValue = Number.parseInt(
+                            event.target.value,
+                            10,
+                          );
+                          setSelectedWarehouseId(
+                            Number.isFinite(nextValue) ? nextValue : null,
+                          );
                         }}
                         className="mt-1 h-[32px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
                       >
                         {selectedWarehouseOptions.map((warehouse) => (
-                          <option key={warehouse.warehouseId} value={warehouse.warehouseId}>
+                          <option
+                            key={warehouse.warehouseId}
+                            value={warehouse.warehouseId}
+                          >
                             {warehouse.warehouseName}
                           </option>
                         ))}
@@ -1120,11 +1462,17 @@ export function StockPage() {
                         onClick={() => {
                           const nextValue = Math.max(
                             selectedAvailableQuantity > 0 ? 1 : 0,
-                            (Number.isFinite(selectedQuantityParsed) ? selectedQuantityParsed : 1) - 1,
+                            (Number.isFinite(selectedQuantityParsed)
+                              ? selectedQuantityParsed
+                              : 1) - 1,
                           );
-                          setSelectedQuantityInput(formatQuantityInput(nextValue));
+                          setSelectedQuantityInput(
+                            formatQuantityInput(nextValue),
+                          );
                         }}
-                        disabled={!selectedItem || selectedAvailableQuantity <= 0}
+                        disabled={
+                          !selectedItem || selectedAvailableQuantity <= 0
+                        }
                       >
                         -
                       </QuantityButton>
@@ -1143,7 +1491,10 @@ export function StockPage() {
                         onBlur={(event) => {
                           setSelectedQuantityInput(
                             formatQuantityInput(
-                              clampQuantity(event.target.value, selectedWarehouseBalance?.quantity ?? 0),
+                              clampQuantity(
+                                event.target.value,
+                                selectedWarehouseBalance?.quantity ?? 0,
+                              ),
                             ),
                           );
                         }}
@@ -1154,11 +1505,17 @@ export function StockPage() {
                         onClick={() => {
                           const nextValue = Math.min(
                             selectedAvailableQuantity,
-                            (Number.isFinite(selectedQuantityParsed) ? selectedQuantityParsed : 0) + 1,
+                            (Number.isFinite(selectedQuantityParsed)
+                              ? selectedQuantityParsed
+                              : 0) + 1,
                           );
-                          setSelectedQuantityInput(formatQuantityInput(nextValue));
+                          setSelectedQuantityInput(
+                            formatQuantityInput(nextValue),
+                          );
                         }}
-                        disabled={!selectedItem || selectedAvailableQuantity <= 0}
+                        disabled={
+                          !selectedItem || selectedAvailableQuantity <= 0
+                        }
                       >
                         +
                       </QuantityButton>
@@ -1166,12 +1523,18 @@ export function StockPage() {
 
                     <button
                       type="button"
-                      disabled={!canAddSelectedItem || !selectedWarehouseBalance}
+                      disabled={
+                        !canAddSelectedItem || !selectedWarehouseBalance
+                      }
                       onClick={() => {
                         if (!selectedItem || !selectedWarehouseBalance) {
                           return;
                         }
-                        updateDraftLine(selectedItem, selectedWarehouseBalance, selectedQuantityParsed);
+                        updateDraftLine(
+                          selectedItem,
+                          selectedWarehouseBalance,
+                          selectedQuantityParsed,
+                        );
                       }}
                       className="app-action-button app-action-button--md mt-2 w-full"
                     >
@@ -1181,7 +1544,9 @@ export function StockPage() {
 
                     <button
                       type="button"
-                      disabled={!canAddSelectedItem || !selectedWarehouseBalance}
+                      disabled={
+                        !canAddSelectedItem || !selectedWarehouseBalance
+                      }
                       onClick={addSelectedItemToCommercialOfferDraft}
                       className="app-action-button app-action-button--md mt-1.5 w-full"
                     >
@@ -1213,7 +1578,8 @@ export function StockPage() {
 
                     {!selectedItem ? null : selectedAvailableQuantity <= 0 ? (
                       <p className="mt-1.5 text-[10px] text-[var(--stock-empty)]">
-                        На складе {selectedWarehouseName.toLowerCase()} остаток равен нулю.
+                        На складе {selectedWarehouseName.toLowerCase()} остаток
+                        равен нулю.
                       </p>
                     ) : !selectedQuantityIsValid ? (
                       <p className="mt-1.5 text-[10px] text-[var(--stock-empty)]">
@@ -1221,15 +1587,19 @@ export function StockPage() {
                       </p>
                     ) : !selectedQuantityWithinStock ? (
                       <p className="mt-1.5 text-[10px] text-[var(--stock-empty)]">
-                        Доступно только {formatStockUnits(selectedAvailableQuantity)} на выбранном складе.
+                        Доступно только{' '}
+                        {formatStockUnits(selectedAvailableQuantity)} на
+                        выбранном складе.
                       </p>
                     ) : selectedItemTotalInDraft > 0 ? (
                       <p className="mt-1.5 text-[10px] text-[var(--stock-ok)]">
-                        Уже в счете: {selectedItemTotalInDraft} шт. Можно быстро убрать позицию или изменить количество.
+                        Уже в счете: {selectedItemTotalInDraft} шт. Можно быстро
+                        убрать позицию или изменить количество.
                       </p>
                     ) : (
                       <p className="mt-1.5 text-[10px] text-[var(--text-secondary)]">
-                        Можно ввести любое целое количество в пределах остатка выбранного склада.
+                        Можно ввести любое целое количество в пределах остатка
+                        выбранного склада.
                       </p>
                     )}
                   </div>
@@ -1240,7 +1610,7 @@ export function StockPage() {
                         Остатки по складам
                       </p>
                       <span className="text-[10px] text-[var(--text-secondary)]">
-                        Общий остаток:{" "}
+                        Общий остаток:{' '}
                         <span className="font-semibold text-[var(--text-primary)]">
                           {formatStockUnits(selectedItem.quantity)}
                         </span>
@@ -1250,18 +1620,21 @@ export function StockPage() {
                     <div className="mt-1.5 space-y-1">
                       {selectedItem.warehouses.length > 0 ? (
                         selectedItem.warehouses.map((warehouse) => {
-                          const isCurrent = selectedWarehouseId === warehouse.warehouseId;
+                          const isCurrent =
+                            selectedWarehouseId === warehouse.warehouseId;
                           return (
                             <button
                               key={warehouse.warehouseId}
                               type="button"
-                              onClick={() => setSelectedWarehouseId(warehouse.warehouseId)}
+                              onClick={() =>
+                                setSelectedWarehouseId(warehouse.warehouseId)
+                              }
                               className={[
-                                "flex w-full items-center justify-between gap-2 rounded-[9px] border px-2.5 py-1.5 text-left text-[10px] transition-all duration-200",
+                                'flex w-full items-center justify-between gap-2 rounded-[9px] border px-2.5 py-1.5 text-left text-[10px] transition-all duration-200',
                                 isCurrent
-                                  ? "border-[var(--brand-yellow)] bg-[#FFF8D9]"
-                                  : "border-[var(--border-color)] bg-white hover:bg-[#F8FAFD]",
-                              ].join(" ")}
+                                  ? 'border-[var(--brand-yellow)] bg-[#FFF8D9]'
+                                  : 'border-[var(--border-color)] bg-white hover:bg-[#F8FAFD]',
+                              ].join(' ')}
                             >
                               <span className="min-w-0">
                                 <span className="block truncate text-[var(--text-primary)]">
@@ -1289,7 +1662,8 @@ export function StockPage() {
                 </>
               ) : (
                 <div className="mt-2 rounded-[12px] border border-dashed border-[var(--border-color)] bg-[#FBFCFE] px-3 py-3 text-[10px] leading-[15px] text-[var(--text-secondary)]">
-                  Выберите позицию в таблице слева. Здесь можно быстро подобрать склад и добавить товар в счет.
+                  Выберите позицию в таблице слева. Здесь можно быстро подобрать
+                  склад и добавить товар в счет.
                 </div>
               )}
             </section>
@@ -1323,7 +1697,7 @@ export function StockPage() {
                             {line.name}
                           </p>
                           <p className="mt-0.5 text-[10px] text-[var(--text-secondary)]">
-                            {line.sku || "-"} · {line.warehouseName}
+                            {line.sku || '-'} · {line.warehouseName}
                           </p>
                           {line.locationLabel ? (
                             <p className="mt-0.5 truncate text-[10px] text-[var(--text-secondary)]">
@@ -1360,14 +1734,20 @@ export function StockPage() {
                 </div>
                 <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--text-secondary)]">
                   <span>Без НДС</span>
-                  <span className="tabular-nums">{formatMoney(totals.amountWithoutVat)}</span>
+                  <span className="tabular-nums">
+                    {formatMoney(totals.amountWithoutVat)}
+                  </span>
                 </div>
                 <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--text-secondary)]">
                   <span>НДС {vatPercent}%</span>
-                  <span className="tabular-nums">{formatMoney(totals.vatAmount)}</span>
+                  <span className="tabular-nums">
+                    {formatMoney(totals.vatAmount)}
+                  </span>
                 </div>
                 <div className="mt-2 flex items-center justify-between border-t border-[var(--border-color)] pt-2">
-                  <span className="text-[12px] font-semibold text-[var(--text-primary)]">Итого</span>
+                  <span className="text-[12px] font-semibold text-[var(--text-primary)]">
+                    Итого
+                  </span>
                   <span className="text-[18px] font-[650] leading-none tabular-nums tracking-[-0.03em] text-[var(--text-primary)]">
                     {formatMoney(totals.grossAmount)}
                   </span>
@@ -1386,6 +1766,21 @@ export function StockPage() {
           </aside>
         </div>
       </div>
+      <MobileStockDetailSheet
+        item={mobileDetailItem}
+        isLoading={isMobileDetailLoading}
+        error={mobileDetailError}
+        onClose={() => {
+          mobileDetailRequestTrackerRef.current.begin();
+          setMobileDetailItem(null);
+          setMobileDetailError(null);
+        }}
+        onRetry={() => {
+          if (mobileDetailItem) {
+            openMobileItem(mobileDetailItem);
+          }
+        }}
+      />
     </AppShell>
   );
 }
@@ -1394,8 +1789,8 @@ function sanitizeDraftLines(lines: DraftLine[]) {
   return lines
     .map((line) => {
       if (
-        typeof line.itemId !== "number" ||
-        typeof line.warehouseId !== "number" ||
+        typeof line.itemId !== 'number' ||
+        typeof line.warehouseId !== 'number' ||
         !Number.isFinite(line.itemId) ||
         !Number.isFinite(line.warehouseId)
       ) {
@@ -1414,9 +1809,9 @@ function sanitizeDraftLines(lines: DraftLine[]) {
         ...line,
         lineId: line.lineId || buildDraftLineKey(line.itemId, line.warehouseId),
         quantity: safeQuantity,
-        rack: line.rack ?? "",
-        cell: line.cell ?? "",
-        locationLabel: line.locationLabel ?? "",
+        rack: line.rack ?? '',
+        cell: line.cell ?? '',
+        locationLabel: line.locationLabel ?? '',
         availableOnWarehouse,
       };
     })
@@ -1428,32 +1823,44 @@ function buildDraftLineKey(itemId: number, warehouseId: number) {
 }
 
 function getCatalogRowKey(item: StockItem) {
-  return item.catalogRowKey || `${item.id}:${item.rowWarehouseId ?? "no-warehouse"}`;
+  return (
+    item.catalogRowKey || `${item.id}:${item.rowWarehouseId ?? 'no-warehouse'}`
+  );
 }
 
 function getCatalogRowAvailableUnits(item: StockItem) {
   return getAvailableUnits(item.rowQuantity || item.quantity);
 }
 
-function getWarehouseOptions(item: StockItem | null, activeWarehouseId: number | null) {
+function getWarehouseOptions(
+  item: StockItem | null,
+  activeWarehouseId: number | null,
+) {
   if (!item) {
     return [];
   }
 
   if (activeWarehouseId !== null) {
-    return item.warehouses.filter((warehouse) => warehouse.warehouseId === activeWarehouseId);
+    return item.warehouses.filter(
+      (warehouse) => warehouse.warehouseId === activeWarehouseId,
+    );
   }
 
   return item.warehouses;
 }
 
-function pickPreferredWarehouse(item: StockItem, activeWarehouseId: number | null) {
+function pickPreferredWarehouse(
+  item: StockItem,
+  activeWarehouseId: number | null,
+) {
   const candidates = getWarehouseOptions(item, activeWarehouseId);
   if (candidates.length === 0) {
     return null;
   }
 
-  return [...candidates].sort((left, right) => right.quantity - left.quantity)[0];
+  return [...candidates].sort(
+    (left, right) => right.quantity - left.quantity,
+  )[0];
 }
 
 function getAvailableUnits(value: number) {
@@ -1480,7 +1887,7 @@ function clampQuantity(value: number | string, available: number) {
   }
 
   const parsedValue =
-    typeof value === "string" ? parseQuantityInput(value) : Math.trunc(value);
+    typeof value === 'string' ? parseQuantityInput(value) : Math.trunc(value);
 
   if (!Number.isFinite(parsedValue)) {
     return 1;
@@ -1491,7 +1898,7 @@ function clampQuantity(value: number | string, available: number) {
 
 function formatQuantityInput(value: number) {
   if (!Number.isFinite(value) || value <= 0) {
-    return "0";
+    return '0';
   }
 
   return String(Math.trunc(value));
@@ -1502,7 +1909,7 @@ function formatWarehouseLabel(
   activeWarehouseName: string,
   activeWarehouseId: number | null,
 ) {
-  const rowWarehouseName = item.rowWarehouseName?.trim() || "";
+  const rowWarehouseName = item.rowWarehouseName?.trim() || '';
   if (rowWarehouseName) {
     return rowWarehouseName;
   }
@@ -1511,8 +1918,8 @@ function formatWarehouseLabel(
     return activeWarehouseName;
   }
 
-  const summary = item.warehouseSummary?.trim() || "";
-  const primaryName = item.topWarehouseName?.trim() || "Основной склад";
+  const summary = item.warehouseSummary?.trim() || '';
+  const primaryName = item.topWarehouseName?.trim() || 'Основной склад';
   if ((item.warehouseCount || 0) <= 1) {
     return summary || primaryName;
   }
@@ -1521,15 +1928,15 @@ function formatWarehouseLabel(
 }
 
 function formatMoney(value: number) {
-  const rubleSign = "\u20BD";
-  return `${new Intl.NumberFormat("ru-RU", {
+  const rubleSign = '\u20BD';
+  return `${new Intl.NumberFormat('ru-RU', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value)} ${rubleSign}`;
 }
 
 function formatStockUnits(value: number) {
-  return `${new Intl.NumberFormat("ru-RU").format(getAvailableUnits(value))} шт.`;
+  return `${new Intl.NumberFormat('ru-RU').format(getAvailableUnits(value))} шт.`;
 }
 
 function pluralizeWord(value: number, one: string, few: string, many: string) {
@@ -1550,19 +1957,19 @@ function StatusBadge({
   tone,
 }: {
   children: ReactNode;
-  tone: "success" | "warning";
+  tone: 'success' | 'warning';
 }) {
   const toneClass =
-    tone === "success"
-      ? "border-[#D7F6E3] bg-[#EEFDF3] text-[var(--stock-ok)]"
-      : "border-[#FCE7B2] bg-[#FFF8D9] text-[#A16207]";
+    tone === 'success'
+      ? 'border-[#D7F6E3] bg-[#EEFDF3] text-[var(--stock-ok)]'
+      : 'border-[#FCE7B2] bg-[#FFF8D9] text-[#A16207]';
 
   return (
     <span
       className={[
-        "inline-flex h-[24px] items-center rounded-full border px-2 text-[10px] font-semibold",
+        'inline-flex h-[24px] items-center rounded-full border px-2 text-[10px] font-semibold',
         toneClass,
-      ].join(" ")}
+      ].join(' ')}
     >
       {children}
     </span>
@@ -1588,29 +1995,35 @@ function SelectionMarker({
     return <span className="h-2.5 w-2.5 rounded-full bg-[var(--stock-ok)]" />;
   }
 
-  return <span className="h-4 w-4 rounded-full border border-[var(--border-color)] bg-white" />;
+  return (
+    <span className="h-4 w-4 rounded-full border border-[var(--border-color)] bg-white" />
+  );
 }
 
 function MiniCard({
   title,
   value,
-  tone = "default",
+  tone = 'default',
 }: {
   title: string;
   value: string;
-  tone?: "default" | "success" | "danger";
+  tone?: 'default' | 'success' | 'danger';
 }) {
   const toneClass =
-    tone === "success"
-      ? "text-[var(--stock-ok)]"
-      : tone === "danger"
-        ? "text-[var(--stock-empty)]"
-        : "text-[var(--text-primary)]";
+    tone === 'success'
+      ? 'text-[var(--stock-ok)]'
+      : tone === 'danger'
+        ? 'text-[var(--stock-empty)]'
+        : 'text-[var(--text-primary)]';
 
   return (
     <div className="rounded-[12px] border border-[var(--border-color)] bg-white p-2">
-      <p className="text-[10px] font-medium text-[var(--text-secondary)]">{title}</p>
-      <p className={`mt-1 text-[15px] font-[650] leading-none tabular-nums ${toneClass}`}>
+      <p className="text-[10px] font-medium text-[var(--text-secondary)]">
+        {title}
+      </p>
+      <p
+        className={`mt-1 text-[15px] font-[650] leading-none tabular-nums ${toneClass}`}
+      >
         {value}
       </p>
     </div>
@@ -1655,11 +2068,11 @@ function WarehouseTab({
       type="button"
       onClick={onClick}
       className={[
-        "inline-flex h-[34px] items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200",
+        'inline-flex h-[34px] items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200',
         active
-          ? "border-[var(--border-color)] border-t-[2px] border-t-[var(--stock-ok)] bg-white text-[var(--brand-dark)] shadow-[0_10px_20px_rgba(7,22,46,0.06)]"
-          : "border-[var(--border-color)] bg-[#F8FAFD] text-[var(--text-secondary)] hover:bg-white hover:text-[var(--text-primary)]",
-      ].join(" ")}
+          ? 'border-[var(--border-color)] border-t-[2px] border-t-[var(--stock-ok)] bg-white text-[var(--brand-dark)] shadow-[0_10px_20px_rgba(7,22,46,0.06)]'
+          : 'border-[var(--border-color)] bg-[#F8FAFD] text-[var(--text-secondary)] hover:bg-white hover:text-[var(--text-primary)]',
+      ].join(' ')}
     >
       <span className="truncate">{children}</span>
     </button>
@@ -1708,7 +2121,10 @@ function TableSkeleton() {
     <div className="overflow-hidden rounded-[14px] border border-[var(--border-color)] bg-white">
       <div className="grid grid-cols-[1fr_2fr_1.2fr_1fr_0.8fr_0.9fr_1fr_0.6fr] gap-3 border-b border-[var(--border-color)] bg-[#FAFBFD] px-4 py-2">
         {Array.from({ length: 8 }).map((_, index) => (
-          <div key={index} className="h-3 w-16 animate-pulse rounded-full bg-[#E8EDF4]" />
+          <div
+            key={index}
+            className="h-3 w-16 animate-pulse rounded-full bg-[#E8EDF4]"
+          />
         ))}
       </div>
       {Array.from({ length: 7 }).map((_, index) => (
@@ -1726,6 +2142,224 @@ function TableSkeleton() {
         </div>
       ))}
     </div>
+  );
+}
+
+function mobileWarehouseFilterClass(active: boolean) {
+  return [
+    'h-9 shrink-0 rounded-full border px-3 text-[13px] font-semibold transition',
+    active
+      ? 'border-[var(--brand-dark)] bg-[var(--brand-dark)] text-white'
+      : 'border-[var(--border-color)] bg-white text-[var(--text-primary)]',
+  ].join(' ');
+}
+
+export function MobileStockResults({
+  catalog,
+  onOpenItem,
+}: {
+  catalog: StockItem[];
+  onOpenItem: (item: StockItem) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      {catalog.map((item) => {
+        const quantity = getAvailableUnits(
+          item.rowWarehouseId === null ? item.quantity : item.rowQuantity,
+        );
+        const warehouseName =
+          item.rowWarehouseName?.trim() ||
+          item.topWarehouseName ||
+          'Склад не указан';
+        const locationLabel = item.rowLocationLabel?.trim() || '';
+
+        return (
+          <button
+            key={getCatalogRowKey(item)}
+            type="button"
+            aria-label={`${item.sku || 'Товар'}. ${item.name}`}
+            onClick={() => onOpenItem(item)}
+            className="w-full rounded-[18px] border border-[var(--border-color)] bg-white px-4 py-4 text-left shadow-[0_8px_20px_rgba(7,22,46,0.06)] transition active:scale-[0.99]"
+          >
+            <p className="text-[15px] font-bold leading-none tabular-nums tracking-[-0.02em] text-[var(--brand-dark)]">
+              {item.sku || '—'}
+            </p>
+            <p className="mt-2 line-clamp-2 text-[16px] font-semibold leading-5 text-[var(--text-primary)]">
+              {item.name}
+            </p>
+            <div className="mt-4 flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="truncate text-[14px] font-semibold text-[var(--text-primary)]">
+                  {warehouseName}
+                </p>
+                {locationLabel ? (
+                  <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">
+                    {locationLabel}
+                  </p>
+                ) : null}
+              </div>
+              <span
+                className={[
+                  'shrink-0 text-[15px] font-bold tabular-nums',
+                  quantity > 0
+                    ? 'text-[var(--stock-ok)]'
+                    : 'text-[var(--stock-empty)]',
+                ].join(' ')}
+              >
+                {quantity > 0 ? formatStockUnits(quantity) : 'Нет в наличии'}
+              </span>
+            </div>
+            <p className="mt-4 text-[16px] font-bold tabular-nums tracking-[-0.02em] text-[var(--text-primary)]">
+              {formatMoney(item.price)}
+            </p>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function MobileStockSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div
+          key={index}
+          className="rounded-[18px] border border-[var(--border-color)] bg-white px-4 py-4 shadow-[0_8px_20px_rgba(7,22,46,0.06)]"
+        >
+          <div className="h-4 w-24 animate-pulse rounded bg-[#E8EDF4]" />
+          <div className="mt-3 h-5 w-3/4 animate-pulse rounded bg-[#EEF2F7]" />
+          <div className="mt-5 flex justify-between gap-4">
+            <div className="h-4 w-2/5 animate-pulse rounded bg-[#EEF2F7]" />
+            <div className="h-4 w-14 animate-pulse rounded bg-[#E8EDF4]" />
+          </div>
+          <div className="mt-3 h-3 w-1/2 animate-pulse rounded bg-[#EEF2F7]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MobileStockDetailSheet({
+  item,
+  isLoading,
+  error,
+  onClose,
+  onRetry,
+}: {
+  item: StockItem | null;
+  isLoading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  if (!item) {
+    return null;
+  }
+
+  return (
+    <dialog
+      open
+      className="fixed inset-0 z-50 flex h-full w-full max-h-none max-w-none items-end bg-[#07162E]/45 p-0 md:hidden"
+      aria-label="Остатки по складам"
+    >
+      <button
+        type="button"
+        aria-label="Закрыть карточку товара"
+        onClick={onClose}
+        className="absolute inset-0"
+      />
+      <section className="relative max-h-[88dvh] w-full overflow-y-auto rounded-t-[26px] bg-white px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_48px_rgba(7,22,46,0.2)]">
+        <div className="mx-auto h-1.5 w-10 rounded-full bg-[#D9E1EC]" />
+        <div className="mt-5 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[15px] font-bold tabular-nums text-[var(--brand-dark)]">
+              {item.sku || '—'}
+            </p>
+            <h2 className="mt-1 text-[19px] font-bold leading-6 tracking-[-0.03em] text-[var(--text-primary)]">
+              {item.name}
+            </h2>
+          </div>
+          <button
+            type="button"
+            aria-label="Закрыть"
+            onClick={onClose}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#F1F5F9] text-[24px] leading-none text-[var(--text-secondary)]"
+          >
+            ×
+          </button>
+        </div>
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <h3 className="text-[15px] font-bold text-[var(--text-primary)]">
+            Остатки по складам
+          </h3>
+          {isLoading ? (
+            <span className="text-[12px] text-[var(--text-secondary)]">
+              Обновляем…
+            </span>
+          ) : null}
+        </div>
+        {error ? (
+          <div className="mt-3 rounded-[14px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 py-3 text-[13px] text-[var(--stock-empty)]">
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-2 font-semibold underline underline-offset-2"
+            >
+              Повторить
+            </button>
+          </div>
+        ) : null}
+        <div className="mt-3 divide-y divide-[var(--border-color)] rounded-[16px] border border-[var(--border-color)]">
+          {item.warehouses.length > 0 ? (
+            item.warehouses.map((warehouse) => {
+              const location =
+                warehouse.locationLabel?.trim() ||
+                [warehouse.rack, warehouse.cell].filter(Boolean).join(' · ');
+              const quantity = getAvailableUnits(warehouse.quantity);
+              return (
+                <div key={warehouse.warehouseId} className="px-4 py-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-semibold text-[var(--text-primary)]">
+                        {warehouse.warehouseName}
+                      </p>
+                      {location ? (
+                        <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">
+                          {location}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span
+                      className={
+                        quantity > 0
+                          ? 'shrink-0 text-[15px] font-bold tabular-nums text-[var(--stock-ok)]'
+                          : 'shrink-0 text-[15px] font-bold text-[var(--stock-empty)]'
+                      }
+                    >
+                      {quantity > 0
+                        ? formatStockUnits(quantity)
+                        : 'Нет в наличии'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <p className="px-4 py-5 text-[14px] text-[var(--text-secondary)]">
+              Остатки по складам пока не распределены.
+            </p>
+          )}
+        </div>
+        <p className="mt-5 text-[15px] font-semibold text-[var(--text-primary)]">
+          Общий остаток:{' '}
+          <span className="tabular-nums">
+            {formatStockUnits(item.quantity)}
+          </span>
+        </p>
+      </section>
+    </dialog>
   );
 }
 
