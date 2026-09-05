@@ -13,6 +13,19 @@ const crmWorkspaceCacheUrl = new URL("../lib/crm-workspace-cache.ts", import.met
 const crmApiUrl = new URL("../lib/api.ts", import.meta.url);
 const crmTypesUrl = new URL("../lib/types.ts", import.meta.url);
 const appShellUrl = new URL("../components/app-shell.tsx", import.meta.url);
+const mobileTypesUrl = new URL("../components/crm/mobile/types.ts", import.meta.url);
+const mobileUtilsUrl = new URL("../components/crm/mobile/mobile-crm-utils.ts", import.meta.url);
+
+test("mobile CRM contracts expose detail sections and reminder helpers", async () => {
+  const [mobileTypes, mobileUtils] = await Promise.all([
+    readFile(mobileTypesUrl, "utf8"),
+    readFile(mobileUtilsUrl, "utf8"),
+  ]);
+
+  assert.match(mobileTypes, /MobileDetailSection = "overview" \| "history" \| "reminders" \| "more"/);
+  assert.match(mobileUtils, /export function getImportantReminders/);
+  assert.match(mobileUtils, /export function getNearestActiveReminderByClient/);
+});
 
 async function loadCrmApiForContractTest() {
   const source = await readFile(crmApiUrl, "utf8");
