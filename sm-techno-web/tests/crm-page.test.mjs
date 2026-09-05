@@ -16,6 +16,7 @@ const crmTypesUrl = new URL("../lib/types.ts", import.meta.url);
 const appShellUrl = new URL("../components/app-shell.tsx", import.meta.url);
 const mobileTypesUrl = new URL("../components/crm/mobile/types.ts", import.meta.url);
 const mobileUtilsUrl = new URL("../components/crm/mobile/mobile-crm-utils.ts", import.meta.url);
+const mobileWorkspaceUrl = new URL("../components/crm/mobile/mobile-crm-workspace.tsx", import.meta.url);
 
 async function loadMobileCrmUtilsForTest() {
   const source = await readFile(mobileUtilsUrl, "utf8");
@@ -43,6 +44,21 @@ test("mobile CRM contracts expose detail sections and reminder helpers", async (
   assert.match(mobileTypes, /MobileDetailSection = "overview" \| "history" \| "reminders" \| "more"/);
   assert.match(mobileUtils, /export function getImportantReminders/);
   assert.match(mobileUtils, /export function getNearestActiveReminderByClient/);
+});
+
+test("CRM composes a strict presentational mobile branch with owner-scoped reminders", async () => {
+  const [workspace, mobileWorkspace] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(mobileWorkspaceUrl, "utf8").catch(() => ""),
+  ]);
+
+  assert.match(workspace, /fetchCrmReminders\(ownerId\)/);
+  assert.match(workspace, /<MobileCrmWorkspace/);
+  assert.match(workspace, /md:hidden/);
+  assert.match(workspace, /hidden md:block/);
+  assert.match(workspace, /fetchCrmClient\(reminder\.clientId, ownerId\)/);
+  assert.ok(mobileWorkspace, "mobile workspace composition module must exist");
+  assert.doesNotMatch(mobileWorkspace, /from ["']@\/lib\/api["']/);
 });
 
 test("mobile CRM reminder helpers classify Moscow urgency, filter, sort, and select nearest reminders", async () => {
@@ -213,6 +229,29 @@ test("CRM conflict transport keeps resolution scoped to the selected owner", asy
       method: "POST",
       body: JSON.stringify({ choice: "remote", expectedUpdatedAt: "2026-09-04T10:00:00Z" }),
     },
+  ]);
+});
+
+test("CRM single-client transport keeps reminder navigation scoped to the selected owner", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof URL ? input.href : input instanceof Request ? input.url : input;
+    requests.push({ url, method: init?.method ?? "GET" });
+    return new Response(JSON.stringify({ client: { id: 42, documentName: "ООО Тест" } }), { status: 200 });
+  };
+
+  try {
+    const api = await loadCrmApiForContractTest();
+    assert.equal(typeof api.fetchCrmClient, "function");
+    const client = await api.fetchCrmClient(42, 7);
+    assert.equal(client.id, 42);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requests, [
+    { url: "/api/crm/clients/42?ownerId=7", method: "GET" },
   ]);
 });
 

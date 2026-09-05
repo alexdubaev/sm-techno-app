@@ -818,6 +818,13 @@ export async function fetchCrmClients(query: CrmClientsQuery = {}): Promise<CrmW
   return result.items;
 }
 
+export async function fetchCrmClient(clientId: number, ownerId: number): Promise<CrmWorkspaceClient> {
+  const result = await requestJson<{ client: CrmWorkspaceClient }>(
+    `/api/crm/clients/${clientId}${buildCrmQuery({ ownerId })}`,
+  );
+  return result.client;
+}
+
 export async function fetchPrimaryCrmClients(ownerId: number): Promise<CrmPrimaryListResponse> {
   return requestJson<CrmPrimaryListResponse>(
     `/api/crm/clients${buildCrmQuery({ ownerId, primaryOnly: true })}`,
