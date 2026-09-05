@@ -1,0 +1,16 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY stock_sync_api.py ./
+COPY stock_sync_desktop ./stock_sync_desktop
+COPY stock_sync_web ./stock_sync_web
+COPY assets/templates ./assets/templates
+
+EXPOSE 8000
+CMD ["uvicorn", "stock_sync_api:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

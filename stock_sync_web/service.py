@@ -12,6 +12,7 @@ from threading import Lock
 from typing import Any
 
 from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounterpartySyncError
+from stock_sync_desktop.database import resolve_db_path
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.settings import DEFAULT_SETTINGS
 
@@ -2026,15 +2027,31 @@ class WebStockSyncService:
         return parsed.replace(hour=12, minute=0, second=0).isoformat()
 
 
-def create_default_service() -> WebStockSyncService:
-    """Build the application service, optionally rooted in an isolated data directory."""
-    configured_data_dir = os.environ.get("SM_TECHNO_DATA_DIR", "").strip()
-    if not configured_data_dir:
-        return WebStockSyncService()
+def _configured_path(variable_name: str) -> Path | None:
+    value = os.environ.get(variable_name, "").strip()
+    return Path(value).expanduser().resolve() if value else None
 
-    data_dir = Path(configured_data_dir).expanduser().resolve()
+
+def resolve_storage_root() -> Path:
+    explicit_root = _configured_path("SM_TECHNO_STORAGE_ROOT")
+    if explicit_root is not None:
+        return explicit_root
+    legacy_data_dir = _configured_path("SM_TECHNO_DATA_DIR")
+    return legacy_data_dir if legacy_data_dir is not None else ROOT_DIR / "storage"
+
+
+def create_default_service() -> WebStockSyncService:
+    """Build the application service using explicit paths or legacy local defaults."""
+    legacy_data_dir = _configured_path("SM_TECHNO_DATA_DIR")
+    db_path = _configured_path("SM_TECHNO_DB_PATH")
+    storage_root = _configured_path("SM_TECHNO_STORAGE_ROOT")
+    if legacy_data_dir is None and db_path is None and storage_root is None:
+        return WebStockSyncService()
+    if db_path is None:
+        db_path = legacy_data_dir / "stock_sync.db" if legacy_data_dir is not None else resolve_db_path()
+    storage_root = storage_root or resolve_storage_root()
     return WebStockSyncService(
-        db=WebDatabase(data_dir / "stock_sync.db"),
-        commercial_offer_storage_dir=data_dir / "commercial_offers",
-        document_storage_dir=data_dir / "documents",
+        db=WebDatabase(db_path),
+        commercial_offer_storage_dir=storage_root / "commercial_offers",
+        document_storage_dir=storage_root / "documents",
     )

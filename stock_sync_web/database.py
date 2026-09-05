@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from cryptography.fernet import Fernet, InvalidToken
+
 from stock_sync_desktop.database import DEFAULT_DB_PATH, Database, utc_now
 
 
@@ -325,11 +327,25 @@ class _DataBlob(ctypes.Structure):
     _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_byte))]
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _fernet() -> Fernet:
+    key = os.environ.get("SM_TECHNO_CREDENTIAL_KEY", "").strip()
+    if not key:
+        raise RuntimeError("SM_TECHNO_CREDENTIAL_KEY is required to store 1C passwords on Linux.")
+    try:
+        return Fernet(key.encode("ascii"))
+    except (UnicodeEncodeError, ValueError) as exc:
+        raise RuntimeError("SM_TECHNO_CREDENTIAL_KEY must be a valid Fernet key.") from exc
+
+
 def _protect_onec_password(value: str) -> str:
     if not value:
         return ""
-    if os.name != "nt":
-        raise RuntimeError("Шифрование паролей 1С поддерживается только в Windows.")
+    if not _is_windows():
+        return "fernet:" + _fernet().encrypt(value.encode("utf-8")).decode("ascii")
 
     raw = value.encode("utf-8")
     input_buffer = ctypes.create_string_buffer(raw)
@@ -350,9 +366,14 @@ def _unprotect_onec_password(value: str | None) -> str:
     stored = str(value or "")
     if not stored:
         return ""
+    if stored.startswith("fernet:"):
+        try:
+            return _fernet().decrypt(stored.removeprefix("fernet:").encode("ascii")).decode("utf-8")
+        except (InvalidToken, UnicodeDecodeError) as exc:
+            raise RuntimeError("Не удалось расшифровать пароль 1С.") from exc
     if not stored.startswith("dpapi:"):
         return stored
-    if os.name != "nt":
+    if not _is_windows():
         raise RuntimeError("Расшифровка паролей 1С поддерживается только в Windows.")
 
     raw = base64.urlsafe_b64decode(stored.removeprefix("dpapi:").encode("ascii"))
@@ -436,7 +457,7 @@ class WebDatabase(Database):
         ).fetchall()
         for credential in legacy_credentials:
             stored_password = str(credential["onec_password"])
-            if not stored_password.startswith("dpapi:"):
+            if not stored_password.startswith(("dpapi:", "fernet:")):
                 conn.execute(
                     "UPDATE users SET onec_password = ? WHERE id = ?",
                     (_protect_onec_password(stored_password), int(credential["id"])),

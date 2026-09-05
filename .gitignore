@@ -16,6 +16,8 @@ stock_sync.db
 *.db-journal
 backups/
 transfer/
+storage/
+.env
 storage/commercial_offers/
 storage/documents/
 sm-techno-web/.env.local

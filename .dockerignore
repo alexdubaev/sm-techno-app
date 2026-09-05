@@ -1,0 +1,14 @@
+.git
+.venv
+node_modules
+sm-techno-web/node_modules
+sm-techno-web/.next
+*.db
+storage
+transfer
+backups
+.env
+**/.env
+docs
+tests
+**/__pycache__

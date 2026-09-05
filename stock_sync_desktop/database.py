@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -7,7 +8,15 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "stock_sync.db"
+LEGACY_DB_PATH = Path(__file__).resolve().parent.parent / "stock_sync.db"
+
+
+def resolve_db_path() -> Path:
+    configured = os.environ.get("SM_TECHNO_DB_PATH", "").strip()
+    return Path(configured).expanduser().resolve() if configured else LEGACY_DB_PATH
+
+
+DEFAULT_DB_PATH = resolve_db_path()
 DEFAULT_WAREHOUSE_NAME = "Основной склад"
 
 SCHEMA = """

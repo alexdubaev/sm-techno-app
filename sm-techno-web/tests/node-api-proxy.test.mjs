@@ -4,8 +4,10 @@ import test from "node:test";
 
 const clientApiUrl = new URL("../lib/api.ts", import.meta.url);
 const proxyRouteUrl = new URL("../app/api/[...path]/route.ts", import.meta.url);
+const configUrl = new URL("../next.config.ts", import.meta.url);
+const packageUrl = new URL("../package.json", import.meta.url);
 
-test("published browser calls the same-origin API proxy", async () => {
+test("browser calls use the same-origin API path", async () => {
   const source = await readFile(clientApiUrl, "utf8");
 
   assert.doesNotMatch(source, /tail\d+\.ts\.net/);
@@ -23,4 +25,13 @@ test("server proxy forwards API methods and preserves authorization", async () =
   assert.match(source, /export const PATCH = proxyRequest/);
   assert.match(source, /export const DELETE = proxyRequest/);
   assert.match(source, /export const OPTIONS = proxyRequest/);
+});
+
+test("Node build is configured for standalone output", async () => {
+  const config = await readFile(configUrl, "utf8");
+  const manifest = JSON.parse(await readFile(packageUrl, "utf8"));
+
+  assert.match(config, /output:\s*["']standalone["']/);
+  assert.equal(manifest.scripts.build, "next build");
+  assert.equal(manifest.scripts.start, "next start");
 });
