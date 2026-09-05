@@ -59,8 +59,8 @@ test("mobile CRM reminder helpers classify Moscow urgency, filter, sort, and sel
   const now = new Date("2026-09-04T20:30:00Z");
   const items = [
     reminder(1, 10, "2026-09-04T21:00:00Z"),
-    reminder(2, 10, "2026-09-04T20:00:00Z"),
     reminder(3, 11, "2026-09-04T20:59:00Z"),
+    reminder(2, 10, "2026-09-04T20:00:00Z"),
     reminder(4, 11, "2026-09-04T20:00:00Z", "completed"),
     reminder(5, 12, "2026-09-04T21:01:00Z"),
     reminder(6, 13, "not-a-date"),
