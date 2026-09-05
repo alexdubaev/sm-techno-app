@@ -6,7 +6,7 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -21,6 +21,7 @@ import {
 import { bootstrapAuthSession } from "@/lib/auth-session";
 import type { AppUser } from "@/lib/types";
 import {
+  AUTH_SESSION_STORAGE_KEY,
   clearAuthSessionFromStorage,
   clearCurrentUserSessionData,
   loadAuthSessionFromStorage,
@@ -42,17 +43,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isBooting, setIsBooting] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const sessionRevisionRef = useRef(0);
 
   const resetSession = useCallback((message?: string) => {
+    sessionRevisionRef.current += 1;
     invalidateApiCache();
     clearCurrentUserSessionData();
     clearAuthSessionFromStorage();
     setSession(null);
+    setIsBooting(false);
     setLoginError(message ?? null);
   }, []);
 
   useEffect(() => {
     let isActive = true;
+    const revision = sessionRevisionRef.current + 1;
+    sessionRevisionRef.current = revision;
 
     async function bootstrapSession() {
       const savedSession = loadAuthSessionFromStorage();
@@ -66,14 +72,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await bootstrapAuthSession({
           fetchCurrentUser,
-          isActive: () => isActive,
+          isActive: () => isActive && sessionRevisionRef.current === revision,
           resetSession,
           savedSession,
           saveAuthSession: saveAuthSessionToStorage,
           setSession,
         });
       } finally {
-        if (isActive) {
+        if (isActive && sessionRevisionRef.current === revision) {
           setIsBooting(false);
         }
       }
@@ -82,6 +88,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void bootstrapSession();
     return () => {
       isActive = false;
+    };
+  }, [resetSession]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    let isActive = true;
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== AUTH_SESSION_STORAGE_KEY) {
+        return;
+      }
+
+      const revision = sessionRevisionRef.current + 1;
+      sessionRevisionRef.current = revision;
+      invalidateApiCache();
+      const savedSession = loadAuthSessionFromStorage();
+
+      if (!savedSession) {
+        clearCurrentUserSessionData();
+        setSession(null);
+        setLoginError(null);
+        setIsBooting(false);
+        return;
+      }
+
+      setIsBooting(true);
+      setLoginError(null);
+      void bootstrapAuthSession({
+        fetchCurrentUser,
+        isActive: () => isActive && sessionRevisionRef.current === revision,
+        resetSession,
+        savedSession,
+        saveAuthSession: saveAuthSessionToStorage,
+        setSession,
+      }).finally(() => {
+        if (isActive && sessionRevisionRef.current === revision) {
+          setIsBooting(false);
+        }
+      });
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      isActive = false;
+      window.removeEventListener("storage", handleStorage);
     };
   }, [resetSession]);
 
@@ -101,71 +154,89 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [resetSession]);
 
   const handleLogin = useCallback(async (username: string, password: string) => {
+    const revision = sessionRevisionRef.current;
+    let completedCurrentLogin = false;
     setIsSubmitting(true);
     setLoginError(null);
     try {
       const nextSession = await loginAppUser({ username, password });
+      if (sessionRevisionRef.current !== revision) {
+        return;
+      }
+      completedCurrentLogin = true;
+      sessionRevisionRef.current += 1;
       saveAuthSessionToStorage(nextSession);
       setSession(nextSession);
     } catch (error: unknown) {
-      setLoginError(
-        error instanceof ApiRequestError
-          ? error.message
-          : "Сервис временно недоступен. Проверьте, что компьютер включён и приложение запущено, затем повторите вход.",
-      );
+      if (
+        sessionRevisionRef.current === revision
+        || loadAuthSessionFromStorage() === null
+      ) {
+        setLoginError(
+          error instanceof ApiRequestError
+            ? error.message
+            : "Сервис временно недоступен. Проверьте, что компьютер включён и приложение запущено, затем повторите вход.",
+        );
+      }
       throw error;
     } finally {
       setIsSubmitting(false);
-      setIsBooting(false);
+      if (completedCurrentLogin || sessionRevisionRef.current === revision) {
+        setIsBooting(false);
+      }
     }
   }, []);
 
-  const handleLogout = useCallback(async () => {
+  const handleLogout = async () => {
+    const revision = sessionRevisionRef.current;
     try {
       await logoutAppUser();
     } catch {
       // Even if the server session is already gone, we still clear the local state.
     } finally {
-      resetSession();
+      if (sessionRevisionRef.current === revision) {
+        resetSession();
+      }
     }
-  }, [resetSession]);
+  };
 
-  const refreshUser = useCallback(async () => {
+  const refreshUser = async () => {
     const current = loadAuthSessionFromStorage();
     if (!current) {
       resetSession();
       return;
     }
 
+    const revision = sessionRevisionRef.current;
     const user = await fetchCurrentUser();
+    if (
+      sessionRevisionRef.current !== revision
+      || loadAuthSessionFromStorage()?.token !== current.token
+    ) {
+      return;
+    }
     const nextSession: StoredAuthSession = {
       ...current,
       user,
     };
     saveAuthSessionToStorage(nextSession);
     setSession(nextSession);
-  }, [resetSession]);
-
-  const value = useMemo<AuthContextValue | null>(() => {
-    if (!session?.user) {
-      return null;
-    }
-
-    return {
-      user: session.user,
-      isAdmin: session.user.role === "admin",
-      logout: handleLogout,
-      refreshUser,
-    };
-  }, [handleLogout, refreshUser, session]);
+  };
 
   if (isBooting) {
     return <BootScreen />;
   }
 
-  if (!value) {
+  if (!session?.user) {
     return <LoginScreen isSubmitting={isSubmitting} error={loginError} onLogin={handleLogin} />;
   }
+
+  const value: AuthContextValue = {
+    user: session.user,
+    isAdmin: session.user.role === "admin",
+    logout: handleLogout,
+    refreshUser,
+  };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -207,7 +278,7 @@ function LoginScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const submit = async (event: React.SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!username.trim() || !password) {
       setLocalError("Введите логин и пароль.");

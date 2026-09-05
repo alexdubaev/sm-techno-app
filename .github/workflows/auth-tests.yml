@@ -1,0 +1,74 @@
+name: Auth feature tests
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+
+concurrency:
+  group: auth-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install backend test dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: sm-techno-web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: sm-techno-web
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: sm-techno-web
+        run: npx playwright install --with-deps chromium
+
+      - name: Backend auth integration tests
+        run: python -m pytest tests/auth -q --strict-markers
+
+      - name: Rendered auth integration tests
+        working-directory: sm-techno-web
+        run: npm run test:auth
+
+      - name: Auth lint and typecheck
+        working-directory: sm-techno-web
+        run: |
+          npm run test:auth:lint
+          npm exec tsc -- --noEmit --incremental false
+
+      - name: Production frontend build
+        working-directory: sm-techno-web
+        run: npm run build
+
+      - name: Full-stack auth browser tests
+        working-directory: sm-techno-web
+        run: npm run test:auth:e2e
+
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-playwright-report
+          path: |
+            sm-techno-web/playwright-report/auth
+            sm-techno-web/test-results/auth
+          if-no-files-found: ignore
+          retention-days: 7

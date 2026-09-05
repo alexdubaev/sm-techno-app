@@ -12,6 +12,27 @@ export type StoredAuthSession = {
   user: AppUser;
 };
 
+function isStoredAuthSession(value: unknown): value is StoredAuthSession {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<StoredAuthSession>;
+  const user = candidate.user as Partial<AppUser> | undefined;
+  return (
+    typeof candidate.token === "string"
+    && candidate.token.trim().length > 0
+    && !!user
+    && typeof user.id === "number"
+    && Number.isFinite(user.id)
+    && typeof user.username === "string"
+    && user.username.trim().length > 0
+    && (user.role === "admin" || user.role === "user")
+    && typeof user.fullName === "string"
+    && typeof user.isActive === "boolean"
+  );
+}
+
 export type StockPageViewState = {
   searchInput: string;
   category: string;
@@ -72,11 +93,16 @@ export function loadAuthSessionFromStorage(): StoredAuthSession | null {
   }
 
   try {
-    return JSON.parse(raw) as StoredAuthSession;
+    const parsed: unknown = JSON.parse(raw);
+    if (isStoredAuthSession(parsed)) {
+      return parsed;
+    }
   } catch {
-    window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
-    return null;
+    // Invalid auth data is removed below.
   }
+
+  window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
+  return null;
 }
 
 export function saveAuthSessionToStorage(session: StoredAuthSession) {

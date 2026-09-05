@@ -783,6 +783,81 @@ class WebDatabase(Database):
                 (normalized_role, 1 if is_active else 0, utc_now(), user_id),
             )
 
+    def update_user(
+        self,
+        user_id: int,
+        *,
+        role: str,
+        is_active: bool,
+        full_name: str | None = None,
+        onec_username: str | None = None,
+        onec_password: str | None = None,
+        new_password: str | None = None,
+    ) -> None:
+        """Update an account and its session policy in one transaction."""
+        normalized_role = self._normalize_role(role)
+        password_change = bool(new_password and new_password.strip())
+        if password_change and len(new_password or "") < 6:
+            raise ValueError("Пароль должен содержать минимум 6 символов.")
+
+        password_hash = self._hash_password(new_password or "") if password_change else None
+        protected_onec_password = _protect_onec_password(onec_password) if onec_password else None
+        now = utc_now()
+
+        with self.transaction() as conn:
+            # Serialize the guard and update as one write transaction.  Without
+            # an eager lock, two admins can both observe a count of two and
+            # concurrently demote themselves, leaving no active administrator.
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                "SELECT role, is_active FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            if existing is None:
+                raise ValueError("Пользователь не найден.")
+
+            if (
+                str(existing["role"] or "") == "admin"
+                and bool(existing["is_active"])
+                and (normalized_role != "admin" or not is_active)
+            ):
+                active_admins = conn.execute(
+                    "SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND is_active = 1"
+                ).fetchone()
+                if int(active_admins["total"] if active_admins else 0) <= 1:
+                    raise ValueError("Нельзя отключить или разжаловать последнего администратора.")
+
+            conn.execute(
+                """
+                UPDATE users
+                SET role = ?,
+                    is_active = ?,
+                    full_name = CASE WHEN ? THEN ? ELSE full_name END,
+                    onec_username = CASE WHEN ? THEN ? ELSE onec_username END,
+                    onec_password = COALESCE(?, onec_password),
+                    password_hash = COALESCE(?, password_hash),
+                    app_password = CASE WHEN ? THEN NULL ELSE app_password END,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    normalized_role,
+                    1 if is_active else 0,
+                    full_name is not None,
+                    full_name.strip() or None if full_name is not None else None,
+                    onec_username is not None,
+                    onec_username.strip() or None if onec_username is not None else None,
+                    protected_onec_password,
+                    password_hash,
+                    password_change,
+                    now,
+                    user_id,
+                ),
+            )
+
+            if password_change or not is_active:
+                conn.execute("DELETE FROM app_sessions WHERE user_id = ?", (user_id,))
+
     def reset_user_password(self, user_id: int, new_password: str) -> None:
         if len(new_password) < 6:
             raise ValueError("Пароль должен содержать минимум 6 символов.")
@@ -917,11 +992,23 @@ class WebDatabase(Database):
         with self.transaction() as conn:
             conn.execute("DELETE FROM app_sessions WHERE token = ?", (normalized_token,))
 
-    def delete_user(self, user_id: int) -> None:
+    def delete_user(self, user_id: int, *, current_user_id: int | None = None) -> None:
         with self.transaction() as conn:
-            existing = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                "SELECT id, role, is_active FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
             if existing is None:
                 raise ValueError("Пользователь не найден.")
+            if current_user_id is not None and int(existing["id"]) == current_user_id:
+                raise ValueError("Нельзя удалить свою учетную запись.")
+            if str(existing["role"] or "") == "admin" and bool(existing["is_active"]):
+                active_admins = conn.execute(
+                    "SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND is_active = 1"
+                ).fetchone()
+                if int(active_admins["total"] if active_admins else 0) <= 1:
+                    raise ValueError("Нельзя удалить последнего активного администратора.")
 
             order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
             if "created_by_user_id" in order_columns:

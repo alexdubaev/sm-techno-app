@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import os
 import tempfile
 import re
 import shutil
@@ -175,23 +176,23 @@ class WebStockSyncService:
         full_name: str | None = None,
         onec_username: str | None = None,
         onec_password: str | None = None,
+        new_password: str | None = None,
     ) -> None:
-        existing_user = self.db.get_user_by_id(user_id)
-        if not existing_user:
-            raise ValueError("Пользователь не найден.")
-        self.db.update_user_profile(
+        self.db.update_user(
             user_id,
-            full_name=existing_user.get("full_name") or "" if full_name is None else full_name,
-            onec_username=existing_user.get("onec_username") or "" if onec_username is None else onec_username,
+            role=role,
+            is_active=is_active,
+            full_name=full_name,
+            onec_username=onec_username,
             onec_password=onec_password,
+            new_password=new_password,
         )
-        self.db.update_user_account(user_id, role=role, is_active=is_active)
 
     def reset_user_password(self, *, user_id: int, new_password: str) -> None:
         self.db.reset_user_password(user_id, new_password)
 
-    def delete_user(self, *, user_id: int) -> None:
-        self.db.delete_user(user_id)
+    def delete_user(self, *, user_id: int, current_user_id: int | None = None) -> None:
+        self.db.delete_user(user_id, current_user_id=current_user_id)
 
     def update_user_profile(
         self,
@@ -2023,3 +2024,17 @@ class WebStockSyncService:
             return date_string
         parsed = datetime.strptime(date_string, "%Y-%m-%d")
         return parsed.replace(hour=12, minute=0, second=0).isoformat()
+
+
+def create_default_service() -> WebStockSyncService:
+    """Build the application service, optionally rooted in an isolated data directory."""
+    configured_data_dir = os.environ.get("SM_TECHNO_DATA_DIR", "").strip()
+    if not configured_data_dir:
+        return WebStockSyncService()
+
+    data_dir = Path(configured_data_dir).expanduser().resolve()
+    return WebStockSyncService(
+        db=WebDatabase(data_dir / "stock_sync.db"),
+        commercial_offer_storage_dir=data_dir / "commercial_offers",
+        document_storage_dir=data_dir / "documents",
+    )

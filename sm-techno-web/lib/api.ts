@@ -63,6 +63,7 @@ async function fetchWithRetry(
   init?: RequestInit,
   { retryTransient = false, timeoutMs = REQUEST_TIMEOUT_MS }: FetchRetryOptions = {},
 ): Promise<Response> {
+  const requestGeneration = cacheGeneration;
   const isSafeGet = (init?.method ?? "GET").toUpperCase() === "GET";
   const maxAttempts = retryTransient && isSafeGet ? retryDelaysMs.length + 1 : 1;
 
@@ -88,6 +89,7 @@ async function fetchWithRetry(
         continue;
       }
 
+      responseGenerations.set(response, requestGeneration);
       return response;
     } catch (error: unknown) {
       if (timedOut) {
@@ -119,9 +121,13 @@ type GetCacheEntry = {
 // кэш целиком. Существует только в браузере, на сервере кэширование выключено.
 const getCache = new Map<string, GetCacheEntry>();
 const inflightGetRequests = new Map<string, Promise<unknown>>();
+const responseGenerations = new WeakMap<Response, number>();
+let cacheGeneration = 0;
 
 export function invalidateApiCache() {
+  cacheGeneration += 1;
   getCache.clear();
+  inflightGetRequests.clear();
 }
 
 function canCacheGet(path: string) {
@@ -310,7 +316,12 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
       // Keep fallback if the response body is not JSON.
     }
 
-    if (response.status === 401 && typeof window !== "undefined") {
+    const responseGeneration = responseGenerations.get(response) ?? cacheGeneration;
+    if (
+      response.status === 401
+      && responseGeneration === cacheGeneration
+      && typeof window !== "undefined"
+    ) {
       getCache.clear();
       inflightGetRequests.clear();
       window.dispatchEvent(new CustomEvent("sm-techno-auth-expired"));
@@ -324,6 +335,7 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
 
 async function requestJson<T>(path: string): Promise<T> {
   const url = buildApiUrl(path);
+  const requestGeneration = cacheGeneration;
 
   if (canCacheGet(path)) {
     const cached = readGetCache<T>(url);
@@ -336,17 +348,21 @@ async function requestJson<T>(path: string): Promise<T> {
       return inflight;
     }
 
-    const request = (async () => {
+    const request: Promise<T> = (async () => {
       const response = await fetchWithRetry(
         url,
         { cache: "no-store", headers: createHeaders() },
         { retryTransient: true },
       );
       const data = await parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
-      getCache.set(url, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
+      if (requestGeneration === cacheGeneration) {
+        getCache.set(url, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
+      }
       return data;
     })().finally(() => {
-      inflightGetRequests.delete(url);
+      if (inflightGetRequests.get(url) === request) {
+        inflightGetRequests.delete(url);
+      }
     });
 
     inflightGetRequests.set(url, request);
@@ -412,7 +428,7 @@ function parseDownloadFilename(contentDisposition: string | null, fallbackFilena
     }
   }
 
-  const plainMatch = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+  const plainMatch = contentDisposition.match(/filename="?([^";]+)"?/i);
   if (plainMatch?.[1]) {
     return plainMatch[1];
   }

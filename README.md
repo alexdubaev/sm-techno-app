@@ -67,6 +67,40 @@ npm run build
 npm run start -- --hostname 127.0.0.1 --port 3000
 ```
 
+## Автотесты авторизации и ролей
+
+Backend-интеграции используют настоящие FastAPI-маршруты и временную SQLite-базу:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pytest tests/auth -q --strict-markers
+```
+
+Frontend-интеграции и проверки качества:
+
+```powershell
+cd sm-techno-web
+npm ci
+npm run test:auth
+npm run test:auth:lint
+npx tsc --noEmit --incremental false
+```
+
+Полный browser-сценарий запускается Playwright-командой `npm run test:auth:e2e`.
+Он поднимает отдельные frontend/backend-процессы и направляет все изменяемые
+данные во временный каталог. Обязательный запуск этого сценария настроен в
+GitHub Actions на поддерживаемом Linux runner; рабочая база и 1С не используются.
+
+Production-прокси получает `BACKEND_API_BASE_URL` из secret runtime value проекта
+Sites. Адрес backend нельзя добавлять в Git, `.openai/hosting.json` или
+сгенерированный `dist/server/wrangler.json`. После изменения runtime value нужно
+развернуть новую версию Sites и проверить реальный прокси:
+
+```powershell
+cd sm-techno-web
+npm run test:deployment:auth-smoke -- https://<домен-сайта>
+```
+
 ## Настройки frontend
 
 Создайте `sm-techno-web/.env.local` по образцу:

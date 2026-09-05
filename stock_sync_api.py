@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from stock_sync_web.service import CRM_LOCAL_ONLY_POLICY_MESSAGE, WebStockSyncService
+from stock_sync_web.service import CRM_LOCAL_ONLY_POLICY_MESSAGE, WebStockSyncService, create_default_service
 from stock_sync_web.crm_export import build_crm_export_xlsx
 from stock_sync_web.crm_repository import CrmRepository
 
@@ -36,7 +36,7 @@ class DraftLine:
     warehouse_id: int | None = None
 
 
-SERVICE = WebStockSyncService()
+SERVICE = create_default_service()
 SERVICE.bootstrap()
 
 
@@ -857,17 +857,9 @@ def update_user_account(
     )
 
     try:
-        active_admins = [
-            row
-            for row in SERVICE.list_users()
-            if str(row.get("role") or "") == "admin" and bool(row.get("is_active", 1))
-        ]
         target_user = SERVICE.get_user(user_id)
         if not target_user:
             raise ValueError("Пользователь не найден.")
-        if str(target_user.get("role") or "") == "admin" and (role != "admin" or not is_active):
-            if len(active_admins) <= 1:
-                raise ValueError("Нельзя отключить или разжаловать последнего администратора.")
 
         SERVICE.update_user_account(
             user_id=user_id,
@@ -876,9 +868,8 @@ def update_user_account(
             full_name=full_name,
             onec_username=onec_username,
             onec_password=onec_password,
+            new_password=app_password or None,
         )
-        if app_password.strip():
-            SERVICE.reset_user_password(user_id=user_id, new_password=app_password)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -894,22 +885,7 @@ def delete_user(
     current_user: dict[str, Any] = Depends(_get_admin_user),
 ) -> dict[str, bool]:
     try:
-        target_user = SERVICE.get_user(user_id)
-        if not target_user:
-            raise ValueError("РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ.")
-        if int(target_user["id"]) == int(current_user["id"]):
-            raise ValueError("Нельзя удалить свою учетную запись.")
-
-        active_admins = [
-            row
-            for row in SERVICE.list_users()
-            if str(row.get("role") or "") == "admin" and bool(row.get("is_active", 1))
-        ]
-        if str(target_user.get("role") or "") == "admin" and bool(target_user.get("is_active", 1)):
-            if len(active_admins) <= 1:
-                raise ValueError("Нельзя удалить последнего активного администратора.")
-
-        SERVICE.delete_user(user_id=user_id)
+        SERVICE.delete_user(user_id=user_id, current_user_id=int(current_user["id"]))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

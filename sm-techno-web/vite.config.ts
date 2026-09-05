@@ -11,10 +11,14 @@ const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
+const authE2eBackendUrl = process.env.SM_TECHNO_AUTH_E2E_BACKEND_URL?.trim();
 
 const localBindingConfig = {
   main: 'vinext/server/fetch-handler',
   compatibility_flags: ['nodejs_compat'],
+  ...(authE2eBackendUrl
+    ? { vars: { BACKEND_API_BASE_URL: authE2eBackendUrl } }
+    : {}),
   d1_databases: d1
     ? [
         {
@@ -36,7 +40,8 @@ const localBindingConfig = {
 
 export default defineConfig(async () => {
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
-  // settings; application environment belongs in ignored `.env*` files.
+  // settings; application environment belongs in ignored `.env*` files or
+  // Sites runtime values. Auth E2E adds only its loopback URL above.
   process.env.WRANGLER_WRITE_LOGS ??= 'false';
   process.env.WRANGLER_LOG_PATH ??= '.wrangler/logs';
   process.env.MINIFLARE_REGISTRY_PATH ??= '.wrangler/registry';
