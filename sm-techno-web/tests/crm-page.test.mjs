@@ -9,6 +9,7 @@ const ts = require("../node_modules/typescript/lib/typescript.js");
 
 const crmPageUrl = new URL("../app/crm/page.tsx", import.meta.url);
 const crmWorkspaceUrl = new URL("../components/crm-workspace.tsx", import.meta.url);
+const crmClientDetailControllerUrl = new URL("../components/crm/use-crm-client-detail.ts", import.meta.url);
 const crmWorkspaceCacheUrl = new URL("../lib/crm-workspace-cache.ts", import.meta.url);
 const crmApiUrl = new URL("../lib/api.ts", import.meta.url);
 const crmTypesUrl = new URL("../lib/types.ts", import.meta.url);
@@ -132,6 +133,19 @@ async function loadCrmWorkspaceCacheForTest() {
   return commonJsModule.exports;
 }
 
+test("CRM desktop detail consumes the shared owner-scoped controller", async () => {
+  const [workspace, controller] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
+  ]);
+
+  assert.match(workspace, /useCrmClientDetailController/);
+  assert.match(controller, /fetchCrmContacts\(currentClient\.id, ownerId\)/);
+  assert.match(controller, /createCrmEvent\(currentClient\.id,/);
+  assert.match(controller, /rescheduleCrmReminder\(currentClient\.id, reminder\.id,/);
+  assert.match(controller, /updateCrmClient\(currentClient\.id,/);
+});
+
 test("CRM keeps browser-style tabs, a compact contact column, and decisive status colors", async () => {
   const [workspace, stock, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
@@ -203,8 +217,9 @@ test("CRM conflict transport keeps resolution scoped to the selected owner", asy
 });
 
 test("CRM detail presents explicit, irreversible 1C conflict resolution and refreshes the result", async () => {
-  const [workspace, api] = await Promise.all([
+  const [workspace, controller, api] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
     readFile(crmApiUrl, "utf8"),
   ]);
 
@@ -215,22 +230,22 @@ test("CRM detail presents explicit, irreversible 1C conflict resolution and refr
   assert.match(workspace, /Принять из 1С/);
   assert.match(workspace, /Не указано/);
   assert.match(workspace, /необратимо/);
-  assert.match(workspace, /resolveCrmSyncConflict\(currentClient\.id, conflict\.id, \{ choice, expectedUpdatedAt: conflict\.updatedAt \}, ownerId\)/);
-  assert.match(workspace, /await refreshSyncConflicts\(\)/);
+  assert.match(controller, /resolveCrmSyncConflict\(currentClient\.id, conflict\.id, \{ choice, expectedUpdatedAt: conflict\.updatedAt \}, ownerId\)/);
+  assert.match(controller, /await refreshSyncConflicts\(\)/);
   assert.match(workspace, /<AlertDialog open=\{syncConflictResolution !== null\}/);
 });
 
 test("CRM conflict helpers require an explicit owner and keep a successful resolution separate from reload failures", async () => {
-  const [workspace, api] = await Promise.all([
-    readFile(crmWorkspaceUrl, "utf8"),
+  const [controller, api] = await Promise.all([
+    readFile(crmClientDetailControllerUrl, "utf8"),
     readFile(crmApiUrl, "utf8"),
   ]);
 
   assert.doesNotMatch(api, /fetchCrmSyncConflicts\(clientId: number, ownerId\?: number/);
   assert.match(api, /payload: ResolveCrmSyncConflictPayload,\s+ownerId: number/);
-  assert.match(workspace, /notifyChanged\(\);\s+try \{\s+await refreshSyncConflicts\(\);/);
-  assert.match(workspace, /Конфликт разрешён, но не удалось обновить данные карточки\./);
-  assert.match(workspace, /Не удалось разрешить конфликт синхронизации\./);
+  assert.match(controller, /notifyChanged\(\);\s+try \{\s+await refreshSyncConflicts\(\);/);
+  assert.match(controller, /Конфликт разрешён, но не удалось обновить данные карточки\./);
+  assert.match(controller, /Не удалось разрешить конфликт синхронизации\./);
 });
 
 test("CRM surface is reachable from navigation and exposes the core workspace", async () => {
@@ -279,7 +294,10 @@ test("CRM workspace exposes export and client-detail actions backed by the CRM A
 });
 
 test("administrator CRM workspace keeps the selected owner explicit across actions", async () => {
-  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+  const [workspace, controller] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
+  ]);
 
   assert.match(workspace, /useAuth/);
   assert.match(workspace, /fetchUsers/);
@@ -287,13 +305,13 @@ test("administrator CRM workspace keeps the selected owner explicit across actio
   assert.match(workspace, /fetchCrmTabs\(ownerId\)/);
   assert.match(workspace, /fetchPrimaryCrmClients\(ownerId\)/);
   assert.match(workspace, /moveCrmClient\(client\.id, targetTabId, ownerId\)/);
-  assert.match(workspace, /removeCrmAssignment\(client\.id, ownerId\)/);
+  assert.match(controller, /removeCrmAssignment\(currentClient\.id, ownerId\)/);
   assert.match(workspace, /saveCrmRowPreference\(client\.id, \{ tabId: activeTab, colorKey, expectedOrderVersion: personalOrderVersion \}, ownerId\)/);
   assert.doesNotMatch(workspace, /saveCrmRowPreference\([^\n]+position:/);
   assert.match(workspace, /downloadCrmExportFile\(\{ scope, tabId: activeTab === "primary" \? undefined : activeTab, ownerId \}\)/);
-  assert.match(workspace, /fetchCrmContacts\(currentClient\.id, ownerId\)/);
-  assert.match(workspace, /fetchCrmEvents\(currentClient\.id, ownerId\)/);
-  assert.match(workspace, /fetchCrmReminders\(ownerId\)/);
+  assert.match(controller, /fetchCrmContacts\(currentClient\.id, ownerId\)/);
+  assert.match(controller, /fetchCrmEvents\(currentClient\.id, ownerId\)/);
+  assert.match(controller, /fetchCrmReminders\(ownerId\)/);
 });
 
 test("personal color failures do not announce an error after the requested workspace became stale", async () => {
@@ -304,31 +322,33 @@ test("personal color failures do not announce an error after the requested works
 });
 
 test("administrator can leave a linked client only in the primary 1C tab", async () => {
-  const [workspace, api] = await Promise.all([
+  const [workspace, controller, api] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
     readFile(crmApiUrl, "utf8"),
   ]);
 
   assert.match(api, /export async function removeCrmAssignment/);
   assert.match(api, /\/assignment\$\{buildCrmQuery\(\{ ownerId \}\)\}/);
   assert.match(api, /method: "DELETE"/);
-  assert.match(workspace, /isAdmin && currentClient\.linkedCounterpartyId !== null && currentClient\.assignment !== null/);
-  assert.match(workspace, /currentClient\.assignment\.archivedAt === null/);
+  assert.match(controller, /isAdmin && currentClient\.linkedCounterpartyId !== null && currentClient\.assignment !== null/);
+  assert.match(controller, /currentClient\.assignment\.archivedAt === null/);
   assert.match(workspace, /Карточка останется в основной вкладке «Клиенты 1С», а история и напоминания сохранятся\./);
   assert.match(workspace, /remove_assignment: "Оставлен только в основной вкладке"/);
 });
 
 test("administrator can confirm versioned local-card archive and review its audit trail", async () => {
-  const [workspace, api, types] = await Promise.all([
+  const [workspace, controller, api, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
     readFile(crmApiUrl, "utf8"),
     readFile(crmTypesUrl, "utf8"),
   ]);
 
   assert.match(workspace, /Архивировать локального клиента/);
   assert.match(workspace, /CRM сотрудника/);
-  assert.match(workspace, /expectedVersion: currentClient\.version/);
-  assert.match(workspace, /fetchCrmAudit\(currentClient\.id, ownerId\)/);
+  assert.match(controller, /expectedVersion: currentClient\.version/);
+  assert.match(controller, /fetchCrmAudit\(currentClient\.id, ownerId\)/);
   assert.match(workspace, /archive_local_client/);
   assert.match(api, /\/local-archive/);
   assert.match(api, /\/local-restore/);
@@ -338,15 +358,16 @@ test("administrator can confirm versioned local-card archive and review its audi
 });
 
 test("CRM detail shows exact 1C candidates and requires a deliberate versioned link confirmation", async () => {
-  const [workspace, api, types] = await Promise.all([
+  const [workspace, controller, api, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
     readFile(crmApiUrl, "utf8"),
     readFile(crmTypesUrl, "utf8"),
   ]);
 
   assert.match(workspace, /Найденные в 1С совпадения/);
   assert.match(workspace, /Подтвердить связь с 1С/);
-  assert.match(workspace, /confirmCrmExistingLink\(currentClient\.id, linkCandidate\.id, currentClient\.version, ownerId\)/);
+  assert.match(controller, /confirmCrmExistingLink\(currentClient\.id, linkCandidate\.id, currentClient\.version, ownerId\)/);
   assert.match(api, /\/link-candidates/);
   assert.match(api, /\/link-existing/);
   assert.match(types, /CrmLinkCandidate/);
@@ -527,8 +548,9 @@ test("CRM tab management and company requisites edits stay owner-scoped and vers
 });
 
 test("CRM workspace manages only custom personal tabs and edits company requisites separately from contacts", async () => {
-  const [workspace, api, types] = await Promise.all([
+  const [workspace, controller, api, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
     readFile(crmApiUrl, "utf8"),
     readFile(crmTypesUrl, "utf8"),
   ]);
@@ -546,11 +568,11 @@ test("CRM workspace manages only custom personal tabs and edits company requisit
   assert.match(workspace, /replacementTabId/);
   assert.match(workspace, /В работе/);
   assert.match(workspace, /Реквизиты компании/);
-  assert.match(workspace, /updateCrmClient\(currentClient\.id,/);
-  assert.match(workspace, /expectedVersion: currentClient\.version/);
+  assert.match(controller, /updateCrmClient\(currentClient\.id,/);
+  assert.match(controller, /expectedVersion: currentClient\.version/);
   assert.match(workspace, /Контакты/);
-  assert.match(workspace, /Не удалось сохранить реквизиты компании\. Изменение отменено\./);
-  assert.doesNotMatch(workspace, /legalType:/);
+  assert.match(controller, /Не удалось сохранить реквизиты компании\. Изменение отменено\./);
+  assert.doesNotMatch(controller, /legalType:/);
 });
 
 test("CRM tab mutations ignore stale owner results and keep dialog errors announced inside the modal", async () => {
@@ -603,8 +625,9 @@ test("CRM sync and reminder transitions use the authenticated API contract", asy
 });
 
 test("CRM refresh coalesces syncs, owner reminders transition safely, and unassigned cards are added to tabs", async () => {
-  const [workspace, api, types] = await Promise.all([
+  const [workspace, controller, api, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
     readFile(crmApiUrl, "utf8"),
     readFile(crmTypesUrl, "utf8"),
   ]);
@@ -618,24 +641,27 @@ test("CRM refresh coalesces syncs, owner reminders transition safely, and unassi
   assert.match(workspace, /const syncedOwnerId = useRef<number \| null>\(null\)/);
   assert.match(workspace, /if \(syncedOwnerId\.current !== ownerId\)/);
   assert.match(workspace, /syncCrmWorkspace\(\)/);
-  assert.match(workspace, /completeCrmReminder\(reminder\.id, reminder\.updatedAt, ownerId\)/);
-  assert.match(workspace, /cancelCrmReminder\(reminder\.id, reminder\.updatedAt, ownerId\)/);
+  assert.match(controller, /completeCrmReminder\(reminder\.id, reminder\.updatedAt, ownerId\)/);
+  assert.match(controller, /cancelCrmReminder\(reminder\.id, reminder\.updatedAt, ownerId\)/);
   assert.match(workspace, /ownerId === user\.id/);
-  assert.match(workspace, /setReminders\(\(current\) => current\.filter\(\(item\) => item\.id !== reminder\.id\)\)/);
+  assert.match(controller, /setReminders\(\(current\) => current\.filter\(\(item\) => item\.id !== reminder\.id\)\)/);
   assert.match(workspace, /Добавить во вкладку…/);
   assert.match(workspace, /assignment: savedAssignment/);
   assert.match(workspace, /role=\{tone === "error" \? "alert" : "status"\}/);
 });
 
 test("CRM reminder rollback is limited to failed transitions, shared refresh follows the current tab, and employee reminders stay read-only", async () => {
-  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+  const [workspace, controller] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
+  ]);
 
-  assert.match(workspace, /let transitionSucceeded = false;/);
-  assert.match(workspace, /transitionSucceeded = true;/);
-  assert.match(workspace, /if \(!transitionSucceeded\) \{\s*setReminders/);
+  assert.match(controller, /let transitionSucceeded = false;/);
+  assert.match(controller, /transitionSucceeded = true;/);
+  assert.match(controller, /if \(!transitionSucceeded\) \{\s*setReminders/);
   assert.match(workspace, /const latestView = currentView\.current;/);
   assert.match(workspace, /await loadWorkspace\(latestView\.activeTab, \{ silent \}\);/);
-  assert.match(workspace, /if \(!canManageReminders\) return;/);
+  assert.match(controller, /if \(!canManageReminders\) return;/);
   assert.match(workspace, /canManageReminders \? <form onSubmit=\{saveReminder\}/);
 });
 
@@ -650,7 +676,10 @@ test("CRM refresh stale-view helpers precede their callback and submits use non-
 });
 
 test("foreign administrator workspace is read-only while lifecycle and conflict exceptions remain available", async () => {
-  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+  const [workspace, controller] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
+  ]);
 
   assert.match(workspace, /const canEditWorkspace = ownerId === user\.id;/);
   assert.match(workspace, /if \(!canEditWorkspace\) return;/);
@@ -658,9 +687,9 @@ test("foreign administrator workspace is read-only while lifecycle and conflict 
   assert.match(workspace, /canEditWorkspace \? <button type="button" onClick=\{\(\) => openTabEditor\("new"\)\}/);
   assert.match(workspace, /const isManualOrderAvailable = canEditWorkspace && \(isPrimaryManualOrderAvailable \|\| isPersonalManualOrderAvailable\);/);
   assert.match(workspace, /canEditWorkspace=\{canEditWorkspace\}/);
-  assert.match(workspace, /canEditWorkspace && currentClient\.linkedCounterpartyId === null/);
-  assert.match(workspace, /canManageLocalClient = isAdmin/);
-  assert.match(workspace, /canRemoveAssignment = isAdmin/);
+  assert.match(controller, /canEditWorkspace && currentClient\.linkedCounterpartyId === null/);
+  assert.match(controller, /canManageLocalClient = isAdmin/);
+  assert.match(controller, /canRemoveAssignment = isAdmin/);
   assert.match(workspace, /canResolveSyncConflicts=\{isAdmin \|\| canEditWorkspace\}/);
 });
 

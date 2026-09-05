@@ -3,44 +3,27 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type SubmitEvent } from "react";
 
 import {
-  archiveLocalCrmClient,
-  confirmCrmExistingLink,
   downloadCrmExportFile,
-  createCrmContact,
   createCrmClient,
-  createCrmEvent,
-  createCrmReminder,
   createCrmTab,
-  cancelCrmReminder,
-  completeCrmReminder,
   deleteCrmTab,
   fetchCrmClients,
   fetchPrimaryCrmClients,
-  fetchCrmAudit,
-  fetchCrmSyncConflicts,
-  fetchCrmLinkCandidates,
-  fetchCrmContacts,
-  fetchCrmEvents,
-  fetchCrmReminders,
   fetchCrmTabs,
   fetchUsers,
   moveCrmClient,
-  removeCrmAssignment,
-  resolveCrmSyncConflict,
-  rescheduleCrmReminder,
-  restoreLocalCrmClient,
   saveCrmRowPreference,
   saveCrmPrimaryRowPreference,
   reorderCrmTabClients,
   reorderPrimaryCrmClients,
   renameCrmTab,
   syncCrmWorkspace,
-  updateCrmClient,
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { useCrmClientDetailController, type CrmClientDetailControllerOptions } from "@/components/crm/use-crm-client-detail";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { readCrmWorkspaceCache, saveCrmWorkspaceCache, updateCrmWorkspaceCache } from "@/lib/crm-workspace-cache";
-import type { AppUser, CrmAuditAction, CrmContact, CrmEvent, CrmLinkCandidate, CrmReminder, CrmSyncConflict, CrmTab, CrmWorkspaceClient } from "@/lib/types";
+import type { AppUser, CrmTab, CrmWorkspaceClient } from "@/lib/types";
 
 type ActiveTab = "primary" | number;
 type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "blocked_credentials" | "conflict" | "sync_error";
@@ -71,18 +54,6 @@ const colorByKey = new Map<string, string>(ROW_COLORS.map(([key, _label, _swatch
 
 function emptyClientForm() {
   return { documentName: "", city: "", contactPerson: "", email: "", phone: "", notes: "" };
-}
-
-function companyRequisitesForm(client: CrmWorkspaceClient) {
-  return {
-    documentName: client.documentName,
-    fullName: client.fullName,
-    inn: client.inn,
-    kpp: client.kpp,
-    city: client.city,
-    email: client.email,
-    phone: client.phone,
-  };
 }
 
 export function CrmWorkspace() {
@@ -678,257 +649,58 @@ function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: R
 
 function ReadonlyCompanyRequisites({ client }: { client: CrmWorkspaceClient }) { return <dl className="grid gap-1 text-[11px] text-[var(--text-secondary)]"><div><dt className="font-semibold">Наименование</dt><dd>{client.documentName || "—"}</dd></div><div><dt className="font-semibold">Полное наименование</dt><dd>{client.fullName || "—"}</dd></div><div><dt className="font-semibold">ИНН / КПП</dt><dd>{[client.inn, client.kpp].filter(Boolean).join(" / ") || "—"}</dd></div><div><dt className="font-semibold">Город</dt><dd>{client.city || "—"}</dd></div><div><dt className="font-semibold">Телефон / почта</dt><dd>{[client.phone, client.email].filter(Boolean).join(" / ") || "—"}</dd></div></dl>; }
 
-function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, canEditWorkspace, canManageReminders, canResolveSyncConflicts, onChanged, onClose }: { client: CrmWorkspaceClient; ownerId: number; activeTab: ActiveTab; ownerName: string; isAdmin: boolean; canEditWorkspace: boolean; canManageReminders: boolean; canResolveSyncConflicts: boolean; onChanged: (ownerId: number, tab: ActiveTab) => void; onClose: () => void }) {
-  const [currentClient, setCurrentClient] = useState(client);
-  const [contacts, setContacts] = useState<CrmContact[]>([]);
-  const [events, setEvents] = useState<CrmEvent[]>([]);
-  const [reminders, setReminders] = useState<CrmReminder[]>([]);
-  const [audit, setAudit] = useState<CrmAuditAction[]>([]);
-  const [syncConflicts, setSyncConflicts] = useState<CrmSyncConflict[]>([]);
-  const [linkCandidates, setLinkCandidates] = useState<CrmLinkCandidate[]>([]);
-  const [linkCandidate, setLinkCandidate] = useState<CrmLinkCandidate | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState<"contact" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "resolve" | null>(null);
-  const [requisitesForm, setRequisitesForm] = useState(() => companyRequisitesForm(client));
-  const [contactForm, setContactForm] = useState({ name: "", phone: "", email: "", isPrimary: false });
-  const [eventForm, setEventForm] = useState({ kind: "comment", body: "" });
-  const [reminderDueAt, setReminderDueAt] = useState("");
-  const [archiveReason, setArchiveReason] = useState("");
-  const [isArchiveConfirmationOpen, setIsArchiveConfirmationOpen] = useState(false);
-  const [isRemoveAssignmentConfirmationOpen, setIsRemoveAssignmentConfirmationOpen] = useState(false);
-  const [syncConflictResolution, setSyncConflictResolution] = useState<{ conflict: CrmSyncConflict; choice: "local" | "remote" } | null>(null);
-  const isResolvingSyncConflict = useRef(false);
-  const notifyChanged = () => onChanged(ownerId, activeTab);
+type ClientDetailDialogProps = CrmClientDetailControllerOptions & { onClose: () => void };
 
-  useEffect(() => { setCurrentClient(client); setRequisitesForm(companyRequisitesForm(client)); setIsArchiveConfirmationOpen(false); setIsRemoveAssignmentConfirmationOpen(false); setLinkCandidate(null); setSyncConflictResolution(null); setNotice(null); }, [client]);
-
-  const refreshAudit = useCallback(async () => {
-    setAudit(await fetchCrmAudit(currentClient.id, ownerId));
-  }, [currentClient.id, ownerId]);
-
-  const refreshSyncConflicts = useCallback(async () => {
-    setSyncConflicts(await fetchCrmSyncConflicts(currentClient.id, ownerId));
-  }, [currentClient.id, ownerId]);
-
-  const refreshReminders = useCallback(async () => {
-    const items = await fetchCrmReminders(ownerId);
-    setReminders(items.filter((reminder) => reminder.clientId === currentClient.id && reminder.status === "active"));
-  }, [currentClient.id, ownerId]);
-
-  useEffect(() => {
-    let active = true;
-    setIsLoading(true);
-    setError(null);
-    void Promise.all([fetchCrmContacts(currentClient.id, ownerId), fetchCrmEvents(currentClient.id, ownerId), fetchCrmReminders(ownerId), fetchCrmAudit(currentClient.id, ownerId), fetchCrmLinkCandidates(currentClient.id, ownerId), fetchCrmSyncConflicts(currentClient.id, ownerId)])
-      .then(([nextContacts, nextEvents, nextReminders, nextAudit, nextCandidates, nextConflicts]) => {
-        if (!active) return;
-        setContacts(nextContacts);
-        setEvents(nextEvents);
-        setReminders(nextReminders.filter((reminder) => reminder.clientId === client.id && reminder.status === "active"));
-        setAudit(nextAudit);
-        setLinkCandidates(nextCandidates);
-        setSyncConflicts(nextConflicts);
-      })
-      .catch((cause) => {
-        if (active) setError(errorMessage(cause, "Не удалось загрузить карточку клиента."));
-      })
-      .finally(() => { if (active) setIsLoading(false); });
-    return () => { active = false; };
-  }, [currentClient.id, ownerId]);
-
-  const saveContact = async (event: SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!canEditWorkspace) return;
-    if (!contactForm.name.trim()) { setError("Укажите имя контакта."); return; }
-    const temporary: CrmContact = { id: -Date.now(), name: contactForm.name.trim(), phone: contactForm.phone.trim(), email: contactForm.email.trim(), isPrimary: contactForm.isPrimary, createdAt: "", updatedAt: "" };
-    setContacts((current) => [...current, temporary]);
-    setIsSaving("contact"); setError(null);
-    try {
-      const saved = await createCrmContact(client.id, temporary, ownerId);
-      setContacts((current) => current.map((item) => item.id === temporary.id ? saved : item));
-      setContactForm({ name: "", phone: "", email: "", isPrimary: false });
-    } catch (cause) {
-      setContacts((current) => current.filter((item) => item.id !== temporary.id));
-      setError(errorMessage(cause, "Не удалось добавить контакт. Изменение отменено."));
-    } finally { setIsSaving(null); }
-  };
-
-  const saveEvent = async (event: SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!canEditWorkspace) return;
-    if (!eventForm.body.trim()) { setError("Введите описание события."); return; }
-    const temporary: CrmEvent = { id: -Date.now(), kind: eventForm.kind, body: eventForm.body.trim(), authorUserId: null, createdAt: new Date().toISOString(), updatedAt: "" };
-    setEvents((current) => [...current, temporary]);
-    setIsSaving("event"); setError(null);
-    try {
-      const saved = await createCrmEvent(client.id, { kind: temporary.kind, body: temporary.body }, ownerId);
-      setEvents((current) => current.map((item) => item.id === temporary.id ? saved : item));
-      setEventForm({ kind: "comment", body: "" });
-    } catch (cause) {
-      setEvents((current) => current.filter((item) => item.id !== temporary.id));
-      setError(errorMessage(cause, "Не удалось добавить событие. Изменение отменено."));
-    } finally { setIsSaving(null); }
-  };
-
-  const saveReminder = async (event: SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!canManageReminders) return;
-    if (!canEditWorkspace) return;
-    if (!reminderDueAt) { setError("Укажите дату и время напоминания."); return; }
-    const temporary: CrmReminder = { id: -Date.now(), clientId: client.id, dueAt: reminderDueAt, status: "active", createdAt: new Date().toISOString(), completedAt: "", cancelledAt: "", updatedAt: "" };
-    setReminders((current) => [...current, temporary]);
-    setIsSaving("reminder"); setError(null);
-    try {
-      const saved = await createCrmReminder(client.id, { dueAt: moscowInputToUtc(reminderDueAt) }, ownerId);
-      setReminders((current) => current.map((item) => item.id === temporary.id ? saved : item));
-      setReminderDueAt("");
-    } catch (cause) {
-      setReminders((current) => current.filter((item) => item.id !== temporary.id));
-      setError(errorMessage(cause, "Не удалось добавить напоминание. Изменение отменено."));
-    } finally { setIsSaving(null); }
-  };
-
-  const transitionReminder = async (reminder: CrmReminder, action: "complete" | "cancel") => {
-    if (!canManageReminders || reminder.status !== "active") return;
-    const previousIndex = reminders.findIndex((item) => item.id === reminder.id);
-    setReminders((current) => current.filter((item) => item.id !== reminder.id));
-    setIsSaving(action === "complete" ? "complete-reminder" : "cancel-reminder");
-    setError(null);
-    let transitionSucceeded = false;
-    try {
-      if (action === "complete") await completeCrmReminder(reminder.id, reminder.updatedAt, ownerId);
-      else await cancelCrmReminder(reminder.id, reminder.updatedAt, ownerId);
-      transitionSucceeded = true;
-      await Promise.all([refreshReminders(), refreshAudit()]);
-      notifyChanged();
-      setNotice(action === "complete" ? "Напоминание отмечено выполненным." : "Напоминание отменено.");
-    } catch (cause) {
-      if (!transitionSucceeded) {
-        setReminders((current) => current.some((item) => item.id === reminder.id) ? current : [...current.slice(0, previousIndex), reminder, ...current.slice(previousIndex)]);
-        setError(errorMessage(cause, action === "complete" ? "Не удалось отметить напоминание выполненным. Изменение отменено." : "Не удалось отменить напоминание. Изменение отменено."));
-      } else {
-        setError(errorMessage(cause, "Напоминание изменено, но не удалось обновить карточку. Обновите её позже."));
-      }
-    } finally { setIsSaving(null); }
-  };
-  const rescheduleReminder = async (reminder: CrmReminder) => {
-    const nextDueAt = window.prompt("Новая дата и время (МСК)", utcToMoscowInput(reminder.dueAt));
-    if (!nextDueAt || !canManageReminders) return;
-    setIsSaving("reminder"); setError(null);
-    try { await rescheduleCrmReminder(reminder.id, { dueAt: moscowInputToUtc(nextDueAt), expectedUpdatedAt: reminder.updatedAt }, ownerId); await refreshReminders(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Не удалось перенести напоминание."); }
-    finally { setIsSaving(null); }
-  };
-
-  const saveCompanyRequisites = async (event: SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!canEditWorkspace) return;
-    if (!requisitesForm.documentName.trim()) { setError("Укажите наименование компании."); return; }
-    setIsSaving("requisites");
-    setError(null);
-    try {
-      const saved = await updateCrmClient(currentClient.id, {
-        documentName: requisitesForm.documentName.trim(),
-        fullName: requisitesForm.fullName.trim(),
-        inn: requisitesForm.inn.trim(),
-        kpp: requisitesForm.kpp.trim(),
-        city: requisitesForm.city.trim(),
-        email: requisitesForm.email.trim(),
-        phone: requisitesForm.phone.trim(),
-        expectedVersion: currentClient.version,
-      }, ownerId);
-      setCurrentClient(saved);
-      setRequisitesForm(companyRequisitesForm(saved));
-      setNotice("Реквизиты компании сохранены.");
-      notifyChanged();
-    } catch (cause) {
-      setError(errorMessage(cause, "Не удалось сохранить реквизиты компании. Изменение отменено."));
-    } finally { setIsSaving(null); }
-  };
-
-  const archiveLocalClient = async () => {
-    setIsSaving("archive"); setError(null);
-    try {
-      const result = await archiveLocalCrmClient(currentClient.id, { reason: archiveReason.trim(), expectedVersion: currentClient.version }, ownerId);
-      setCurrentClient((item) => ({ ...item, syncStatus: "archived", syncError: archiveReason.trim(), version: result.version }));
-      setIsArchiveConfirmationOpen(false);
-      await refreshAudit();
-      notifyChanged();
-    } catch (cause) {
-      setError(errorMessage(cause, "Не удалось архивировать локального клиента. Изменение отменено."));
-    } finally { setIsSaving(null); }
-  };
-
-  const restoreLocalClient = async () => {
-    setIsSaving("restore"); setError(null);
-    try {
-      const result = await restoreLocalCrmClient(currentClient.id, { expectedVersion: currentClient.version }, ownerId);
-      setCurrentClient((item) => ({ ...item, syncStatus: "local", syncError: "", version: result.version }));
-      await refreshAudit();
-      notifyChanged();
-    } catch (cause) {
-      setError(errorMessage(cause, "Не удалось восстановить локального клиента. Изменение отменено."));
-    } finally { setIsSaving(null); }
-  };
-
-  const removeAssignment = async () => {
-    setIsSaving("remove"); setError(null);
-    try {
-      await removeCrmAssignment(client.id, ownerId);
-      setCurrentClient((item) => ({ ...item, assignment: null, rowPreference: null }));
-      setIsRemoveAssignmentConfirmationOpen(false);
-      await refreshAudit();
-      notifyChanged();
-      setNotice("Клиент оставлен только в основной вкладке «Клиенты 1С».");
-    } catch (cause) {
-      setError(errorMessage(cause, "Не удалось оставить клиента только в основной вкладке. Изменение отменено."));
-    } finally { setIsSaving(null); }
-  };
-
-  const confirmExistingLink = async () => {
-    if (!canEditWorkspace || !linkCandidate) return;
-    setIsSaving("link"); setError(null);
-    try {
-      const linked = await confirmCrmExistingLink(currentClient.id, linkCandidate.id, currentClient.version, ownerId);
-      setCurrentClient(linked);
-      setLinkCandidates([]);
-      setLinkCandidate(null);
-      await refreshAudit();
-      notifyChanged();
-    } catch (cause) {
-      setError(errorMessage(cause, "Не удалось подтвердить связь с 1С. Изменение отменено."));
-    } finally { setIsSaving(null); }
-  };
-
-  const resolveSyncConflict = async () => {
-    if (!syncConflictResolution || isResolvingSyncConflict.current) return;
-    const { conflict, choice } = syncConflictResolution;
-    isResolvingSyncConflict.current = true;
-    setIsSaving("resolve"); setError(null);
-    try {
-      const resolved = await resolveCrmSyncConflict(currentClient.id, conflict.id, { choice, expectedUpdatedAt: conflict.updatedAt }, ownerId);
-      setCurrentClient(resolved);
-      setSyncConflictResolution(null);
-      setSyncConflicts((current) => current.filter((item) => item.id !== conflict.id));
-      notifyChanged();
-      try {
-        await refreshSyncConflicts();
-        await refreshAudit();
-        setNotice(choice === "local" ? "Локальное значение сохранено для конфликта синхронизации." : "Значение из 1С принято для конфликта синхронизации.");
-      } catch (cause) {
-        setError(errorMessage(cause, "Конфликт разрешён, но не удалось обновить данные карточки. Обновите страницу."));
-      }
-    } catch (cause) {
-      setSyncConflictResolution(null);
-      setError(errorMessage(cause, "Не удалось разрешить конфликт синхронизации."));
-    } finally { isResolvingSyncConflict.current = false; setIsSaving(null); }
-  };
-
-  const canManageLocalClient = isAdmin && currentClient.linkedCounterpartyId === null;
-  const canRemoveAssignment = isAdmin && currentClient.linkedCounterpartyId !== null && currentClient.assignment !== null && currentClient.assignment.archivedAt === null;
-  const canConfirmExistingLink = canEditWorkspace && currentClient.linkedCounterpartyId === null && currentClient.syncStatus !== "archived";
+function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialogProps) {
+  const {
+    currentClient,
+    contacts,
+    events,
+    reminders,
+    audit,
+    syncConflicts,
+    linkCandidates,
+    linkCandidate,
+    isLoading,
+    error,
+    notice,
+    isSaving,
+    requisitesForm,
+    contactForm,
+    eventForm,
+    reminderDueAt,
+    archiveReason,
+    isArchiveConfirmationOpen,
+    isRemoveAssignmentConfirmationOpen,
+    syncConflictResolution,
+    ownerName,
+    canEditWorkspace,
+    canManageReminders,
+    canResolveSyncConflicts,
+    canManageLocalClient,
+    canRemoveAssignment,
+    canConfirmExistingLink,
+    setRequisitesForm,
+    setContactForm,
+    setEventForm,
+    setReminderDueAt,
+    setArchiveReason,
+    setIsArchiveConfirmationOpen,
+    setIsRemoveAssignmentConfirmationOpen,
+    setLinkCandidate,
+    setSyncConflictResolution,
+    saveContact,
+    saveEvent,
+    saveReminder,
+    transitionReminder,
+    rescheduleReminder,
+    saveCompanyRequisites,
+    archiveLocalClient,
+    restoreLocalClient,
+    removeAssignment,
+    confirmExistingLink,
+    resolveSyncConflict,
+  } = useCrmClientDetailController(controllerOptions);
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="crm-client-detail-title" className="fixed inset-0 z-50 overflow-y-auto bg-[#07162e]/35 p-2 sm:p-5">
@@ -979,7 +751,7 @@ function ClientDetailDialog({ client, ownerId, activeTab, ownerName, isAdmin, ca
                 <label className="flex flex-col gap-1 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Дата и время (МСК)</span><input type="datetime-local" value={reminderDueAt} onChange={(event) => setReminderDueAt(event.target.value)} className="h-9 rounded-[9px] border border-[var(--border-color)] px-2 text-[11px] font-normal" /></label>
                 <button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "reminder" ? "Сохраняем…" : "Добавить напоминание"}</button>
               </form> : <p className="text-[11px] text-[var(--text-secondary)]">Напоминания доступны только для просмотра.</p>}
-              <DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatMoscowDate(reminder.dueAt)} МСК</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div>{canManageReminders && reminder.status === "active" ? <div className="mt-2 flex gap-2"><button type="button" onClick={() => void rescheduleReminder(reminder)} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">Перенести</button><button type="button" onClick={() => void transitionReminder(reminder, "complete")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">{isSaving === "complete-reminder" ? "Отмечаем…" : "Выполнено"}</button><button type="button" onClick={() => void transitionReminder(reminder, "cancel")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[#F0D98A] bg-[#FFF9E8] px-2 text-[10px] font-semibold text-[#92400E]">{isSaving === "cancel-reminder" ? "Отменяем…" : "Отменить"}</button></div> : null}</div>} />
+              <DetailEmpty items={reminders} empty="Активных напоминаний нет." render={(reminder) => <div key={reminder.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{formatMoscowDate(reminder.dueAt)} МСК</div><div className="mt-0.5 text-[var(--text-secondary)]">{reminder.status === "active" ? "Активно" : reminder.status}</div>{canManageReminders && reminder.status === "active" ? <div className="mt-2 flex gap-2"><button type="button" onClick={() => { const nextDueAt = window.prompt("Новая дата и время (МСК)", utcToMoscowInput(reminder.dueAt)); if (nextDueAt) void rescheduleReminder(reminder, nextDueAt); }} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">Перенести</button><button type="button" onClick={() => void transitionReminder(reminder, "complete")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">{isSaving === "complete-reminder" ? "Отмечаем…" : "Выполнено"}</button><button type="button" onClick={() => void transitionReminder(reminder, "cancel")} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[#F0D98A] bg-[#FFF9E8] px-2 text-[10px] font-semibold text-[#92400E]">{isSaving === "cancel-reminder" ? "Отменяем…" : "Отменить"}</button></div> : null}</div>} />
             </DetailSection>
             {canConfirmExistingLink ? (
               <DetailSection title="Найденные в 1С совпадения">
@@ -1010,7 +782,6 @@ function syncConflictFieldLabel(fieldName: string) { return ({ documentName: "Н
 function formatSyncConflictValue(value: unknown) { if (value === null || value === undefined || value === "") return "Не указано"; return typeof value === "string" ? value : JSON.stringify(value); }
 function formatDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value || "Только что" : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }); }
 function formatMoscowDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? value : date.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Moscow" }); }
-function moscowInputToUtc(value: string) { return new Date(`${value}:00+03:00`).toISOString(); }
 function utcToMoscowInput(value: string) { const date = new Date(value); return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Moscow", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(date).replace(" ", "T"); }
 function Field({ label, value, onChange, type = "text", autoFocus = false }: { label: string; value: string; onChange: (value: string) => void; type?: string; autoFocus?: boolean }) { return <label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>{label}</span><input autoFocus={autoFocus} type={type} value={value} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label>; }
 function errorMessage(cause: unknown, fallback: string) { return cause instanceof Error && cause.message.trim() ? cause.message : fallback; }
