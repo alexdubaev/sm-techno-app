@@ -64,3 +64,10 @@ def test_prepare_transfer_copies_data_and_sanitises_sensitive_rows(tmp_path: Pat
     assert (target_storage / "documents" / "offer.docx").read_bytes() == b"copy-me"
     with sqlite3.connect(source_db) as conn:
         assert conn.execute("SELECT onec_password FROM users").fetchall() == [("dpapi:old-secret",)]
+
+
+def test_temporary_public_check_exposes_only_frontend() -> None:
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+    assert '"${SM_TECHNO_FRONTEND_BIND:-127.0.0.1}:3000:3000"' in compose
+    assert '"0.0.0.0:8000:8000"' not in compose
