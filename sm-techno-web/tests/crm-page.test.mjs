@@ -18,6 +18,16 @@ const mobileTypesUrl = new URL("../components/crm/mobile/types.ts", import.meta.
 const mobileUtilsUrl = new URL("../components/crm/mobile/mobile-crm-utils.ts", import.meta.url);
 const mobileWorkspaceUrl = new URL("../components/crm/mobile/mobile-crm-workspace.tsx", import.meta.url);
 const mobileWorkspaceStateUrl = new URL("../components/crm/mobile/mobile-crm-workspace-state.ts", import.meta.url);
+const mobileClientCardUrl = new URL("../components/crm/mobile/mobile-client-card.tsx", import.meta.url);
+const mobileReminderSummaryUrl = new URL("../components/crm/mobile/mobile-reminder-summary.tsx", import.meta.url);
+const mobileListModuleUrls = [
+  mobileWorkspaceUrl,
+  new URL("../components/crm/mobile/mobile-crm-header.tsx", import.meta.url),
+  new URL("../components/crm/mobile/mobile-crm-tabs.tsx", import.meta.url),
+  mobileReminderSummaryUrl,
+  mobileClientCardUrl,
+  new URL("../components/crm/mobile/mobile-client-actions.tsx", import.meta.url),
+];
 
 async function loadMobileCrmUtilsForTest() {
   const source = await readFile(mobileUtilsUrl, "utf8");
@@ -110,6 +120,23 @@ test("CRM composes a strict presentational mobile branch with owner-scoped remin
   assert.match(workspace, /fetchCrmClient\(reminder\.clientId, ownerId\)/);
   assert.ok(mobileWorkspace, "mobile workspace composition module must exist");
   assert.doesNotMatch(mobileWorkspace, /from ["']@\/lib\/api["']/);
+  const mobileListModules = await Promise.all(mobileListModuleUrls.map((url) => readFile(url, "utf8")));
+  for (const source of mobileListModules) assert.doesNotMatch(source, /from ["']@\/lib\/api["']|\bfetch\s*\(/);
+});
+
+test("mobile CRM list exposes search, stale refresh, contacts, reminders, and explicit reorder mode", async () => {
+  const [mobileWorkspace, mobileCard, mobileSummary] = await Promise.all([
+    readFile(mobileWorkspaceUrl, "utf8"),
+    readFile(mobileClientCardUrl, "utf8").catch(() => ""),
+    readFile(mobileReminderSummaryUrl, "utf8").catch(() => ""),
+  ]);
+
+  assert.match(mobileWorkspace, /Поиск клиента/);
+  assert.match(mobileWorkspace, /Обновляем из 1С/);
+  assert.match(mobileCard, /href=\{`tel:/);
+  assert.match(mobileCard, /href=\{`mailto:/);
+  assert.match(mobileWorkspace, /Изменить порядок/);
+  assert.match(mobileSummary, /На сегодня/);
 });
 
 test("mobile CRM reminder state retains prior data on failure and rejects stale-owner results", async () => {

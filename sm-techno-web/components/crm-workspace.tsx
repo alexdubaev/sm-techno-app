@@ -284,6 +284,22 @@ export function CrmWorkspace() {
     activateTab(tab);
   };
 
+  const chooseOwner = (nextOwnerId: number) => {
+    const cachedWorkspace = readCrmWorkspaceCache(nextOwnerId, "primary");
+    currentView.current = { activeTab: "primary", ownerId: nextOwnerId };
+    requestId.current += 1;
+    setSelectedClient(null); setIsAdding(false); setForm(emptyClientForm()); setTabEditor(null);
+    setMobileDetail(null);
+    setTabPendingDelete(null);
+    setIsSavingTab(false);
+    setTabs(cachedWorkspace?.tabs ?? []);
+    setClients(cachedWorkspace?.clients ?? []);
+    setPrimaryOrderVersion(cachedWorkspace?.primaryOrderVersion ?? 0);
+    setIsLoading(cachedWorkspace === null);
+    setActiveTab("primary");
+    setOwnerId(nextOwnerId);
+  };
+
   const openMobileClient = (client: CrmWorkspaceClient, initialSection: MobileDetailSection = "overview") => {
     setMobileDetail(createMobileDetailSelection(client, initialSection, { search, scrollTop: window.scrollY }));
   };
@@ -600,28 +616,55 @@ export function CrmWorkspace() {
     }
   };
 
+  const ownerName = owners.find((owner) => owner.id === ownerId)?.fullName
+    || owners.find((owner) => owner.id === ownerId)?.username
+    || `сотрудник #${ownerId}`;
+
   return (
     <section className="mx-auto max-w-[1500px]">
       <div className="md:hidden">
         <MobileCrmWorkspace
           activeTab={activeTab}
+          canEditWorkspace={canEditWorkspace}
           clients={visibleClients}
           initialDetailSection={mobileDetail?.initialSection ?? "overview"}
           importantReminders={importantReminders}
+          isAdmin={isAdmin}
+          isExporting={isExporting}
           isLoading={isLoading}
           isLoadingReminders={reminderState?.ownerId !== ownerId && reminderError?.ownerId !== ownerId}
           isRefreshing={isRefreshing}
+          manualOrderAvailable={isManualOrderAvailable}
           nearestReminderByClient={nearestReminderByClient}
+          notice={notice}
+          ownerId={ownerId}
+          ownerName={ownerName}
+          owners={owners}
+          primaryOrderMode={primaryOrderMode}
           reminderError={reminderError?.ownerId === ownerId ? reminderError.message : null}
           search={search}
           selectedClient={mobileDetail?.client ?? null}
+          syncFilter={syncFilter}
           tabs={tabs}
+          totalClientCount={clients.length}
           workspaceError={error}
+          onAddClient={() => setIsAdding(true)}
           onCloseClient={closeMobileClient}
+          onColorClient={(client, color) => void setRowColor(client, color)}
+          onCreateTab={() => openTabEditor("new")}
+          onDeleteTab={(tab) => { setTabPendingDelete(tab); setReplacementTabId(tabs.find((item) => item.systemKind === "work")?.id ?? null); }}
           onDetailChanged={refreshAfterDetailChange}
+          onExport={(scope) => void exportCrm(scope)}
+          onMoveClient={(client, tabId) => void moveClient(client, tabId)}
           onOpenClient={openMobileClient}
           onOpenReminder={(reminder) => void openReminder(reminder)}
+          onOwnerChange={chooseOwner}
+          onPrimaryOrderModeChange={setPrimaryOrderMode}
+          onRefresh={() => void refreshWorkspace(activeTab, { silent: true })}
+          onRenameTab={openTabEditor}
+          onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients}
           onSearchChange={setSearch}
+          onSyncFilterChange={setSyncFilter}
           onTabChange={chooseMobileTab}
         />
       </div>
@@ -633,7 +676,7 @@ export function CrmWorkspace() {
           <p className="mt-1 text-[12px] text-[var(--text-secondary)]">Клиенты, личные вкладки и быстрые действия менеджера.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => { const nextOwnerId = Number(event.target.value); const cachedWorkspace = readCrmWorkspaceCache(nextOwnerId, "primary"); currentView.current = { activeTab: "primary", ownerId: nextOwnerId }; requestId.current += 1; setSelectedClient(null); setIsAdding(false); setForm(emptyClientForm()); setTabEditor(null); setMobileDetail(null); setTabPendingDelete(null); setIsSavingTab(false); setTabs(cachedWorkspace?.tabs ?? []); setClients(cachedWorkspace?.clients ?? []); setPrimaryOrderVersion(cachedWorkspace?.primaryOrderVersion ?? 0); setIsLoading(cachedWorkspace === null); setActiveTab("primary"); setOwnerId(nextOwnerId); }} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
+          {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => chooseOwner(Number(event.target.value))} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
           <details className="relative">
             <summary className="flex h-10 cursor-pointer list-none items-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">{isExporting ? "Выгружаем…" : "Выгрузить Excel"}</summary>
             <div className="absolute right-0 z-20 mt-1 grid w-52 gap-1 rounded-[12px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]">
@@ -681,7 +724,7 @@ export function CrmWorkspace() {
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
       {tabEditor ? <form role="dialog" aria-modal="true" aria-labelledby="crm-tab-editor-title" onSubmit={saveTab} className="fixed inset-0 z-50 flex items-center justify-center bg-[#07162e]/35 p-4"><div className="w-full max-w-sm rounded-[18px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"><h2 id="crm-tab-editor-title" className="text-[16px] font-bold">{tabEditor === "new" ? "Новая вкладка" : "Переименовать вкладку"}</h2>{error ? <div role="alert" aria-live="assertive" className="mt-3 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C]">{error}</div> : null}<label className="mt-4 grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Название</span><input autoFocus value={tabName} onChange={(event) => setTabName(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTabEditor(null)} className="h-9 rounded-[9px] px-3 text-[11px] font-semibold text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={isSavingTab} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSavingTab ? "Сохраняем…" : "Сохранить"}</button></div></div></form> : null}
       <AlertDialog open={tabPendingDelete !== null} onOpenChange={(open) => { if (!open) setTabPendingDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Удалить вкладку</AlertDialogTitle><AlertDialogDescription>Карточки и история из вкладки «{tabPendingDelete?.name}» сохранятся. Выберите личную вкладку для переноса; по умолчанию выбрана «В работе».</AlertDialogDescription></AlertDialogHeader><label className="grid gap-1 text-[12px] font-medium"><span>Перенести карточки в</span><select value={replacementTabId ?? ""} onChange={(event) => setReplacementTabId(Number(event.target.value))} className="h-10 rounded-[9px] border border-[var(--border-color)] bg-white px-2">{tabs.filter((tab) => tab.id !== tabPendingDelete?.id).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select></label><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeTab()} disabled={isSavingTab || replacementTabId === null}>{isSavingTab ? "Удаляем…" : "Удалить вкладку"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} activeTab={activeTab} ownerName={owners.find((owner) => owner.id === ownerId)?.fullName || owners.find((owner) => owner.id === ownerId)?.username || `сотрудника #${ownerId}`} isAdmin={isAdmin} canEditWorkspace={canEditWorkspace} canManageReminders={canEditWorkspace} canResolveSyncConflicts={isAdmin || canEditWorkspace} onChanged={refreshAfterDetailChange} onClose={() => setSelectedClient(null)} /> : null}
+      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} activeTab={activeTab} ownerName={ownerName} isAdmin={isAdmin} canEditWorkspace={canEditWorkspace} canManageReminders={canEditWorkspace} canResolveSyncConflicts={isAdmin || canEditWorkspace} onChanged={refreshAfterDetailChange} onClose={() => setSelectedClient(null)} /> : null}
       </div>
     </section>
   );
