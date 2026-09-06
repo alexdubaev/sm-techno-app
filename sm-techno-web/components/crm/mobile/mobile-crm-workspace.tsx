@@ -62,6 +62,7 @@ export type MobileCrmWorkspaceProps = {
   search: string;
   selectedClient: CrmWorkspaceClient | null;
   syncFilter: MobileSyncFilter;
+  syncStatusText: string | null;
   tabs: CrmTab[];
   totalClientCount: number;
   workspaceError: string | null;
@@ -119,6 +120,7 @@ export function MobileCrmWorkspace({
   search,
   selectedClient,
   syncFilter,
+  syncStatusText,
   tabs,
   totalClientCount,
   workspaceError,
@@ -338,6 +340,7 @@ export function MobileCrmWorkspace({
             reorderMode={reorderMode}
             reorderUnavailableReason={reorderUnavailableReason}
             syncFilter={syncFilter}
+            syncStatusText={syncStatusText}
             tabs={tabs}
             onAddClient={onAddClient}
             onCreateTab={onCreateTab}
@@ -369,18 +372,17 @@ export function MobileCrmWorkspace({
               className="mb-3 rounded-[13px] border border-[#F4C7C3] bg-[#FEF3F2] p-3 text-[#B42318]"
             >
               <p className="text-[12px] font-bold">Не удалось обновить CRM</p>
-              <p className="mt-1 text-[11px] leading-4">
-                {workspaceError}{' '}
-                {totalClientCount > 0 ? 'Показаны сохранённые данные.' : ''}
-              </p>
-              <button
-                type="button"
-                onClick={onRefresh}
-                disabled={isRefreshing}
-                className="mt-2 min-h-11 rounded-[10px] bg-white px-3 text-[11px] font-bold text-[#8A1C13] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#B42318] disabled:opacity-50"
-              >
-                Повторить
-              </button>
+              <p className="mt-1 text-[11px] leading-4">{workspaceError}</p>
+              {workspaceError === 'Не удалось обновить данные из 1С. Показаны сохранённые данные.' ? (
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  disabled={isRefreshing}
+                  className="mt-2 min-h-11 rounded-[10px] bg-white px-3 text-[11px] font-bold text-[#8A1C13] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#B42318] disabled:opacity-50"
+                >
+                  Повторить
+                </button>
+              ) : null}
             </div>
           ) : null}
           {reminderError ? (

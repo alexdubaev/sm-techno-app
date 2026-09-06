@@ -39,6 +39,7 @@ type MobileCrmHeaderProps = {
   reorderMode: boolean;
   reorderUnavailableReason: string | null;
   syncFilter: MobileSyncFilter;
+  syncStatusText: string | null;
   tabs: CrmTab[];
   onAddClient: () => void;
   onCreateTab: () => void;
@@ -66,6 +67,7 @@ export function MobileCrmHeader({
   reorderMode,
   reorderUnavailableReason,
   syncFilter,
+  syncStatusText,
   tabs,
   onAddClient,
   onCreateTab,
@@ -88,6 +90,11 @@ export function MobileCrmHeader({
           <h1 className="truncate text-[20px] font-bold tracking-[-0.035em] text-[var(--text-primary)]">
             {canEditWorkspace ? 'CRM' : `CRM: ${ownerName}`}
           </h1>
+          {syncStatusText ? (
+            <p className="truncate text-[10px] text-[var(--text-secondary)]">
+              {syncStatusText}
+            </p>
+          ) : null}
         </div>
 
         {reorderMode ? (

@@ -761,6 +761,15 @@ function buildCrmQuery(params: Record<string, string | number | boolean | undefi
   return suffix;
 }
 
+export type CrmSyncStatus = {
+  status: "synced" | "error" | "never";
+  lastSyncAt: string;
+};
+
+export async function fetchCrmSyncStatus(): Promise<CrmSyncStatus> {
+  return requestJson<CrmSyncStatus>("/api/crm/sync-status");
+}
+
 export async function fetchCrmTabs(ownerId?: number): Promise<CrmTab[]> {
   const result = await requestJson<{ items: CrmTab[] }>(
     `/api/crm/tabs${buildCrmQuery({ ownerId })}`,

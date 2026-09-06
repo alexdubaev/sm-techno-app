@@ -9,10 +9,12 @@ import {
   deleteCrmTab,
   fetchCrmClient,
   fetchCrmClients,
+  fetchCrmSyncStatus,
   fetchPrimaryCrmClients,
   fetchCrmReminders,
   fetchCrmTabs,
   fetchUsers,
+  invalidateApiCache,
   moveCrmClient,
   saveCrmRowPreference,
   saveCrmPrimaryRowPreference,
@@ -20,6 +22,7 @@ import {
   reorderPrimaryCrmClients,
   renameCrmTab,
   syncCrmWorkspace,
+  type CrmSyncStatus,
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { MobileCrmWorkspace } from "@/components/crm/mobile/mobile-crm-workspace";
@@ -52,6 +55,9 @@ const PRIMARY_TAB: { id: ActiveTab; name: string; systemKind: "primary" } = {
   systemKind: "primary",
 };
 
+const CRM_SYNC_FRESHNESS_MS = 10 * 60_000;
+const CRM_SYNC_FAILURE_MESSAGE = "Не удалось обновить данные из 1С. Показаны сохранённые данные.";
+
 const ROW_COLORS = [
   ["blue", "Синий", "#2563EB", "#DBEAFE"],
   ["cyan", "Бирюзовый", "#0891B2", "#CFFAFE"],
@@ -68,6 +74,26 @@ const ROW_COLORS = [
 ] as const;
 
 const colorByKey = new Map<string, string>(ROW_COLORS.map(([key, _label, _swatch, tint]) => [key, tint]));
+
+function formatCrmSyncStatusText(syncStatus: CrmSyncStatus | null, isRefreshing: boolean) {
+  if (isRefreshing) return "Обновляем…";
+  if (!syncStatus) return null;
+  if (syncStatus.status === "never") return "Данные из 1С ещё не обновлялись";
+  const syncedAt = new Date(syncStatus.lastSyncAt);
+  if (Number.isNaN(syncedAt.valueOf())) {
+    return syncStatus.status === "error" ? "1С недоступна" : "Данные из 1С обновлены";
+  }
+  const time = syncedAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Moscow" });
+  if (syncStatus.status === "error") {
+    return `1С недоступна · данные от ${time}`;
+  }
+  const minutesAgo = Math.max(0, Math.floor((Date.now() - syncedAt.valueOf()) / 60_000));
+  if (minutesAgo < 1) return "Обновлено только что";
+  if (minutesAgo < 60) return `Обновлено ${minutesAgo} мин назад`;
+  const today = new Date().toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" });
+  const syncedDate = syncedAt.toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow" });
+  return syncedDate === today ? `Обновлено сегодня в ${time}` : `Обновлено ${syncedDate} в ${time}`;
+}
 
 function emptyClientForm() {
   return { documentName: "", city: "", contactPerson: "", email: "", phone: "", notes: "" };
@@ -99,6 +125,7 @@ export function CrmWorkspace() {
   const [primaryOrderVersion, setPrimaryOrderVersion] = useState(() => initialWorkspaceCache?.primaryOrderVersion ?? 0);
   const [isLoading, setIsLoading] = useState(() => initialWorkspaceCache === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<CrmSyncStatus | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [selectedClient, setSelectedClient] = useState<CrmWorkspaceClient | null>(null);
@@ -117,7 +144,6 @@ export function CrmWorkspace() {
   const requestId = useRef(0);
   const crmSyncInFlight = useRef<Promise<void> | null>(null);
   const crmRefreshInFlight = useRef<{ ownerId: number; request: Promise<void> } | null>(null);
-  const syncedOwnerId = useRef<number | null>(null);
   const reminderRequestId = useRef(0);
   const currentView = useRef({ activeTab, ownerId });
   currentView.current = { activeTab, ownerId };
@@ -160,7 +186,7 @@ export function CrmWorkspace() {
     void refreshReminders(ownerId);
   }, [ownerId, refreshReminders]);
 
-  const loadWorkspace = useCallback(async (tab: ActiveTab, { silent = false } = {}) => {
+  const loadLocalWorkspace = useCallback(async (tab: ActiveTab, { silent = false } = {}) => {
     const id = ++requestId.current;
     if (silent) setIsRefreshing(true);
     else setIsLoading(true);
@@ -191,9 +217,9 @@ export function CrmWorkspace() {
 
   const refreshAfterDetailChange = useCallback((requestOwnerId: number, requestTab: ActiveTab) => {
     if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
-    void loadWorkspace(requestTab, { silent: true });
+    void loadLocalWorkspace(requestTab, { silent: true });
     void refreshReminders(requestOwnerId);
-  }, [isCurrentWorkspaceView, loadWorkspace, refreshReminders]);
+  }, [isCurrentWorkspaceView, loadLocalWorkspace, refreshReminders]);
 
   const syncCrmBeforeReload = useCallback(() => {
     if (!crmSyncInFlight.current) {
@@ -202,53 +228,84 @@ export function CrmWorkspace() {
     return crmSyncInFlight.current;
   }, []);
 
-  const refreshWorkspace = useCallback((tab: ActiveTab, { silent = false } = {}) => {
+  const syncAndReloadWorkspace = useCallback((tab: ActiveTab, { manual = false } = {}) => {
+    if (!manual && document.visibilityState !== "visible") return Promise.resolve();
+    if (!isCurrentWorkspaceView(tab, ownerId)) return Promise.resolve();
     const pendingRefresh = crmRefreshInFlight.current;
     if (pendingRefresh?.ownerId === ownerId) return pendingRefresh.request;
     const requestOwnerId = ownerId;
     const request = (async () => {
-      if (silent) setIsRefreshing(true);
-      else setIsLoading(true);
+      setIsRefreshing(true);
+      setError(null);
       try {
         await syncCrmBeforeReload();
-        const latestView = currentView.current;
-        if (latestView.ownerId !== requestOwnerId) return;
-        await loadWorkspace(latestView.activeTab, { silent });
-      } catch (cause) {
-        if (isCurrentWorkspaceOwner(requestOwnerId)) setError(errorMessage(cause, "Не удалось обновить CRM из 1С. Данные не изменены."));
-      } finally {
-        if (isCurrentWorkspaceOwner(requestOwnerId)) {
-          setIsLoading(false);
-          setIsRefreshing(false);
+      } catch {
+        try {
+          invalidateApiCache();
+          const failedSyncStatus = await fetchCrmSyncStatus();
+          setSyncStatus(failedSyncStatus);
+        } catch {
+          // The saved client view and the actionable sync error remain available.
         }
+        if (isCurrentWorkspaceOwner(requestOwnerId)) setError(CRM_SYNC_FAILURE_MESSAGE);
+        return;
       }
-    })();
+      try {
+        const nextSyncStatus = await fetchCrmSyncStatus();
+        setSyncStatus(nextSyncStatus);
+      } catch {
+        // Status text is supplementary; a successful sync still reloads SQLite.
+      }
+      const latestView = currentView.current;
+      if (latestView.ownerId !== requestOwnerId) return;
+      await loadLocalWorkspace(latestView.activeTab, { silent: true });
+    })().finally(() => {
+      if (isCurrentWorkspaceOwner(requestOwnerId)) {
+        setIsRefreshing(false);
+      }
+    });
     crmRefreshInFlight.current = { ownerId: requestOwnerId, request };
     void request.finally(() => {
       if (crmRefreshInFlight.current?.request === request) crmRefreshInFlight.current = null;
     });
     return request;
-  }, [isCurrentWorkspaceOwner, loadWorkspace, ownerId, syncCrmBeforeReload]);
+  }, [isCurrentWorkspaceOwner, isCurrentWorkspaceView, loadLocalWorkspace, ownerId, syncCrmBeforeReload]);
+
+  const checkWorkspaceFreshness = useCallback(async (tab: ActiveTab) => {
+    if (document.visibilityState !== "visible") return;
+    try {
+      const nextSyncStatus = await fetchCrmSyncStatus();
+      setSyncStatus(nextSyncStatus);
+      const lastSyncAt = Date.parse(nextSyncStatus.lastSyncAt);
+      if (Number.isFinite(lastSyncAt) && Date.now() - lastSyncAt < CRM_SYNC_FRESHNESS_MS) return;
+      await syncAndReloadWorkspace(tab);
+    } catch {
+      if (isCurrentWorkspaceView(tab, ownerId)) setError(CRM_SYNC_FAILURE_MESSAGE);
+    }
+  }, [isCurrentWorkspaceView, ownerId, syncAndReloadWorkspace]);
 
   useEffect(() => {
     const cachedWorkspace = readCrmWorkspaceCache(ownerId, activeTab);
     if (cachedWorkspace) {
-      syncedOwnerId.current = ownerId;
-      void loadWorkspace(activeTab, { silent: true });
-      return;
+      void loadLocalWorkspace(activeTab, { silent: true });
+    } else {
+      void loadLocalWorkspace(activeTab);
     }
-    if (syncedOwnerId.current !== ownerId) {
-      syncedOwnerId.current = ownerId;
-      void refreshWorkspace(activeTab);
-      return;
-    }
-    void loadWorkspace(activeTab);
-  }, [activeTab, ownerId, refreshWorkspace]);
+    void checkWorkspaceFreshness(activeTab);
+  }, [activeTab, checkWorkspaceFreshness, loadLocalWorkspace, ownerId]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => void refreshWorkspace(activeTab, { silent: true }), 5 * 60_000);
-    return () => window.clearInterval(timer);
-  }, [activeTab, refreshWorkspace]);
+    const refreshVisibleWorkspace = () => {
+      if (document.visibilityState !== "visible") return;
+      void checkWorkspaceFreshness(activeTab);
+    };
+    const timer = window.setInterval(refreshVisibleWorkspace, 10 * 60_000);
+    document.addEventListener("visibilitychange", refreshVisibleWorkspace);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshVisibleWorkspace);
+    };
+  }, [activeTab, checkWorkspaceFreshness]);
 
   const visibleClients = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("ru-RU");
@@ -371,7 +428,7 @@ export function CrmWorkspace() {
       setNotice("Клиент добавлен во вкладку «В работе».");
       const workTab = tabs.find((tab) => tab.systemKind === "work");
       chooseTab(workTab?.id ?? requestTab);
-      if (workTab?.id === requestTab) await loadWorkspace(requestTab, { silent: true });
+      if (workTab?.id === requestTab) await loadLocalWorkspace(requestTab, { silent: true });
     } catch (cause) {
       if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setError(errorMessage(cause, "Не удалось добавить клиента."));
@@ -391,7 +448,7 @@ export function CrmWorkspace() {
       if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setClients((current) => current.map((item) => item.id === client.id ? { ...item, assignment: savedAssignment } : item));
       setNotice(client.assignment ? `Клиент перемещён во вкладку «${target.name}».` : `Клиент добавлен во вкладку «${target.name}».`);
-      await loadWorkspace(requestTab, { silent: true });
+      await loadLocalWorkspace(requestTab, { silent: true });
     } catch (cause) {
       if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setError(errorMessage(cause, client.assignment ? "Не удалось переместить клиента. Изменение отменено." : "Не удалось добавить клиента во вкладку. Изменение отменено."));
@@ -577,7 +634,7 @@ export function CrmWorkspace() {
 
   const reloadAfterTabFailure = async (requestTab: ActiveTab, requestOwnerId: number, message: string) => {
     if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
-    await loadWorkspace(requestTab, { silent: true });
+    await loadLocalWorkspace(requestTab, { silent: true });
     if (isCurrentWorkspaceView(requestTab, requestOwnerId)) setError(message);
   };
 
@@ -600,7 +657,7 @@ export function CrmWorkspace() {
       setTabEditor(null);
       setNotice(editor === "new" ? "Личная вкладка создана." : "Личная вкладка переименована.");
       if (editor === "new") chooseTab(saved.id);
-      await loadWorkspace(editor === "new" ? saved.id : requestTab, { silent: true });
+      await loadLocalWorkspace(editor === "new" ? saved.id : requestTab, { silent: true });
     } catch (cause) {
       await reloadAfterTabFailure(requestTab, requestOwnerId, errorMessage(cause, "Не удалось сохранить личную вкладку. Изменение отменено."));
     } finally {
@@ -623,7 +680,7 @@ export function CrmWorkspace() {
       setNotice(`Личная вкладка «${tab.name}» удалена; карточки сохранены в выбранной вкладке.`);
       const nextTab = requestTab === tab.id ? replacementTabId : requestTab;
       chooseTab(nextTab);
-      await loadWorkspace(nextTab, { silent: true });
+      await loadLocalWorkspace(nextTab, { silent: true });
     } catch (cause) {
       await reloadAfterTabFailure(requestTab, requestOwnerId, errorMessage(cause, "Не удалось удалить личную вкладку. Изменение отменено."));
     } finally {
@@ -634,6 +691,7 @@ export function CrmWorkspace() {
   const ownerName = owners.find((owner) => owner.id === ownerId)?.fullName
     || owners.find((owner) => owner.id === ownerId)?.username
     || `сотрудник #${ownerId}`;
+  const syncStatusText = formatCrmSyncStatusText(syncStatus, isRefreshing);
 
   return (
     <section className="mx-auto max-w-[1500px]">
@@ -664,6 +722,7 @@ export function CrmWorkspace() {
           search={search}
           selectedClient={mobileDetail?.client ?? null}
           syncFilter={syncFilter}
+          syncStatusText={syncStatusText}
           tabs={tabs}
           totalClientCount={clients.length}
           workspaceError={error}
@@ -681,7 +740,7 @@ export function CrmWorkspace() {
           onOpenReminder={(reminder) => void openReminder(reminder)}
           onOwnerChange={chooseOwner}
           onPrimaryOrderModeChange={setPrimaryOrderMode}
-          onRefresh={() => void refreshWorkspace(activeTab, { silent: true })}
+          onRefresh={() => void syncAndReloadWorkspace(activeTab, { manual: true })}
           onRenameTab={openTabEditor}
           onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients}
           onSearchChange={setSearch}
@@ -706,7 +765,7 @@ export function CrmWorkspace() {
               <button type="button" disabled={isExporting || activeTab === "primary"} onClick={() => void exportCrm("tab")} className="rounded-[8px] px-2 py-2 text-left text-[11px] font-semibold hover:bg-[#F6F8FB] disabled:opacity-60">Текущая вкладка</button>
             </div>
           </details>
-          <button type="button" onClick={() => void refreshWorkspace(activeTab, { silent: true })} disabled={isRefreshing} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:opacity-60">
+          <button type="button" onClick={() => void syncAndReloadWorkspace(activeTab, { manual: true })} disabled={isRefreshing} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:opacity-60">
             {isRefreshing ? "Обновляем…" : "Обновить"}
           </button>
           {canEditWorkspace ? <button type="button" onClick={() => setIsAdding(true)} className="app-action-button h-10 rounded-[12px] px-4 text-[12px]">Добавить клиента</button> : null}
@@ -736,7 +795,7 @@ export function CrmWorkspace() {
               {activeTab === "primary" ? <label className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Порядок</span><select value={primaryOrderMode} onChange={(event) => setPrimaryOrderMode(event.target.value as PrimaryOrderMode)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"><option value="manual">Мой порядок</option><option value="name">По названию</option></select></label> : null}
             </div>
             {!isManualOrderAvailable ? <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[10px] bg-[#F6F8FB] px-3 py-2 text-[11px] text-[var(--text-secondary)]"><span>Перемещение доступно только без поиска и фильтров{activeTab === "primary" ? " в режиме «Мой порядок»" : ""}.</span>{activeTab === "primary" ? <button type="button" onClick={returnToPrimaryManualOrder} className="font-semibold text-[var(--brand-dark)] underline underline-offset-2">Вернуться к «Мой порядок»</button> : null}</div> : null}
-            {error ? <Message tone="error">{error}</Message> : null}
+            {error ? <><Message tone="error">{error}</Message>{error === CRM_SYNC_FAILURE_MESSAGE ? <button type="button" onClick={() => void syncAndReloadWorkspace(activeTab, { manual: true })} disabled={isRefreshing} className="mt-2 h-9 rounded-[9px] border border-[#F9D4D4] bg-white px-3 text-[11px] font-semibold text-[#B91C1C] disabled:opacity-60">Повторить</button> : null}</> : null}
             {notice ? <Message tone="success">{notice}</Message> : null}
             {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} canEditWorkspace={canEditWorkspace} manualOrderEnabled={isManualOrderAvailable} onColor={setRowColor} onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
           </div>

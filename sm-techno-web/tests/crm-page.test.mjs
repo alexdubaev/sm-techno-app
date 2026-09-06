@@ -13,7 +13,7 @@ const crmClientDetailControllerUrl = new URL("../components/crm/use-crm-client-d
 const crmWorkspaceCacheUrl = new URL("../lib/crm-workspace-cache.ts", import.meta.url);
 const crmApiUrl = new URL("../lib/api.ts", import.meta.url);
 const crmTypesUrl = new URL("../lib/types.ts", import.meta.url);
-const appShellUrl = new URL("../components/app-shell.tsx", import.meta.url);
+const appNavigationUrl = new URL("../components/navigation/app-navigation.tsx", import.meta.url);
 const mobileTypesUrl = new URL("../components/crm/mobile/types.ts", import.meta.url);
 const mobileUtilsUrl = new URL("../components/crm/mobile/mobile-crm-utils.ts", import.meta.url);
 const mobileWorkspaceUrl = new URL("../components/crm/mobile/mobile-crm-workspace.tsx", import.meta.url);
@@ -548,15 +548,15 @@ test("CRM conflict helpers require an explicit owner and keep a successful resol
 });
 
 test("CRM surface is reachable from navigation and exposes the core workspace", async () => {
-  const [page, workspace, api, types, shell] = await Promise.all([
+  const [page, workspace, api, types, navigation] = await Promise.all([
     readFile(crmPageUrl, "utf8"),
     readFile(crmWorkspaceUrl, "utf8"),
     readFile(crmApiUrl, "utf8"),
     readFile(crmTypesUrl, "utf8"),
-    readFile(appShellUrl, "utf8"),
+    readFile(appNavigationUrl, "utf8"),
   ]);
 
-  assert.match(shell, /href: "\/crm", label: "CRM"/);
+  assert.match(navigation, /href: '\/crm',\s+label: 'CRM'/);
   assert.match(page, /CrmWorkspace/);
   assert.match(workspace, /Клиенты 1С/);
   assert.match(workspace, /В работе/);
@@ -567,6 +567,32 @@ test("CRM surface is reachable from navigation and exposes the core workspace", 
   assert.match(types, /pending/);
   assert.match(api, /\/api\/crm\/tabs/);
   assert.match(api, /\/api\/crm\/clients/);
+});
+
+test("CRM loads SQLite data before freshness checks and refreshes only visible stale workspaces", async () => {
+  const [api, workspace, mobileWorkspace, mobileHeader] = await Promise.all([
+    readFile(crmApiUrl, "utf8"),
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(mobileWorkspaceUrl, "utf8"),
+    readFile(new URL("../components/crm/mobile/mobile-crm-header.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(api, /export type CrmSyncStatus = \{/);
+  assert.match(api, /export async function fetchCrmSyncStatus/);
+  assert.match(api, /\/api\/crm\/sync-status/);
+  assert.match(workspace, /const loadLocalWorkspace = useCallback/);
+  assert.match(workspace, /const syncAndReloadWorkspace = useCallback/);
+  assert.match(workspace, /void loadLocalWorkspace\(activeTab\);/);
+  assert.ok(workspace.indexOf("void loadLocalWorkspace(activeTab);") < workspace.indexOf("void checkWorkspaceFreshness(activeTab);"));
+  assert.match(workspace, /document\.visibilityState !== "visible"/);
+  assert.match(workspace, /10 \* 60_000/);
+  assert.match(workspace, /Не удалось обновить данные из 1С\. Показаны сохранённые данные\./);
+  assert.match(workspace, /Повторить/);
+  assert.doesNotMatch(workspace, /setClients\(\[\]\)/);
+  assert.match(workspace, /invalidateApiCache\(\);\s+const failedSyncStatus = await fetchCrmSyncStatus\(\);/);
+  assert.match(workspace, /formatCrmSyncStatusText\(syncStatus, isRefreshing\)/);
+  assert.match(mobileWorkspace, /syncStatusText: string \| null/);
+  assert.match(mobileHeader, /\{syncStatusText\}/);
 });
 
 test("CRM workspace exposes export and client-detail actions backed by the CRM API", async () => {
@@ -937,8 +963,8 @@ test("CRM refresh coalesces syncs, owner reminders transition safely, and unassi
   assert.match(types, /updatedAt: string/);
   assert.match(workspace, /const crmSyncInFlight = useRef<Promise<void> \| null>\(null\)/);
   assert.match(workspace, /const crmRefreshInFlight = useRef<\{ ownerId: number; request: Promise<void> \} \| null>\(null\)/);
-  assert.match(workspace, /const syncedOwnerId = useRef<number \| null>\(null\)/);
-  assert.match(workspace, /if \(syncedOwnerId\.current !== ownerId\)/);
+  assert.doesNotMatch(workspace, /syncedOwnerId/);
+  assert.match(workspace, /void checkWorkspaceFreshness\(activeTab\);/);
   assert.match(workspace, /syncCrmWorkspace\(\)/);
   assert.match(controller, /completeCrmReminder\(reminder\.id, reminder\.updatedAt, ownerId\)/);
   assert.match(controller, /cancelCrmReminder\(reminder\.id, reminder\.updatedAt, ownerId\)/);
@@ -959,7 +985,7 @@ test("CRM reminder rollback is limited to failed transitions, shared refresh fol
   assert.match(controller, /transitionSucceeded = true;/);
   assert.match(controller, /if \(!transitionSucceeded\) \{\s*setReminders/);
   assert.match(workspace, /const latestView = currentView\.current;/);
-  assert.match(workspace, /await loadWorkspace\(latestView\.activeTab, \{ silent \}\);/);
+  assert.match(workspace, /await loadLocalWorkspace\(latestView\.activeTab, \{ silent: true \}\);/);
   assert.match(controller, /if \(!canManageReminders\) return;/);
   assert.match(workspace, /canManageReminders \? <form onSubmit=\{saveReminder\}/);
 });
@@ -970,8 +996,8 @@ test("CRM refresh stale-view helpers precede their callback and submits use non-
   assert.match(workspace, /type SubmitEvent/);
   assert.doesNotMatch(workspace, /type FormEvent/);
   assert.doesNotMatch(workspace, /FormEvent<HTMLFormElement>/);
-  assert.ok(workspace.indexOf("const isCurrentWorkspaceOwner") < workspace.indexOf("const refreshWorkspace"));
-  assert.ok(workspace.indexOf("const isCurrentWorkspaceView") < workspace.indexOf("const refreshWorkspace"));
+  assert.ok(workspace.indexOf("const isCurrentWorkspaceOwner") < workspace.indexOf("const syncAndReloadWorkspace"));
+  assert.ok(workspace.indexOf("const isCurrentWorkspaceView") < workspace.indexOf("const syncAndReloadWorkspace"));
 });
 
 test("foreign administrator workspace is read-only while lifecycle and conflict exceptions remain available", async () => {
@@ -1005,6 +1031,6 @@ test("foreign detail keeps values visible and stale detail reloads through the s
 
   assert.match(workspace, /onChanged=\{refreshAfterDetailChange\}/);
   assert.match(workspace, /if \(!isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) return;/);
-  assert.match(workspace, /void loadWorkspace\(requestTab, \{ silent: true \}\);\s+void refreshReminders\(requestOwnerId\);/);
+  assert.match(workspace, /void loadLocalWorkspace\(requestTab, \{ silent: true \}\);\s+void refreshReminders\(requestOwnerId\);/);
   assert.match(workspace, /<ReadonlyCompanyRequisites client=\{currentClient\} \/>/);
 });
