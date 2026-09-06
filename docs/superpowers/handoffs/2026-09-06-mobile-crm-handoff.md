@@ -43,6 +43,33 @@ At handoff, the frontend and backend containers were both healthy and the public
 
 If `docker compose ... up -d --build frontend` finishes without recreating the container, first check `docker compose ps`, then run the frontend-only recreate command separately. This occurred twice in this session; it did not affect backend data.
 
+### Frontend deployment procedure (PowerShell)
+
+Run from `D:/codex/sm-techno-app/worktrees/mobile-crm`. The VPS account is `codex-deploy@91.227.68.176` on port `22`; the workstation already has the private key under `.codex-temp-ssh`. Keep the key path in a local variable and never copy its contents into source control.
+
+```powershell
+$deployKey = 'D:\codex\sm-techno-app\.codex-temp-ssh\dockerhosting_ed25519'
+
+# Copy exactly the checked-out Git revision; this preserves .env, database and storage on the VPS.
+git archive --format=tar HEAD |
+  & ssh.exe -i $deployKey -o BatchMode=yes -o StrictHostKeyChecking=accept-new -p 22 codex-deploy@91.227.68.176 `
+    'tar -xf - -C /srv/sm-techno-test/app'
+
+# Rebuild only the frontend image, then recreate only its container.
+& ssh.exe -i $deployKey -o BatchMode=yes -o StrictHostKeyChecking=accept-new -p 22 codex-deploy@91.227.68.176 `
+  'cd /srv/sm-techno-test/app && docker compose --project-name sm-techno-test --env-file .env build frontend'
+& ssh.exe -i $deployKey -o BatchMode=yes -o StrictHostKeyChecking=accept-new -p 22 codex-deploy@91.227.68.176 `
+  'cd /srv/sm-techno-test/app && docker compose --project-name sm-techno-test --env-file .env up -d --force-recreate frontend'
+```
+
+Validate deployment before reporting it:
+
+```powershell
+& ssh.exe -i $deployKey -o BatchMode=yes -p 22 codex-deploy@91.227.68.176 `
+  'cd /srv/sm-techno-test/app && docker compose --project-name sm-techno-test --env-file .env ps && curl --fail --silent http://127.0.0.1:3000/api/health'
+Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 'http://91.227.68.176:3000/api/health'
+```
+
 ## Verification already performed
 
 For `64c5eec`:
