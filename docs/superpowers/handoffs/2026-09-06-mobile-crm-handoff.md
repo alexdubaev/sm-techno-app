@@ -5,7 +5,7 @@
 - Worktree: `D:/codex/sm-techno-app/worktrees/mobile-crm`
 - Branch: `codex/mobile-crm`
 - Base branch: `codex/vps-self-hosting`
-- Latest application commit: `64c5eec feat: strengthen mobile CRM card color cues`
+- Latest application commit: `707a34a feat: replace responsive navigation with bottom bar`
 - No application changes were uncommitted before this handoff update.
 - Do not work in the dirty source worktree `worktrees/vps-self-hosting`.
 - The branch is intentionally not pushed to GitHub. The user asked to deploy directly to the VPS instead.
@@ -30,6 +30,25 @@ The current colour UI is implemented in:
 - `sm-techno-web/components/crm/mobile/mobile-crm-workspace.tsx`
 - `sm-techno-web/tests/crm/mobile-detail.integration.test.tsx`
 
+## Delivered responsive navigation work
+
+Commit `707a34a` replaces only the navigation below the desktop breakpoint (`2xl`, including tablets). The desktop sidebar and its current grouped navigation remain unchanged.
+
+- The compact mobile header still shows the SM TECHНО logo, current user's name and role, without a horizontal navigation strip.
+- `MobileBottomNav` provides equal-width primary items: `Остатки`, `CRM`, optional `Настройки` for `admin`, and `Ещё`.
+- Active state maps `/` to `Остатки`, `/crm` to `CRM`, `/settings` to `Настройки`; every other application route highlights `Ещё`.
+- `MobileMoreMenu` is a large bottom drawer with grouped remaining routes, role-aware “Работа с прайсом”, user identity and the existing `logout()` action. It closes on route selection, outside interaction and swipe-down.
+- The bottom bar and drawer account for `env(safe-area-inset-bottom)`; the app content receives corresponding lower padding.
+- No new SVG icons were added. Thirteen transparent 64×64 WEBP icons in a shared B2B visual style live in `sm-techno-web/public/mobile-icons/`.
+
+Key implementation files:
+
+- `sm-techno-web/components/app-shell.tsx`
+- `sm-techno-web/components/navigation/app-navigation.tsx`
+- `sm-techno-web/components/mobile/mobile-bottom-nav.tsx`
+- `sm-techno-web/components/mobile/mobile-more-menu.tsx`
+- `sm-techno-web/tests/auth/mobile-navigation.integration.test.tsx`
+
 ## Deployment
 
 The latest frontend is deployed to the isolated VPS environment:
@@ -41,7 +60,9 @@ The latest frontend is deployed to the isolated VPS environment:
 
 At handoff, the frontend and backend containers were both healthy and the public health endpoint returned `200 {"status":"ok"}`. Deployment copies the Git archive into that app directory and rebuilds/recreates **only** the `frontend` service. Do not overwrite `.env`, storage, or database data. Use the existing workstation SSH setup; do not commit credentials or keys.
 
-If `docker compose ... up -d --build frontend` finishes without recreating the container, first check `docker compose ps`, then run the frontend-only recreate command separately. This occurred twice in this session; it did not affect backend data.
+If `docker compose ... up -d --build frontend` finishes without recreating the container, first check `docker compose ps`, then run the frontend-only recreate command separately. This occurred twice in an earlier session; it did not affect backend data.
+
+During the `707a34a` deployment, the normal Docker BuildKit build incorrectly reported a missing lockfile even though the server copy and its SHA-256 matched the checked-out revision, and `npm ci` succeeded in the same Node image when run directly against that directory. A frontend-only no-cache build solved the stale/corrupt BuildKit layer. If that exact symptom occurs again, use `build --no-cache frontend`; do not alter `package-lock.json`, `.env`, or application data as a workaround.
 
 ### Frontend deployment procedure (PowerShell)
 
@@ -72,7 +93,7 @@ Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 'http://91.227.68.176:3000/api
 
 ## Verification already performed
 
-For `64c5eec`:
+For the prior CRM work (`64c5eec`):
 
 - Targeted Vitest mobile detail suite: 20/20 passed.
 - Full Node suite: 56/56 passed.
@@ -81,6 +102,16 @@ For `64c5eec`:
 - `git diff --check` passed.
 - UI detector on the changed card component returned no findings.
 - VPS internal and public `/api/health` checks passed after deploy.
+
+For the responsive navigation (`707a34a`):
+
+- Targeted mobile navigation Vitest suite: 9/9 passed.
+- Full Node suite: 56/56 passed.
+- `npx tsc --noEmit` passed.
+- `npm run build` passed with exit code 0.
+- `git diff --check` passed.
+- All 13 icon assets were verified as 64×64 transparent WEBP files (roughly 1.9–3.4 KB each).
+- The VPS frontend was rebuilt and recreated successfully. Both containers were healthy; internal and public `/api/health` returned `{"status":"ok"}` / HTTP 200.
 
 The automated browser session available on the workstation was at the application login screen. No credentials were entered, so the final authenticated visual check should be performed manually by a logged-in user if any visual adjustment is requested.
 
@@ -98,6 +129,8 @@ The prior “Не удалось обновить CRM” screenshot said that th
 
 ## Reference material
 
-- Design: `docs/superpowers/specs/2026-09-05-mobile-crm-design.md`
-- Plan: `docs/superpowers/plans/2026-09-05-mobile-crm.md`
+- CRM design: `docs/superpowers/specs/2026-09-05-mobile-crm-design.md`
+- CRM plan: `docs/superpowers/plans/2026-09-05-mobile-crm.md`
+- Responsive navigation design: `docs/superpowers/specs/2026-09-06-mobile-navigation-design.md`
+- Responsive navigation plan: `docs/superpowers/plans/2026-09-06-mobile-navigation.md`
 - Historical SDD artifacts: `.superpowers/sdd/2026-09-05-mobile-crm/` (git-ignored)
