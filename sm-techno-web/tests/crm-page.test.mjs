@@ -85,6 +85,7 @@ function workspaceClient(id, documentName = `Клиент ${id}`) {
     createdAt: "2026-09-05T09:00:00.000Z",
     updatedAt: "2026-09-05T09:00:00.000Z",
     assignment: null,
+    workOwners: [{ userId: 7, fullName: "Ирина Иванова" }],
     rowPreference: null,
     primaryRowPreference: null,
   };
@@ -483,7 +484,7 @@ test("CRM workspace cache restores a prior view only for its owner and tab", asy
   const cache = await loadCrmWorkspaceCacheForTest();
   const cachedView = {
     tabs: [{ id: 4, name: "В работе", systemKind: "personal", position: 1 }],
-    clients: [{ id: 42, name: "ООО Тест", documentName: "ООО Тест" }],
+    clients: [{ id: 42, name: "ООО Тест", documentName: "ООО Тест", workOwners: [{ userId: 7, fullName: "Ирина Иванова" }] }],
     primaryOrderVersion: 9,
   };
 
@@ -496,6 +497,20 @@ test("CRM workspace cache restores a prior view only for its owner and tab", asy
   assert.deepEqual(cache.readCrmWorkspaceCache(7, "primary"), { ...cachedView, primaryOrderVersion: 10 });
   assert.equal(cache.readCrmWorkspaceCache(8, "primary"), null);
   assert.equal(cache.readCrmWorkspaceCache(7, 4), null);
+});
+
+test("CRM primary work-owner contract stays public, mandatory, and cache-safe after a move", async () => {
+  const [workspace, types] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmTypesUrl, "utf8"),
+  ]);
+  const workspaceClientType = types.slice(types.indexOf("export type CrmWorkspaceClient"), types.indexOf("export type CrmSyncConflict"));
+
+  assert.match(types, /export type CrmWorkOwner = \{\s+userId: number;\s+fullName: string;\s+\};/);
+  assert.match(workspaceClientType, /workOwners: CrmWorkOwner\[\];/);
+  assert.doesNotMatch(workspaceClientType, /workOwners\?:/);
+  assert.match(workspace, /const nextClients = primaryResult\?\.items \?\? personalClients \?\? \[\];\s+setClientView\(\{ ownerId, activeTab: tab, clients: nextClients \}\);[\s\S]*saveCrmWorkspaceCache\(ownerId, tab, \{ tabs: nextTabs, clients: nextClients,/);
+  assert.match(workspace, /setClients\(\(current\) => current\.map\(\(item\) => item\.id === client\.id \? \{ \.\.\.item, assignment: savedAssignment \} : item\)\);[\s\S]*if \(requestTab === "primary"\) \{\s+await loadLocalWorkspace\("primary", \{ silent: true \}\);\s+\} else \{\s+await loadLocalWorkspace\(requestTab, \{ silent: true \}\);\s+\}/);
 });
 
 test("CRM conflict transport keeps resolution scoped to the selected owner", async () => {

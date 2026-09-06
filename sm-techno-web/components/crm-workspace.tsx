@@ -522,7 +522,11 @@ export function CrmWorkspace() {
       if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setClients((current) => current.map((item) => item.id === client.id ? { ...item, assignment: savedAssignment } : item));
       setNotice(client.assignment ? `Клиент перемещён во вкладку «${target.name}».` : `Клиент добавлен во вкладку «${target.name}».`);
-      await loadLocalWorkspace(requestTab, { silent: true });
+      if (requestTab === "primary") {
+        await loadLocalWorkspace("primary", { silent: true });
+      } else {
+        await loadLocalWorkspace(requestTab, { silent: true });
+      }
     } catch (cause) {
       if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
       setError(errorMessage(cause, client.assignment ? "Не удалось переместить клиента. Изменение отменено." : "Не удалось добавить клиента во вкладку. Изменение отменено."));

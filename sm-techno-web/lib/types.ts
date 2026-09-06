@@ -170,6 +170,11 @@ export type CrmAssignment = {
   archivedAt: string | null;
 };
 
+export type CrmWorkOwner = {
+  userId: number;
+  fullName: string;
+};
+
 export type CrmWorkspaceClient = {
   id: number;
   version: number;
@@ -192,6 +197,7 @@ export type CrmWorkspaceClient = {
   createdAt: string;
   updatedAt: string;
   assignment: CrmAssignment | null;
+  workOwners: CrmWorkOwner[];
   rowPreference?: CrmRowPreference | null;
   primaryRowPreference?: CrmPrimaryRowPreference | null;
 };
