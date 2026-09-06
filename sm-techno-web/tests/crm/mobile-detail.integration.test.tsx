@@ -235,7 +235,7 @@ describe('mobile detail daily actions', () => {
     expect(props.onDetailChanged).toHaveBeenCalledWith(7, 3);
   });
 
-  it('renders the client-card call action with white text', () => {
+  it('renders the client-card call action with white text on green', () => {
     render(
       <MobileClientCard
         activeActionsClientId={null}
@@ -252,6 +252,7 @@ describe('mobile detail daily actions', () => {
 
     expect(screen.getByRole('link', { name: 'Позвонить' })).toHaveStyle({
       color: '#ffffff',
+      backgroundColor: '#16a34a',
     });
   });
 

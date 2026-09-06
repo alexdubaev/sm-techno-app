@@ -149,8 +149,8 @@ export function MobileClientCard({
             <a
               href={`tel:${client.phone}`}
               onClick={(event) => event.stopPropagation()}
-              style={{ color: '#FFFFFF' }}
-              className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-[11px] bg-[var(--brand-dark)] px-3 text-[12px] font-bold text-white outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
+              style={{ color: '#FFFFFF', backgroundColor: '#16A34A' }}
+              className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-[11px] px-3 text-[12px] font-bold text-white outline-offset-2 hover:bg-[#15803D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
             >
               <Phone aria-hidden="true" className="size-4" />
               Позвонить
