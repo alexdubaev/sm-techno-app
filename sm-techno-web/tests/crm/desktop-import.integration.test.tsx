@@ -20,7 +20,9 @@ vi.mock("@/components/auth-provider", () => ({
 }));
 
 vi.mock("@/components/crm/mobile/mobile-crm-workspace", () => ({
-  MobileCrmWorkspace: () => null,
+  MobileCrmWorkspace: ({ onImportCompleted }: { onImportCompleted: (targetTabId: number) => void }) => (
+    <button type="button" onClick={() => onImportCompleted(8)}>Завершить mobile import</button>
+  ),
 }));
 
 vi.mock("@/components/ui/alert-dialog", () => ({
@@ -182,6 +184,19 @@ describe("desktop CRM Excel import", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(api.fetchCrmSyncStatus).toHaveBeenCalledTimes(1);
+    expect(api.syncCrmWorkspace).not.toHaveBeenCalled();
+  });
+
+  test("activates the mobile import target from the parent callback without syncing CRM", async () => {
+    const user = userEvent.setup();
+    render(<CrmWorkspace />);
+
+    await user.click(await screen.findByRole("button", { name: "Завершить mobile import" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Постоянные" })).toHaveAttribute("aria-current", "page"));
+    await waitFor(() => expect(api.fetchCrmClients).toHaveBeenCalledWith({ ownerId: 7, tabId: 8 }, { bypassCache: true }));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(api.syncCrmWorkspace).not.toHaveBeenCalled();
   });
 

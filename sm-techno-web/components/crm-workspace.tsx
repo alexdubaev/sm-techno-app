@@ -775,6 +775,7 @@ export function CrmWorkspace() {
           onDeleteTab={(tab) => { setTabPendingDelete(tab); setReplacementTabId(tabs.find((item) => item.systemKind === "work")?.id ?? null); }}
           onDetailChanged={refreshAfterDetailChange}
           onExport={(scope) => void exportCrm(scope)}
+          onImportCompleted={importIntoWorkspace}
           onMoveClient={(client, tabId) => void moveClient(client, tabId)}
           onOpenClient={openMobileClient}
           onOpenReminder={(reminder) => void openReminder(reminder)}
