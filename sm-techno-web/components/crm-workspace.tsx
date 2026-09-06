@@ -281,7 +281,6 @@ export function CrmWorkspace() {
   const checkWorkspaceFreshness = useCallback((tab: ActiveTab) => {
     const localImport = localImportFreshness.current;
     if (localImport?.ownerId === ownerId && localImport.tab === tab && isCurrentWorkspaceView(tab, ownerId)) {
-      localImportFreshness.current = null;
       return Promise.resolve();
     }
     if (document.visibilityState !== "visible" || !isCurrentWorkspaceView(tab, ownerId)) return Promise.resolve();
@@ -385,6 +384,7 @@ export function CrmWorkspace() {
   };
 
   const chooseTab = (tab: ActiveTab) => {
+    localImportFreshness.current = null;
     activateTab(tab);
     setSearch("");
     setSyncFilter("all");
@@ -395,6 +395,7 @@ export function CrmWorkspace() {
   };
 
   const chooseOwner = (nextOwnerId: number) => {
+    localImportFreshness.current = null;
     const cachedWorkspace = readCrmWorkspaceCache(nextOwnerId, "primary");
     currentView.current = { activeTab: "primary", ownerId: nextOwnerId };
     requestId.current += 1;

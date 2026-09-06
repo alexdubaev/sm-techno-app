@@ -179,6 +179,7 @@ describe("desktop CRM Excel import", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Сентябрь" })).toHaveAttribute("aria-current", "page"));
     await waitFor(() => expect(api.fetchCrmClients).toHaveBeenCalledWith({ ownerId: 7, tabId: 12 }, { bypassCache: true }));
+    document.dispatchEvent(new Event("visibilitychange"));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
     expect(api.fetchCrmSyncStatus).toHaveBeenCalledTimes(1);
     expect(api.syncCrmWorkspace).not.toHaveBeenCalled();
