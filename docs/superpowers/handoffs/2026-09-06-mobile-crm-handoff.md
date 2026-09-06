@@ -1,72 +1,76 @@
-# Mobile CRM — handoff
+# Mobile CRM — current handoff
 
-## Workspace
+## Current state
 
 - Worktree: `D:/codex/sm-techno-app/worktrees/mobile-crm`
 - Branch: `codex/mobile-crm`
 - Base branch: `codex/vps-self-hosting`
+- Latest application commit: `64c5eec feat: strengthen mobile CRM card color cues`
+- No application changes were uncommitted before this handoff update.
 - Do not work in the dirty source worktree `worktrees/vps-self-hosting`.
-- Backend, schema, 1C integration and existing API contracts are out of scope.
+- The branch is intentionally not pushed to GitHub. The user asked to deploy directly to the VPS instead.
 
-## Completed, reviewed work
+## Delivered mobile CRM work
 
-1. `11189f1`, `f61a373`, `639556b` — mobile CRM contracts and Moscow-time reminder helpers; behavioral tests cover sorting, urgency and URI/date behavior.
-2. `c0240d4` — shared `useCrmClientDetailController`, preserving desktop dialog behavior and owner-scoped/versioned CRM mutations.
-3. `c8ab35a`, `8c07ca9` — workspace-level reminders, cross-tab reminder-to-client opening, strict `<768px` mobile boundary, cache/search/scroll lifecycle helpers, and parent refresh after reminder mutations.
-4. `66821c6`, `65b6133` — manager-first mobile list: header, menu, tabs, search, attention summary, cards, actionable phone/email, bounded action sheet and explicit reorder mode. Independent review approved after fixes.
-5. `d6981ec` — full-screen mobile detail, Overview/History/Reminders, daily-action sheets, integration tests and viewport smoke checks. Its review found two defects below; fix work was deliberately interrupted before committing.
+The mobile CRM flow is complete: responsive workspace/list, tabs and search, reminders, actions, manual ordering, client details, contacts, history, 1C-linked/local flows, and the focused new-client form. Existing desktop CRM and backend contracts were preserved.
 
-Tests previously passing at current Task 5 commit:
+Recent follow-up commits after the original mobile CRM delivery:
 
-- CRM static/contracts: 44/44.
-- React interaction tests: 14/14.
-- `npx tsc --noEmit`, targeted lint, and production build.
-- Full node suite has one unrelated pre-existing stock assertion failure: selected catalog row should clear product selection.
+| Commit | Result |
+| --- | --- |
+| `af733da` | Avoids requesting 1C link candidates for an already-linked CRM client, fixing the false “local client does not belong to selected CRM” error. |
+| `6e06ed8` | Forces white foreground text on the dark mobile “Позвонить” action. |
+| `3667cb9` | Replaces per-card native `<details>` menus with one controlled action sheet. Only one can be open; the backdrop and completed action close it. |
+| `64c5eec` | Makes selected card colours visually clear: 7 px accent edge, light colour-matched card surface, and matching border. Uncoloured cards remain neutral. |
 
-## Immediate required fix (Task 5 review)
+The current colour UI is implemented in:
 
-Current worker was interrupted after receiving these findings. Inspect `git status` first; do not discard any uncommitted work without review.
+- `sm-techno-web/components/crm/mobile/mobile-client-card.tsx`
+- `sm-techno-web/components/crm/mobile/mobile-client-actions.tsx`
+- `sm-techno-web/components/crm/mobile/mobile-crm-workspace.tsx`
+- `sm-techno-web/tests/crm/mobile-detail.integration.test.tsx`
 
-1. Primary-contact optimistic state:
-   - `components/crm/use-crm-client-detail.ts`, around prior line 225, replaces only the temporary contact after creation.
-   - When a new contact is returned as `isPrimary`, old local primary contacts remain primary.
-   - `MobileClientDetail` quick actions then pick the old primary phone/email.
-   - Fix the successful-contact state reconciliation so exactly the returned primary remains primary, matching backend behavior. Add an executable regression test.
+## Deployment
 
-2. Reschedule success followed by refresh failure:
-   - `use-crm-client-detail.ts`, around prior line 337, waits for refresh before returning success.
-   - A successful `rescheduleCrmReminder` followed by failed refresh keeps the mobile sheet open with stale `expectedUpdatedAt`; retry then conflicts.
-   - Apply the successful returned reminder, notify the parent, return success so the sheet closes, and show refresh failure separately. Add executable regression coverage for success + rejected refresh.
+The latest frontend is deployed to the isolated VPS environment:
 
-After fixing, run the focused CRM/integration tests, TypeScript, targeted lint and build. Commit the fix. Re-review the Task 5 fix against:
+- App directory: `/srv/sm-techno-test/app`
+- Compose project: `sm-techno-test`
+- Public frontend: `http://91.227.68.176:3000`
+- Health endpoint: `/api/health`
 
-- `docs/superpowers/plans/2026-09-05-mobile-crm.md`
-- `docs/superpowers/specs/2026-09-05-mobile-crm-design.md`
-- `docs/superpowers/sdd/2026-09-05-mobile-crm/task-5-report.md` (actual ignored workspace is `.superpowers/sdd/2026-09-05-mobile-crm/`).
+At handoff, the frontend and backend containers were both healthy and the public health endpoint returned `200 {"status":"ok"}`. Deployment copies the Git archive into that app directory and rebuilds/recreates **only** the `frontend` service. Do not overwrite `.env`, storage, or database data. Use the existing workstation SSH setup; do not commit credentials or keys.
 
-## Remaining plan tasks
+If `docker compose ... up -d --build frontend` finishes without recreating the container, first check `docker compose ps`, then run the frontend-only recreate command separately. This occurred twice in this session; it did not affect backend data.
 
-### Task 6
+## Verification already performed
 
-Implement `More` and the full-screen `Новый клиент` sheet.
+For `64c5eec`:
 
-- Preserve existing move/color/sync state; 1C matching/linking; conflict choices; archive/restore/remove assignment; audit.
-- All technical functionality must remain permission-gated and owner-scoped.
-- New client uses only existing required company name plus optional city/contact person/phone/email/comment; retain current `В работе` destination.
+- Targeted Vitest mobile detail suite: 20/20 passed.
+- Full Node suite: 56/56 passed.
+- `npx tsc --noEmit` passed.
+- `npm run build` passed with exit code 0.
+- `git diff --check` passed.
+- UI detector on the changed card component returned no findings.
+- VPS internal and public `/api/health` checks passed after deploy.
 
-### Task 7
+The automated browser session available on the workstation was at the application login screen. No credentials were entered, so the final authenticated visual check should be performed manually by a logged-in user if any visual adjustment is requested.
 
-Run full CRM/frontend validation and responsive QA at 375x812, 390x844, 768px and desktop. Verify no backend/schema/1C files differ from `codex/vps-self-hosting`.
+## Operational note: 1C sync password
 
-## Process artifacts
+The prior “Не удалось обновить CRM” screenshot said that the selected user had no 1C password. This is configuration, not a frontend defect: an administrator needs to set a new 1C password for the relevant user in Settings. The password must not be placed in source control or this handoff.
+
+## Continue safely
+
+1. Inspect `git status` before editing; preserve unrelated user changes.
+2. For frontend behaviour changes, add a failing regression test before production code, then run targeted tests, TypeScript, full Node tests, and the production build.
+3. Restore `sm-techno-web/next-env.d.ts` after `npm run build` if Next removes `import "vinext/types/augmentations"`.
+4. For a VPS frontend deployment, verify both compose health and the public health endpoint after the container is recreated.
+5. Keep backend, database schema, 1C integration, credentials, `.env`, and storage outside scope unless the user explicitly requests a change.
+
+## Reference material
 
 - Design: `docs/superpowers/specs/2026-09-05-mobile-crm-design.md`
 - Plan: `docs/superpowers/plans/2026-09-05-mobile-crm.md`
-- SDD ledger/reports/briefs: `.superpowers/sdd/2026-09-05-mobile-crm/` (git-ignored)
-
-Before dispatching work, update the ledger. Per-task implementer and independent reviewer gates have been used; continue that pattern.
-
-## Rulings already made
-
-- A frontend `fetchCrmClient(clientId, ownerId)` wrapper is allowed around the already-existing owner-scoped backend GET. No backend/API contract change.
-- Detail mutation methods may return boolean success so mobile sheets close only after a successful write; desktop callers may ignore it.
+- Historical SDD artifacts: `.superpowers/sdd/2026-09-05-mobile-crm/` (git-ignored)
