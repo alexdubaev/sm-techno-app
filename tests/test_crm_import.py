@@ -83,6 +83,7 @@ def test_hidden_id_has_priority_and_blank_cells_preserve_fields(setup):
     assert result["clientsToUpdate"] == 1
     actual = rows(db, "crm_clients")
     assert (actual[0]["document_name"], actual[0]["phone"], actual[0]["city"]) == ("Новое", "999", "Москва")
+    assert actual[0]["name"] == "Новое"
     assert actual[1]["id"] == other["id"]
 
 
@@ -292,3 +293,79 @@ def test_corrupt_xml_is_a_workbook_validation_error(setup):
             target.writestr(name, b"<broken" if name == "xl/worksheets/sheet1.xml" else source.read(name))
     with pytest.raises(ValueError):
         run(setup, output.getvalue())
+
+
+def test_repeated_stale_source_id_is_rejected_without_writes(setup):
+    db, _, _, _, _ = setup
+    before = snapshot(db)
+    content = workbook([{"Компания": "А", "ИНН": "123", "__crm_client_id": 777}, {"Компания": "Б", "ИНН": "456", "__crm_client_id": 777}], [{"Компания": "А", "__crm_client_id": 777, "Контактное лицо": "Анна", "Телефон": "123"}])
+    preview = run(setup, content)
+    assert preview["duplicateConflicts"] == 1
+    assert preview["errors"][0]["code"] == "duplicate_source_client_id"
+    with pytest.raises(ValueError):
+        run(setup, content, final=True, target_tab_id=None, new_tab_name="Не создавать")
+    assert snapshot(db) == before
+
+
+def test_distinct_stale_ids_keep_contacts_with_correct_companies(setup):
+    db, _, _, _, _ = setup
+    content = workbook([{"Компания": "А", "ИНН": "123", "__crm_client_id": 777}, {"Компания": "Б", "ИНН": "456", "__crm_client_id": 888}], [{"Компания": "Б", "__crm_client_id": 888, "Контактное лицо": "Борис", "Телефон": "222"}, {"Компания": "А", "__crm_client_id": 777, "Контактное лицо": "Анна", "Телефон": "111"}])
+    run(setup, content, final=True)
+    company_names = {c["id"]: c["document_name"] for c in rows(db, "crm_clients")}
+    assert {c["name"]: company_names[c["crm_client_id"]] for c in rows(db, "crm_contacts")} == {"Анна": "А", "Борис": "Б"}
+
+
+@pytest.mark.parametrize("original,changed,repeated", [
+    ({"document_name": "А", "inn": "123"}, {"ИНН": "456"}, {"ИНН": "456"}),
+    ({"document_name": "А", "phone": "111"}, {"Компания": "Б", "Телефон": "222"}, {"Компания": "б", "Телефон": "2-2-2"}),
+])
+def test_client_duplicates_match_planned_identity_and_block_all_writes(setup, original, changed, repeated):
+    db, repo, owner, _, _ = setup
+    card = repo.create_local_client(actor_id=owner, values=original)
+    content = workbook([dict(changed, __crm_client_id=card["id"]), repeated])
+    before = snapshot(db)
+    preview = run(setup, content)
+    assert preview["clientsToCreate"] == 0
+    assert preview["errors"][0]["code"] == "duplicate_client"
+    with pytest.raises(ValueError):
+        run(setup, content, final=True)
+    assert snapshot(db) == before
+
+
+def test_contact_duplicates_match_planned_identity_and_block_all_writes(setup):
+    db, repo, owner, _, _ = setup
+    card = repo.create_local_client(actor_id=owner, values={"document_name": "А", "inn": "123"})
+    contact = repo.add_contact_for_actor(actor_id=owner, owner_id=owner, client_id=card["id"], name="Анна", phone="111")
+    content = workbook([{"__crm_client_id": card["id"]}], [{"__crm_client_id": card["id"], "__crm_contact_id": contact["id"], "Контактное лицо": "Борис", "Телефон": "222"}, {"__crm_client_id": card["id"], "Контактное лицо": "борис", "Телефон": "2-2-2"}])
+    before = snapshot(db)
+    preview = run(setup, content)
+    assert preview["contactsToCreate"] == 0
+    assert preview["errors"][0]["code"] == "duplicate_contact"
+    with pytest.raises(ValueError):
+        run(setup, content, final=True)
+    assert snapshot(db) == before
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_last_explicit_primary_contact_is_stable_on_reimport(setup, existing):
+    db, repo, owner, _, _ = setup
+    if existing:
+        card = repo.create_local_client(actor_id=owner, values={"document_name": "А", "inn": "123"})
+        repo.add_contact_for_actor(actor_id=owner, owner_id=owner, client_id=card["id"], name="Анна", phone="111")
+        repo.add_contact_for_actor(actor_id=owner, owner_id=owner, client_id=card["id"], name="Борис", phone="222", is_primary=True)
+    content = workbook([{"Компания": "А", "ИНН": "123"}], [{"Компания": "А", "Контактное лицо": "Анна", "Телефон": "111", "Основной контакт": "Да"}, {"Компания": "А", "Контактное лицо": "Борис", "Телефон": "222", "Основной контакт": "Да"}])
+    for index in range(3):
+        result = run(setup, content, final=True)
+        assert {c["name"]: c["is_primary"] for c in rows(db, "crm_contacts")} == {"Анна": 0, "Борис": 1}
+        if index:
+            assert result["contactsToUpdate"] == result["contactsToCreate"] == 0
+
+
+def test_explicit_primary_wins_over_existing_primary_with_blank_source_cell(setup):
+    db, repo, owner, _, _ = setup
+    card = repo.create_local_client(actor_id=owner, values={"document_name": "А", "inn": "123"})
+    repo.add_contact_for_actor(actor_id=owner, owner_id=owner, client_id=card["id"], name="Борис", phone="222", is_primary=True)
+    content = workbook([{"Компания": "А", "ИНН": "123"}], [{"Компания": "А", "Контактное лицо": "Анна", "Телефон": "111", "Основной контакт": "Да"}, {"Компания": "А", "Контактное лицо": "Борис", "Телефон": "222"}])
+    for _ in range(3):
+        run(setup, content, final=True)
+        assert {c["name"]: c["is_primary"] for c in rows(db, "crm_contacts")} == {"Анна": 1, "Борис": 0}

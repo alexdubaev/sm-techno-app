@@ -158,6 +158,9 @@ def plan_crm_import(book: WorkbookRows, *, owner_id: int, target_tab_id: int | N
             error("Клиенты", row, "insufficient_identity", "Укажите ИНН либо компанию и телефон или почту.")
             continue
         key = existing["id"] if existing else -row["_row"]
+        if client_id in source_ids and source_ids[client_id] != key:
+            error("Клиенты", row, "duplicate_source_client_id", "Один исходный идентификатор указан для разных клиентов.", "__crm_client_id")
+            continue
         if key in seen:
             error("Клиенты", row, "duplicate_client", "Клиент повторяется в книге.")
             continue
@@ -182,6 +185,7 @@ def plan_crm_import(book: WorkbookRows, *, owner_id: int, target_tab_id: int | N
             continue
         if existing:
             preview["clientsToUpdate" if changes else "unchangedClients"] += 1
+            staged = [dict(c, **changes) if c["id"] == key else c for c in staged]
         else:
             preview["clientsToCreate"] += 1
             staged.append(dict(values, id=key, crm_owner_user_id=owner_id))
@@ -245,6 +249,19 @@ def plan_crm_import(book: WorkbookRows, *, owner_id: int, target_tab_id: int | N
         if not existing:
             preview["contactsToCreate"] += 1
             staged_contacts.append(dict(values, id=contact_key, crm_client_id=key, owner_user_id=owner_id))
-        elif changes:
+        else:
+            staged_contacts = [dict(c, **changes) if c["id"] == contact_key else c for c in staged_contacts]
+
+    # Resolve explicit primary choices as final state before computing deltas.
+    # The last explicitly primary row wins, independently of the stored primary.
+    last_primary = {action["key"]: index for index, action in enumerate(contact_actions)
+                    if action["values"].get("is_primary") == 1}
+    for index, action in enumerate(contact_actions):
+        values, existing = action["values"], action["existing"]
+        if values.get("is_primary") == 1:
+            values["is_primary"] = int(last_primary[action["key"]] == index)
+        action["changes"] = {field: value for field, value in values.items()
+                             if not existing or text(existing.get(field)) != text(value)}
+        if existing and action["changes"]:
             preview["contactsToUpdate"] += 1
     return dict(preview=preview, clients=client_actions, contacts=contact_actions)

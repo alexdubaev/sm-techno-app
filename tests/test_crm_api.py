@@ -78,6 +78,14 @@ class CrmApiTest(unittest.TestCase):
         with self.service.db.connect() as conn:
             self.assertEqual(0, conn.execute("SELECT COUNT(*) FROM crm_tabs WHERE name = 'Загрузка'").fetchone()[0])
 
+    def test_excel_rename_keeps_serialized_names_consistent(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Старое", "inn": "1234567890"}).json()
+        imported = self.client.post("/api/crm/import", data={"targetTabId": created["assignment"]["tabId"]}, files={"file": ("crm.xlsx", self.import_workbook())})
+        self.assertEqual(200, imported.status_code, imported.text)
+        card = self.client.get(f"/api/crm/clients/{created['client']['id']}").json()["client"]
+        self.assertEqual("Импорт API", card["documentName"])
+        self.assertEqual("Импорт API", card["name"])
+
     def test_excel_import_permissions_targets_and_invalid_file(self) -> None:
         files = {"file": ("crm.xlsx", self.import_workbook())}
         for path in ("/api/crm/import/preview", "/api/crm/import"):

@@ -120,6 +120,8 @@ class CrmRepository:
                     cursor = conn.execute(f"INSERT INTO crm_clients({columns}) VALUES ({placeholders})", tuple(fields.values()))
                     client_id = int(cursor.lastrowid)
                 elif changes:
+                    if "document_name" in changes:
+                        changes = dict(changes, name=changes["document_name"])
                     assignments_sql = ", ".join(f"{field} = ?" for field in changes)
                     conn.execute(f"UPDATE crm_clients SET {assignments_sql}, updated_at = ? WHERE id = ?", (*changes.values(), now, client_id))
                 ids[action["key"]] = client_id
