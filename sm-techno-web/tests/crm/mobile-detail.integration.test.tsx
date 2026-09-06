@@ -411,15 +411,6 @@ describe('mobile detail daily actions', () => {
       ],
       'Александра Константиновна Воронцова, Владимир Александрович Чернышёв',
     ],
-    [
-      'three owners in the expanded list',
-      [
-        { userId: 1, fullName: 'Иван Петров' },
-        { userId: 2, fullName: 'Алексей Смирнов' },
-        { userId: 3, fullName: 'Олег Сидоров' },
-      ],
-      'Иван Петров, Алексей Смирнов, Олег Сидоров',
-    ],
   ])('shows %s in a primary mobile card', (_caseName, workOwners, expected) => {
     render(
       <MobileClientCard
@@ -439,6 +430,32 @@ describe('mobile detail daily actions', () => {
     const ownerBlock = screen.getByText(expected).parentElement;
     expect(ownerBlock).toHaveClass('min-w-0');
     expect(ownerBlock).toHaveClass('[overflow-wrap:anywhere]');
+  });
+
+  it('expands three mobile owners independently of opening the client card', () => {
+    const onOpen = vi.fn();
+    render(<MobileClientCard
+      activeActionsClientId={null} activeTab="primary" canEditWorkspace={false}
+      client={{ ...client, workOwners: [
+        { userId: 1, fullName: 'Иван Петров' },
+        { userId: 2, fullName: 'Алексей Смирнов' },
+        { userId: 3, fullName: 'Олег Сидоров' },
+      ] }} color={null} tabs={[]} onColor={vi.fn()} onActionsOpenChange={vi.fn()}
+      onMove={vi.fn()} onOpen={onOpen}
+    />);
+    const trigger = screen.getByRole('button', { name: 'В работе у 3 сотрудников' });
+    expect(trigger.parentElement?.closest('button')).toBeNull();
+    expect(screen.queryByText('Олег Сидоров')).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: 'Сотрудники в работе' });
+    expect(dialog).toHaveTextContent('Иван Петров');
+    expect(dialog).toHaveTextContent('Алексей Смирнов');
+    expect(dialog).toHaveTextContent('Олег Сидоров');
+    expect(trigger).toHaveAttribute('aria-controls', dialog.id);
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: /^ООО Документ/ }));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: client.id }));
   });
 
   it('does not show work owners in a personal mobile tab', () => {

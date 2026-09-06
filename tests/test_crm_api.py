@@ -473,6 +473,29 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual([], items[archived_id]["workOwners"])
         self.assertEqual([], items[deleted_id]["workOwners"])
 
+    def test_primary_endpoint_loads_work_owners_once_for_all_returned_clients(self) -> None:
+        client_ids = []
+        for index in range(4):
+            client_id = self.client.post("/api/crm/clients", json={"documentName": f"Пакет {index}"}).json()["client"]["id"]
+            self.link_primary_client(client_id, 1200 + index)
+            client_ids.append(client_id)
+        original = CrmRepository.list_active_work_owners_for_client_ids
+        calls = []
+
+        def record_batch(repository, ids):
+            calls.append(list(ids))
+            return original(repository, ids)
+
+        with patch.object(CrmRepository, "list_active_work_owners_for_client_ids", new=record_batch):
+            response = self.client.get("/api/crm/clients?primaryOnly=true")
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(1, len(calls))
+        self.assertCountEqual(client_ids, calls[0])
+        self.assertEqual(4, len(response.json()["items"]))
+        for item in response.json()["items"]:
+            self.assertEqual([{"userId": self.owner_id, "fullName": ""}], item["workOwners"])
+
     def test_work_owner_repository_batches_large_client_id_inputs_in_one_query(self) -> None:
         repo = CrmRepository(self.service.db)
         client_ids = list(range(10_000, 10_250))

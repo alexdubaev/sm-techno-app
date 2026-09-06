@@ -109,50 +109,63 @@ export function MobileClientCard({
             <GripVertical aria-hidden="true" className="size-5" />
           </button>
         ) : null}
-        <button
-          type="button"
-          onClick={() => onOpen(client)}
-          disabled={dragControls !== undefined}
-          className="min-w-0 flex-1 rounded-[8px] text-left outline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:cursor-default"
-        >
-          <div className="flex items-start justify-between gap-2">
-            <h2 className="min-w-0 text-[15px] font-bold leading-5 tracking-[-0.02em] text-[var(--text-primary)] [overflow-wrap:anywhere]">
-              {companyName}
-            </h2>
-            <StatusBadge status={client.syncStatus} />
-          </div>
-          <p className="mt-1 text-[11px] leading-4 text-[var(--text-secondary)]">
-            {[
-              client.city || 'Город не указан',
-              client.inn ? `ИНН ${client.inn}` : 'ИНН не указан',
-            ].join(' · ')}
-          </p>
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => onOpen(client)}
+            disabled={dragControls !== undefined}
+            className="w-full min-w-0 rounded-[8px] text-left outline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:cursor-default"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h2 className="min-w-0 text-[15px] font-bold leading-5 tracking-[-0.02em] text-[var(--text-primary)] [overflow-wrap:anywhere]">
+                {companyName}
+              </h2>
+              <StatusBadge status={client.syncStatus} />
+            </div>
+            <p className="mt-1 text-[11px] leading-4 text-[var(--text-secondary)]">
+              {[
+                client.city || 'Город не указан',
+                client.inn ? `ИНН ${client.inn}` : 'ИНН не указан',
+              ].join(' · ')}
+            </p>
+          </button>
           {activeTab === 'primary' ? (
             <div className="mt-2 min-w-0 rounded-[9px] border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-1.5 text-[11px] font-semibold leading-4 text-[#0F766E] [overflow-wrap:anywhere]">
-              <span className="mr-1 text-[#2563EB]">В работе:</span>
               <WorkOwnersStatus owners={client.workOwners} variant="mobile" />
             </div>
           ) : null}
-          <p className="mt-2 text-[12px] font-semibold text-[var(--text-primary)]">
-            {client.contactPerson || 'Контактное лицо не указано'}
-          </p>
-          <p className="mt-0.5 text-[11px] leading-4 text-[var(--text-secondary)] [overflow-wrap:anywhere]">
-            {[client.phone, client.email].filter(Boolean).join(' · ') ||
-              'Телефон и почта не указаны'}
-          </p>
-          {nearestReminder ? (
-            <p className="mt-2 rounded-[9px] bg-[#FFF9E8] px-2 py-1.5 text-[11px] font-semibold text-[#7A4A00]">
-              Напомнить:{' '}
-              <time dateTime={nearestReminder.dueAt}>
-                {reminderDate.format(new Date(nearestReminder.dueAt))} МСК
-              </time>
+          <button
+            type="button"
+            aria-label={`Открыть карточку ${companyName}`}
+            onClick={() => onOpen(client)}
+            disabled={dragControls !== undefined}
+            className="w-full min-w-0 rounded-[8px] text-left outline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:cursor-default"
+          >
+            <p className="mt-2 text-[12px] font-semibold text-[var(--text-primary)]">
+              {client.contactPerson || 'Контактное лицо не указано'}
             </p>
-          ) : null}
-        </button>
+            <p className="mt-0.5 text-[11px] leading-4 text-[var(--text-secondary)] [overflow-wrap:anywhere]">
+              {[client.phone, client.email].filter(Boolean).join(' · ') ||
+                'Телефон и почта не указаны'}
+            </p>
+            {nearestReminder ? (
+              <p className="mt-2 rounded-[9px] bg-[#FFF9E8] px-2 py-1.5 text-[11px] font-semibold text-[#7A4A00]">
+                Напомнить:{' '}
+                <time dateTime={nearestReminder.dueAt}>
+                  {reminderDate.format(new Date(nearestReminder.dueAt))} МСК
+                </time>
+              </p>
+            ) : null}
+          </button>
+        </div>
       </div>
 
       {dragControls ||
-      (!client.phone && !mailtoHref && !client.telegram && !client.maxLink && !canEditWorkspace) ? null : (
+      (!client.phone &&
+        !mailtoHref &&
+        !client.telegram &&
+        !client.maxLink &&
+        !canEditWorkspace) ? null : (
         <div className="mt-3 flex items-center gap-2 border-t border-[var(--border-color)] pt-3">
           {client.phone ? (
             <a

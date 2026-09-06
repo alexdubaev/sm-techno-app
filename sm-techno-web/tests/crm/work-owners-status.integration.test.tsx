@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -6,6 +6,7 @@ import { WorkOwnersStatus } from "@/components/crm/work-owners-status";
 import { CrmWorkspace } from "@/components/crm-workspace";
 import * as api from "@/lib/api";
 import type { CrmWorkspaceClient } from "@/lib/types";
+import { readCrmWorkspaceCache } from "@/lib/crm-workspace-cache";
 
 const auth = vi.hoisted(() => ({
   user: { id: 7, username: "operator", role: "user" as const, fullName: "Оператор", onecUsername: "", hasOnecPassword: false, isActive: true, createdAt: "", updatedAt: "" },
@@ -26,6 +27,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   fetchCrmClients: vi.fn(),
   fetchCrmReminders: vi.fn(),
   fetchCrmSyncStatus: vi.fn(),
+  moveCrmClient: vi.fn(),
 }));
 
 const client: CrmWorkspaceClient = {
@@ -90,6 +92,47 @@ describe("WorkOwnersStatus", () => {
     expect(dialog).toHaveTextContent("Олег Сидоров");
   });
 
+  test("portals the full list outside a scrolling table and connects its trigger", async () => {
+    const user = userEvent.setup();
+    const view = render(<div style={{ overflow: "auto", height: 40 }}><table><tbody><tr><td>
+      <WorkOwnersStatus variant="desktop" owners={[
+        { userId: 1, fullName: "Иван Петров" },
+        { userId: 2, fullName: "Алексей Смирнов" },
+        { userId: 3, fullName: "Олег Сидоров" },
+      ]} />
+    </td></tr></tbody></table></div>);
+    const trigger = screen.getByRole("button", { name: "Иван Петров +2" });
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    const dialog = screen.getByRole("dialog", { name: "Сотрудники в работе" });
+    expect(view.container).not.toContainElement(dialog);
+    expect(trigger).toHaveAttribute("aria-controls", dialog.id);
+    expect(dialog.id).not.toBe("");
+    await user.click(within(dialog).getByText("Алексей Смирнов"));
+    expect(dialog).toBeVisible();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
+  test("uses an expandable count for two owners when the mobile viewport narrows", async () => {
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    try {
+      render(<WorkOwnersStatus variant="mobile" owners={[
+        { userId: 1, fullName: "Иван Петров" }, { userId: 2, fullName: "Алексей Смирнов" },
+      ]} />);
+      expect(screen.getByText("Иван Петров, Алексей Смирнов")).toBeVisible();
+      window.innerWidth = 360;
+      fireEvent(window, new Event("resize"));
+      await user.click(screen.getByRole("button", { name: "В работе у 2 сотрудников" }));
+      expect(screen.getByRole("dialog")).toHaveTextContent("Алексей Смирнов");
+    } finally {
+      window.innerWidth = originalWidth;
+      fireEvent(window, new Event("resize"));
+    }
+  });
+
   test("closes the full owner list with Escape and outside interaction", async () => {
     const user = userEvent.setup();
     render(<WorkOwnersStatus variant="desktop" owners={[
@@ -117,4 +160,24 @@ test("renders the work-owner status in desktop primary rows only", async () => {
   await user.click(screen.getByRole("button", { name: "В работе" }));
   await waitFor(() => expect(screen.queryByRole("columnheader", { name: "В работе" })).not.toBeInTheDocument());
   expect(screen.queryByText("Иван Петров")).not.toBeInTheDocument();
+});
+
+test("a successful move reloads primary owners and persists the fresh names in the workspace cache", async () => {
+  const user = userEvent.setup();
+  const freeClient = { ...client, workOwners: [] };
+  const savedAssignment = { id: 9, ownerId: 7, tabId: 3, tabName: "В работе", position: 1000, colorKey: null, version: 1, archivedAt: null, archivedReason: "" };
+  vi.mocked(api.fetchPrimaryCrmClients).mockResolvedValue({ ownerId: 7, items: [freeClient], orderVersion: 0 });
+  vi.mocked(api.moveCrmClient).mockImplementation(async () => {
+    vi.mocked(api.fetchPrimaryCrmClients).mockResolvedValue({ ownerId: 7, items: [{ ...freeClient, assignment: savedAssignment, workOwners: [{ userId: 7, fullName: "Оператор" }] }], orderVersion: 1 });
+    return savedAssignment;
+  });
+  render(<CrmWorkspace />);
+  const table = await screen.findByRole("table");
+  expect(within(table).getByText("Свободен")).toBeVisible();
+  expect(readCrmWorkspaceCache(7, "primary")?.clients[0].workOwners).toEqual([]);
+  await user.selectOptions(within(table).getByRole("combobox", { name: "Добавить ООО Тест во вкладку" }), "3");
+  await waitFor(() => expect(within(table).getByText("Оператор")).toBeVisible());
+  expect(api.moveCrmClient).toHaveBeenCalledWith(42, 3, 7);
+  expect(readCrmWorkspaceCache(7, "primary")?.clients[0].workOwners).toEqual([{ userId: 7, fullName: "Оператор" }]);
+  expect(readCrmWorkspaceCache(7, "primary")?.primaryOrderVersion).toBe(1);
 });
