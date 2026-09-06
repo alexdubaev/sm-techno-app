@@ -197,12 +197,21 @@ describe("desktop CRM Excel import", () => {
     expect(api.fetchCrmSyncStatus).toHaveBeenCalledTimes(syncStatusCallsBeforeVisibilityRace);
     expect(api.syncCrmWorkspace).not.toHaveBeenCalled();
 
-    // The local import transition includes the activation effect's own local
-    // reload. Once that deterministic setup has settled, a later visibility
-    // refresh must return to the ordinary stale-workspace policy.
+    // The activation effect's local reload can finish before the explicit
+    // post-import reload. Its completion alone must not reopen 1C freshness.
     await act(async () => {
-      resolveTargetLoads.forEach((resolve) => resolve());
+      resolveTargetLoads[1]!();
     });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(api.fetchCrmSyncStatus).toHaveBeenCalledTimes(syncStatusCallsBeforeVisibilityRace);
+    expect(api.syncCrmWorkspace).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveTargetLoads[0]!();
+    });
+    // Both deterministic local reloads are complete now, so a later
+    // visibility refresh returns to the ordinary stale-workspace policy.
     await waitFor(() => expect(screen.getByRole("button", { name: "Сентябрь" })).toHaveAttribute("aria-current", "page"));
     document.dispatchEvent(new Event("visibilitychange"));
     await waitFor(() => expect(api.syncCrmWorkspace).toHaveBeenCalledTimes(1));
