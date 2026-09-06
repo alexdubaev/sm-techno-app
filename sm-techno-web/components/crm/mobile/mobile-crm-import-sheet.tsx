@@ -1,12 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { importCrmFile, previewCrmImport } from '@/lib/api';
 import type { CrmImportPreview, CrmImportResult, CrmTab } from '@/lib/types';
 import { MobileSheet, mobileButton, mobileInput, mobilePanel } from '@/components/crm/mobile/mobile-sheets';
 
 type TargetKind = 'existing' | 'new';
+
+type ImportRequest = {
+  file: File;
+  ownerId: number;
+  targetTabId: number | null;
+  newTabName: string | null;
+  includeExistingClients: boolean;
+};
 
 type MobileCrmImportSheetProps = {
   ownerId: number;
@@ -27,16 +35,21 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
   const [newTabName, setNewTabName] = useState('');
   const [includeExistingClients, setIncludeExistingClients] = useState(true);
   const [preview, setPreview] = useState<CrmImportPreview | null>(null);
+  const [previewRequest, setPreviewRequest] = useState<ImportRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const previewVersion = useRef(0);
 
   const resetPreview = () => {
+    previewVersion.current += 1;
     setPreview(null);
+    setPreviewRequest(null);
     setError(null);
+    setIsPreviewing(false);
   };
 
-  const getPayload = () => {
+  const getPayload = (): ImportRequest | null => {
     if (!file) {
       setError('Выберите Excel-файл для проверки.');
       return null;
@@ -59,24 +72,32 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
   const checkFile = async () => {
     const request = getPayload();
     if (!request) return;
+    const requestVersion = previewVersion.current + 1;
+    previewVersion.current = requestVersion;
     setError(null);
+    setPreview(null);
+    setPreviewRequest(null);
     setIsPreviewing(true);
     try {
-      setPreview(await previewCrmImport(request));
+      const response = await previewCrmImport(request);
+      if (previewVersion.current !== requestVersion) return;
+      setPreview(response);
+      setPreviewRequest(request);
     } catch (requestError) {
-      setError(importErrorMessage(requestError));
+      if (previewVersion.current === requestVersion) {
+        setError(importErrorMessage(requestError));
+      }
     } finally {
-      setIsPreviewing(false);
+      if (previewVersion.current === requestVersion) setIsPreviewing(false);
     }
   };
 
   const confirmImport = async () => {
-    const request = getPayload();
-    if (!request || !preview || preview.errors.length > 0 || preview.duplicateConflicts > 0) return;
+    if (!preview || !previewRequest || preview.errors.length > 0 || preview.duplicateConflicts > 0) return;
     setError(null);
     setIsImporting(true);
     try {
-      const result = await importCrmFile(request);
+      const result = await importCrmFile(previewRequest);
       onImported(result);
       onClose();
     } catch (requestError) {
@@ -90,7 +111,8 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
   const targetLabel = targetKind === 'new'
     ? `Новая вкладка «${newTabName.trim() || 'Без названия'}»`
     : selectedTab?.name ?? 'Не выбрана';
-  const canImport = preview !== null && preview.errors.length === 0 && preview.duplicateConflicts === 0;
+  const canImport = preview !== null && previewRequest !== null && preview.errors.length === 0 && preview.duplicateConflicts === 0;
+  const isRequestLocked = isPreviewing || isImporting;
 
   return (
     <MobileSheet
@@ -108,6 +130,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
             aria-label="Выбрать Excel"
             type="file"
             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            disabled={isRequestLocked}
             onChange={(event) => {
               setFile(event.target.files?.[0] ?? null);
               resetPreview();
@@ -125,6 +148,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
                 type="radio"
                 name="crm-import-target"
                 checked={targetKind === 'existing' && targetTabId === tab.id}
+                disabled={isRequestLocked}
                 onChange={() => {
                   setTargetKind('existing');
                   setTargetTabId(tab.id);
@@ -142,6 +166,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
               type="radio"
               name="crm-import-target"
               checked={targetKind === 'new'}
+              disabled={isRequestLocked}
               onChange={() => {
                 setTargetKind('new');
                 resetPreview();
@@ -156,6 +181,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
               <input
                 aria-label="Название новой вкладки"
                 value={newTabName}
+                disabled={isRequestLocked}
                 onChange={(event) => {
                   setNewTabName(event.target.value);
                   resetPreview();
@@ -170,6 +196,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
           <input
             type="checkbox"
             checked={includeExistingClients}
+            disabled={isRequestLocked}
             onChange={(event) => {
               setIncludeExistingClients(event.target.checked);
               resetPreview();
@@ -179,7 +206,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
           <span>Добавить найденных клиентов в целевую вкладку</span>
         </label>
 
-        <button type="button" onClick={checkFile} disabled={isPreviewing || isImporting} className={`${mobileButton} border-transparent bg-[var(--brand-yellow)] text-[var(--brand-dark)]`}>
+        <button type="button" onClick={checkFile} disabled={isRequestLocked} className={`${mobileButton} border-transparent bg-[var(--brand-yellow)] text-[var(--brand-dark)]`}>
           {isPreviewing ? 'Проверяем…' : 'Проверить файл'}
         </button>
 

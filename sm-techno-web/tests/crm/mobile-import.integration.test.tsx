@@ -112,9 +112,21 @@ function openImport() {
 }
 
 function selectFile() {
-  fireEvent.change(screen.getByLabelText('Выбрать Excel'), {
-    target: { files: [new File(['xlsx'], 'clients.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })] },
+  const file = new File(['xlsx'], 'clients.xlsx', {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
+  fireEvent.change(screen.getByLabelText('Выбрать Excel'), {
+    target: { files: [file] },
+  });
+  return file;
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 describe('mobile CRM Excel import', () => {
@@ -176,6 +188,62 @@ describe('mobile CRM Excel import', () => {
     expect(within(sheet).getByText('Клиенты, строка 4: ИНН указан неверно')).toBeInTheDocument();
     expect(within(sheet).getByText('Без изменений: 0')).toBeInTheDocument();
     expect(within(sheet).queryByRole('button', { name: /Импортировать/ })).not.toBeInTheDocument();
+    expect(api.importCrmFile).not.toHaveBeenCalled();
+  });
+
+  it('keeps a deferred preview request immutable and imports its captured payload', async () => {
+    const deferredPreview = createDeferred<CrmImportPreview>();
+    const result: CrmImportResult = {
+      ...preview,
+      targetTab: { id: 8, name: 'В работе', systemKind: 'work' },
+    };
+    vi.mocked(api.previewCrmImport).mockReturnValue(deferredPreview.promise);
+    vi.mocked(api.importCrmFile).mockResolvedValue(result);
+    renderWorkspace();
+
+    openImport();
+    const file = selectFile();
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить файл' }));
+    await waitFor(() => expect(api.previewCrmImport).toHaveBeenCalledOnce());
+
+    const fileInput = screen.getByLabelText('Выбрать Excel');
+    const existingTarget = screen.getByRole('radio', { name: /Приоритет/ });
+    const newTarget = screen.getByLabelText('Новая вкладка');
+    const includeExisting = screen.getByLabelText('Добавить найденных клиентов в целевую вкладку');
+    expect(fileInput).toBeDisabled();
+    expect(existingTarget).toBeDisabled();
+    expect(newTarget).toBeDisabled();
+    expect(includeExisting).toBeDisabled();
+
+    deferredPreview.resolve(preview);
+    await screen.findByRole('button', { name: 'Импортировать 2 клиента' });
+    fireEvent.click(screen.getByRole('button', { name: 'Импортировать 2 клиента' }));
+
+    await waitFor(() => expect(api.importCrmFile).toHaveBeenCalledWith({
+      file,
+      ownerId: 7,
+      targetTabId: 8,
+      newTabName: null,
+      includeExistingClients: true,
+    }));
+  });
+
+  it('ignores a stale deferred preview after its request inputs are reset', async () => {
+    const deferredPreview = createDeferred<CrmImportPreview>();
+    vi.mocked(api.previewCrmImport).mockReturnValue(deferredPreview.promise);
+    renderWorkspace();
+
+    openImport();
+    selectFile();
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить файл' }));
+    await waitFor(() => expect(api.previewCrmImport).toHaveBeenCalledOnce());
+    fireEvent.change(screen.getByLabelText('Выбрать Excel'), {
+      target: { files: [new File(['replacement'], 'replacement.xlsx')] },
+    });
+    deferredPreview.resolve(preview);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Проверить файл' })).not.toBeDisabled());
+    expect(screen.queryByRole('button', { name: /Импортировать/ })).not.toBeInTheDocument();
     expect(api.importCrmFile).not.toHaveBeenCalled();
   });
 
