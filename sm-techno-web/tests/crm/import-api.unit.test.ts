@@ -62,7 +62,8 @@ describe("CRM Excel import API", () => {
       includeExistingClients: false,
     })).resolves.toEqual(preview);
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = (fetchMock.mock.calls as unknown as [string, RequestInit][])[0];
     expect(url).toBe("/api/crm/import/preview?ownerId=17");
     expect(init.method).toBe("POST");
     expect(expectMultipartHeaders(init.headers).get("Authorization")).toBe("Bearer operator-token");
@@ -89,7 +90,8 @@ describe("CRM Excel import API", () => {
       newTabName: "Новые клиенты",
     })).resolves.toEqual(result);
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = (fetchMock.mock.calls as unknown as [string, RequestInit][])[0];
     expect(url).toBe("/api/crm/import");
     expect(init.method).toBe("POST");
     expectMultipartHeaders(init.headers);
