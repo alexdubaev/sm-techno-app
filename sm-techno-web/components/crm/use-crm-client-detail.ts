@@ -178,7 +178,9 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       fetchCrmEvents(currentClient.id, ownerId),
       fetchCrmReminders(ownerId),
       fetchCrmAudit(currentClient.id, ownerId),
-      fetchCrmLinkCandidates(currentClient.id, ownerId),
+      currentClient.linkedCounterpartyId === null
+        ? fetchCrmLinkCandidates(currentClient.id, ownerId)
+        : Promise.resolve<CrmLinkCandidate[]>([]),
       fetchCrmSyncConflicts(currentClient.id, ownerId),
     ])
       .then(([nextContacts, nextEvents, nextReminders, nextAudit, nextCandidates, nextConflicts]) => {

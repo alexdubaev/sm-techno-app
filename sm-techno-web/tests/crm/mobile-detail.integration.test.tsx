@@ -145,6 +145,20 @@ describe('mobile detail daily actions', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.fetchCrmContacts).not.toHaveBeenCalled();
   });
+
+  it('does not request link candidates for a client already linked to 1C', async () => {
+    await openDetail({
+      client: {
+        ...client,
+        linkedCounterpartyId: 91,
+        syncStatus: 'synced',
+      },
+    });
+
+    expect(api.fetchCrmLinkCandidates).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('adds a primary contact, keeps clickable channels, and refreshes the owner workspace', async () => {
     await openDetail();
     expect(
