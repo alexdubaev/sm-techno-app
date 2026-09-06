@@ -67,3 +67,15 @@ Next regenerated `next-env.d.ts` by removing `vinext/types/augmentations`; the i
 - Backend tests emit the existing Starlette/AnyIO deprecation warning; the auth suite emits JSDOM's existing navigation-not-implemented notice. Both suites pass.
 - Focused suites, auth/API integration, typecheck, and build were run here. The earlier verification report/ledger records the unrelated full-Node-suite navigation source assertion failure; this fix does not modify that unrelated test.
 - No live 1C service was contacted; tests use controlled HTTP/1C boundaries and real local code/SQLite behavior.
+
+## Final test-only validation follow-up
+
+The requested follow-up resolves the full-Node-suite limitation recorded above. Only `sm-techno-web/tests/navigation-links.test.mjs` and this report changed; product code is unchanged. Its import, CRM router action, and empty-string assertions now accept either quote style while continuing to check the same navigation constructs.
+
+Before the edit, `node --test tests/navigation-links.test.mjs` failed **1/1**: the assertion required `import Link from "next/link";`, while the production import uses equivalent single quotes. After the edit, commands run from `sm-techno-web` returned:
+
+- `node --test tests/*.test.mjs`: **64 passed, 0 failed**, exit 0.
+- `npm run test:auth`: **8 files, 56 tests passed**, exit 0; existing JSDOM navigation notice only.
+- `git diff --check`: exit 0.
+
+The standalone full Node suite is now green, with no remaining navigation quote-style validation failure.
