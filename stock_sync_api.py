@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from stock_sync_web.service import CRM_LOCAL_ONLY_POLICY_MESSAGE, WebStockSyncService, create_default_service
 from stock_sync_web.crm_export import build_crm_export_xlsx
+from stock_sync_web.crm_import import ImportValidationError
 from stock_sync_web.crm_repository import CrmRepository
 
 
@@ -1473,6 +1474,50 @@ def retry_crm_client_onec_create(
         raise ValueError(CRM_LOCAL_ONLY_POLICY_MESSAGE)
     except Exception as exc:
         _crm_error(exc)
+
+
+async def _import_crm_excel_upload(*, preview: bool, file: UploadFile, target_tab_id: int | None,
+                                   new_tab_name: str | None, include_existing_clients: bool,
+                                   owner_id: int | None, current_user: dict[str, Any]) -> dict[str, Any]:
+    repo, actor_id, resolved_owner = _crm_context(current_user, owner_id)
+    try:
+        repo._require_workspace_write(actor_id, resolved_owner)
+        content = await _read_upload_with_limit(file)
+        method = repo.preview_excel_import_for_actor if preview else repo.import_excel_for_actor
+        return method(actor_id=actor_id, owner_id=resolved_owner, content=content,
+                      target_tab_id=target_tab_id, new_tab_name=new_tab_name,
+                      include_existing_clients=include_existing_clients)
+    except ImportValidationError as exc:
+        raise HTTPException(status_code=400, detail=exc.preview) from exc
+    except (PermissionError, ValueError) as exc:
+        _crm_error(exc)
+    raise AssertionError("unreachable")
+
+
+@app.post("/api/crm/import/preview")
+async def preview_crm_excel_import(
+    file: UploadFile = File(...), target_tab_id: int | None = Form(None, alias="targetTabId"),
+    new_tab_name: str | None = Form(None, alias="newTabName"),
+    include_existing_clients: bool = Form(True, alias="includeExistingClients"),
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    return await _import_crm_excel_upload(preview=True, file=file, target_tab_id=target_tab_id,
+                                        new_tab_name=new_tab_name, include_existing_clients=include_existing_clients,
+                                        owner_id=owner_id, current_user=current_user)
+
+
+@app.post("/api/crm/import")
+async def import_crm_excel(
+    file: UploadFile = File(...), target_tab_id: int | None = Form(None, alias="targetTabId"),
+    new_tab_name: str | None = Form(None, alias="newTabName"),
+    include_existing_clients: bool = Form(True, alias="includeExistingClients"),
+    owner_id: int | None = Query(None, alias="ownerId"),
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    return await _import_crm_excel_upload(preview=False, file=file, target_tab_id=target_tab_id,
+                                        new_tab_name=new_tab_name, include_existing_clients=include_existing_clients,
+                                        owner_id=owner_id, current_user=current_user)
 
 
 @app.get("/api/crm/export")

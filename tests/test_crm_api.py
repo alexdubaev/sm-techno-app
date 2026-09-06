@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from io import BytesIO
 
 os.environ.setdefault("SM_TECHNO_INITIAL_ADMIN_PASSWORD", "crm-api-test-password")
@@ -41,6 +41,61 @@ class CrmApiTest(unittest.TestCase):
 
     def as_user(self, user_id: int, role: str = "user") -> None:
         self.current_user = {"id": user_id, "role": role, "username": "test"}
+
+    @staticmethod
+    def import_workbook(*, valid: bool = True) -> bytes:
+        book = Workbook()
+        book.active.title = "Клиенты"
+        book.active.append(["Компания", "ИНН"])
+        book.active.append(["Импорт API", "1234567890" if valid else None])
+        output = BytesIO()
+        book.save(output)
+        return output.getvalue()
+
+    def test_excel_import_preview_and_final_use_multipart_without_onec_calls(self) -> None:
+        from unittest.mock import patch
+        content = self.import_workbook()
+        data = {"newTabName": "Загрузка", "includeExistingClients": "false"}
+        files = {"file": ("crm.xlsx", content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+        with patch.object(self.service, "sync_crm_counterparties_for_user", side_effect=AssertionError("1C invoked")) as sync_spy:
+            preview = self.client.post("/api/crm/import/preview", data=data, files=files)
+            self.assertEqual(200, preview.status_code, preview.text)
+            self.assertEqual(1, preview.json()["clientsToCreate"])
+            with self.service.db.connect() as conn:
+                self.assertEqual(0, conn.execute("SELECT COUNT(*) FROM crm_clients").fetchone()[0])
+            imported = self.client.post("/api/crm/import", data=data, files=files)
+            self.assertEqual(200, imported.status_code, imported.text)
+            self.assertEqual("Загрузка", imported.json()["targetTab"]["name"])
+            self.assertEqual(0, sync_spy.call_count)
+
+    def test_excel_final_revalidates_workbook_and_returns_structured_errors(self) -> None:
+        valid_files = {"file": ("crm.xlsx", self.import_workbook())}
+        data = {"newTabName": "Загрузка"}
+        self.assertEqual(200, self.client.post("/api/crm/import/preview", data=data, files=valid_files).status_code)
+        rejected = self.client.post("/api/crm/import", data=data, files={"file": ("crm.xlsx", self.import_workbook(valid=False))})
+        self.assertEqual(400, rejected.status_code)
+        self.assertEqual("insufficient_identity", rejected.json()["detail"]["errors"][0]["code"])
+        with self.service.db.connect() as conn:
+            self.assertEqual(0, conn.execute("SELECT COUNT(*) FROM crm_tabs WHERE name = 'Загрузка'").fetchone()[0])
+
+    def test_excel_rename_keeps_serialized_names_consistent(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Старое", "inn": "1234567890"}).json()
+        imported = self.client.post("/api/crm/import", data={"targetTabId": created["assignment"]["tabId"]}, files={"file": ("crm.xlsx", self.import_workbook())})
+        self.assertEqual(200, imported.status_code, imported.text)
+        card = self.client.get(f"/api/crm/clients/{created['client']['id']}").json()["client"]
+        self.assertEqual("Импорт API", card["documentName"])
+        self.assertEqual("Импорт API", card["name"])
+
+    def test_excel_import_permissions_targets_and_invalid_file(self) -> None:
+        files = {"file": ("crm.xlsx", self.import_workbook())}
+        for path in ("/api/crm/import/preview", "/api/crm/import"):
+            self.assertEqual(400, self.client.post(path, files=files).status_code)
+            self.assertEqual(403, self.client.post(f"{path}?ownerId={self.other_id}", files=files, data={"newTabName": "Загрузка"}).status_code)
+            self.as_user(self.admin_id, "admin")
+            self.assertEqual(403, self.client.post(f"{path}?ownerId={self.owner_id}", files=files, data={"newTabName": "Загрузка"}).status_code)
+            self.as_user(self.owner_id)
+        malformed = self.client.post("/api/crm/import/preview", files={"file": ("broken.xlsx", b"broken")}, data={"newTabName": "Загрузка"})
+        self.assertEqual(400, malformed.status_code)
 
     def create_open_sync_conflict(self) -> tuple[int, dict[str, object]]:
         created = self.client.post("/api/crm/clients", json={"documentName": "Базовое имя"}).json()

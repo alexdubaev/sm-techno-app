@@ -14,6 +14,7 @@ from typing import Any
 
 from stock_sync_desktop.database import utc_now
 from stock_sync_web.database import WebDatabase
+from stock_sync_web.crm_import import ImportValidationError, plan_crm_import, read_crm_workbook
 
 
 CRM_COLOR_KEYS = frozenset({
@@ -46,6 +47,113 @@ class CrmRepository:
 
     def __init__(self, db: WebDatabase) -> None:
         self.db = db
+
+    def _excel_import_plan(self, conn: sqlite3.Connection, book: Any, *, owner_id: int,
+                           target_tab_id: int | None, new_tab_name: str | None,
+                           include_existing_clients: bool) -> dict[str, Any]:
+        name = (new_tab_name or "").strip() or None
+        if (target_tab_id is not None) == (name is not None):
+            raise ValueError("Выберите одну целевую вкладку или укажите название новой.")
+        if target_tab_id is not None:
+            tab = conn.execute("SELECT * FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (target_tab_id, owner_id)).fetchone()
+            if not tab or tab["system_kind"] not in {"work", "custom"} or tab["name"].strip().casefold() == "клиенты 1с":
+                raise ValueError("Выберите личную рабочую вкладку выбранного владельца.")
+        else:
+            name = self._validate_custom_tab_name(name)
+            existing_names = conn.execute("SELECT name FROM crm_tabs WHERE owner_user_id = ?", (owner_id,)).fetchall()
+            if any(row["name"].casefold() == name.casefold() for row in existing_names):
+                raise ValueError("Вкладка с таким названием уже существует.")
+        return plan_crm_import(
+            book, owner_id=owner_id, target_tab_id=target_tab_id, new_tab_name=name,
+            include_existing_clients=include_existing_clients,
+            clients=[dict(row) for row in conn.execute("SELECT * FROM crm_clients")],
+            contacts=[dict(row) for row in conn.execute("SELECT * FROM crm_contacts WHERE owner_user_id = ?", (owner_id,))],
+            assignments=[dict(row) for row in conn.execute("SELECT * FROM crm_assignments WHERE owner_user_id = ?", (owner_id,))],
+            colors=CRM_COLOR_KEYS,
+        )
+
+    def preview_excel_import_for_actor(self, *, actor_id: int, owner_id: int, content: bytes,
+                                       target_tab_id: int | None = None, new_tab_name: str | None = None,
+                                       include_existing_clients: bool = True) -> dict[str, Any]:
+        self._require_workspace_write(actor_id, owner_id)
+        book = read_crm_workbook(content)
+        conn = self.db.connect()
+        try:
+            return self._excel_import_plan(conn, book, owner_id=owner_id, target_tab_id=target_tab_id,
+                                           new_tab_name=new_tab_name, include_existing_clients=include_existing_clients)["preview"]
+        finally:
+            conn.close()
+
+    def import_excel_for_actor(self, *, actor_id: int, owner_id: int, content: bytes,
+                               target_tab_id: int | None = None, new_tab_name: str | None = None,
+                               include_existing_clients: bool = True) -> dict[str, Any]:
+        """Revalidate and commit all workbook changes in one local-only transaction."""
+        self._require_workspace_write(actor_id, owner_id)
+        book = read_crm_workbook(content)
+        now = utc_now()
+        with self.db.transaction() as conn:
+            # Reserve the writer before reading matching candidates so another
+            # import cannot create duplicates between this plan and its writes.
+            conn.execute("BEGIN IMMEDIATE")
+            plan = self._excel_import_plan(conn, book, owner_id=owner_id, target_tab_id=target_tab_id,
+                                          new_tab_name=new_tab_name, include_existing_clients=include_existing_clients)
+            preview = plan["preview"]
+            if preview["errors"] or preview["duplicateConflicts"]:
+                raise ImportValidationError(preview)
+            if target_tab_id is None:
+                order = conn.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM crm_tabs WHERE owner_user_id = ?", (owner_id,)).fetchone()[0]
+                cursor = conn.execute("INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at) VALUES (?, ?, 'custom', ?, ?, ?)", (owner_id, preview["target"]["newTabName"], order, now, now))
+                target_tab_id = int(cursor.lastrowid)
+            ids: dict[int, int] = {}
+            for action in plan["clients"]:
+                if action["skipped"]:
+                    continue
+                values, changes = action["values"], action["changes"]
+                client_id = action["key"]
+                if not action["existing"]:
+                    # Omit linked_counterparty_id entirely: its schema default is NULL.
+                    company = values.get("document_name") or f"ИНН {values['inn']}"
+                    fields = dict(values, name=company, document_name=company, full_name=company,
+                                  crm_owner_user_id=owner_id, sync_status="local", created_at=now, updated_at=now)
+                    columns = ", ".join(fields)
+                    placeholders = ", ".join("?" for _ in fields)
+                    cursor = conn.execute(f"INSERT INTO crm_clients({columns}) VALUES ({placeholders})", tuple(fields.values()))
+                    client_id = int(cursor.lastrowid)
+                elif changes:
+                    if "document_name" in changes:
+                        changes = dict(changes, name=changes["document_name"])
+                    assignments_sql = ", ".join(f"{field} = ?" for field in changes)
+                    conn.execute(f"UPDATE crm_clients SET {assignments_sql}, updated_at = ? WHERE id = ?", (*changes.values(), now, client_id))
+                ids[action["key"]] = client_id
+                assignment = action["assignment"]
+                if not action["assign"]:
+                    if assignment and not assignment["archived_at"] and assignment["tab_id"] == target_tab_id and action["color"]:
+                        self._append_personal_preference(conn, owner_id, target_tab_id, client_id, color_key=action["color"])
+                    continue
+                old_color = None
+                if assignment and assignment["tab_id"] != target_tab_id:
+                    preference = conn.execute("SELECT color_key FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, assignment["tab_id"], client_id)).fetchone()
+                    old_color = preference["color_key"] if preference else None
+                    conn.execute("UPDATE crm_assignments SET tab_id = ?, updated_at = ? WHERE id = ?", (target_tab_id, now, assignment["id"]))
+                    conn.execute("DELETE FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, assignment["tab_id"], client_id))
+                elif not assignment:
+                    conn.execute("INSERT INTO crm_assignments(owner_user_id, crm_client_id, tab_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, target_tab_id, now, now))
+                self._append_personal_preference(conn, owner_id, target_tab_id, client_id, color_key=action["color"] or old_color)
+            for action in plan["contacts"]:
+                client_id = ids[action["key"]]
+                changes = action["changes"]
+                if not changes:
+                    continue
+                if changes.get("is_primary"):
+                    conn.execute("UPDATE crm_contacts SET is_primary = 0, updated_at = ? WHERE owner_user_id = ? AND crm_client_id = ? AND is_primary = 1", (now, owner_id, client_id))
+                if action["existing"]:
+                    assignments_sql = ", ".join(f"{field} = ?" for field in changes)
+                    conn.execute(f"UPDATE crm_contacts SET {assignments_sql}, updated_at = ? WHERE id = ? AND owner_user_id = ?", (*changes.values(), now, action["existing"]["id"], owner_id))
+                else:
+                    values = action["values"]
+                    conn.execute("INSERT INTO crm_contacts(owner_user_id, crm_client_id, name, phone, email, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (owner_id, client_id, values["name"], values.get("phone"), values.get("email"), values.get("is_primary", 0), now, now))
+            tab = conn.execute("SELECT id, name, system_kind FROM crm_tabs WHERE id = ?", (target_tab_id,)).fetchone()
+            return dict(preview, targetTab=dict(id=tab["id"], name=tab["name"], systemKind=tab["system_kind"]))
 
     @staticmethod
     def resolve_owner(*, actor_id: int, actor_is_admin: bool, requested_owner_id: int | None) -> int:

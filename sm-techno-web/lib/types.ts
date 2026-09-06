@@ -233,6 +233,32 @@ export type CrmPrimaryListResponse = {
   orderVersion: number;
 };
 
+export type CrmImportRowError = {
+  sheet: "Клиенты" | "Контакты";
+  row: number;
+  field?: string;
+  code: string;
+  message: string;
+};
+
+export type CrmImportPreview = {
+  ownerId: number;
+  target: { tabId: number | null; newTabName: string | null };
+  clientsToCreate: number;
+  clientsToUpdate: number;
+  unchangedClients: number;
+  clientsToAssign: number;
+  contactsToCreate: number;
+  contactsToUpdate: number;
+  duplicateConflicts: number;
+  skippedOneCLinked: number;
+  errors: CrmImportRowError[];
+};
+
+export type CrmImportResult = CrmImportPreview & {
+  targetTab: { id: number; name: string; systemKind: "work" | "custom" };
+};
+
 export type CrmContact = {
   id: number;
   name: string;

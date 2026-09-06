@@ -10,6 +10,8 @@
   CrmAuditAction,
   CrmContact,
   CrmEvent,
+  CrmImportPreview,
+  CrmImportResult,
   CrmLinkCandidate,
   CrmPrimaryListResponse,
   CrmPrimaryRowPreference,
@@ -276,6 +278,14 @@ export type CrmClientsQuery = {
   ownerId?: number;
   tabId?: number;
   primaryOnly?: boolean;
+};
+
+type CrmImportPayload = {
+  file: File;
+  ownerId?: number;
+  targetTabId?: number | null;
+  newTabName?: string | null;
+  includeExistingClients?: boolean;
 };
 
 export type ResolveCrmSyncConflictPayload = {
@@ -854,6 +864,44 @@ export async function downloadCrmExportFile(params: {
     `/api/crm/export${buildCrmQuery({ scope: params.scope, tabId: params.tabId, ownerId: params.ownerId })}`,
     "Не удалось выгрузить CRM в Excel.",
     "crm_export.xlsx",
+  );
+}
+
+async function postCrmImport<T>(
+  path: "/api/crm/import/preview" | "/api/crm/import",
+  payload: CrmImportPayload,
+  fallbackMessage: string,
+): Promise<T> {
+  const body = new FormData();
+  body.append("file", payload.file);
+  if (payload.targetTabId !== undefined && payload.targetTabId !== null) {
+    body.append("targetTabId", String(payload.targetTabId));
+  }
+  if (payload.newTabName !== undefined && payload.newTabName !== null) {
+    body.append("newTabName", payload.newTabName);
+  }
+  body.append("includeExistingClients", String(payload.includeExistingClients ?? true));
+
+  return requestJsonWithInit<T>(
+    `${path}${buildCrmQuery({ ownerId: payload.ownerId })}`,
+    { method: "POST", body },
+    fallbackMessage,
+  );
+}
+
+export async function previewCrmImport(payload: CrmImportPayload): Promise<CrmImportPreview> {
+  return postCrmImport(
+    "/api/crm/import/preview",
+    payload,
+    "Не удалось проверить CRM Excel файл.",
+  );
+}
+
+export async function importCrmFile(payload: CrmImportPayload): Promise<CrmImportResult> {
+  return postCrmImport(
+    "/api/crm/import",
+    payload,
+    "Не удалось импортировать CRM Excel файл.",
   );
 }
 
