@@ -12,7 +12,7 @@ def workbook(clients, contacts=()):
     book = Workbook()
     sheet = book.active
     sheet.title = "Клиенты"
-    headers = ["Компания", "ИНН", "КПП", "Город", "Сайт", "Основной контакт", "Телефон", "Почта", "Комментарий", "__crm_client_id", "__color_key", "__export_version"]
+    headers = ["Компания", "ИНН", "КПП", "Город", "Сайт", "Основной контакт", "Телефон", "Почта", "Telegram", "MAX", "Комментарий", "__crm_client_id", "__color_key", "__export_version"]
     sheet.append(headers)
     for row in clients:
         sheet.append([row.get(key) for key in headers])
@@ -31,7 +31,7 @@ def legacy_workbook(clients, contacts=()):
     book = Workbook()
     sheet = book.active
     sheet.title = "Клиенты"
-    client_headers = ["Компания", "ИНН", "КПП", "Город", "Сайт", "Основной контакт", "Телефон", "Почта", "Комментарий"]
+    client_headers = ["Компания", "ИНН", "КПП", "Город", "Сайт", "Основной контакт", "Телефон", "Почта", "Telegram", "MAX", "Комментарий"]
     sheet.append(client_headers)
     for row in clients:
         sheet.append([row.get(key) for key in client_headers])
@@ -102,6 +102,21 @@ def test_name_and_phone_only_client_is_imported_as_local_card(setup):
     assert (card["document_name"], card["phone"], card["crm_owner_user_id"], card["sync_status"], card["linked_counterparty_id"]) == (
         "Только имя и телефон", "+7 (900) 123-45-67", owner, "local", None,
     )
+
+
+def test_import_preserves_telegram_and_max_contacts(setup):
+    """Ignoring optional messenger columns would make a round-trip lose contact links."""
+    db, _, _, _, _ = setup
+    result = run(setup, workbook([{
+        "Компания": "Мессенджер-клиент",
+        "Телефон": "+7 900 000-00-01",
+        "Telegram": "@messenger_client",
+        "MAX": "https://max.ru/messenger_client",
+    }]), final=True)
+
+    assert result["clientsToCreate"] == 1
+    card = rows(db, "crm_clients")[0]
+    assert (card["telegram"], card["max_link"]) == ("@messenger_client", "https://max.ru/messenger_client")
 
 
 def test_legacy_workbook_without_hidden_columns_is_supported(setup):

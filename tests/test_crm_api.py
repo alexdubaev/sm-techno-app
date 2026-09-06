@@ -1056,6 +1056,8 @@ class CrmApiTest(unittest.TestCase):
                 "contactPerson": "Анна",
                 "email": "anna@example.test",
                 "phone": "+7 900 000-00-00",
+                "telegram": "@anna_company",
+                "maxLink": "https://max.ru/anna_company",
                 "notes": "Перезвонить после выставки",
             },
         )
@@ -1064,17 +1066,19 @@ class CrmApiTest(unittest.TestCase):
         contacts = self.client.get(f"/api/crm/clients/{client_id}/contacts")
         events = self.client.get(f"/api/crm/clients/{client_id}/events")
         with self.service.db.connect() as conn:
-            card = conn.execute("SELECT contact_person, email, phone, notes FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+            card = conn.execute("SELECT contact_person, email, phone, notes, telegram, max_link FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
 
         self.assertEqual(201, created.status_code)
         self.assertEqual("", created.json()["client"]["email"])
         self.assertEqual("", created.json()["client"]["phone"])
+        self.assertEqual("@anna_company", created.json()["client"]["telegram"])
+        self.assertEqual("https://max.ru/anna_company", created.json()["client"]["maxLink"])
         self.assertEqual([{"name": "Анна", "email": "anna@example.test", "phone": "+7 900 000-00-00", "isPrimary": True}], [
             {key: contact[key] for key in ("name", "email", "phone", "isPrimary")}
             for contact in contacts.json()["items"]
         ])
         self.assertEqual(["Перезвонить после выставки"], [event["body"] for event in events.json()["items"]])
-        self.assertEqual((None, None, None, None), tuple(card))
+        self.assertEqual((None, None, None, None, "@anna_company", "https://max.ru/anna_company"), tuple(card))
 
     def test_create_lead_rolls_back_all_rows_when_initial_comment_insert_fails(self) -> None:
         with self.service.db.transaction() as conn:

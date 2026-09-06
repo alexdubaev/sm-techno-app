@@ -127,6 +127,8 @@ export type MobileNewClientForm = {
   contactPerson: string;
   phone: string;
   email: string;
+  telegram: string;
+  maxLink: string;
   notes: string;
 };
 
@@ -191,6 +193,16 @@ export function MobileNewClientSheet({
           autoComplete="email"
           value={form.email}
           onChange={(event) => update('email', event.target.value)}
+        />
+        <MobileField
+          label="Telegram (username, ссылка или номер)"
+          value={form.telegram}
+          onChange={(event) => update('telegram', event.target.value)}
+        />
+        <MobileField
+          label="MAX (ссылка)"
+          value={form.maxLink}
+          onChange={(event) => update('maxLink', event.target.value)}
         />
         <label className="grid gap-1.5 text-sm font-medium">
           <span>Комментарий</span>
@@ -303,6 +315,8 @@ export function MobileRequisitesSheet({
     ['city', 'Город'],
     ['phone', 'Телефон компании'],
     ['email', 'Email компании'],
+    ['telegram', 'Telegram (username, ссылка или номер)'],
+    ['maxLink', 'MAX (ссылка)'],
   ] as const;
   const submit = async (event: SubmitEvent<HTMLFormElement>) => {
     if (await saveCompanyRequisites(event)) onClose();

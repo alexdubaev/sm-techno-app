@@ -183,6 +183,8 @@ export type CrmWorkspaceClient = {
   contactPerson: string;
   email: string;
   phone: string;
+  telegram?: string;
+  maxLink?: string;
   notes: string;
   linkedCounterpartyId: number | null;
   syncStatus: "local" | "synced" | "sync_error" | "pending" | "blocked_capability" | "blocked_credentials" | "conflict" | "archived";

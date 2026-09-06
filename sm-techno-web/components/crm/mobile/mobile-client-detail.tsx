@@ -35,6 +35,7 @@ import {
   mobileButton,
 } from '@/components/crm/mobile/mobile-sheets';
 import { getSafeMailtoHref } from '@/components/crm/mobile/mobile-crm-utils';
+import { MessengerLinks } from '@/components/crm/messenger-links';
 import type { MobileDetailSection } from '@/components/crm/mobile/types';
 import type { CrmReminder, CrmWorkspaceClient } from '@/lib/types';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -184,6 +185,7 @@ function MobileClientDetailContent({
                 Написать
               </a>
             ) : null}
+            <MessengerLinks telegram={client.telegram} maxLink={client.maxLink} className="col-span-2 justify-center" />
             {canEditWorkspace ? (
               <button
                 type="button"

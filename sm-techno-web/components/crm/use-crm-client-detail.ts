@@ -27,7 +27,7 @@ import { moscowInputToUtc } from "@/components/crm/mobile/mobile-crm-utils";
 
 type ActiveTab = "primary" | number;
 type SavingAction = "contact" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "resolve";
-type CompanyRequisitesForm = Pick<CrmWorkspaceClient, "documentName" | "fullName" | "inn" | "kpp" | "city" | "email" | "phone">;
+type CompanyRequisitesForm = Pick<CrmWorkspaceClient, "documentName" | "fullName" | "inn" | "kpp" | "city" | "email" | "phone"> & { telegram: string; maxLink: string };
 type ContactForm = Pick<CrmContact, "name" | "phone" | "email" | "isPrimary">;
 type EventForm = Pick<CrmEvent, "kind" | "body">;
 type SyncConflictResolution = { conflict: CrmSyncConflict; choice: "local" | "remote" };
@@ -103,6 +103,8 @@ function companyRequisitesForm(client: CrmWorkspaceClient): CompanyRequisitesFor
     city: client.city,
     email: client.email,
     phone: client.phone,
+    telegram: client.telegram || "",
+    maxLink: client.maxLink || "",
   };
 }
 
@@ -375,6 +377,8 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
         city: requisitesForm.city.trim(),
         email: requisitesForm.email.trim(),
         phone: requisitesForm.phone.trim(),
+        telegram: requisitesForm.telegram.trim(),
+        maxLink: requisitesForm.maxLink.trim(),
         expectedVersion: currentClient.version,
       }, ownerId);
       setCurrentClient(saved);

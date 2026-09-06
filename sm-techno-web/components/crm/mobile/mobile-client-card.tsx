@@ -5,6 +5,7 @@ import { GripVertical, Mail, Phone } from 'lucide-react';
 
 import { MobileClientActions } from '@/components/crm/mobile/mobile-client-actions';
 import { getSafeMailtoHref } from '@/components/crm/mobile/mobile-crm-utils';
+import { MessengerLinks } from '@/components/crm/messenger-links';
 import type { CrmReminder, CrmTab, CrmWorkspaceClient } from '@/lib/types';
 
 const cardThemeByColor: Record<
@@ -142,7 +143,7 @@ export function MobileClientCard({
       </div>
 
       {dragControls ||
-      (!client.phone && !mailtoHref && !canEditWorkspace) ? null : (
+      (!client.phone && !mailtoHref && !client.telegram && !client.maxLink && !canEditWorkspace) ? null : (
         <div className="mt-3 flex items-center gap-2 border-t border-[var(--border-color)] pt-3">
           {client.phone ? (
             <a
@@ -165,6 +166,7 @@ export function MobileClientCard({
               Написать
             </a>
           ) : null}
+          <MessengerLinks telegram={client.telegram} maxLink={client.maxLink} />
           {canEditWorkspace ? (
             <MobileClientActions
               client={client}

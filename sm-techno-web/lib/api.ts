@@ -269,6 +269,8 @@ export type CrmCreateClientPayload = {
   website?: string;
   email?: string;
   phone?: string;
+  telegram?: string;
+  maxLink?: string;
   notes?: string;
   contactPerson?: string;
   legalType?: "legal_entity" | "individual_entrepreneur";
@@ -1071,6 +1073,8 @@ export async function updateCrmClient(
     city: string;
     email: string;
     phone: string;
+    telegram?: string;
+    maxLink?: string;
     expectedVersion: number;
   },
   ownerId?: number,

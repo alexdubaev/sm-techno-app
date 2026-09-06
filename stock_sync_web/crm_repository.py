@@ -242,7 +242,7 @@ class CrmRepository:
             if not work:
                 cursor = conn.execute("INSERT INTO crm_tabs(owner_user_id, name, system_kind, sort_order, created_at, updated_at) VALUES (?, 'В работе', 'work', 0, ?, ?)", (owner_id, now, now))
                 work = conn.execute("SELECT * FROM crm_tabs WHERE id = ?", (cursor.lastrowid,)).fetchone()
-            cursor = conn.execute("INSERT INTO crm_clients(name, legal_type, document_name, full_name, inn, kpp, city, crm_owner_user_id, sync_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)", (document_name, values.get("legal_type") or "legal_entity", document_name, str(values.get("full_name") or document_name), values.get("inn") or None, values.get("kpp") or None, values.get("city") or None, owner_id, now, now))
+            cursor = conn.execute("INSERT INTO crm_clients(name, legal_type, document_name, full_name, inn, kpp, city, telegram, max_link, crm_owner_user_id, sync_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local', ?, ?)", (document_name, values.get("legal_type") or "legal_entity", document_name, str(values.get("full_name") or document_name), values.get("inn") or None, values.get("kpp") or None, values.get("city") or None, str(values.get("telegram") or "").strip(), str(values.get("max_link") or "").strip(), owner_id, now, now))
             client_id = int(cursor.lastrowid)
             assignment_cursor = conn.execute("INSERT INTO crm_assignments(owner_user_id, crm_client_id, tab_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (owner_id, client_id, int(work["id"]), now, now))
             self._append_personal_preference(conn, owner_id, int(work["id"]), client_id)
@@ -467,7 +467,7 @@ class CrmRepository:
     ) -> tuple[dict[str, Any], int]:
         allowed = {
             "document_name", "full_name", "inn", "kpp", "city", "website",
-            "email", "phone", "notes", "contact_person", "legal_type",
+            "email", "phone", "notes", "contact_person", "legal_type", "telegram", "max_link",
         }
         changes = {key: value for key, value in values.items() if key in allowed}
         if not changes:

@@ -65,7 +65,7 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof MobileCr
       nearestReminderByClient={new Map()}
       notice={null}
       newClientError={null}
-      newClientForm={{ documentName: '', city: '', contactPerson: '', phone: '', email: '', notes: '' }}
+      newClientForm={{ documentName: '', city: '', contactPerson: '', phone: '', email: '', telegram: '', maxLink: '', notes: '' }}
       ownerId={owner.id}
       ownerName={owner.fullName}
       owners={[owner]}

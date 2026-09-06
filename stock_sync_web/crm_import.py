@@ -17,7 +17,7 @@ from openpyxl import load_workbook
 CLIENT_FIELDS = {
     "Компания": "document_name", "ИНН": "inn", "КПП": "kpp", "Город": "city",
     "Сайт": "website", "Основной контакт": "contact_person", "Телефон": "phone",
-    "Почта": "email", "Комментарий": "notes",
+    "Почта": "email", "Telegram": "telegram", "MAX": "max_link", "Комментарий": "notes",
 }
 CONTACT_FIELDS = {"Контактное лицо": "name", "Телефон": "phone", "Почта": "email"}
 

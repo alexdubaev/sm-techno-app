@@ -35,6 +35,8 @@ CLIENT_HEADERS = (
     "Основной контакт",
     "Телефон",
     "Почта",
+    "Telegram",
+    "MAX",
     "Комментарий",
     "Дата звонка",
     "Напоминание",
@@ -42,7 +44,7 @@ CLIENT_HEADERS = (
     "Связь с 1С",
 )
 CONTACT_HEADERS = ("Компания", "Контактное лицо", "Телефон", "Почта", "Основной контакт")
-_CLIENT_COLUMN_WIDTHS = (30, 15, 14, 18, 28, 24, 20, 28, 42, 20, 20, 22, 24)
+_CLIENT_COLUMN_WIDTHS = (30, 15, 14, 18, 28, 24, 20, 28, 24, 30, 42, 20, 20, 22, 24)
 _CONTACT_COLUMN_WIDTHS = (30, 24, 20, 28, 18)
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
@@ -122,6 +124,8 @@ def build_crm_export_xlsx(
             _safe_text(_value(row, "contact_name", "contactName", "primary_contact_name", "primaryContactName")),
             _safe_text(_value(row, "phone", "telephone")),
             _safe_text(_value(row, "email")),
+            _safe_text(_value(row, "telegram")),
+            _safe_text(_value(row, "max_link", "maxLink")),
             _safe_text(_value(row, "last_comment", "lastComment", "comment", "notes")),
             _as_excel_date(_value(row, "last_call_at", "lastCallAt", "call_at", "callAt")),
             _as_excel_date(_value(row, "reminder_at", "reminderAt", "next_reminder_at", "nextReminderAt")),
@@ -213,13 +217,13 @@ def _prepare_sheet(sheet: Any, headers: tuple[str, ...], *, column_widths: tuple
 def _format_client_row(sheet: Any, row_number: int) -> None:
     for column in (2, 3, 7):
         sheet.cell(row_number, column).number_format = _TEXT_FORMAT
-    for column in (10, 11):
+    for column in (12, 13):
         cell = sheet.cell(row_number, column)
         if isinstance(cell.value, datetime):
             cell.number_format = _DATE_FORMAT
         elif isinstance(cell.value, date):
             cell.number_format = _DATE_ONLY_FORMAT
-    sheet.cell(row_number, 9).alignment = Alignment(vertical="top", wrap_text=True)
+    sheet.cell(row_number, 11).alignment = Alignment(vertical="top", wrap_text=True)
 
 
 def _format_contact_row(sheet: Any, row_number: int) -> None:

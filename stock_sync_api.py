@@ -572,6 +572,8 @@ def _serialize_crm_client(
         "contactPerson": row.get("contact_person") or "",
         "email": row.get("email") or "",
         "phone": row.get("phone") or "",
+        "telegram": row.get("telegram") or "",
+        "maxLink": row.get("max_link") or "",
         "notes": row.get("notes") or "",
         "linkedCounterpartyId": row.get("linked_counterparty_id"),
         "syncStatus": row.get("sync_status") or "local",
@@ -1121,6 +1123,7 @@ def _crm_client_values(payload: dict[str, Any]) -> dict[str, Any]:
         "documentName": "document_name", "fullName": "full_name", "inn": "inn", "kpp": "kpp",
         "city": "city", "website": "website", "email": "email", "phone": "phone",
         "notes": "notes", "contactPerson": "contact_person", "legalType": "legal_type",
+        "telegram": "telegram", "maxLink": "max_link",
     }
     return {target: payload[source] for source, target in fields.items() if source in payload}
 

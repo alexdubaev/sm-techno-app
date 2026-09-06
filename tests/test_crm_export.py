@@ -24,6 +24,8 @@ class CrmExportTest(unittest.TestCase):
                     "contact_name": "Ирина",
                     "phone": "01234567890",
                     "email": "irina@example.test",
+                    "telegram": "@romashka",
+                    "max_link": "https://max.ru/romashka",
                     "comment": "Перезвонить после выставки",
                     "last_call_at": "2026-09-04T10:15:00+00:00",
                     "reminder_at": "2026-09-05T09:00:00+00:00",
@@ -51,23 +53,25 @@ class CrmExportTest(unittest.TestCase):
         self.assertEqual(
             [
                 "Компания", "ИНН", "КПП", "Город", "Сайт", "Основной контакт",
-                "Телефон", "Почта", "Комментарий", "Дата звонка", "Напоминание",
+                "Телефон", "Почта", "Telegram", "MAX", "Комментарий", "Дата звонка", "Напоминание",
                 "Личная вкладка", "Связь с 1С",
             ],
-            [cell.value for cell in clients[1][:13]],
+            [cell.value for cell in clients[1][:15]],
         )
         self.assertEqual("A2", clients.freeze_panes)
-        self.assertEqual("A1:M2", clients.auto_filter.ref)
+        self.assertEqual("A1:O2", clients.auto_filter.ref)
         self.assertGreaterEqual(clients.column_dimensions["A"].width, 24)
-        self.assertGreaterEqual(clients.column_dimensions["I"].width, 40)
+        self.assertGreaterEqual(clients.column_dimensions["K"].width, 40)
         self.assertGreaterEqual(contacts.column_dimensions["A"].width, 24)
-        self.assertTrue(clients["I2"].alignment.wrap_text)
+        self.assertTrue(clients["K2"].alignment.wrap_text)
         self.assertEqual("@", clients["B2"].number_format)
         self.assertEqual("@", clients["C2"].number_format)
         self.assertEqual("@", clients["G2"].number_format)
         self.assertEqual("001234567890", clients["B2"].value)
         self.assertEqual("01234567890", clients["G2"].value)
-        self.assertEqual(datetime(2026, 9, 4, 13, 15), clients["J2"].value)
+        self.assertEqual("'@romashka", clients["I2"].value)
+        self.assertEqual("https://max.ru/romashka", clients["J2"].value)
+        self.assertEqual(datetime(2026, 9, 4, 13, 15), clients["L2"].value)
         self.assertEqual("DDEBF7", clients["A2"].fill.fgColor.rgb[-6:])
         self.assertEqual(
             ["Компания", "Контактное лицо", "Телефон", "Почта", "Основной контакт"],
@@ -90,9 +94,9 @@ class CrmExportTest(unittest.TestCase):
         clients = workbook["Клиенты"]
         contacts = workbook["Контакты"]
 
-        self.assertEqual(13, clients.max_column)
+        self.assertEqual(15, clients.max_column)
         self.assertFalse(any(str(cell.value).startswith("__") for cell in clients[1]))
-        self.assertEqual("A1:M2", clients.auto_filter.ref)
+        self.assertEqual("A1:O2", clients.auto_filter.ref)
 
         self.assertEqual(5, contacts.max_column)
         self.assertFalse(any(str(cell.value).startswith("__") for cell in contacts[1]))
@@ -116,7 +120,7 @@ class CrmExportTest(unittest.TestCase):
         contacts = workbook["Контакты"]
 
         self.assertEqual("'=HYPERLINK(\"https://bad.test\",\"Нажми\")", clients["A2"].value)
-        self.assertEqual("' +SUM(1,1)", clients["I2"].value)
+        self.assertEqual("' +SUM(1,1)", clients["K2"].value)
         self.assertEqual("'-12345", clients["G2"].value)
         self.assertEqual("'@danger", contacts["A2"].value)
         self.assertEqual("'+cmd", contacts["B2"].value)
@@ -130,7 +134,7 @@ class CrmExportTest(unittest.TestCase):
 
         workbook = load_workbook(BytesIO(content))
         self.assertEqual(["Клиенты", "Контакты"], workbook.sheetnames)
-        self.assertEqual("A1:M1", workbook["Клиенты"].auto_filter.ref)
+        self.assertEqual("A1:O1", workbook["Клиенты"].auto_filter.ref)
         self.assertEqual("A1:E1", workbook["Контакты"].auto_filter.ref)
         self.assertEqual(1, workbook["Клиенты"].max_row)
         self.assertEqual(1, workbook["Контакты"].max_row)
