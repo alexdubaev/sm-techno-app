@@ -180,6 +180,41 @@ describe('mobile detail daily actions', () => {
     expect(props.onDetailChanged).toHaveBeenCalledWith(7, 3);
   });
 
+  it('uses a newly saved primary contact for detail quick actions', async () => {
+    vi.mocked(api.fetchCrmContacts).mockResolvedValue([
+      {
+        id: 4,
+        name: 'Старый основной',
+        phone: '+79990000000',
+        email: 'old@example.test',
+        isPrimary: true,
+        createdAt: '',
+        updatedAt: '',
+      },
+    ]);
+    await openDetail();
+    fireEvent.click(screen.getByRole('button', { name: '+ Контакт' }));
+    const sheet = screen.getByRole('dialog', { name: 'Новый контакт' });
+    fireEvent.change(within(sheet).getByLabelText('Имя контакта'), {
+      target: { value: 'Новый основной' },
+    });
+    fireEvent.change(within(sheet).getByLabelText('Телефон'), {
+      target: { value: '+79991234567' },
+    });
+    fireEvent.click(within(sheet).getByLabelText('Основной контакт'));
+    fireEvent.click(
+      within(sheet).getByRole('button', { name: 'Сохранить контакт' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Новый контакт' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getAllByRole('link', { name: /Позвонить/ })[0],
+    ).toHaveAttribute('href', 'tel:+79991234567');
+  });
+
   it('submits the selected event kind and non-empty body, showing newest events first', async () => {
     vi.mocked(api.fetchCrmEvents).mockResolvedValue([
       {
@@ -332,6 +367,53 @@ describe('mobile detail daily actions', () => {
       ),
     );
     expect(props.onDetailChanged).toHaveBeenCalledWith(7, 3);
+  });
+
+  it('closes a successful reschedule sheet and retains its returned concurrency value when refresh fails', async () => {
+    const rescheduledReminder = {
+      ...reminder,
+      dueAt: '2026-09-08T11:00:00.000Z',
+      updatedAt: '2026-09-06T12:00:00.000Z',
+    };
+    vi.mocked(api.fetchCrmReminders)
+      .mockResolvedValueOnce([reminder])
+      .mockRejectedValueOnce(new Error('Обновление списка недоступно'));
+    vi.mocked(api.rescheduleCrmReminder).mockResolvedValue(rescheduledReminder);
+    await openDetail({ initialSection: 'reminders' });
+    fireEvent.click(screen.getByRole('button', { name: 'Перенести' }));
+    let sheet = screen.getByRole('dialog', { name: 'Перенести напоминание' });
+    fireEvent.change(within(sheet).getByLabelText('Дата и время (Москва)'), {
+      target: { value: '2026-09-08T14:00' },
+    });
+    fireEvent.click(
+      within(sheet).getByRole('button', { name: 'Сохранить перенос' }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'Перенести напоминание' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Напоминание перенесено, но не удалось обновить карточку.',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Перенести' }));
+    sheet = screen.getByRole('dialog', { name: 'Перенести напоминание' });
+    fireEvent.change(within(sheet).getByLabelText('Дата и время (Москва)'), {
+      target: { value: '2026-09-09T14:00' },
+    });
+    fireEvent.click(
+      within(sheet).getByRole('button', { name: 'Сохранить перенос' }),
+    );
+    await waitFor(() =>
+      expect(api.rescheduleCrmReminder).toHaveBeenLastCalledWith(
+        11,
+        {
+          dueAt: '2026-09-09T11:00:00.000Z',
+          expectedUpdatedAt: '2026-09-06T12:00:00.000Z',
+        },
+        7,
+      ),
+    );
   });
 
   it.each(['Выполнено', 'Отменить'])(

@@ -643,14 +643,18 @@ export function CrmWorkspace() {
           canEditWorkspace={canEditWorkspace}
           clients={visibleClients}
           initialDetailSection={mobileDetail?.initialSection ?? "overview"}
+          isAdding={isAdding}
           importantReminders={importantReminders}
           isAdmin={isAdmin}
           isExporting={isExporting}
           isLoading={isLoading}
           isLoadingReminders={reminderState?.ownerId !== ownerId && reminderError?.ownerId !== ownerId}
           isRefreshing={isRefreshing}
+          isSavingClient={isSaving}
           manualOrderAvailable={isManualOrderAvailable}
           nearestReminderByClient={nearestReminderByClient}
+          newClientError={error}
+          newClientForm={form}
           notice={notice}
           ownerId={ownerId}
           ownerName={ownerName}
@@ -664,7 +668,9 @@ export function CrmWorkspace() {
           totalClientCount={clients.length}
           workspaceError={error}
           onAddClient={() => setIsAdding(true)}
+          onChangeClientForm={setForm}
           onCloseClient={closeMobileClient}
+          onCloseNewClient={() => setIsAdding(false)}
           onColorClient={(client, color) => void setRowColor(client, color)}
           onCreateTab={() => openTabEditor("new")}
           onDeleteTab={(tab) => { setTabPendingDelete(tab); setReplacementTabId(tabs.find((item) => item.systemKind === "work")?.id ?? null); }}
@@ -679,6 +685,7 @@ export function CrmWorkspace() {
           onRenameTab={openTabEditor}
           onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients}
           onSearchChange={setSearch}
+          onSubmitClient={submitClient}
           onSyncFilterChange={setSyncFilter}
           onTabChange={chooseMobileTab}
         />

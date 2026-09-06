@@ -1,6 +1,11 @@
 'use client';
 
-import { useState, type KeyboardEvent, type PointerEvent } from 'react';
+import {
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type SubmitEvent,
+} from 'react';
 import { Search, X } from 'lucide-react';
 
 import {
@@ -14,8 +19,13 @@ import {
 } from '@/components/crm/mobile/mobile-crm-header';
 import { MobileCrmTabs } from '@/components/crm/mobile/mobile-crm-tabs';
 import { MobileClientDetail } from '@/components/crm/mobile/mobile-client-detail';
+import { MobileClientMore } from '@/components/crm/mobile/mobile-client-more';
 import type { ImportantReminder } from '@/components/crm/mobile/mobile-crm-utils';
 import { MobileReminderSummary } from '@/components/crm/mobile/mobile-reminder-summary';
+import {
+  MobileNewClientSheet,
+  type MobileNewClientForm,
+} from '@/components/crm/mobile/mobile-sheets';
 import type { MobileDetailSection } from '@/components/crm/mobile/types';
 import type {
   AppUser,
@@ -31,6 +41,8 @@ export type MobileCrmWorkspaceProps = {
   canEditWorkspace: boolean;
   clients: CrmWorkspaceClient[];
   initialDetailSection: MobileDetailSection;
+  isAdding: boolean;
+  isSavingClient: boolean;
   importantReminders: ImportantReminder[];
   isAdmin: boolean;
   isExporting: boolean;
@@ -40,6 +52,8 @@ export type MobileCrmWorkspaceProps = {
   manualOrderAvailable: boolean;
   nearestReminderByClient: ReadonlyMap<number, CrmReminder>;
   notice: string | null;
+  newClientError: string | null;
+  newClientForm: MobileNewClientForm;
   ownerId: number;
   ownerName: string;
   owners: AppUser[];
@@ -52,7 +66,9 @@ export type MobileCrmWorkspaceProps = {
   totalClientCount: number;
   workspaceError: string | null;
   onAddClient: () => void;
+  onChangeClientForm: (form: MobileNewClientForm) => void;
   onCloseClient: () => void;
+  onCloseNewClient: () => void;
   onColorClient: (client: CrmWorkspaceClient, color: string | null) => void;
   onCreateTab: () => void;
   onDeleteTab: (tab: CrmTab) => void;
@@ -70,6 +86,7 @@ export type MobileCrmWorkspaceProps = {
   onRenameTab: (tab: CrmTab) => void;
   onReorder: (clientId: number, insertionIndex: number) => void;
   onSearchChange: (value: string) => void;
+  onSubmitClient: (event: SubmitEvent<HTMLFormElement>) => void;
   onSyncFilterChange: (filter: MobileSyncFilter) => void;
   onTabChange: (tab: ActiveTab) => void;
 };
@@ -81,6 +98,8 @@ export function MobileCrmWorkspace({
   canEditWorkspace,
   clients,
   initialDetailSection,
+  isAdding,
+  isSavingClient,
   importantReminders,
   isAdmin,
   isExporting,
@@ -90,6 +109,8 @@ export function MobileCrmWorkspace({
   manualOrderAvailable,
   nearestReminderByClient,
   notice,
+  newClientError,
+  newClientForm,
   ownerId,
   ownerName,
   owners,
@@ -102,7 +123,9 @@ export function MobileCrmWorkspace({
   totalClientCount,
   workspaceError,
   onAddClient,
+  onChangeClientForm,
   onCloseClient,
+  onCloseNewClient,
   onColorClient,
   onCreateTab,
   onDeleteTab,
@@ -117,6 +140,7 @@ export function MobileCrmWorkspace({
   onRenameTab,
   onReorder,
   onSearchChange,
+  onSubmitClient,
   onSyncFilterChange,
   onTabChange,
 }: MobileCrmWorkspaceProps) {
@@ -282,6 +306,19 @@ export function MobileCrmWorkspace({
           initialSection={initialDetailSection}
           onDetailChanged={onDetailChanged}
           onClose={onCloseClient}
+          renderMore={(controller) => (
+            <MobileClientMore
+              controller={controller}
+              tabs={tabs}
+              color={
+                activeTab === 'primary'
+                  ? (selectedClient.primaryRowPreference?.colorKey ?? null)
+                  : (selectedClient.rowPreference?.colorKey ?? null)
+              }
+              onColor={onColorClient}
+              onMove={onMoveClient}
+            />
+          )}
         />
       ) : (
         <div data-mobile-crm-list="">
@@ -450,6 +487,16 @@ export function MobileCrmWorkspace({
           )}
         </div>
       )}
+      {isAdding ? (
+        <MobileNewClientSheet
+          form={newClientForm}
+          isSaving={isSavingClient}
+          error={newClientError}
+          onChange={onChangeClientForm}
+          onClose={onCloseNewClient}
+          onSubmit={onSubmitClient}
+        />
+      ) : null}
     </div>
   );
 }

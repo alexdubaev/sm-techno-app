@@ -25,6 +25,8 @@ const mobileDetailUrl = new URL("../components/crm/mobile/mobile-client-detail.t
 const mobileOverviewUrl = new URL("../components/crm/mobile/mobile-client-overview.tsx", import.meta.url);
 const mobileHistoryUrl = new URL("../components/crm/mobile/mobile-client-history.tsx", import.meta.url);
 const mobileRemindersUrl = new URL("../components/crm/mobile/mobile-client-reminders.tsx", import.meta.url);
+const mobileMoreUrl = new URL("../components/crm/mobile/mobile-client-more.tsx", import.meta.url);
+const mobileSheetsUrl = new URL("../components/crm/mobile/mobile-sheets.tsx", import.meta.url);
 const mobileListModuleUrls = [
   mobileWorkspaceUrl,
   new URL("../components/crm/mobile/mobile-crm-header.tsx", import.meta.url),
@@ -120,6 +122,26 @@ test("mobile detail exposes daily workflows and routes changes through the share
   assert.match(mobileWorkspace, /onDetailChanged=\{onDetailChanged\}/);
 });
 
+
+test("mobile CRM preserves technical detail actions and provides the focused new-client form", async () => {
+  const [mobileMore, mobileSheets, mobileWorkspace] = await Promise.all(
+    [mobileMoreUrl, mobileSheetsUrl, mobileWorkspaceUrl].map((url) =>
+      readFile(url, "utf8").catch(() => ""),
+    ),
+  );
+
+  assert.match(mobileMore, /Подтвердить связь с 1С/);
+  assert.match(mobileMore, /Оставить локальное/);
+  assert.match(mobileMore, /Принять из 1С/);
+  assert.match(mobileMore, /Журнал действий/);
+  assert.match(mobileMore, /canManageLocalClient/);
+  assert.match(mobileMore, /canRemoveAssignment/);
+  assert.doesNotMatch(mobileMore, /from ['"]@\/lib\/api['"]/);
+  assert.match(mobileSheets, /Новый клиент/);
+  assert.match(mobileSheets, /Наименование компании \*/);
+  assert.match(mobileWorkspace, /MobileNewClientSheet/);
+  assert.match(mobileWorkspace, /onSubmitClient/);
+});
 test("mobile CRM contracts expose detail sections and reminder helpers", async () => {
   const [mobileTypes, mobileUtils] = await Promise.all([
     readFile(mobileTypesUrl, "utf8"),
@@ -282,7 +304,8 @@ test("CRM detail reminder mutations share the parent card and reminder refresh h
 
   assert.match(saveReminder, /setReminderDueAt\(""\);\s+notifyChanged\(\);/);
   assert.match(transitionReminder, /transitionSucceeded = true;\s+notifyChanged\(\);\s+await Promise\.all\(\[refreshReminders\(\), refreshAudit\(\)\]\);/);
-  assert.match(rescheduleReminder, /await rescheduleCrmReminder\([\s\S]+?\);\s+notifyChanged\(\);\s+await refreshReminders\(\);/);
+  assert.match(rescheduleReminder, /const saved = await rescheduleCrmReminder\([\s\S]+?\);\s+setReminders\([\s\S]+?saved\.id[\s\S]+?\);\s+notifyChanged\(\);\s+try \{\s+await refreshReminders\(\);/);
+  assert.match(rescheduleReminder, /Напоминание перенесено, но не удалось обновить карточку\./);
   assert.match(workspace, /const refreshAfterDetailChange = useCallback/);
   assert.match(workspace, /onDetailChanged=\{refreshAfterDetailChange\}/);
   assert.match(workspace, /onChanged=\{refreshAfterDetailChange\}/);

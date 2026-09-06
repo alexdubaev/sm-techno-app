@@ -10,6 +10,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import type { DetailController } from '@/components/crm/use-crm-client-detail';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
 export const mobileButton =
@@ -25,6 +26,7 @@ export function MobileSheet({
   children,
   error,
   busy,
+  fullScreen = false,
   onClose,
 }: {
   title: string;
@@ -32,6 +34,7 @@ export function MobileSheet({
   children: ReactNode;
   error?: string | null;
   busy?: boolean;
+  fullScreen?: boolean;
   onClose: () => void;
 }) {
   return (
@@ -44,7 +47,12 @@ export function MobileSheet({
       <SheetContent
         side="bottom"
         showCloseButton={false}
-        className="max-h-[92dvh] gap-0 overflow-y-auto overscroll-contain rounded-t-3xl bg-[#F7F9FC] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-[var(--text-primary)]"
+        className={cn(
+          'gap-0 overflow-y-auto overscroll-contain bg-[#F7F9FC] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] text-[var(--text-primary)]',
+          fullScreen
+            ? 'data-[side=bottom]:h-[100dvh] max-h-[100dvh] rounded-none'
+            : 'max-h-[92dvh] rounded-t-3xl',
+        )}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -110,6 +118,93 @@ export function MobileSubmit({
     >
       {busy ? 'Сохраняем…' : children}
     </button>
+  );
+}
+
+export type MobileNewClientForm = {
+  documentName: string;
+  city: string;
+  contactPerson: string;
+  phone: string;
+  email: string;
+  notes: string;
+};
+
+export function MobileNewClientSheet({
+  form,
+  isSaving,
+  error,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  form: MobileNewClientForm;
+  isSaving: boolean;
+  error: string | null;
+  onChange: (form: MobileNewClientForm) => void;
+  onClose: () => void;
+  onSubmit: (event: SubmitEvent<HTMLFormElement>) => void;
+}) {
+  const isMobile = useIsMobile();
+  const update = (key: keyof MobileNewClientForm, value: string) =>
+    onChange({ ...form, [key]: value });
+  if (!isMobile) return null;
+  return (
+    <MobileSheet
+      title="Новый клиент"
+      description="Клиент будет сохранён локально во вкладке «В работе» без отправки в 1С."
+      error={error}
+      busy={isSaving}
+      fullScreen
+      onClose={onClose}
+    >
+      <form onSubmit={onSubmit} className="grid gap-4">
+        <MobileField
+          label="Наименование компании *"
+          required
+          autoComplete="organization"
+          value={form.documentName}
+          onChange={(event) => update('documentName', event.target.value)}
+        />
+        <MobileField
+          label="Город"
+          autoComplete="address-level2"
+          value={form.city}
+          onChange={(event) => update('city', event.target.value)}
+        />
+        <MobileField
+          label="Контактное лицо"
+          autoComplete="name"
+          value={form.contactPerson}
+          onChange={(event) => update('contactPerson', event.target.value)}
+        />
+        <MobileField
+          label="Телефон"
+          type="tel"
+          autoComplete="tel"
+          value={form.phone}
+          onChange={(event) => update('phone', event.target.value)}
+        />
+        <MobileField
+          label="Email"
+          type="email"
+          autoComplete="email"
+          value={form.email}
+          onChange={(event) => update('email', event.target.value)}
+        />
+        <label className="grid gap-1.5 text-sm font-medium">
+          <span>Комментарий</span>
+          <textarea
+            value={form.notes}
+            onChange={(event) => update('notes', event.target.value)}
+            className="min-h-28 rounded-xl border border-[var(--border-color)] bg-white p-3 text-base text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)] focus:ring-2 focus:ring-[var(--brand-yellow)]"
+          />
+        </label>
+        <MobileSubmit busy={isSaving} disabled={!form.documentName.trim()}>
+          Добавить клиента
+        </MobileSubmit>
+      </form>
+    </MobileSheet>
   );
 }
 

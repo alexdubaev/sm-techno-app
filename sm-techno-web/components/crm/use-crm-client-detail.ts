@@ -222,7 +222,12 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     setError(null);
     try {
       const saved = await createCrmContact(currentClient.id, temporary, ownerId);
-      setContacts((current) => current.map((item) => item.id === temporary.id ? saved : item));
+      setContacts((current) =>
+        current.map((item) => {
+          if (item.id === temporary.id) return saved;
+          return saved.isPrimary ? { ...item, isPrimary: false } : item;
+        }),
+      );
       setContactForm({ name: "", phone: "", email: "", isPrimary: false });
       notifyChanged();
       return true;
@@ -332,9 +337,16 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     setIsSaving("reminder");
     setError(null);
     try {
-      await rescheduleCrmReminder(currentClient.id, reminder.id, { dueAt: moscowInputToUtc(dueAtLocal), expectedUpdatedAt: reminder.updatedAt }, ownerId);
+      const saved = await rescheduleCrmReminder(currentClient.id, reminder.id, { dueAt: moscowInputToUtc(dueAtLocal), expectedUpdatedAt: reminder.updatedAt }, ownerId);
+      setReminders((current) =>
+        current.map((item) => (item.id === saved.id ? saved : item)),
+      );
       notifyChanged();
-      await refreshReminders();
+      try {
+        await refreshReminders();
+      } catch (cause) {
+        setError("Напоминание перенесено, но не удалось обновить карточку. " + errorMessage(cause, "Обновите её позже."));
+      }
       return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось перенести напоминание.");
