@@ -6,6 +6,7 @@ import { GripVertical, Mail, Phone } from 'lucide-react';
 import { MobileClientActions } from '@/components/crm/mobile/mobile-client-actions';
 import { getSafeMailtoHref } from '@/components/crm/mobile/mobile-crm-utils';
 import { MessengerLinks } from '@/components/crm/messenger-links';
+import { WorkOwnersStatus } from '@/components/crm/work-owners-status';
 import type { CrmReminder, CrmTab, CrmWorkspaceClient } from '@/lib/types';
 
 const cardThemeByColor: Record<
@@ -45,6 +46,7 @@ export type MobileDragControls = {
 
 type MobileClientCardProps = {
   activeActionsClientId: number | null;
+  activeTab: 'primary' | number;
   canEditWorkspace: boolean;
   client: CrmWorkspaceClient;
   color: string | null;
@@ -59,6 +61,7 @@ type MobileClientCardProps = {
 
 export function MobileClientCard({
   activeActionsClientId,
+  activeTab,
   canEditWorkspace,
   client,
   color,
@@ -124,6 +127,12 @@ export function MobileClientCard({
               client.inn ? `ИНН ${client.inn}` : 'ИНН не указан',
             ].join(' · ')}
           </p>
+          {activeTab === 'primary' ? (
+            <div className="mt-2 min-w-0 rounded-[9px] border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-1.5 text-[11px] font-semibold leading-4 text-[#0F766E] [overflow-wrap:anywhere]">
+              <span className="mr-1 text-[#2563EB]">В работе:</span>
+              <WorkOwnersStatus owners={client.workOwners} variant="mobile" />
+            </div>
+          ) : null}
           <p className="mt-2 text-[12px] font-semibold text-[var(--text-primary)]">
             {client.contactPerson || 'Контактное лицо не указано'}
           </p>

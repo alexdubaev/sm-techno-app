@@ -240,6 +240,7 @@ describe('mobile detail daily actions', () => {
     render(
       <MobileClientCard
         activeActionsClientId={null}
+        activeTab="primary"
         canEditWorkspace={false}
         client={client}
         color={null}
@@ -261,6 +262,7 @@ describe('mobile detail daily actions', () => {
     render(
       <MobileClientCard
         activeActionsClientId={null}
+        activeTab="primary"
         canEditWorkspace={false}
         client={client}
         color="blue"
@@ -282,6 +284,69 @@ describe('mobile detail daily actions', () => {
     expect(card.style.backgroundColor).toBe('rgb(219, 234, 254)');
     expect(card.style.borderTopColor).toBe('rgb(147, 197, 253)');
     expect(card.style.borderLeftColor).toBe('rgb(37, 99, 235)');
+  });
+
+  it.each([
+    ['a free client', [], 'Свободен'],
+    ['one owner', [{ userId: 1, fullName: 'Иван Петров' }], 'Иван Петров'],
+    [
+      'two long owner names',
+      [
+        { userId: 1, fullName: 'Александра Константиновна Воронцова' },
+        { userId: 2, fullName: 'Владимир Александрович Чернышёв' },
+      ],
+      'Александра Константиновна Воронцова, Владимир Александрович Чернышёв',
+    ],
+    [
+      'three owners in the expanded list',
+      [
+        { userId: 1, fullName: 'Иван Петров' },
+        { userId: 2, fullName: 'Алексей Смирнов' },
+        { userId: 3, fullName: 'Олег Сидоров' },
+      ],
+      'Иван Петров, Алексей Смирнов, Олег Сидоров',
+    ],
+  ])('shows %s in a primary mobile card', (_caseName, workOwners, expected) => {
+    render(
+      <MobileClientCard
+        activeActionsClientId={null}
+        activeTab="primary"
+        canEditWorkspace={false}
+        client={{ ...client, workOwners }}
+        color={null}
+        tabs={[]}
+        onColor={vi.fn()}
+        onActionsOpenChange={vi.fn()}
+        onMove={vi.fn()}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    const ownerBlock = screen.getByText(expected).parentElement;
+    expect(ownerBlock).toHaveClass('min-w-0');
+    expect(ownerBlock).toHaveClass('[overflow-wrap:anywhere]');
+  });
+
+  it('does not show work owners in a personal mobile tab', () => {
+    render(
+      <MobileClientCard
+        activeActionsClientId={null}
+        activeTab={3}
+        canEditWorkspace={false}
+        client={{
+          ...client,
+          workOwners: [{ userId: 1, fullName: 'Иван Петров' }],
+        }}
+        color={null}
+        tabs={[]}
+        onColor={vi.fn()}
+        onActionsOpenChange={vi.fn()}
+        onMove={vi.fn()}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('Иван Петров')).not.toBeInTheDocument();
   });
 
   it('uses a newly saved primary contact for detail quick actions', async () => {

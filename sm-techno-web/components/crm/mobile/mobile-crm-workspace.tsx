@@ -456,6 +456,7 @@ export function MobileCrmWorkspace({
                   {drag?.insertionIndex === index ? <InsertionMarker /> : null}
                   <MobileClientCard
                     activeActionsClientId={activeActionsClientId}
+                    activeTab={activeTab}
                     canEditWorkspace={canEditWorkspace}
                     client={client}
                     color={
