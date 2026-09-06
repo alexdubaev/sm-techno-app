@@ -10,6 +10,6 @@ const stockPageSource = await readFile(
 test("clicking the selected catalog row clears the product selection", () => {
   assert.match(
     stockPageSource,
-    /onClick=\{\(\) => \(isSelected \? clearSelection\(\) : selectItem\(item\)\)\}/,
+    /onClick=\{\s*\(\) =>\s*isSelected \? clearSelection\(\) : selectItem\(item\)\s*\}/,
   );
 });
