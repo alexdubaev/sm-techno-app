@@ -26,6 +26,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { MobileCrmWorkspace } from "@/components/crm/mobile/mobile-crm-workspace";
+import { DesktopCrmImportDialog } from "@/components/crm/import/desktop-crm-import-dialog";
 import { getImportantReminders, getNearestActiveReminderByClient } from "@/components/crm/mobile/mobile-crm-utils";
 import {
   applyOwnerReminderLoad,
@@ -129,6 +130,7 @@ export function CrmWorkspace() {
   const [refreshActivityTracker] = useState(() => createRefreshActivityTracker(setIsRefreshing));
   const [syncStatus, setSyncStatus] = useState<CrmSyncStatus | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [selectedClient, setSelectedClient] = useState<CrmWorkspaceClient | null>(null);
   const [mobileDetail, setMobileDetail] = useState<MobileDetailSelection | null>(null);
@@ -366,6 +368,13 @@ export function CrmWorkspace() {
     }
     setIsLoading(cachedWorkspace === null);
     setActiveTab(tab);
+  };
+
+  const importIntoWorkspace = async (targetTabId: number) => {
+    if (!canEditWorkspace) return;
+    activateTab(targetTabId);
+    await loadLocalWorkspace(targetTabId, { silent: true });
+    if (isCurrentWorkspaceView(targetTabId, ownerId)) setNotice("Клиенты импортированы в выбранную вкладку.");
   };
 
   const chooseTab = (tab: ActiveTab) => {
@@ -787,6 +796,7 @@ export function CrmWorkspace() {
               <button type="button" disabled={isExporting || activeTab === "primary"} onClick={() => void exportCrm("tab")} className="rounded-[8px] px-2 py-2 text-left text-[11px] font-semibold hover:bg-[#F6F8FB] disabled:opacity-60">Текущая вкладка</button>
             </div>
           </details>
+          {canEditWorkspace ? <button type="button" onClick={() => setIsImportDialogOpen(true)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">Загрузить клиентов</button> : null}
           <button type="button" onClick={() => void syncAndReloadWorkspace(activeTab, { manual: true })} disabled={isRefreshing} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:opacity-60">
             {isRefreshing ? "Обновляем…" : "Обновить"}
           </button>
@@ -825,6 +835,7 @@ export function CrmWorkspace() {
       </div>
 
       {isAdding ? <ClientDialog form={form} isSaving={isSaving} onChange={setForm} onClose={() => setIsAdding(false)} onSubmit={submitClient} /> : null}
+      {canEditWorkspace && isImportDialogOpen ? <DesktopCrmImportDialog ownerId={ownerId} tabs={tabs} onClose={() => setIsImportDialogOpen(false)} onImported={importIntoWorkspace} /> : null}
       {tabEditor ? <form role="dialog" aria-modal="true" aria-labelledby="crm-tab-editor-title" onSubmit={saveTab} className="fixed inset-0 z-50 flex items-center justify-center bg-[#07162e]/35 p-4"><div className="w-full max-w-sm rounded-[18px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"><h2 id="crm-tab-editor-title" className="text-[16px] font-bold">{tabEditor === "new" ? "Новая вкладка" : "Переименовать вкладку"}</h2>{error ? <div role="alert" aria-live="assertive" className="mt-3 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C]">{error}</div> : null}<label className="mt-4 grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Название</span><input autoFocus value={tabName} onChange={(event) => setTabName(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTabEditor(null)} className="h-9 rounded-[9px] px-3 text-[11px] font-semibold text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={isSavingTab} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSavingTab ? "Сохраняем…" : "Сохранить"}</button></div></div></form> : null}
       <AlertDialog open={tabPendingDelete !== null} onOpenChange={(open) => { if (!open) setTabPendingDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Удалить вкладку</AlertDialogTitle><AlertDialogDescription>Карточки и история из вкладки «{tabPendingDelete?.name}» сохранятся. Выберите личную вкладку для переноса; по умолчанию выбрана «В работе».</AlertDialogDescription></AlertDialogHeader><label className="grid gap-1 text-[12px] font-medium"><span>Перенести карточки в</span><select value={replacementTabId ?? ""} onChange={(event) => setReplacementTabId(Number(event.target.value))} className="h-10 rounded-[9px] border border-[var(--border-color)] bg-white px-2">{tabs.filter((tab) => tab.id !== tabPendingDelete?.id).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select></label><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeTab()} disabled={isSavingTab || replacementTabId === null}>{isSavingTab ? "Удаляем…" : "Удалить вкладку"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
       {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} activeTab={activeTab} ownerName={ownerName} isAdmin={isAdmin} canEditWorkspace={canEditWorkspace} canManageReminders={canEditWorkspace} canResolveSyncConflicts={isAdmin || canEditWorkspace} onChanged={refreshAfterDetailChange} onClose={() => setSelectedClient(null)} /> : null}
