@@ -106,6 +106,20 @@ class CrmExportTest(unittest.TestCase):
         self.assertTrue(all(contacts.column_dimensions[column].hidden for column in ("F", "G")))
         self.assertEqual("A1:E2", contacts.auto_filter.ref)
 
+    def test_export_preserves_camel_case_round_trip_identifiers(self) -> None:
+        """API-shaped camelCase mappings retain their hidden import identifiers."""
+        content = build_crm_export_xlsx(
+            client_rows=[{"clientId": 17, "documentName": "ООО Василёк", "colorKey": "green"}],
+            contact_rows=[{"clientId": 17, "contactId": 23, "contactName": "Николай"}],
+        )
+
+        workbook = load_workbook(BytesIO(content), data_only=False)
+        clients = workbook["Клиенты"]
+        contacts = workbook["Контакты"]
+
+        self.assertEqual([17, "green", 1], [clients.cell(2, column).value for column in range(14, 17)])
+        self.assertEqual([17, 23], [contacts.cell(2, column).value for column in range(6, 8)])
+
     def test_export_treats_user_text_as_text_instead_of_excel_formulas(self) -> None:
         """Dropping the formula guard would turn untrusted CRM fields into formulas."""
         content = build_crm_export_xlsx(
