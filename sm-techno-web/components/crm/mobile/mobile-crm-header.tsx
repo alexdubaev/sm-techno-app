@@ -45,6 +45,7 @@ type MobileCrmHeaderProps = {
   onCreateTab: () => void;
   onDeleteTab: (tab: CrmTab) => void;
   onExport: (scope: 'all' | 'tab') => void;
+  onImport: () => void;
   onOwnerChange: (ownerId: number) => void;
   onPrimaryOrderModeChange: (mode: MobilePrimaryOrderMode) => void;
   onRefresh: () => void;
@@ -73,6 +74,7 @@ export function MobileCrmHeader({
   onCreateTab,
   onDeleteTab,
   onExport,
+  onImport,
   onOwnerChange,
   onPrimaryOrderModeChange,
   onRefresh,
@@ -245,6 +247,18 @@ export function MobileCrmHeader({
                     </button>
                   </div>
                 </div>
+
+                {canEditWorkspace ? (
+                  <div className="mt-3 border-t border-[var(--border-color)] pt-3">
+                    <button
+                      type="button"
+                      onClick={onImport}
+                      className="h-11 w-full rounded-[11px] bg-[var(--brand-yellow)] px-3 text-left text-[13px] font-bold text-[var(--brand-dark)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]"
+                    >
+                      Загрузить клиентов
+                    </button>
+                  </div>
+                ) : null}
 
                 {canEditWorkspace ? (
                   <div className="mt-3 border-t border-[var(--border-color)] pt-3">

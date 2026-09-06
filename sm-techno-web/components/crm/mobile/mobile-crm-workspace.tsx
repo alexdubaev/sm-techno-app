@@ -17,6 +17,7 @@ import {
   type MobilePrimaryOrderMode,
   type MobileSyncFilter,
 } from '@/components/crm/mobile/mobile-crm-header';
+import { MobileCrmImportSheet } from '@/components/crm/mobile/mobile-crm-import-sheet';
 import { MobileCrmTabs } from '@/components/crm/mobile/mobile-crm-tabs';
 import { MobileClientDetail } from '@/components/crm/mobile/mobile-client-detail';
 import { MobileClientMore } from '@/components/crm/mobile/mobile-client-more';
@@ -150,6 +151,7 @@ export function MobileCrmWorkspace({
   const [activeActionsClientId, setActiveActionsClientId] =
     useState<number | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const reorderMode = requestedReorderMode && manualOrderAvailable;
   const hasFilters = search.trim().length > 0 || syncFilter !== 'all';
   const reorderUnavailableReason = manualOrderAvailable
@@ -346,6 +348,7 @@ export function MobileCrmWorkspace({
             onCreateTab={onCreateTab}
             onDeleteTab={onDeleteTab}
             onExport={onExport}
+            onImport={() => setIsImporting(true)}
             onOwnerChange={onOwnerChange}
             onPrimaryOrderModeChange={onPrimaryOrderModeChange}
             onRefresh={onRefresh}
@@ -501,6 +504,15 @@ export function MobileCrmWorkspace({
           onChange={onChangeClientForm}
           onClose={onCloseNewClient}
           onSubmit={onSubmitClient}
+        />
+      ) : null}
+      {isImporting ? (
+        <MobileCrmImportSheet
+          ownerId={ownerId}
+          ownerName={ownerName}
+          tabs={tabs}
+          onClose={() => setIsImporting(false)}
+          onImported={(result) => onDetailChanged(ownerId, result.targetTab.id)}
         />
       ) : null}
     </div>
