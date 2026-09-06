@@ -4,6 +4,7 @@ import type { KeyboardEvent, PointerEvent } from 'react';
 import { GripVertical, Mail, Phone } from 'lucide-react';
 
 import { MobileClientActions } from '@/components/crm/mobile/mobile-client-actions';
+import { getSafeMailtoHref } from '@/components/crm/mobile/mobile-crm-utils';
 import type { CrmReminder, CrmTab, CrmWorkspaceClient } from '@/lib/types';
 
 const accentByColor = new Map<string, string>([
@@ -63,6 +64,7 @@ export function MobileClientCard({
 }: MobileClientCardProps) {
   const companyName = client.documentName || client.fullName || client.name;
   const accent = color ? (accentByColor.get(color) ?? '#CBD5E1') : '#CBD5E1';
+  const mailtoHref = getSafeMailtoHref(client.email);
 
   return (
     <article
@@ -125,7 +127,7 @@ export function MobileClientCard({
       </div>
 
       {dragControls ||
-      (!client.phone && !client.email && !canEditWorkspace) ? null : (
+      (!client.phone && !mailtoHref && !canEditWorkspace) ? null : (
         <div className="mt-3 flex items-center gap-2 border-t border-[var(--border-color)] pt-3">
           {client.phone ? (
             <a
@@ -137,9 +139,9 @@ export function MobileClientCard({
               Позвонить
             </a>
           ) : null}
-          {client.email ? (
+          {mailtoHref ? (
             <a
-              href={`mailto:${client.email}`}
+              href={mailtoHref}
               onClick={(event) => event.stopPropagation()}
               className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-[11px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-bold text-[var(--brand-dark)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
             >

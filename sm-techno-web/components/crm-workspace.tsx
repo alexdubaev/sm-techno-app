@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type SubmitEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type SetStateAction, type SubmitEvent } from "react";
 
 import {
   downloadCrmExportFile,
@@ -29,9 +29,12 @@ import {
   createMobileDetailSelection,
   getMobileListContextOnClose,
   getOwnerReminders,
+  getWorkspaceClientsForView,
   resolveReminderDetailSelection,
+  transitionWorkspaceClientView,
   type MobileDetailSelection,
   type OwnerReminderState,
+  type WorkspaceClientView,
 } from "@/components/crm/mobile/mobile-crm-workspace-state";
 import type { MobileDetailSection } from "@/components/crm/mobile/types";
 import { useCrmClientDetailController, type CrmClientDetailControllerOptions } from "@/components/crm/use-crm-client-detail";
@@ -78,7 +81,18 @@ export function CrmWorkspace() {
   const canEditWorkspace = ownerId === user.id;
   const [tabs, setTabs] = useState<CrmTab[]>(() => initialWorkspaceCache?.tabs ?? []);
   const [activeTab, setActiveTab] = useState<ActiveTab>("primary");
-  const [clients, setClients] = useState<CrmWorkspaceClient[]>(() => initialWorkspaceCache?.clients ?? []);
+  const [clientView, setClientView] = useState<WorkspaceClientView>(() => ({
+    ownerId: user.id,
+    activeTab: "primary",
+    clients: initialWorkspaceCache?.clients ?? [],
+  }));
+  const clients = getWorkspaceClientsForView(clientView, { ownerId, activeTab });
+  const setClients = useCallback((next: SetStateAction<CrmWorkspaceClient[]>) => {
+    setClientView((current) => ({
+      ...current,
+      clients: typeof next === "function" ? next(current.clients) : next,
+    }));
+  }, []);
   const [search, setSearch] = useState("");
   const [syncFilter, setSyncFilter] = useState<SyncFilter>("all");
   const [primaryOrderMode, setPrimaryOrderMode] = useState<PrimaryOrderMode>("manual");
@@ -162,7 +176,7 @@ export function CrmWorkspace() {
       if (id !== requestId.current || !isCurrentWorkspaceView(tab, ownerId)) return;
       setTabs(nextTabs);
       const nextClients = primaryResult?.items ?? personalClients ?? [];
-      setClients(nextClients);
+      setClientView({ ownerId, activeTab: tab, clients: nextClients });
       if (primaryResult) setPrimaryOrderVersion(primaryResult.orderVersion);
       saveCrmWorkspaceCache(ownerId, tab, { tabs: nextTabs, clients: nextClients, primaryOrderVersion: primaryResult?.orderVersion ?? null });
     } catch (cause) {
@@ -266,11 +280,12 @@ export function CrmWorkspace() {
     currentView.current = { activeTab: tab, ownerId };
     requestId.current += 1;
     const cachedWorkspace = readCrmWorkspaceCache(ownerId, tab);
+    setClientView((current) => transitionWorkspaceClientView(current, { ownerId, activeTab: tab }, cachedWorkspace?.clients ?? null));
     if (cachedWorkspace) {
       setTabs(cachedWorkspace.tabs);
-      setClients(cachedWorkspace.clients);
       if (cachedWorkspace.primaryOrderVersion !== null) setPrimaryOrderVersion(cachedWorkspace.primaryOrderVersion);
     }
+    setIsLoading(cachedWorkspace === null);
     setActiveTab(tab);
   };
 
@@ -293,7 +308,7 @@ export function CrmWorkspace() {
     setTabPendingDelete(null);
     setIsSavingTab(false);
     setTabs(cachedWorkspace?.tabs ?? []);
-    setClients(cachedWorkspace?.clients ?? []);
+    setClientView((current) => transitionWorkspaceClientView(current, { ownerId: nextOwnerId, activeTab: "primary" }, cachedWorkspace?.clients ?? null));
     setPrimaryOrderVersion(cachedWorkspace?.primaryOrderVersion ?? 0);
     setIsLoading(cachedWorkspace === null);
     setActiveTab("primary");

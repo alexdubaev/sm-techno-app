@@ -46,7 +46,10 @@ export function MobileClientActions({
       >
         <MoreHorizontal aria-hidden="true" className="size-5" />
       </summary>
-      <div className="absolute bottom-12 right-0 z-20 w-[min(calc(100vw-2.5rem),20rem)] rounded-[16px] border border-[var(--border-color)] bg-white p-3 shadow-[0_18px_40px_rgba(7,22,46,0.2)]">
+      <div
+        data-mobile-client-actions-sheet=""
+        className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-50 max-h-[min(72dvh,38rem)] overflow-y-auto overscroll-contain rounded-[20px] border border-[var(--border-color)] bg-white p-3 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"
+      >
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
           {client.assignment ? 'Переместить во вкладку' : 'Добавить во вкладку'}
         </p>

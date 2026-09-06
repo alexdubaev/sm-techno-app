@@ -19,6 +19,7 @@ const mobileUtilsUrl = new URL("../components/crm/mobile/mobile-crm-utils.ts", i
 const mobileWorkspaceUrl = new URL("../components/crm/mobile/mobile-crm-workspace.tsx", import.meta.url);
 const mobileWorkspaceStateUrl = new URL("../components/crm/mobile/mobile-crm-workspace-state.ts", import.meta.url);
 const mobileClientCardUrl = new URL("../components/crm/mobile/mobile-client-card.tsx", import.meta.url);
+const mobileClientActionsUrl = new URL("../components/crm/mobile/mobile-client-actions.tsx", import.meta.url);
 const mobileReminderSummaryUrl = new URL("../components/crm/mobile/mobile-reminder-summary.tsx", import.meta.url);
 const mobileListModuleUrls = [
   mobileWorkspaceUrl,
@@ -26,7 +27,7 @@ const mobileListModuleUrls = [
   new URL("../components/crm/mobile/mobile-crm-tabs.tsx", import.meta.url),
   mobileReminderSummaryUrl,
   mobileClientCardUrl,
-  new URL("../components/crm/mobile/mobile-client-actions.tsx", import.meta.url),
+  mobileClientActionsUrl,
 ];
 
 async function loadMobileCrmUtilsForTest() {
@@ -134,9 +135,19 @@ test("mobile CRM list exposes search, stale refresh, contacts, reminders, and ex
   assert.match(mobileWorkspace, /Поиск клиента/);
   assert.match(mobileWorkspace, /Обновляем из 1С/);
   assert.match(mobileCard, /href=\{`tel:/);
-  assert.match(mobileCard, /href=\{`mailto:/);
+  assert.match(mobileCard, /href=\{mailtoHref\}/);
   assert.match(mobileWorkspace, /Изменить порядок/);
   assert.match(mobileSummary, /На сегодня/);
+});
+
+test("mobile client actions use a bounded internally scrollable sheet", async () => {
+  const mobileActions = await readFile(mobileClientActionsUrl, "utf8");
+
+  assert.match(mobileActions, /data-mobile-client-actions-sheet/);
+  assert.match(mobileActions, /fixed/);
+  assert.match(mobileActions, /max-h-\[min\(/);
+  assert.match(mobileActions, /overflow-y-auto/);
+  assert.match(mobileActions, /overscroll-contain/);
 });
 
 test("mobile CRM reminder state retains prior data on failure and rejects stale-owner results", async () => {
@@ -153,6 +164,29 @@ test("mobile CRM reminder state retains prior data on failure and rejects stale-
   const accepted = state.applyOwnerReminderLoad(prior, 7, 7, nextItems);
   assert.deepEqual(state.getOwnerReminders(accepted, 7).map((item) => item.id), [2]);
   assert.equal(state.getOwnerReminders(accepted, 8).length, 0);
+});
+
+test("CRM client view clears an uncached tab and only retains stale clients for the same view", async () => {
+  const state = await loadMobileCrmWorkspaceStateForTest();
+  assert.equal(typeof state.transitionWorkspaceClientView, "function");
+  assert.equal(typeof state.getWorkspaceClientsForView, "function");
+
+  const priorClient = workspaceClient(42, "Предыдущая вкладка");
+  const cachedClient = workspaceClient(84, "Целевая вкладка");
+  const prior = { ownerId: 7, activeTab: "primary", clients: [priorClient] };
+
+  const uncachedTab = state.transitionWorkspaceClientView(prior, { ownerId: 7, activeTab: 4 }, null);
+  assert.equal(uncachedTab.ownerId, 7);
+  assert.equal(uncachedTab.activeTab, 4);
+  assert.equal(uncachedTab.clients.length, 0);
+  assert.equal(state.getWorkspaceClientsForView(prior, { ownerId: 7, activeTab: 4 }).length, 0);
+
+  const sameViewRefresh = state.transitionWorkspaceClientView(prior, { ownerId: 7, activeTab: "primary" }, null);
+  assert.equal(sameViewRefresh, prior);
+  assert.deepEqual(state.getWorkspaceClientsForView(sameViewRefresh, { ownerId: 7, activeTab: "primary" }).map((client) => client.id), [42]);
+
+  const cachedTab = state.transitionWorkspaceClientView(prior, { ownerId: 7, activeTab: 4 }, [cachedClient]);
+  assert.deepEqual(state.getWorkspaceClientsForView(cachedTab, { ownerId: 7, activeTab: 4 }).map((client) => client.id), [84]);
 });
 
 test("mobile CRM reminder navigation reuses loaded clients and preserves reminder detail context", async () => {
@@ -283,6 +317,16 @@ test("mobile CRM reminder helpers convert Moscow datetime-local values to and fr
 
   assert.equal(utils.moscowInputToUtc("2026-09-05T12:30"), "2026-09-05T09:30:00.000Z");
   assert.equal(utils.utcToMoscowInput("2026-09-05T09:30:00.000Z"), "2026-09-05T12:30");
+});
+
+test("mobile CRM mail links encode recipient data and reject injected mail headers", async () => {
+  const utils = await loadMobileCrmUtilsForTest();
+  assert.equal(typeof utils.getSafeMailtoHref, "function");
+
+  assert.equal(utils.getSafeMailtoHref(" sales#north@example.test "), "mailto:sales%23north@example.test");
+  assert.equal(utils.getSafeMailtoHref("sales+crm@example.test"), "mailto:sales%2Bcrm@example.test");
+  assert.equal(utils.getSafeMailtoHref("sales@example.test?bcc=outside@example.test"), null);
+  assert.equal(utils.getSafeMailtoHref("sales@example.test?bcc=outside"), null);
 });
 
 async function loadCrmApiForContractTest() {

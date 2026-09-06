@@ -62,3 +62,28 @@ export function utcToMoscowInput(value: string): string {
     hourCycle: "h23",
   }).format(date).replace(" ", "T");
 }
+
+export function getSafeMailtoHref(value: string): string | null {
+  const email = value.trim();
+  if (email.length === 0 || email.length > 254) return null;
+
+  const separator = email.indexOf("@");
+  if (separator <= 0 || separator !== email.lastIndexOf("@")) return null;
+
+  const localPart = email.slice(0, separator);
+  const domain = email.slice(separator + 1);
+  if (
+    localPart.length > 64 ||
+    localPart.startsWith(".") ||
+    localPart.endsWith(".") ||
+    localPart.includes("..") ||
+    !/^[A-Z0-9.!#$%&'*+/=^_`{|}~-]+$/i.test(localPart) ||
+    !/^[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)*$/i.test(domain)
+  ) return null;
+
+  const encodedRecipient = `${encodeURIComponent(localPart)}@${domain
+    .split(".")
+    .map((label) => encodeURIComponent(label))
+    .join(".")}`;
+  return `mailto:${encodedRecipient}`;
+}
