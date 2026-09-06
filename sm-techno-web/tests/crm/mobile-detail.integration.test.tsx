@@ -255,6 +255,33 @@ describe('mobile detail daily actions', () => {
     });
   });
 
+  it('renders a selected card color as a clear card surface', () => {
+    render(
+      <MobileClientCard
+        activeActionsClientId={null}
+        canEditWorkspace={false}
+        client={client}
+        color="blue"
+        tabs={[]}
+        onColor={vi.fn()}
+        onActionsOpenChange={vi.fn()}
+        onMove={vi.fn()}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    const card = document.querySelector<HTMLElement>(
+      `[data-mobile-crm-card-id="${client.id}"]`,
+    );
+    if (!card) {
+      throw new Error('Окрашенная карточка клиента не отрисована.');
+    }
+
+    expect(card.style.backgroundColor).toBe('rgb(219, 234, 254)');
+    expect(card.style.borderTopColor).toBe('rgb(147, 197, 253)');
+    expect(card.style.borderLeftColor).toBe('rgb(37, 99, 235)');
+  });
+
   it('uses a newly saved primary contact for detail quick actions', async () => {
     vi.mocked(api.fetchCrmContacts).mockResolvedValue([
       {

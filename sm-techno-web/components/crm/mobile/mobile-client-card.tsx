@@ -7,20 +7,23 @@ import { MobileClientActions } from '@/components/crm/mobile/mobile-client-actio
 import { getSafeMailtoHref } from '@/components/crm/mobile/mobile-crm-utils';
 import type { CrmReminder, CrmTab, CrmWorkspaceClient } from '@/lib/types';
 
-const accentByColor = new Map<string, string>([
-  ['blue', '#2563EB'],
-  ['cyan', '#0891B2'],
-  ['teal', '#0F766E'],
-  ['green', '#16A34A'],
-  ['lime', '#65A30D'],
-  ['yellow', '#CA8A04'],
-  ['amber', '#D97706'],
-  ['orange', '#EA580C'],
-  ['red', '#DC2626'],
-  ['pink', '#DB2777'],
-  ['purple', '#7E22CE'],
-  ['gray', '#475569'],
-]);
+const cardThemeByColor: Record<
+  string,
+  { accent: string; border: string; surface: string }
+> = {
+  blue: { accent: '#2563EB', border: '#93C5FD', surface: '#DBEAFE' },
+  cyan: { accent: '#0891B2', border: '#67E8F9', surface: '#CFFAFE' },
+  teal: { accent: '#0F766E', border: '#5EEAD4', surface: '#CCFBF1' },
+  green: { accent: '#16A34A', border: '#86EFAC', surface: '#DCFCE7' },
+  lime: { accent: '#65A30D', border: '#BEF264', surface: '#ECFCCB' },
+  yellow: { accent: '#CA8A04', border: '#FDE047', surface: '#FEF9C3' },
+  amber: { accent: '#D97706', border: '#FCD34D', surface: '#FEF3C7' },
+  orange: { accent: '#EA580C', border: '#FDBA74', surface: '#FFEDD5' },
+  red: { accent: '#DC2626', border: '#FCA5A5', surface: '#FEE2E2' },
+  pink: { accent: '#DB2777', border: '#F9A8D4', surface: '#FCE7F3' },
+  purple: { accent: '#7E22CE', border: '#D8B4FE', surface: '#F3E8FF' },
+  gray: { accent: '#475569', border: '#CBD5E1', surface: '#F1F5F9' },
+};
 
 const reminderDate = new Intl.DateTimeFormat('ru-RU', {
   timeZone: 'Europe/Moscow',
@@ -67,14 +70,22 @@ export function MobileClientCard({
   onOpen,
 }: MobileClientCardProps) {
   const companyName = client.documentName || client.fullName || client.name;
-  const accent = color ? (accentByColor.get(color) ?? '#CBD5E1') : '#CBD5E1';
+  const colorTheme = color ? cardThemeByColor[color] : undefined;
   const mailtoHref = getSafeMailtoHref(client.email);
 
   return (
     <article
       data-mobile-crm-card-id={client.id}
-      style={{ borderLeftColor: accent }}
-      className={`rounded-[16px] border border-l-4 border-[var(--border-color)] bg-white p-3 shadow-[0_8px_22px_rgba(7,22,46,0.045)] ${dragControls?.isGrabbed ? 'ring-2 ring-[var(--brand-yellow)]' : ''}`}
+      style={
+        colorTheme
+          ? {
+              backgroundColor: colorTheme.surface,
+              borderColor: colorTheme.border,
+              borderLeftColor: colorTheme.accent,
+            }
+          : undefined
+      }
+      className={`rounded-[16px] border border-l-[7px] border-[var(--border-color)] bg-white p-3 shadow-[0_8px_22px_rgba(7,22,46,0.045)] ${dragControls?.isGrabbed ? 'ring-2 ring-[var(--brand-yellow)]' : ''}`}
     >
       <div className="flex items-start gap-2">
         {dragControls ? (
