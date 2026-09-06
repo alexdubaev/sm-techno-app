@@ -13,6 +13,7 @@ import {
   type MobileSyncFilter,
 } from '@/components/crm/mobile/mobile-crm-header';
 import { MobileCrmTabs } from '@/components/crm/mobile/mobile-crm-tabs';
+import { MobileClientDetail } from '@/components/crm/mobile/mobile-client-detail';
 import type { ImportantReminder } from '@/components/crm/mobile/mobile-crm-utils';
 import { MobileReminderSummary } from '@/components/crm/mobile/mobile-reminder-summary';
 import type { MobileDetailSection } from '@/components/crm/mobile/types';
@@ -105,6 +106,7 @@ export function MobileCrmWorkspace({
   onColorClient,
   onCreateTab,
   onDeleteTab,
+  onDetailChanged,
   onExport,
   onMoveClient,
   onOpenClient,
@@ -268,20 +270,19 @@ export function MobileCrmWorkspace({
       className="min-h-dvh bg-[#F7F9FC] px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-[var(--text-primary)]"
     >
       {selectedClient ? (
-        <section
-          data-mobile-crm-detail=""
-          data-initial-section={initialDetailSection}
-          aria-label="Карточка клиента"
-        >
-          <button type="button" onClick={onCloseClient} className="sr-only">
-            Назад к списку клиентов
-          </button>
-          <h2 className="sr-only">
-            {selectedClient.documentName ||
-              selectedClient.fullName ||
-              selectedClient.name}
-          </h2>
-        </section>
+        <MobileClientDetail
+          client={selectedClient}
+          ownerId={ownerId}
+          activeTab={activeTab}
+          ownerName={ownerName}
+          isAdmin={isAdmin}
+          canEditWorkspace={canEditWorkspace}
+          canManageReminders={canEditWorkspace}
+          canResolveSyncConflicts={isAdmin || canEditWorkspace}
+          initialSection={initialDetailSection}
+          onDetailChanged={onDetailChanged}
+          onClose={onCloseClient}
+        />
       ) : (
         <div data-mobile-crm-list="">
           <MobileCrmHeader

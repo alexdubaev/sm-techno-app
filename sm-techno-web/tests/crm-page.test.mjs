@@ -21,6 +21,10 @@ const mobileWorkspaceStateUrl = new URL("../components/crm/mobile/mobile-crm-wor
 const mobileClientCardUrl = new URL("../components/crm/mobile/mobile-client-card.tsx", import.meta.url);
 const mobileClientActionsUrl = new URL("../components/crm/mobile/mobile-client-actions.tsx", import.meta.url);
 const mobileReminderSummaryUrl = new URL("../components/crm/mobile/mobile-reminder-summary.tsx", import.meta.url);
+const mobileDetailUrl = new URL("../components/crm/mobile/mobile-client-detail.tsx", import.meta.url);
+const mobileOverviewUrl = new URL("../components/crm/mobile/mobile-client-overview.tsx", import.meta.url);
+const mobileHistoryUrl = new URL("../components/crm/mobile/mobile-client-history.tsx", import.meta.url);
+const mobileRemindersUrl = new URL("../components/crm/mobile/mobile-client-reminders.tsx", import.meta.url);
 const mobileListModuleUrls = [
   mobileWorkspaceUrl,
   new URL("../components/crm/mobile/mobile-crm-header.tsx", import.meta.url),
@@ -96,6 +100,25 @@ function crmReminder(id, clientId, dueAt = "2026-09-05T10:00:00.000Z") {
     updatedAt: "2026-09-05T09:00:00.000Z",
   };
 }
+
+test("mobile detail exposes daily workflows and routes changes through the shared controller", async () => {
+  const [mobileDetail, mobileOverview, mobileHistory, mobileReminders, mobileWorkspace] = await Promise.all(
+    [mobileDetailUrl, mobileOverviewUrl, mobileHistoryUrl, mobileRemindersUrl, mobileWorkspaceUrl]
+      .map((url) => readFile(url, "utf8").catch(() => "")),
+  );
+  assert.match(mobileDetail, /Обзор/);
+  assert.match(mobileDetail, /История/);
+  assert.match(mobileDetail, /Напоминания/);
+  assert.match(mobileDetail, /Ещё/);
+  assert.match(mobileDetail, /useCrmClientDetailController/);
+  assert.match(mobileDetail, /onChanged: onDetailChanged/);
+  assert.match(mobileOverview, /\+ Контакт/);
+  assert.match(mobileHistory, /\+ Добавить событие/);
+  assert.match(mobileReminders, /Завтра утром/);
+  assert.doesNotMatch(mobileReminders, /window\.prompt/);
+  assert.match(mobileWorkspace, /<MobileClientDetail/);
+  assert.match(mobileWorkspace, /onDetailChanged=\{onDetailChanged\}/);
+});
 
 test("mobile CRM contracts expose detail sections and reminder helpers", async () => {
   const [mobileTypes, mobileUtils] = await Promise.all([

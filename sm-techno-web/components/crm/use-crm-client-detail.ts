@@ -81,12 +81,12 @@ export type DetailController = {
   setIsRemoveAssignmentConfirmationOpen: Dispatch<SetStateAction<boolean>>;
   setLinkCandidate: Dispatch<SetStateAction<CrmLinkCandidate | null>>;
   setSyncConflictResolution: Dispatch<SetStateAction<SyncConflictResolution | null>>;
-  saveContact: (event: SubmitEvent<HTMLFormElement>) => Promise<void>;
-  saveEvent: (event: SubmitEvent<HTMLFormElement>) => Promise<void>;
-  saveReminder: (event: SubmitEvent<HTMLFormElement>) => Promise<void>;
+  saveContact: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
+  saveEvent: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
+  saveReminder: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
   transitionReminder: (reminder: CrmReminder, action: "complete" | "cancel") => Promise<void>;
-  rescheduleReminder: (reminder: CrmReminder, dueAtLocal: string) => Promise<void>;
-  saveCompanyRequisites: (event: SubmitEvent<HTMLFormElement>) => Promise<void>;
+  rescheduleReminder: (reminder: CrmReminder, dueAtLocal: string) => Promise<boolean | void>;
+  saveCompanyRequisites: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
   archiveLocalClient: () => Promise<void>;
   restoreLocalClient: () => Promise<void>;
   removeAssignment: () => Promise<void>;
@@ -224,6 +224,8 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       const saved = await createCrmContact(currentClient.id, temporary, ownerId);
       setContacts((current) => current.map((item) => item.id === temporary.id ? saved : item));
       setContactForm({ name: "", phone: "", email: "", isPrimary: false });
+      notifyChanged();
+      return true;
     } catch (cause) {
       setContacts((current) => current.filter((item) => item.id !== temporary.id));
       setError(errorMessage(cause, "Не удалось добавить контакт. Изменение отменено."));
@@ -254,6 +256,8 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       const saved = await createCrmEvent(currentClient.id, { kind: temporary.kind, body: temporary.body }, ownerId);
       setEvents((current) => current.map((item) => item.id === temporary.id ? saved : item));
       setEventForm({ kind: "comment", body: "" });
+      notifyChanged();
+      return true;
     } catch (cause) {
       setEvents((current) => current.filter((item) => item.id !== temporary.id));
       setError(errorMessage(cause, "Не удалось добавить событие. Изменение отменено."));
@@ -288,6 +292,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       setReminders((current) => current.map((item) => item.id === temporary.id ? saved : item));
       setReminderDueAt("");
       notifyChanged();
+      return true;
     } catch (cause) {
       setReminders((current) => current.filter((item) => item.id !== temporary.id));
       setError(errorMessage(cause, "Не удалось добавить напоминание. Изменение отменено."));
@@ -330,6 +335,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       await rescheduleCrmReminder(currentClient.id, reminder.id, { dueAt: moscowInputToUtc(dueAtLocal), expectedUpdatedAt: reminder.updatedAt }, ownerId);
       notifyChanged();
       await refreshReminders();
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось перенести напоминание.");
     } finally {
@@ -361,6 +367,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       setRequisitesForm(companyRequisitesForm(saved));
       setNotice("Реквизиты компании сохранены.");
       notifyChanged();
+      return true;
     } catch (cause) {
       setError(errorMessage(cause, "Не удалось сохранить реквизиты компании. Изменение отменено."));
     } finally {

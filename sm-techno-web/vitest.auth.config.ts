@@ -14,6 +14,7 @@ export default defineConfig({
     include: [
       'tests/auth/**/*.test.{ts,tsx}',
       'tests/stock/**/*.test.{ts,tsx}',
+      'tests/crm/**/*.test.{ts,tsx}',
     ],
     setupFiles: ['tests/auth/setup.ts'],
     restoreMocks: true,
