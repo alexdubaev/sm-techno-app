@@ -51,6 +51,7 @@ const client: CrmWorkspaceClient = {
   createdAt: '',
   updatedAt: '',
   assignment: null,
+  workOwners: [],
 };
 const reminder: CrmReminder = {
   id: 11,
