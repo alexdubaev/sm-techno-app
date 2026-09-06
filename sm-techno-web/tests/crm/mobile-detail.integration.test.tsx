@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fireEvent,
@@ -7,6 +8,7 @@ import {
   within,
 } from '@testing-library/react';
 import * as api from '@/lib/api';
+import { MobileClientActions } from '@/components/crm/mobile/mobile-client-actions';
 import { MobileClientCard } from '@/components/crm/mobile/mobile-client-card';
 import { MobileClientDetail } from '@/components/crm/mobile/mobile-client-detail';
 import { getReminderPresetValue } from '@/components/crm/mobile/mobile-client-reminders';
@@ -136,6 +138,31 @@ async function openDetail(extra = {}) {
   return view;
 }
 
+function ClientActionsHarness() {
+  const [openClientId, setOpenClientId] = useState<number | null>(null);
+  const clients = [
+    { ...client, id: 101, documentName: 'Первый клиент' },
+    { ...client, id: 102, documentName: 'Второй клиент' },
+  ];
+
+  return (
+    <>
+      {clients.map((item) => (
+        <MobileClientActions
+          key={item.id}
+          client={item}
+          color={null}
+          isOpen={openClientId === item.id}
+          tabs={[]}
+          onColor={vi.fn()}
+          onMove={vi.fn()}
+          onOpenChange={(open) => setOpenClientId(open ? item.id : null)}
+        />
+      ))}
+    </>
+  );
+}
+
 describe('mobile detail daily actions', () => {
   it('does not open a mobile dialog or load mobile detail at the desktop boundary', async () => {
     Object.defineProperty(window, 'innerWidth', {
@@ -145,6 +172,19 @@ describe('mobile detail daily actions', () => {
     render(<MobileClientDetail {...props} />);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.fetchCrmContacts).not.toHaveBeenCalled();
+  });
+
+  it('keeps one client action menu open and closes it from its backdrop', () => {
+    render(<ClientActionsHarness />);
+
+    fireEvent.click(screen.getByLabelText('Ещё действия: Первый клиент'));
+    expect(screen.getByRole('dialog', { name: 'Действия клиента' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Ещё действия: Второй клиент'));
+    expect(screen.getAllByRole('dialog', { name: 'Действия клиента' })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Закрыть меню действий' }));
+    expect(screen.queryByRole('dialog', { name: 'Действия клиента' })).not.toBeInTheDocument();
   });
 
   it('does not request link candidates for a client already linked to 1C', async () => {
@@ -198,11 +238,13 @@ describe('mobile detail daily actions', () => {
   it('renders the client-card call action with white text', () => {
     render(
       <MobileClientCard
+        activeActionsClientId={null}
         canEditWorkspace={false}
         client={client}
         color={null}
         tabs={[]}
         onColor={vi.fn()}
+        onActionsOpenChange={vi.fn()}
         onMove={vi.fn()}
         onOpen={vi.fn()}
       />,

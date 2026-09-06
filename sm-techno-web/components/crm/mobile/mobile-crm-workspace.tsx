@@ -145,6 +145,8 @@ export function MobileCrmWorkspace({
   onTabChange,
 }: MobileCrmWorkspaceProps) {
   const [requestedReorderMode, setRequestedReorderMode] = useState(false);
+  const [activeActionsClientId, setActiveActionsClientId] =
+    useState<number | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const reorderMode = requestedReorderMode && manualOrderAvailable;
   const hasFilters = search.trim().length > 0 || syncFilter !== 'all';
@@ -446,6 +448,7 @@ export function MobileCrmWorkspace({
                 <div key={client.id}>
                   {drag?.insertionIndex === index ? <InsertionMarker /> : null}
                   <MobileClientCard
+                    activeActionsClientId={activeActionsClientId}
                     canEditWorkspace={canEditWorkspace}
                     client={client}
                     color={
@@ -457,6 +460,7 @@ export function MobileCrmWorkspace({
                     nearestReminder={nearestReminderByClient.get(client.id)}
                     tabs={tabs}
                     onColor={onColorClient}
+                    onActionsOpenChange={setActiveActionsClientId}
                     onMove={onMoveClient}
                     onOpen={onOpenClient}
                   />

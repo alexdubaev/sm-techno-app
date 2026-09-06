@@ -40,6 +40,7 @@ export type MobileDragControls = {
 };
 
 type MobileClientCardProps = {
+  activeActionsClientId: number | null;
   canEditWorkspace: boolean;
   client: CrmWorkspaceClient;
   color: string | null;
@@ -47,11 +48,13 @@ type MobileClientCardProps = {
   nearestReminder?: CrmReminder;
   tabs: CrmTab[];
   onColor: (client: CrmWorkspaceClient, color: string | null) => void;
+  onActionsOpenChange: (clientId: number | null) => void;
   onMove: (client: CrmWorkspaceClient, tabId: number) => void;
   onOpen: (client: CrmWorkspaceClient) => void;
 };
 
 export function MobileClientCard({
+  activeActionsClientId,
   canEditWorkspace,
   client,
   color,
@@ -59,6 +62,7 @@ export function MobileClientCard({
   nearestReminder,
   tabs,
   onColor,
+  onActionsOpenChange,
   onMove,
   onOpen,
 }: MobileClientCardProps) {
@@ -154,9 +158,13 @@ export function MobileClientCard({
             <MobileClientActions
               client={client}
               color={color}
+              isOpen={activeActionsClientId === client.id}
               tabs={tabs}
               onColor={onColor}
               onMove={onMove}
+              onOpenChange={(isOpen) =>
+                onActionsOpenChange(isOpen ? client.id : null)
+              }
             />
           ) : null}
         </div>
