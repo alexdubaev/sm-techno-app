@@ -1134,7 +1134,7 @@ export function StockPage() {
                 </button>
               ) : null}
             </div>
-            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
+            <div className="mt-3 grid grid-cols-[minmax(112px,1.25fr)_minmax(72px,0.75fr)_auto] items-center gap-2">
               <select
                 aria-label="Склад"
                 value={activeWarehouseId ?? ''}
@@ -1178,7 +1178,7 @@ export function StockPage() {
                   }}
                   className="h-4 w-4 rounded border-[var(--border-color)] accent-[var(--brand-yellow)]"
                 />
-                В наличии
+                <span className="max-[359px]:hidden">В наличии</span>
               </label>
             </div>
           </section>
