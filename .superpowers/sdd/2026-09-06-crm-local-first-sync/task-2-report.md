@@ -53,3 +53,35 @@ npx oxlint components/crm/mobile/mobile-crm-workspace.tsx components/crm/mobile/
 - Confirmed manual refresh calls `syncAndReloadWorkspace(activeTab, { manual: true })`, while automatic routes return early when the document is hidden.
 - Confirmed listeners and timers are removed on dependency changes/unmount.
 - Full focused lint including `components/crm-workspace.tsx` still exits 1 on eight pre-existing React-compiler/accessibility findings: the legacy render-time `currentView.current` assignment, synchronous state-setting loader/effect pattern, semantic dialog warnings, an unlabeled legacy control, and an existing `autoFocus`. The other four changed files lint clean. These baseline issues were left out of scope.
+
+## Review fix: overlapping local load and sync refresh state
+
+The Task 2 review identified that `loadLocalWorkspace()` and `syncAndReloadWorkspace()` independently cleared the same `isRefreshing` boolean. When freshness status resolved before the initial local list, the sync could start and the local request could then clear the sync-owned indicator while 1C remained pending.
+
+### RED
+
+Added a behavioral regression test that starts a local list request, resolves freshness status to begin an overlapping sync, finishes the local list while sync remains pending, and asserts that no inactive transition occurs until sync completes.
+
+```text
+node --test sm-techno-web/tests/crm-page.test.mjs
+# 46 passed, 1 failed
+# expected createRefreshActivityTracker to be a function; actual undefined
+```
+
+### Fix
+
+Added a reference-counted refresh activity tracker and wired both silent local loads and sync/reload operations to acquire and release their own activity. Non-silent initial local reads no longer write `isRefreshing`; overlapping operations keep the indicator active until the last owner releases it. Releases are idempotent and also occur for stale-view and error exits.
+
+### GREEN
+
+```text
+node --test sm-techno-web/tests/crm-page.test.mjs
+# 47 passed, 0 failed
+
+cd sm-techno-web
+npx tsc --noEmit
+# exit 0
+
+npx oxlint components/crm/mobile/mobile-crm-workspace-state.ts tests/crm-page.test.mjs
+# exit 0
+```

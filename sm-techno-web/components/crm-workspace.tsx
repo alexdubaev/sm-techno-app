@@ -29,6 +29,7 @@ import { MobileCrmWorkspace } from "@/components/crm/mobile/mobile-crm-workspace
 import { getImportantReminders, getNearestActiveReminderByClient } from "@/components/crm/mobile/mobile-crm-utils";
 import {
   applyOwnerReminderLoad,
+  createRefreshActivityTracker,
   createMobileDetailSelection,
   getMobileListContextOnClose,
   getOwnerReminders,
@@ -125,6 +126,7 @@ export function CrmWorkspace() {
   const [primaryOrderVersion, setPrimaryOrderVersion] = useState(() => initialWorkspaceCache?.primaryOrderVersion ?? 0);
   const [isLoading, setIsLoading] = useState(() => initialWorkspaceCache === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshActivityTracker] = useState(() => createRefreshActivityTracker(setIsRefreshing));
   const [syncStatus, setSyncStatus] = useState<CrmSyncStatus | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
@@ -188,8 +190,8 @@ export function CrmWorkspace() {
 
   const loadLocalWorkspace = useCallback(async (tab: ActiveTab, { silent = false } = {}) => {
     const id = ++requestId.current;
-    if (silent) setIsRefreshing(true);
-    else setIsLoading(true);
+    const finishRefreshing = silent ? refreshActivityTracker.start() : null;
+    if (!silent) setIsLoading(true);
     setError(null);
 
     try {
@@ -210,10 +212,10 @@ export function CrmWorkspace() {
     } finally {
       if (id === requestId.current) {
         setIsLoading(false);
-        setIsRefreshing(false);
       }
+      finishRefreshing?.();
     }
-  }, [isCurrentWorkspaceView, ownerId]);
+  }, [isCurrentWorkspaceView, ownerId, refreshActivityTracker]);
 
   const refreshAfterDetailChange = useCallback((requestOwnerId: number, requestTab: ActiveTab) => {
     if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
@@ -234,8 +236,8 @@ export function CrmWorkspace() {
     const pendingRefresh = crmRefreshInFlight.current;
     if (pendingRefresh?.ownerId === ownerId) return pendingRefresh.request;
     const requestOwnerId = ownerId;
+    const finishRefreshing = refreshActivityTracker.start();
     const request = (async () => {
-      setIsRefreshing(true);
       setError(null);
       try {
         await syncCrmBeforeReload();
@@ -259,17 +261,13 @@ export function CrmWorkspace() {
       const latestView = currentView.current;
       if (latestView.ownerId !== requestOwnerId) return;
       await loadLocalWorkspace(latestView.activeTab, { silent: true });
-    })().finally(() => {
-      if (isCurrentWorkspaceOwner(requestOwnerId)) {
-        setIsRefreshing(false);
-      }
-    });
+    })().finally(finishRefreshing);
     crmRefreshInFlight.current = { ownerId: requestOwnerId, request };
     void request.finally(() => {
       if (crmRefreshInFlight.current?.request === request) crmRefreshInFlight.current = null;
     });
     return request;
-  }, [isCurrentWorkspaceOwner, isCurrentWorkspaceView, loadLocalWorkspace, ownerId, syncCrmBeforeReload]);
+  }, [isCurrentWorkspaceOwner, isCurrentWorkspaceView, loadLocalWorkspace, ownerId, refreshActivityTracker, syncCrmBeforeReload]);
 
   const checkWorkspaceFreshness = useCallback(async (tab: ActiveTab) => {
     if (document.visibilityState !== "visible") return;

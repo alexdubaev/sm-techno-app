@@ -5,6 +5,23 @@ export type OwnerReminderState = { ownerId: number; items: CrmReminder[] } | nul
 export type WorkspaceViewIdentity = { ownerId: number; activeTab: "primary" | number };
 export type WorkspaceClientView = WorkspaceViewIdentity & { clients: CrmWorkspaceClient[] };
 
+export function createRefreshActivityTracker(onChange: (active: boolean) => void) {
+  let activeCount = 0;
+  return {
+    start() {
+      activeCount += 1;
+      if (activeCount === 1) onChange(true);
+      let finished = false;
+      return () => {
+        if (finished) return;
+        finished = true;
+        activeCount -= 1;
+        if (activeCount === 0) onChange(false);
+      };
+    },
+  };
+}
+
 export type MobileListContext = {
   search: string;
   scrollTop: number;

@@ -234,6 +234,44 @@ test("CRM client view clears an uncached tab and only retains stale clients for 
   assert.deepEqual(state.getWorkspaceClientsForView(cachedTab, { ownerId: 7, activeTab: 4 }).map((client) => client.id), [84]);
 });
 
+test("CRM refresh activity stays visible when the initial local read finishes before an overlapping sync", async () => {
+  const state = await loadMobileCrmWorkspaceStateForTest();
+  assert.equal(typeof state.createRefreshActivityTracker, "function");
+
+  const transitions = [];
+  const tracker = state.createRefreshActivityTracker((active) => transitions.push(active));
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((complete) => { resolve = complete; });
+    return { promise, resolve };
+  };
+  const localList = deferred();
+  const syncStatus = deferred();
+  const syncRequest = deferred();
+
+  const localLoad = (async () => {
+    const finish = tracker.start();
+    await localList.promise;
+    finish();
+  })();
+  const freshnessCheck = (async () => {
+    await syncStatus.promise;
+    const finish = tracker.start();
+    await syncRequest.promise;
+    finish();
+  })();
+
+  syncStatus.resolve();
+  await Promise.resolve();
+  localList.resolve();
+  await localLoad;
+  assert.deepEqual(transitions, [true]);
+
+  syncRequest.resolve();
+  await freshnessCheck;
+  assert.deepEqual(transitions, [true, false]);
+});
+
 test("mobile CRM reminder navigation reuses loaded clients and preserves reminder detail context", async () => {
   const state = await loadMobileCrmWorkspaceStateForTest();
   assert.equal(typeof state.resolveReminderDetailSelection, "function");
