@@ -26,6 +26,25 @@ def workbook(clients, contacts=()):
     return output.getvalue()
 
 
+def legacy_workbook(clients, contacts=()):
+    """Pre-round-trip export shape: no hidden metadata columns."""
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Клиенты"
+    client_headers = ["Компания", "ИНН", "КПП", "Город", "Сайт", "Основной контакт", "Телефон", "Почта", "Комментарий"]
+    sheet.append(client_headers)
+    for row in clients:
+        sheet.append([row.get(key) for key in client_headers])
+    sheet = book.create_sheet("Контакты")
+    contact_headers = ["Компания", "Контактное лицо", "Телефон", "Почта", "Основной контакт"]
+    sheet.append(contact_headers)
+    for row in contacts:
+        sheet.append([row.get(key) for key in contact_headers])
+    output = BytesIO()
+    book.save(output)
+    return output.getvalue()
+
+
 @pytest.fixture
 def setup(tmp_path):
     db = WebDatabase(tmp_path / "import.db")
@@ -73,6 +92,26 @@ def test_preview_is_read_only_and_final_creates_local_card_contact_and_colour(se
     second = run(setup, content, final=True, target_tab_id=result["targetTab"]["id"])
     assert (second["clientsToCreate"], second["contactsToCreate"], second["unchangedClients"]) == (0, 0, 1)
     assert len(rows(db, "crm_contacts")) == 1
+
+
+def test_name_and_phone_only_client_is_imported_as_local_card(setup):
+    db, _, owner, _, _ = setup
+    result = run(setup, workbook([{"Компания": "Только имя и телефон", "Телефон": "+7 (900) 123-45-67"}]), final=True)
+    assert result["clientsToCreate"] == 1
+    card = rows(db, "crm_clients")[0]
+    assert (card["document_name"], card["phone"], card["crm_owner_user_id"], card["sync_status"], card["linked_counterparty_id"]) == (
+        "Только имя и телефон", "+7 (900) 123-45-67", owner, "local", None,
+    )
+
+
+def test_legacy_workbook_without_hidden_columns_is_supported(setup):
+    db, repo, owner, _, _ = setup
+    existing = repo.create_local_client(actor_id=owner, values={"document_name": "Старый экспорт", "inn": "00123", "phone": "111"})
+    result = run(setup, legacy_workbook([{"Компания": "Новое имя", "ИНН": "00123", "Телефон": "222"}]), final=True)
+    assert result["clientsToUpdate"] == 1
+    assert result["clientsToCreate"] == 0
+    assert rows(db, "crm_clients")[0]["id"] == existing["id"]
+    assert rows(db, "crm_clients")[0]["document_name"] == "Новое имя"
 
 
 def test_hidden_id_has_priority_and_blank_cells_preserve_fields(setup):
