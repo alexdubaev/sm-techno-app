@@ -391,6 +391,7 @@ export function CrmWorkspace() {
   };
 
   const chooseMobileTab = (tab: ActiveTab) => {
+    localImportFreshness.current = null;
     activateTab(tab);
   };
 
