@@ -50,6 +50,7 @@ import type { AppUser, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/typ
 type ActiveTab = "primary" | number;
 type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "blocked_credentials" | "conflict" | "sync_error";
 type PrimaryOrderMode = "manual" | "name";
+type LocalImportFreshness = { ownerId: number; tab: ActiveTab; generation: number };
 
 const PRIMARY_TAB: { id: ActiveTab; name: string; systemKind: "primary" } = {
   id: "primary",
@@ -150,13 +151,21 @@ export function CrmWorkspace() {
   const crmRefreshInFlight = useRef<{ ownerId: number; request: Promise<void> } | null>(null);
   const initialLocalLoad = useRef<{ ownerId: number; tab: ActiveTab; request: Promise<void> } | null>(null);
   const freshnessInFlight = useRef<{ ownerId: number; tab: ActiveTab; request: Promise<void> } | null>(null);
-  const localImportFreshness = useRef<{ ownerId: number; tab: ActiveTab } | null>(null);
+  const localImportFreshness = useRef<LocalImportFreshness | null>(null);
+  const localImportFreshnessGeneration = useRef(0);
   const loadedSyncVersion = useRef<{ ownerId: number; tab: ActiveTab; lastSyncAt: number } | null>(null);
   const reminderRequestId = useRef(0);
   const currentView = useRef({ activeTab, ownerId });
   currentView.current = { activeTab, ownerId };
   const isCurrentWorkspaceView = useCallback((requestTab: ActiveTab, requestOwnerId: number) => currentView.current.activeTab === requestTab && currentView.current.ownerId === requestOwnerId, []);
   const isCurrentWorkspaceOwner = useCallback((requestOwnerId: number) => currentView.current.ownerId === requestOwnerId, []);
+  const isLocalImportTransition = useCallback((tab: ActiveTab, requestOwnerId: number, generation?: number) => {
+    const localImport = localImportFreshness.current;
+    return localImport?.ownerId === requestOwnerId
+      && localImport.tab === tab
+      && (generation === undefined || localImport.generation === generation)
+      && isCurrentWorkspaceView(tab, requestOwnerId);
+  }, [isCurrentWorkspaceView]);
 
   useEffect(() => {
     let active = true;
@@ -240,6 +249,7 @@ export function CrmWorkspace() {
   const syncAndReloadWorkspace = useCallback((tab: ActiveTab, { manual = false } = {}) => {
     if (!manual && document.visibilityState !== "visible") return Promise.resolve();
     if (!isCurrentWorkspaceView(tab, ownerId)) return Promise.resolve();
+    if (!manual && isLocalImportTransition(tab, ownerId)) return Promise.resolve();
     const pendingRefresh = crmRefreshInFlight.current;
     if (pendingRefresh?.ownerId === ownerId) return pendingRefresh.request;
     const requestOwnerId = ownerId;
@@ -276,11 +286,10 @@ export function CrmWorkspace() {
       if (crmRefreshInFlight.current?.request === request) crmRefreshInFlight.current = null;
     });
     return request;
-  }, [isCurrentWorkspaceOwner, isCurrentWorkspaceView, loadLocalWorkspace, ownerId, refreshActivityTracker, syncCrmBeforeReload]);
+  }, [isCurrentWorkspaceOwner, isCurrentWorkspaceView, isLocalImportTransition, loadLocalWorkspace, ownerId, refreshActivityTracker, syncCrmBeforeReload]);
 
   const checkWorkspaceFreshness = useCallback((tab: ActiveTab) => {
-    const localImport = localImportFreshness.current;
-    if (localImport?.ownerId === ownerId && localImport.tab === tab && isCurrentWorkspaceView(tab, ownerId)) {
+    if (isLocalImportTransition(tab, ownerId)) {
       return Promise.resolve();
     }
     if (document.visibilityState !== "visible" || !isCurrentWorkspaceView(tab, ownerId)) return Promise.resolve();
@@ -289,10 +298,10 @@ export function CrmWorkspace() {
     const request = (async () => {
       const initial = initialLocalLoad.current;
       if (initial?.ownerId === ownerId && initial.tab === tab) await initial.request;
-      if (document.visibilityState !== "visible" || !isCurrentWorkspaceView(tab, ownerId)) return;
+      if (document.visibilityState !== "visible" || !isCurrentWorkspaceView(tab, ownerId) || isLocalImportTransition(tab, ownerId)) return;
       try {
         const nextSyncStatus = await fetchCrmSyncStatus();
-        if (document.visibilityState !== "visible" || !isCurrentWorkspaceView(tab, ownerId)) return;
+        if (document.visibilityState !== "visible" || !isCurrentWorkspaceView(tab, ownerId) || isLocalImportTransition(tab, ownerId)) return;
         setSyncStatus(nextSyncStatus);
         const lastSyncAt = Date.parse(nextSyncStatus.lastSyncAt);
         const loaded = loadedSyncVersion.current;
@@ -301,6 +310,7 @@ export function CrmWorkspace() {
         if (Number.isFinite(lastSyncAt) && (loaded?.ownerId !== ownerId || loaded.tab !== tab || lastSyncAt > loaded.lastSyncAt)) {
           await loadLocalWorkspace(tab, { silent: true, lastSyncAt: nextSyncStatus.lastSyncAt });
         }
+        if (isLocalImportTransition(tab, ownerId)) return;
         if (Number.isFinite(lastSyncAt) && Date.now() - lastSyncAt < CRM_SYNC_FRESHNESS_MS) return;
         await syncAndReloadWorkspace(tab);
       } catch {
@@ -312,16 +322,24 @@ export function CrmWorkspace() {
       if (freshnessInFlight.current?.request === request) freshnessInFlight.current = null;
     });
     return request;
-  }, [isCurrentWorkspaceView, loadLocalWorkspace, ownerId, syncAndReloadWorkspace]);
+  }, [isCurrentWorkspaceView, isLocalImportTransition, loadLocalWorkspace, ownerId, syncAndReloadWorkspace]);
 
   useEffect(() => {
     let active = true;
+    const localImport = localImportFreshness.current;
+    const localImportGeneration = localImport?.ownerId === ownerId && localImport.tab === activeTab ? localImport.generation : null;
     const cachedWorkspace = readCrmWorkspaceCache(ownerId, activeTab);
     const request = loadLocalWorkspace(activeTab, { silent: cachedWorkspace !== null });
     initialLocalLoad.current = { ownerId, tab: activeTab, request };
-    void request.then(() => { if (active) void checkWorkspaceFreshness(activeTab); });
+    void request.then(() => {
+      if (localImportGeneration !== null && isLocalImportTransition(activeTab, ownerId, localImportGeneration)) {
+        localImportFreshness.current = null;
+        return;
+      }
+      if (active) void checkWorkspaceFreshness(activeTab);
+    });
     return () => { active = false; };
-  }, [activeTab, checkWorkspaceFreshness, loadLocalWorkspace, ownerId]);
+  }, [activeTab, checkWorkspaceFreshness, isLocalImportTransition, loadLocalWorkspace, ownerId]);
 
   useEffect(() => {
     const refreshVisibleWorkspace = () => {
@@ -377,9 +395,18 @@ export function CrmWorkspace() {
 
   const importIntoWorkspace = async (targetTabId: number) => {
     if (!canEditWorkspace) return;
-    localImportFreshness.current = { ownerId, tab: targetTabId };
+    const wasAlreadyActive = isCurrentWorkspaceView(targetTabId, ownerId);
+    const generation = ++localImportFreshnessGeneration.current;
+    localImportFreshness.current = { ownerId, tab: targetTabId, generation };
     activateTab(targetTabId);
     await loadLocalWorkspace(targetTabId, { silent: true });
+    // Switching tabs creates an activation effect with its own local reload;
+    // it consumes this generation after that reload settles. Re-importing into
+    // the already active tab has no activation effect, so this local reload is
+    // the deterministic settling boundary instead.
+    if (wasAlreadyActive && isLocalImportTransition(targetTabId, ownerId, generation)) {
+      localImportFreshness.current = null;
+    }
     if (isCurrentWorkspaceView(targetTabId, ownerId)) setNotice("Клиенты импортированы в выбранную вкладку.");
   };
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -157,7 +157,7 @@ describe("desktop CRM Excel import", () => {
     expect(api.importCrmFile).not.toHaveBeenCalled();
   });
 
-  test("keeps stale post-import target activation local", async () => {
+  test("keeps the import activation race local before resuming stale-workspace freshness", async () => {
     const user = userEvent.setup();
     const result: CrmImportResult = {
       ...preview,
@@ -165,12 +165,23 @@ describe("desktop CRM Excel import", () => {
       targetTab: { id: 12, name: "Сентябрь", systemKind: "custom" },
     };
     let imported = false;
+    let targetLoadRequests = 0;
+    const resolveTargetLoads: Array<() => void> = [];
     vi.mocked(api.importCrmFile).mockImplementation(async () => { imported = true; return result; });
     vi.mocked(api.fetchCrmTabs).mockResolvedValue([...tabs, { id: 12, name: "Сентябрь", systemKind: "custom", sortOrder: 2 }]);
     vi.mocked(api.fetchCrmSyncStatus).mockImplementation(async () => ({ status: "synced", lastSyncAt: imported ? "2020-01-01T00:00:00.000Z" : new Date().toISOString() }));
+    vi.mocked(api.fetchCrmClients).mockImplementation((query) => {
+      if (query?.tabId !== 12) return Promise.resolve([]);
+      targetLoadRequests += 1;
+      if (targetLoadRequests > 2) return Promise.resolve([]);
+      return new Promise((resolve) => {
+        resolveTargetLoads.push(() => resolve([]));
+      });
+    });
 
     render(<CrmWorkspace />);
     await screen.findByRole("button", { name: "Загрузить клиентов" });
+    await waitFor(() => expect(api.fetchCrmSyncStatus).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: "Загрузить клиентов" }));
     const dialog = screen.getByRole("dialog", { name: "Загрузка клиентов из Excel" });
     await user.upload(within(dialog).getByLabelText("Excel-файл"), selectWorkbook());
@@ -179,12 +190,22 @@ describe("desktop CRM Excel import", () => {
     await user.click(within(dialog).getByRole("button", { name: "Проверить файл" }));
     await user.click(within(dialog).getByRole("button", { name: "Импортировать" }));
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Сентябрь" })).toHaveAttribute("aria-current", "page"));
-    await waitFor(() => expect(api.fetchCrmClients).toHaveBeenCalledWith({ ownerId: 7, tabId: 12 }, { bypassCache: true }));
+    await waitFor(() => expect(resolveTargetLoads).toHaveLength(2));
+    const syncStatusCallsBeforeVisibilityRace = vi.mocked(api.fetchCrmSyncStatus).mock.calls.length;
     document.dispatchEvent(new Event("visibilitychange"));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
-    expect(api.fetchCrmSyncStatus).toHaveBeenCalledTimes(1);
+    expect(api.fetchCrmSyncStatus).toHaveBeenCalledTimes(syncStatusCallsBeforeVisibilityRace);
     expect(api.syncCrmWorkspace).not.toHaveBeenCalled();
+
+    // The local import transition includes the activation effect's own local
+    // reload. Once that deterministic setup has settled, a later visibility
+    // refresh must return to the ordinary stale-workspace policy.
+    await act(async () => {
+      resolveTargetLoads.forEach((resolve) => resolve());
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Сентябрь" })).toHaveAttribute("aria-current", "page"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(api.syncCrmWorkspace).toHaveBeenCalledTimes(1));
   });
 
   test("activates the mobile import target from the parent callback without syncing CRM", async () => {
