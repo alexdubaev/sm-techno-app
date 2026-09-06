@@ -1027,6 +1027,27 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("Экспорт владельца", workbook["Клиенты"]["A2"].value)
         self.assertEqual(2, workbook["Клиенты"].max_row)
 
+    def test_export_all_includes_primary_clients_without_personal_assignment(self) -> None:
+        self.client.post("/api/crm/clients", json={"documentName": "Личный экспорт"})
+        shared = self.client.post("/api/crm/clients", json={"documentName": "Общий экспорт"}).json()
+        self.link_primary_client(shared["client"]["id"], 911)
+
+        self.as_user(self.admin_id, "admin")
+        removed = self.client.delete(
+            f"/api/crm/clients/{shared['client']['id']}/assignment?ownerId={self.owner_id}"
+        )
+        self.assertEqual(200, removed.status_code, removed.text)
+        self.as_user(self.owner_id)
+
+        response = self.client.get("/api/crm/export?scope=all")
+        workbook = load_workbook(BytesIO(response.content))
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(
+            {"Личный экспорт", "Общий экспорт"},
+            {row[0] for row in workbook["Клиенты"].iter_rows(min_row=2, values_only=True)},
+        )
+
     def test_new_lead_stores_initial_contact_and_comment_in_the_owner_crm(self) -> None:
         created = self.client.post(
             "/api/crm/clients",

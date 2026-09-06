@@ -1534,11 +1534,23 @@ def export_crm_clients(
         if normalized_scope == "tab" and tab_id is None:
             raise ValueError("Для выгрузки вкладки укажите tabId.")
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        cards = repo.list_cards_for_actor(
-            actor_id=actor_id,
-            owner_id=resolved_owner_id,
-            tab_id=tab_id if normalized_scope == "tab" else None,
-        )
+        if normalized_scope == "tab":
+            cards = repo.list_cards_for_actor(
+                actor_id=actor_id,
+                owner_id=resolved_owner_id,
+                tab_id=tab_id,
+            )
+        else:
+            personal_cards = repo.list_cards_for_actor(
+                actor_id=actor_id,
+                owner_id=resolved_owner_id,
+            )
+            primary_cards = repo.list_cards_for_actor(
+                actor_id=actor_id,
+                owner_id=resolved_owner_id,
+                primary_only=True,
+            )
+            cards = list({int(card["id"]): card for card in [*primary_cards, *personal_cards]}.values())
         export_rows: list[dict[str, Any]] = []
         contact_rows: list[dict[str, Any]] = []
         for card in cards:
