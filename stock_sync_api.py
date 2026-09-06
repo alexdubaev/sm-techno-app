@@ -559,6 +559,7 @@ def _serialize_crm_client(
     version: int | None = None,
     row_preference: dict[str, Any] | None = None,
     primary_row_preference: dict[str, Any] | None = None,
+    work_owners: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
@@ -584,6 +585,7 @@ def _serialize_crm_client(
         "assignment": _serialize_crm_assignment(assignment, tab) if assignment else None,
         "rowPreference": _serialize_crm_row_preference(row_preference) if row_preference else None,
         "primaryRowPreference": _serialize_crm_primary_row_preference(primary_row_preference) if primary_row_preference else None,
+        "workOwners": work_owners or [],
     }
 
 
@@ -1243,11 +1245,19 @@ def list_crm_clients(
 ) -> dict[str, Any]:
     try:
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        cards = [
+            card
+            for card in repo.list_cards_for_actor(
+                actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, primary_only=primary_only
+            )
+            if bool(card.get("is_buyer"))
+        ]
+        work_owners_by_client_id = (
+            repo.list_active_work_owners_for_client_ids([int(card["id"]) for card in cards]) if primary_only else {}
+        )
         items = []
         primary_order_version = 0
-        for card in repo.list_cards_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, primary_only=primary_only):
-            if not bool(card.get("is_buyer")):
-                continue
+        for card in cards:
             assignment = repo.get_assignment_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
             tab = repo.get_tab_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=int(assignment["tab_id"])) if assignment else None
             version = repo.get_card_version_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"]))
@@ -1255,7 +1265,15 @@ def list_crm_clients(
             primary_preference = repo.get_primary_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=int(card["id"])) if primary_only else None
             if primary_preference:
                 primary_order_version = max(primary_order_version, int(primary_preference.get("order_version") or 0))
-            items.append(_serialize_crm_client(card, assignment, tab, version=version, row_preference=preference, primary_row_preference=primary_preference))
+            items.append(_serialize_crm_client(
+                card,
+                assignment,
+                tab,
+                version=version,
+                row_preference=preference,
+                primary_row_preference=primary_preference,
+                work_owners=work_owners_by_client_id.get(int(card["id"])),
+            ))
         result: dict[str, Any] = {"ownerId": resolved_owner_id, "items": items}
         if primary_only:
             result["orderVersion"] = primary_order_version

@@ -429,6 +429,30 @@ class CrmRepository:
                 ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_active_work_owners_for_client_ids(self, client_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+        """Return public work-owner details for active assignments in one query."""
+        normalized_ids = [int(client_id) for client_id in client_ids]
+        if not normalized_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in normalized_ids)
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                "SELECT a.crm_client_id AS clientId, u.id AS userId, u.full_name AS fullName "
+                "FROM crm_assignments AS a "
+                "JOIN users AS u ON u.id = a.owner_user_id "
+                f"WHERE a.crm_client_id IN ({placeholders}) "
+                "AND a.archived_at IS NULL "
+                "ORDER BY a.crm_client_id, u.full_name, u.id",
+                normalized_ids,
+            ).fetchall()
+        owners_by_client_id: dict[int, list[dict[str, Any]]] = {}
+        for row in rows:
+            client_id = int(row["clientId"])
+            owners_by_client_id.setdefault(client_id, []).append(
+                {"userId": int(row["userId"]), "fullName": str(row["fullName"] or "")}
+            )
+        return owners_by_client_id
+
     def get_card_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)

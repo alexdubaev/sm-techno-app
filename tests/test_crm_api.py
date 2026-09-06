@@ -5,6 +5,7 @@ import unittest
 import os
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
@@ -418,6 +419,79 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("pink", response.json()["preference"]["colorKey"])
         self.assertEqual(5000, response.json()["preference"]["position"])
         self.assertEqual("pink", listed.json()["items"][0]["primaryRowPreference"]["colorKey"])
+
+    def test_primary_list_serializes_active_work_owners_without_private_user_fields(self) -> None:
+        free_id = self.client.post("/api/crm/clients", json={"documentName": "Свободная"}).json()["client"]["id"]
+        single_id = self.client.post("/api/crm/clients", json={"documentName": "Один владелец"}).json()["client"]["id"]
+        shared_id = self.client.post("/api/crm/clients", json={"documentName": "Два владельца"}).json()["client"]["id"]
+        self.link_primary_client(free_id, 1101)
+        self.link_primary_client(single_id, 1102)
+        self.link_primary_client(shared_id, 1103)
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE users SET full_name = ? WHERE id = ?", ("Анна", self.owner_id))
+        other_work = CrmRepository(self.service.db).ensure_work_tab_for_actor(actor_id=self.other_id, owner_id=self.other_id)
+        repo = CrmRepository(self.service.db)
+        repo.assign_client_for_actor(actor_id=self.other_id, owner_id=self.other_id, client_id=shared_id, tab_id=other_work["id"])
+
+        self.as_user(self.admin_id, "admin")
+        self.assertEqual(200, self.client.delete(f"/api/crm/clients/{free_id}/assignment?ownerId={self.owner_id}").status_code)
+        self.as_user(self.owner_id)
+        owner_items = {item["id"]: item for item in self.client.get("/api/crm/clients?primaryOnly=true").json()["items"]}
+        self.as_user(self.other_id)
+        other_items = {item["id"]: item for item in self.client.get("/api/crm/clients?primaryOnly=true").json()["items"]}
+
+        self.assertEqual([], owner_items[free_id]["workOwners"])
+        self.assertEqual([{"userId": self.owner_id, "fullName": "Анна"}], owner_items[single_id]["workOwners"])
+        self.assertEqual(
+            [{"userId": self.other_id, "fullName": ""}, {"userId": self.owner_id, "fullName": "Анна"}],
+            owner_items[shared_id]["workOwners"],
+        )
+        self.assertEqual(owner_items[single_id]["workOwners"], other_items[single_id]["workOwners"])
+        self.assertEqual(owner_items[shared_id]["workOwners"], other_items[shared_id]["workOwners"])
+        self.assertNotIn("username", owner_items[shared_id]["workOwners"][0])
+
+    def test_primary_work_owner_survives_move_and_disappears_after_archive_or_admin_deletion(self) -> None:
+        moved_id = self.client.post("/api/crm/clients", json={"documentName": "Перемещённый"}).json()["client"]["id"]
+        archived_id = self.client.post("/api/crm/clients", json={"documentName": "Архивный"}).json()["client"]["id"]
+        deleted_id = self.client.post("/api/crm/clients", json={"documentName": "Удалённый"}).json()["client"]["id"]
+        self.link_primary_client(moved_id, 1111)
+        self.link_primary_client(archived_id, 1112)
+        self.link_primary_client(deleted_id, 1113)
+        tab = self.client.post("/api/crm/tabs", json={"name": "Другая"}).json()["tab"]
+        self.assertEqual(200, self.client.post(f"/api/crm/clients/{moved_id}/move", json={"tabId": tab["id"]}).status_code)
+        self.assertEqual(
+            [{"userId": self.owner_id, "fullName": ""}],
+            next(item for item in self.client.get("/api/crm/clients?primaryOnly=true").json()["items"] if item["id"] == moved_id)["workOwners"],
+        )
+
+        self.as_user(self.admin_id, "admin")
+        self.assertEqual(200, self.client.post(f"/api/crm/clients/{archived_id}/archive?ownerId={self.owner_id}", json={"reason": "Архив"}).status_code)
+        self.assertEqual(200, self.client.delete(f"/api/crm/clients/{deleted_id}/assignment?ownerId={self.owner_id}").status_code)
+        self.as_user(self.owner_id)
+        items = {item["id"]: item for item in self.client.get("/api/crm/clients?primaryOnly=true").json()["items"]}
+
+        self.assertEqual([], items[archived_id]["workOwners"])
+        self.assertEqual([], items[deleted_id]["workOwners"])
+
+    def test_work_owner_repository_batches_large_client_id_inputs_in_one_query(self) -> None:
+        repo = CrmRepository(self.service.db)
+        client_ids = list(range(10_000, 10_250))
+        statements: list[str] = []
+        original_connect = self.service.db.connect
+
+        def traced_connect():
+            connection = original_connect()
+            connection.set_trace_callback(statements.append)
+            return connection
+
+        with patch.object(self.service.db, "connect", side_effect=traced_connect):
+            result = repo.list_active_work_owners_for_client_ids(client_ids)
+            empty_result = repo.list_active_work_owners_for_client_ids([])
+
+        owner_queries = [statement for statement in statements if "FROM crm_assignments AS a" in statement]
+        self.assertEqual({}, result)
+        self.assertEqual({}, empty_result)
+        self.assertEqual(1, len(owner_queries))
 
     def test_crm_lists_only_counterparties_marked_as_buyers(self) -> None:
         buyer_id = self.client.post("/api/crm/clients", json={"documentName": "Покупатель"}).json()["client"]["id"]
