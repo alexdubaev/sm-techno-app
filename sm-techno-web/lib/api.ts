@@ -333,11 +333,13 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
   return (await response.json()) as T;
 }
 
-async function requestJson<T>(path: string): Promise<T> {
+type GetRequestOptions = { bypassCache?: boolean };
+
+async function requestJson<T>(path: string, { bypassCache = false }: GetRequestOptions = {}): Promise<T> {
   const url = buildApiUrl(path);
   const requestGeneration = cacheGeneration;
 
-  if (canCacheGet(path)) {
+  if (!bypassCache && canCacheGet(path)) {
     const cached = readGetCache<T>(url);
     if (cached !== undefined) {
       return cached;
@@ -770,9 +772,10 @@ export async function fetchCrmSyncStatus(): Promise<CrmSyncStatus> {
   return requestJson<CrmSyncStatus>("/api/crm/sync-status");
 }
 
-export async function fetchCrmTabs(ownerId?: number): Promise<CrmTab[]> {
+export async function fetchCrmTabs(ownerId?: number, options?: GetRequestOptions): Promise<CrmTab[]> {
   const result = await requestJson<{ items: CrmTab[] }>(
     `/api/crm/tabs${buildCrmQuery({ ownerId })}`,
+    options,
   );
   return result.items;
 }
@@ -820,9 +823,10 @@ export async function deleteCrmTab(tabId: number, replacementTabId: number, owne
   );
 }
 
-export async function fetchCrmClients(query: CrmClientsQuery = {}): Promise<CrmWorkspaceClient[]> {
+export async function fetchCrmClients(query: CrmClientsQuery = {}, options?: GetRequestOptions): Promise<CrmWorkspaceClient[]> {
   const result = await requestJson<{ items: CrmWorkspaceClient[] }>(
     `/api/crm/clients${buildCrmQuery(query)}`,
+    options,
   );
   return result.items;
 }
@@ -834,9 +838,10 @@ export async function fetchCrmClient(clientId: number, ownerId: number): Promise
   return result.client;
 }
 
-export async function fetchPrimaryCrmClients(ownerId: number): Promise<CrmPrimaryListResponse> {
+export async function fetchPrimaryCrmClients(ownerId: number, options?: GetRequestOptions): Promise<CrmPrimaryListResponse> {
   return requestJson<CrmPrimaryListResponse>(
     `/api/crm/clients${buildCrmQuery({ ownerId, primaryOnly: true })}`,
+    options,
   );
 }
 

@@ -84,6 +84,46 @@ class SystemSettingsTest(unittest.TestCase):
         self.assertEqual(self.db.get_settings()["password"], "")
         self.assertEqual(self._create_service().get_system_settings()["vat_percent"], "20")
 
+    def test_crm_status_write_does_not_read_unrelated_settings(self) -> None:
+        self.db.save_settings({"crm_last_sync_at": "2026-09-06T08:00:00+00:00"})
+        with patch.object(self.db, "get_settings", side_effect=AssertionError("CRM write must not read settings")):
+            self.service._save_crm_sync_status(status="error")
+        self.assertEqual(self.db.get_settings()["crm_last_sync_at"], "2026-09-06T08:00:00+00:00")
+
+    def test_crm_status_write_preserves_a_concurrent_system_setting_update(self) -> None:
+        for status in ("synced", "error"):
+            with self.subTest(status=status):
+                self.db.save_settings({"vat_percent": "20"})
+                save = self.db.save_settings
+
+                def concurrent_save(values):
+                    save({"vat_percent": "22"})
+                    save(values)
+
+                with patch.object(self.db, "save_settings", side_effect=concurrent_save):
+                    self.service._save_crm_sync_status(
+                        status=status,
+                        last_sync_at="2026-09-06T09:00:00+00:00" if status == "synced" else None,
+                    )
+                self.assertEqual(self.db.get_settings()["vat_percent"], "22")
+
+    def test_system_settings_save_cannot_replay_stale_or_concurrently_updated_crm_metadata(self) -> None:
+        self.db.save_settings({"crm_last_sync_at": "2026-09-06T08:00:00+00:00", "crm_last_sync_status": "error"})
+        stale_form = self.service.get_system_settings()
+        stale_form["vat_percent"] = "20"
+        save = self.db.save_settings
+
+        def concurrent_save(values):
+            save({"crm_last_sync_at": "2026-09-06T09:00:00+00:00", "crm_last_sync_status": "synced"})
+            save(values)
+
+        with patch.object(self.db, "save_settings", side_effect=concurrent_save):
+            self.service.save_system_settings(stale_form)
+        settings = self.db.get_settings()
+        self.assertEqual(settings["vat_percent"], "20")
+        self.assertEqual(settings["crm_last_sync_at"], "2026-09-06T09:00:00+00:00")
+        self.assertEqual(settings["crm_last_sync_status"], "synced")
+
 
 if __name__ == "__main__":
     unittest.main()

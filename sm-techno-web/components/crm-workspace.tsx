@@ -146,6 +146,9 @@ export function CrmWorkspace() {
   const requestId = useRef(0);
   const crmSyncInFlight = useRef<Promise<void> | null>(null);
   const crmRefreshInFlight = useRef<{ ownerId: number; request: Promise<void> } | null>(null);
+  const initialLocalLoad = useRef<{ ownerId: number; tab: ActiveTab; request: Promise<void> } | null>(null);
+  const freshnessInFlight = useRef<{ ownerId: number; tab: ActiveTab; request: Promise<void> } | null>(null);
+  const loadedSyncVersion = useRef<{ ownerId: number; tab: ActiveTab; lastSyncAt: number } | null>(null);
   const reminderRequestId = useRef(0);
   const currentView = useRef({ activeTab, ownerId });
   currentView.current = { activeTab, ownerId };
@@ -188,23 +191,24 @@ export function CrmWorkspace() {
     void refreshReminders(ownerId);
   }, [ownerId, refreshReminders]);
 
-  const loadLocalWorkspace = useCallback(async (tab: ActiveTab, { silent = false } = {}) => {
+  const loadLocalWorkspace = useCallback(async (tab: ActiveTab, { silent = false, lastSyncAt }: { silent?: boolean; lastSyncAt?: string } = {}) => {
     const id = ++requestId.current;
     const finishRefreshing = silent ? refreshActivityTracker.start() : null;
     if (!silent) setIsLoading(true);
     setError(null);
 
     try {
-      const nextTabsPromise = fetchCrmTabs(ownerId);
+      const nextTabsPromise = fetchCrmTabs(ownerId, { bypassCache: true });
       const [nextTabs, primaryResult, personalClients] = await Promise.all([
         nextTabsPromise,
-        tab === "primary" ? fetchPrimaryCrmClients(ownerId) : Promise.resolve(null),
-        tab === "primary" ? Promise.resolve(null) : fetchCrmClients({ ownerId, tabId: tab }),
+        tab === "primary" ? fetchPrimaryCrmClients(ownerId, { bypassCache: true }) : Promise.resolve(null),
+        tab === "primary" ? Promise.resolve(null) : fetchCrmClients({ ownerId, tabId: tab }, { bypassCache: true }),
       ]);
       if (id !== requestId.current || !isCurrentWorkspaceView(tab, ownerId)) return;
       setTabs(nextTabs);
       const nextClients = primaryResult?.items ?? personalClients ?? [];
       setClientView({ ownerId, activeTab: tab, clients: nextClients });
+      if (lastSyncAt) loadedSyncVersion.current = { ownerId, tab, lastSyncAt: Date.parse(lastSyncAt) };
       if (primaryResult) setPrimaryOrderVersion(primaryResult.orderVersion);
       saveCrmWorkspaceCache(ownerId, tab, { tabs: nextTabs, clients: nextClients, primaryOrderVersion: primaryResult?.orderVersion ?? null });
     } catch (cause) {
@@ -252,15 +256,17 @@ export function CrmWorkspace() {
         if (isCurrentWorkspaceOwner(requestOwnerId)) setError(CRM_SYNC_FAILURE_MESSAGE);
         return;
       }
+      let lastSyncAt: string | undefined;
       try {
         const nextSyncStatus = await fetchCrmSyncStatus();
         setSyncStatus(nextSyncStatus);
+        lastSyncAt = nextSyncStatus.lastSyncAt;
       } catch {
         // Status text is supplementary; a successful sync still reloads SQLite.
       }
       const latestView = currentView.current;
       if (latestView.ownerId !== requestOwnerId) return;
-      await loadLocalWorkspace(latestView.activeTab, { silent: true });
+      await loadLocalWorkspace(latestView.activeTab, { silent: true, lastSyncAt });
     })().finally(finishRefreshing);
     crmRefreshInFlight.current = { ownerId: requestOwnerId, request };
     void request.finally(() => {
@@ -269,27 +275,45 @@ export function CrmWorkspace() {
     return request;
   }, [isCurrentWorkspaceOwner, isCurrentWorkspaceView, loadLocalWorkspace, ownerId, refreshActivityTracker, syncCrmBeforeReload]);
 
-  const checkWorkspaceFreshness = useCallback(async (tab: ActiveTab) => {
-    if (document.visibilityState !== "visible") return;
-    try {
-      const nextSyncStatus = await fetchCrmSyncStatus();
-      setSyncStatus(nextSyncStatus);
-      const lastSyncAt = Date.parse(nextSyncStatus.lastSyncAt);
-      if (Number.isFinite(lastSyncAt) && Date.now() - lastSyncAt < CRM_SYNC_FRESHNESS_MS) return;
-      await syncAndReloadWorkspace(tab);
-    } catch {
-      if (isCurrentWorkspaceView(tab, ownerId)) setError(CRM_SYNC_FAILURE_MESSAGE);
-    }
-  }, [isCurrentWorkspaceView, ownerId, syncAndReloadWorkspace]);
+  const checkWorkspaceFreshness = useCallback((tab: ActiveTab) => {
+    if (document.visibilityState !== "visible" || !isCurrentWorkspaceView(tab, ownerId)) return Promise.resolve();
+    const pending = freshnessInFlight.current;
+    if (pending?.ownerId === ownerId && pending.tab === tab) return pending.request;
+    const request = (async () => {
+      const initial = initialLocalLoad.current;
+      if (initial?.ownerId === ownerId && initial.tab === tab) await initial.request;
+      if (document.visibilityState !== "visible" || !isCurrentWorkspaceView(tab, ownerId)) return;
+      try {
+        const nextSyncStatus = await fetchCrmSyncStatus();
+        if (document.visibilityState !== "visible" || !isCurrentWorkspaceView(tab, ownerId)) return;
+        setSyncStatus(nextSyncStatus);
+        const lastSyncAt = Date.parse(nextSyncStatus.lastSyncAt);
+        const loaded = loadedSyncVersion.current;
+        // A global sync can be fresh while this session still displays older
+        // SQLite rows. Only acknowledge the version after a successful read.
+        if (Number.isFinite(lastSyncAt) && (loaded?.ownerId !== ownerId || loaded.tab !== tab || lastSyncAt > loaded.lastSyncAt)) {
+          await loadLocalWorkspace(tab, { silent: true, lastSyncAt: nextSyncStatus.lastSyncAt });
+        }
+        if (Number.isFinite(lastSyncAt) && Date.now() - lastSyncAt < CRM_SYNC_FRESHNESS_MS) return;
+        await syncAndReloadWorkspace(tab);
+      } catch {
+        if (isCurrentWorkspaceView(tab, ownerId)) setError(CRM_SYNC_FAILURE_MESSAGE);
+      }
+    })();
+    freshnessInFlight.current = { ownerId, tab, request };
+    void request.finally(() => {
+      if (freshnessInFlight.current?.request === request) freshnessInFlight.current = null;
+    });
+    return request;
+  }, [isCurrentWorkspaceView, loadLocalWorkspace, ownerId, syncAndReloadWorkspace]);
 
   useEffect(() => {
+    let active = true;
     const cachedWorkspace = readCrmWorkspaceCache(ownerId, activeTab);
-    if (cachedWorkspace) {
-      void loadLocalWorkspace(activeTab, { silent: true });
-    } else {
-      void loadLocalWorkspace(activeTab);
-    }
-    void checkWorkspaceFreshness(activeTab);
+    const request = loadLocalWorkspace(activeTab, { silent: cachedWorkspace !== null });
+    initialLocalLoad.current = { ownerId, tab: activeTab, request };
+    void request.then(() => { if (active) void checkWorkspaceFreshness(activeTab); });
+    return () => { active = false; };
   }, [activeTab, checkWorkspaceFreshness, loadLocalWorkspace, ownerId]);
 
   useEffect(() => {

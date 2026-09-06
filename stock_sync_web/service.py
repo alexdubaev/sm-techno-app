@@ -63,8 +63,10 @@ class WebStockSyncService:
         return current
 
     def save_system_settings(self, values: dict[str, str]) -> None:
-        current = self.get_system_settings()
-        current.update(values)
+        # save_settings atomically upserts only these keys. CRM metadata belongs
+        # to the sync writer, even when an older settings form submits it back.
+        current = {key: value for key, value in values.items()
+                   if key not in {"crm_last_sync_status", "crm_last_sync_at"}}
         current["username"] = ""
         current["password"] = ""
         self.db.save_settings(current)
@@ -275,8 +277,7 @@ class WebStockSyncService:
         return {"status": status, "lastSyncAt": last_sync_at}
 
     def _save_crm_sync_status(self, *, status: str, last_sync_at: str | None = None) -> None:
-        values = self.db.get_settings()
-        values["crm_last_sync_status"] = status
+        values = {"crm_last_sync_status": status}
         if last_sync_at is not None:
             values["crm_last_sync_at"] = last_sync_at
         self.db.save_settings(values)

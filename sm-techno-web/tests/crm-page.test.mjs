@@ -607,7 +607,7 @@ test("CRM surface is reachable from navigation and exposes the core workspace", 
   assert.match(api, /\/api\/crm\/clients/);
 });
 
-test("CRM loads SQLite data before freshness checks and refreshes only visible stale workspaces", async () => {
+test("CRM exposes sync metadata and refresh failure status with retry", async () => {
   const [api, workspace, mobileWorkspace, mobileHeader] = await Promise.all([
     readFile(crmApiUrl, "utf8"),
     readFile(crmWorkspaceUrl, "utf8"),
@@ -620,8 +620,6 @@ test("CRM loads SQLite data before freshness checks and refreshes only visible s
   assert.match(api, /\/api\/crm\/sync-status/);
   assert.match(workspace, /const loadLocalWorkspace = useCallback/);
   assert.match(workspace, /const syncAndReloadWorkspace = useCallback/);
-  assert.match(workspace, /void loadLocalWorkspace\(activeTab\);/);
-  assert.ok(workspace.indexOf("void loadLocalWorkspace(activeTab);") < workspace.indexOf("void checkWorkspaceFreshness(activeTab);"));
   assert.match(workspace, /document\.visibilityState !== "visible"/);
   assert.match(workspace, /10 \* 60_000/);
   assert.match(workspace, /Не удалось обновить данные из 1С\. Показаны сохранённые данные\./);
@@ -665,8 +663,8 @@ test("administrator CRM workspace keeps the selected owner explicit across actio
   assert.match(workspace, /useAuth/);
   assert.match(workspace, /fetchUsers/);
   assert.match(workspace, /CRM сотрудника/);
-  assert.match(workspace, /fetchCrmTabs\(ownerId\)/);
-  assert.match(workspace, /fetchPrimaryCrmClients\(ownerId\)/);
+  assert.match(workspace, /fetchCrmTabs\(ownerId, \{ bypassCache: true \}\)/);
+  assert.match(workspace, /fetchPrimaryCrmClients\(ownerId, \{ bypassCache: true \}\)/);
   assert.match(workspace, /moveCrmClient\(client\.id, targetTabId, ownerId\)/);
   assert.match(controller, /removeCrmAssignment\(currentClient\.id, ownerId\)/);
   assert.match(workspace, /saveCrmRowPreference\(client\.id, \{ tabId: activeTab, colorKey, expectedOrderVersion: personalOrderVersion \}, ownerId\)/);
@@ -1023,7 +1021,7 @@ test("CRM reminder rollback is limited to failed transitions, shared refresh fol
   assert.match(controller, /transitionSucceeded = true;/);
   assert.match(controller, /if \(!transitionSucceeded\) \{\s*setReminders/);
   assert.match(workspace, /const latestView = currentView\.current;/);
-  assert.match(workspace, /await loadLocalWorkspace\(latestView\.activeTab, \{ silent: true \}\);/);
+  assert.match(workspace, /await loadLocalWorkspace\(latestView\.activeTab, \{ silent: true, lastSyncAt \}\);/);
   assert.match(controller, /if \(!canManageReminders\) return;/);
   assert.match(workspace, /canManageReminders \? <form onSubmit=\{saveReminder\}/);
 });
