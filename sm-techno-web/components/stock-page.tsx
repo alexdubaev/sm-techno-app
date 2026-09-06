@@ -1134,47 +1134,53 @@ export function StockPage() {
                 </button>
               ) : null}
             </div>
-            <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1 [-webkit-overflow-scrolling:touch]">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveWarehouseId(null);
+            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
+              <select
+                aria-label="Склад"
+                value={activeWarehouseId ?? ''}
+                onChange={(event) => {
+                  setActiveWarehouseId(
+                    event.target.value ? Number(event.target.value) : null,
+                  );
                   setPage(1);
                 }}
-                className={mobileWarehouseFilterClass(
-                  activeWarehouseId === null,
-                )}
+                className="h-11 min-w-0 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
               >
-                Все склады
-              </button>
-              {warehouses.map((warehouse) => (
-                <button
-                  key={warehouse.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveWarehouseId(warehouse.id);
+                <option value="">Все склады</option>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.id} value={warehouse.id}>
+                    {warehouse.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                aria-label="Сортировка товаров"
+                value={sortOrder}
+                onChange={(event) => {
+                  setSortOrder(event.target.value as StockSortOrder);
+                  setPage(1);
+                }}
+                className="h-11 min-w-0 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
+              >
+                <option value="newest">Новые</option>
+                <option value="oldest">Старые</option>
+              </select>
+
+              <label className="flex h-11 shrink-0 items-center gap-1.5 rounded-[12px] border border-[var(--border-color)] bg-white px-2.5 text-[12px] font-medium whitespace-nowrap text-[var(--text-primary)] transition-all duration-200 focus-within:border-[var(--brand-yellow)] focus-within:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]">
+                <input
+                  aria-label="Только в наличии"
+                  type="checkbox"
+                  checked={onlyInStock}
+                  onChange={(event) => {
+                    setOnlyInStock(event.target.checked);
                     setPage(1);
                   }}
-                  className={mobileWarehouseFilterClass(
-                    activeWarehouseId === warehouse.id,
-                  )}
-                >
-                  {warehouse.name}
-                </button>
-              ))}
+                  className="h-4 w-4 rounded border-[var(--border-color)] accent-[var(--brand-yellow)]"
+                />
+                В наличии
+              </label>
             </div>
-            <label className="mt-3 inline-flex h-9 items-center gap-2 rounded-full border border-[var(--border-color)] px-3 text-[13px] font-medium text-[var(--text-primary)]">
-              <input
-                type="checkbox"
-                checked={onlyInStock}
-                onChange={(event) => {
-                  setOnlyInStock(event.target.checked);
-                  setPage(1);
-                }}
-                className="h-4 w-4 rounded border-[var(--border-color)] accent-[var(--brand-yellow)]"
-              />
-              Только в наличии
-            </label>
           </section>
 
           <section className="mt-3">{renderMobileResults()}</section>
@@ -1206,7 +1212,7 @@ export function StockPage() {
         <div className="hidden gap-2.5 md:grid xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
           <div className="min-w-0 space-y-2.5">
             <section className="rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(164px,210px)] lg:grid-cols-[minmax(0,1fr)_164px_164px_132px_188px]">
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(164px,210px)] lg:grid-cols-[minmax(180px,1fr)_minmax(136px,164px)_minmax(136px,164px)_minmax(136px,164px)_132px_188px]">
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
                     <SearchIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -1231,6 +1237,25 @@ export function StockPage() {
                   {categories.map((entry) => (
                     <option key={entry} value={entry}>
                       {entry}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  aria-label="Склад"
+                  value={activeWarehouseId ?? ''}
+                  onChange={(event) => {
+                    setActiveWarehouseId(
+                      event.target.value ? Number(event.target.value) : null,
+                    );
+                    setPage(1);
+                  }}
+                  className="h-[36px] rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[10.5px] font-medium text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
+                >
+                  <option value="">Все склады</option>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name}
                     </option>
                   ))}
                 </select>
@@ -1276,32 +1301,7 @@ export function StockPage() {
                 </button>
               </div>
             </section>
-
             <section className="rounded-[16px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-              <div className="mb-2 flex flex-wrap gap-1.5 border-b border-[var(--border-color)] pb-2">
-                <WarehouseTab
-                  active={activeWarehouseId === null}
-                  onClick={() => {
-                    setActiveWarehouseId(null);
-                    setPage(1);
-                  }}
-                >
-                  Общий
-                </WarehouseTab>
-                {warehouses.map((warehouse) => (
-                  <WarehouseTab
-                    key={warehouse.id}
-                    active={activeWarehouseId === warehouse.id}
-                    onClick={() => {
-                      setActiveWarehouseId(warehouse.id);
-                      setPage(1);
-                    }}
-                  >
-                    {warehouse.name}
-                  </WarehouseTab>
-                ))}
-              </div>
-
               <div
                 ref={containerRef}
                 className="max-h-[calc(100dvh-9rem)] overflow-auto rounded-[14px] border border-[var(--border-color)] bg-white"
@@ -2054,31 +2054,6 @@ function QuantityButton({
   );
 }
 
-function WarehouseTab({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'inline-flex h-[34px] items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200',
-        active
-          ? 'border-[var(--border-color)] border-t-[2px] border-t-[var(--stock-ok)] bg-white text-[var(--brand-dark)] shadow-[0_10px_20px_rgba(7,22,46,0.06)]'
-          : 'border-[var(--border-color)] bg-[#F8FAFD] text-[var(--text-secondary)] hover:bg-white hover:text-[var(--text-primary)]',
-      ].join(' ')}
-    >
-      <span className="truncate">{children}</span>
-    </button>
-  );
-}
-
 function EmptyStateCard({
   icon,
   title,
@@ -2143,15 +2118,6 @@ function TableSkeleton() {
       ))}
     </div>
   );
-}
-
-function mobileWarehouseFilterClass(active: boolean) {
-  return [
-    'h-9 shrink-0 rounded-full border px-3 text-[13px] font-semibold transition',
-    active
-      ? 'border-[var(--brand-dark)] bg-[var(--brand-dark)] text-white'
-      : 'border-[var(--border-color)] bg-white text-[var(--text-primary)]',
-  ].join(' ');
 }
 
 export function MobileStockResults({
