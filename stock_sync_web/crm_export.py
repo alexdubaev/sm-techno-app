@@ -42,6 +42,8 @@ CLIENT_HEADERS = (
     "Связь с 1С",
 )
 CONTACT_HEADERS = ("Компания", "Контактное лицо", "Телефон", "Почта", "Основной контакт")
+_CLIENT_ROUND_TRIP_HEADERS = ("__crm_client_id", "__color_key", "__export_version")
+_CONTACT_ROUND_TRIP_HEADERS = ("__crm_client_id", "__crm_contact_id")
 _CLIENT_COLUMN_WIDTHS = (30, 15, 14, 18, 28, 24, 20, 28, 42, 20, 20, 22, 24)
 _CONTACT_COLUMN_WIDTHS = (30, 24, 20, 28, 18)
 
@@ -101,8 +103,18 @@ def build_crm_export_xlsx(
     clients_sheet.title = "Клиенты"
     contacts_sheet = workbook.create_sheet("Контакты")
 
-    _prepare_sheet(clients_sheet, CLIENT_HEADERS, column_widths=_CLIENT_COLUMN_WIDTHS)
-    _prepare_sheet(contacts_sheet, CONTACT_HEADERS, column_widths=_CONTACT_COLUMN_WIDTHS)
+    _prepare_sheet(
+        clients_sheet,
+        (*CLIENT_HEADERS, *_CLIENT_ROUND_TRIP_HEADERS),
+        column_widths=_CLIENT_COLUMN_WIDTHS,
+    )
+    _prepare_sheet(
+        contacts_sheet,
+        (*CONTACT_HEADERS, *_CONTACT_ROUND_TRIP_HEADERS),
+        column_widths=_CONTACT_COLUMN_WIDTHS,
+    )
+    _hide_columns(clients_sheet, first_column=len(CLIENT_HEADERS) + 1, count=len(_CLIENT_ROUND_TRIP_HEADERS))
+    _hide_columns(contacts_sheet, first_column=len(CONTACT_HEADERS) + 1, count=len(_CONTACT_ROUND_TRIP_HEADERS))
 
     for row in materialized_clients:
         values = [
@@ -119,6 +131,9 @@ def build_crm_export_xlsx(
             _as_excel_date(_value(row, "reminder_at", "reminderAt", "next_reminder_at", "nextReminderAt")),
             _safe_text(_value(row, "tab_name", "tabName") or "Без вкладки"),
             _sync_status_label(_value(row, "sync_status", "syncStatus", "onec_status", "onecStatus")),
+            _value(row, "id", "client_id", "clientId"),
+            _value(row, "color_key", "colorKey"),
+            1,
         ]
         clients_sheet.append(values)
         current_row = clients_sheet.max_row
@@ -136,6 +151,8 @@ def build_crm_export_xlsx(
                 _safe_text(_value(row, "phone", "telephone")),
                 _safe_text(_value(row, "email")),
                 "Да" if _value(row, "is_primary", "isPrimary") else "Нет",
+                _value(row, "client_id", "clientId"),
+                _value(row, "id", "contact_id", "contactId"),
             ]
         )
         _format_contact_row(contacts_sheet, contacts_sheet.max_row)
@@ -216,6 +233,11 @@ def _format_client_row(sheet: Any, row_number: int) -> None:
 
 def _format_contact_row(sheet: Any, row_number: int) -> None:
     sheet.cell(row_number, 3).number_format = _TEXT_FORMAT
+
+
+def _hide_columns(sheet: Any, *, first_column: int, count: int) -> None:
+    for column_index in range(first_column, first_column + count):
+        sheet.column_dimensions[get_column_letter(column_index)].hidden = True
 
 
 def _apply_row_color(sheet: Any, row_number: int, color_key: Any) -> None:
