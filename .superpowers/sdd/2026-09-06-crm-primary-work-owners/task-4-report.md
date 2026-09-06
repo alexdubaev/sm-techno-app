@@ -39,3 +39,19 @@ exit 0
 ## Concerns
 
 None.
+
+## Review fix round 1
+
+Added workspace-level integration coverage in `sm-techno-web/tests/crm/mobile-detail.integration.test.tsx`. It renders `MobileCrmWorkspace` with the real primary and personal active-tab paths, verifies the primary card has the owner status, confirms the `В работе:` block follows city/INN and precedes contacts, and asserts its blue/green informational styling plus wrapping constraints.
+
+The new coverage was mutation-checked by temporarily removing the workspace `activeTab` forwarding. The focused test then failed because `В работе:` was absent; restoring the production line returned it to green.
+
+```text
+npx vitest run --config vitest.auth.config.ts tests/crm/mobile-detail.integration.test.tsx tests/crm/work-owners-status.integration.test.tsx
+2 passed, 34 passed
+
+npx tsc --noEmit
+exit 0
+```
+
+No production behavior changed in this review round.

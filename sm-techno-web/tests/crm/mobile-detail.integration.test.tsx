@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fireEvent,
@@ -11,6 +11,7 @@ import * as api from '@/lib/api';
 import { MobileClientActions } from '@/components/crm/mobile/mobile-client-actions';
 import { MobileClientCard } from '@/components/crm/mobile/mobile-client-card';
 import { MobileClientDetail } from '@/components/crm/mobile/mobile-client-detail';
+import { MobileCrmWorkspace } from '@/components/crm/mobile/mobile-crm-workspace';
 import { getReminderPresetValue } from '@/components/crm/mobile/mobile-client-reminders';
 import type { CrmReminder, CrmWorkspaceClient } from '@/lib/types';
 
@@ -164,6 +165,74 @@ function ClientActionsHarness() {
   );
 }
 
+function mobileWorkspaceProps(
+  overrides: Partial<ComponentProps<typeof MobileCrmWorkspace>> = {},
+): ComponentProps<typeof MobileCrmWorkspace> {
+  return {
+    activeTab: 'primary',
+    canEditWorkspace: false,
+    clients: [client],
+    initialDetailSection: 'overview',
+    isAdding: false,
+    isSavingClient: false,
+    importantReminders: [],
+    isAdmin: false,
+    isExporting: false,
+    isLoading: false,
+    isLoadingReminders: false,
+    isRefreshing: false,
+    manualOrderAvailable: false,
+    nearestReminderByClient: new Map(),
+    notice: null,
+    newClientError: null,
+    newClientForm: {
+      documentName: '',
+      city: '',
+      contactPerson: '',
+      phone: '',
+      email: '',
+      telegram: '',
+      maxLink: '',
+      notes: '',
+    },
+    ownerId: 7,
+    ownerName: 'Менеджер',
+    owners: [],
+    primaryOrderMode: 'manual',
+    reminderError: null,
+    search: '',
+    selectedClient: null,
+    syncFilter: 'all',
+    syncStatusText: null,
+    tabs: [{ id: 3, name: 'В работе', systemKind: 'work', sortOrder: 0 }],
+    totalClientCount: 1,
+    workspaceError: null,
+    onAddClient: vi.fn(),
+    onChangeClientForm: vi.fn(),
+    onCloseClient: vi.fn(),
+    onCloseNewClient: vi.fn(),
+    onColorClient: vi.fn(),
+    onCreateTab: vi.fn(),
+    onDeleteTab: vi.fn(),
+    onDetailChanged: vi.fn(),
+    onExport: vi.fn(),
+    onImportCompleted: vi.fn(),
+    onMoveClient: vi.fn(),
+    onOpenClient: vi.fn(),
+    onOpenReminder: vi.fn(),
+    onOwnerChange: vi.fn(),
+    onPrimaryOrderModeChange: vi.fn(),
+    onRefresh: vi.fn(),
+    onRenameTab: vi.fn(),
+    onReorder: vi.fn(),
+    onSearchChange: vi.fn(),
+    onSubmitClient: vi.fn(),
+    onSyncFilterChange: vi.fn(),
+    onTabChange: vi.fn(),
+    ...overrides,
+  };
+}
+
 describe('mobile detail daily actions', () => {
   it('does not open a mobile dialog or load mobile detail at the desktop boundary', async () => {
     Object.defineProperty(window, 'innerWidth', {
@@ -284,6 +353,51 @@ describe('mobile detail daily actions', () => {
     expect(card.style.backgroundColor).toBe('rgb(219, 234, 254)');
     expect(card.style.borderTopColor).toBe('rgb(147, 197, 253)');
     expect(card.style.borderLeftColor).toBe('rgb(37, 99, 235)');
+  });
+
+  it('forwards primary-tab owner status in quiet informational order only', () => {
+    const workspaceClient = {
+      ...client,
+      workOwners: [{ userId: 1, fullName: 'Иван Петров' }],
+    };
+    const view = render(
+      <MobileCrmWorkspace
+        {...mobileWorkspaceProps({ clients: [workspaceClient] })}
+      />,
+    );
+
+    const cityAndInn = screen.getByText('Москва · ИНН 7700000000');
+    const ownerLabel = screen.getByText('В работе:');
+    const ownerBlock = ownerLabel.parentElement;
+    const contact = screen.getByText('Ирина');
+    if (!ownerBlock) throw new Error('Блок сотрудников в работе не отрисован.');
+
+    expect(ownerBlock).toHaveClass(
+      'border-[#BFDBFE]',
+      'bg-[#EFF6FF]',
+      'text-[#0F766E]',
+      'min-w-0',
+      '[overflow-wrap:anywhere]',
+    );
+    expect(ownerLabel).toHaveClass('text-[#2563EB]');
+    expect(
+      cityAndInn.compareDocumentPosition(ownerBlock) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      ownerBlock.compareDocumentPosition(contact) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText('Иван Петров')).toBeInTheDocument();
+
+    view.rerender(
+      <MobileCrmWorkspace
+        {...mobileWorkspaceProps({ activeTab: 3, clients: [workspaceClient] })}
+      />,
+    );
+
+    expect(screen.queryByText('В работе:')).not.toBeInTheDocument();
+    expect(screen.queryByText('Иван Петров')).not.toBeInTheDocument();
   });
 
   it.each([
