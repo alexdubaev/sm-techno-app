@@ -155,15 +155,17 @@ describe("desktop CRM Excel import", () => {
     expect(api.importCrmFile).not.toHaveBeenCalled();
   });
 
-  test("refreshes only the local workspace and activates the imported target", async () => {
+  test("keeps stale post-import target activation local", async () => {
     const user = userEvent.setup();
     const result: CrmImportResult = {
       ...preview,
       target: { tabId: null, newTabName: "Сентябрь" },
       targetTab: { id: 12, name: "Сентябрь", systemKind: "custom" },
     };
-    vi.mocked(api.importCrmFile).mockResolvedValue(result);
+    let imported = false;
+    vi.mocked(api.importCrmFile).mockImplementation(async () => { imported = true; return result; });
     vi.mocked(api.fetchCrmTabs).mockResolvedValue([...tabs, { id: 12, name: "Сентябрь", systemKind: "custom", sortOrder: 2 }]);
+    vi.mocked(api.fetchCrmSyncStatus).mockImplementation(async () => ({ status: "synced", lastSyncAt: imported ? "2020-01-01T00:00:00.000Z" : new Date().toISOString() }));
 
     render(<CrmWorkspace />);
     await screen.findByRole("button", { name: "Загрузить клиентов" });
@@ -176,7 +178,50 @@ describe("desktop CRM Excel import", () => {
     await user.click(within(dialog).getByRole("button", { name: "Импортировать" }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Сентябрь" })).toHaveAttribute("aria-current", "page"));
-    expect(api.fetchCrmClients).toHaveBeenCalledWith({ ownerId: 7, tabId: 12 }, { bypassCache: true });
+    await waitFor(() => expect(api.fetchCrmClients).toHaveBeenCalledWith({ ownerId: 7, tabId: 12 }, { bypassCache: true }));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(api.fetchCrmSyncStatus).toHaveBeenCalledTimes(1);
     expect(api.syncCrmWorkspace).not.toHaveBeenCalled();
+  });
+
+  test("locks a deferred preview and imports its exact snapshot", async () => {
+    const user = userEvent.setup();
+    let resolvePreview: (value: CrmImportPreview) => void;
+    vi.mocked(api.previewCrmImport).mockImplementation(() => new Promise((resolve) => { resolvePreview = resolve; }));
+    render(<DesktopCrmImportDialog ownerId={7} tabs={tabs} onClose={vi.fn()} onImported={vi.fn()} />);
+    const workbook = selectWorkbook();
+    await user.upload(screen.getByLabelText("Excel-файл"), workbook);
+    await user.click(screen.getByRole("button", { name: "Проверить файл" }));
+    await waitFor(() => expect(api.previewCrmImport).toHaveBeenCalledWith(expect.objectContaining({ file: workbook, targetTabId: 3 })));
+    expect(screen.getByLabelText("Excel-файл")).toBeDisabled();
+    expect(screen.getByLabelText("Вкладка для импорта")).toBeDisabled();
+    expect(screen.getByLabelText("Включить существующих клиентов")).toBeDisabled();
+    resolvePreview!(preview);
+    await user.click(await screen.findByRole("button", { name: "Импортировать" }));
+    await waitFor(() => expect(api.importCrmFile).toHaveBeenCalledWith(expect.objectContaining({ file: workbook, targetTabId: 3, includeExistingClients: true })));
+  });
+
+  test("chooses a valid target when tabs arrive after opening", async () => {
+    const user = userEvent.setup();
+    const view = render(<DesktopCrmImportDialog ownerId={7} tabs={[]} onClose={vi.fn()} onImported={vi.fn()} />);
+    view.rerender(<DesktopCrmImportDialog ownerId={7} tabs={tabs} onClose={vi.fn()} onImported={vi.fn()} />);
+    expect(screen.getByLabelText("Вкладка для импорта")).toHaveValue("3");
+    await user.upload(screen.getByLabelText("Excel-файл"), selectWorkbook());
+    await user.click(screen.getByRole("button", { name: "Проверить файл" }));
+    await waitFor(() => expect(api.previewCrmImport).toHaveBeenCalledWith(expect.objectContaining({ targetTabId: 3 })));
+  });
+
+  test("traps focus in the dialog and restores the launcher after Escape", async () => {
+    const user = userEvent.setup();
+    render(<CrmWorkspace />);
+    const launcher = await screen.findByRole("button", { name: "Загрузить клиентов" });
+    await user.click(launcher);
+    const dialog = screen.getByRole("dialog", { name: "Загрузка клиентов из Excel" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    for (let index = 0; index < 8; index += 1) await user.tab();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Загрузка клиентов из Excel" })).not.toBeInTheDocument());
+    expect(launcher).toHaveFocus();
   });
 });
