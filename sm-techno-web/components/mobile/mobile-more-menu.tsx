@@ -31,7 +31,8 @@ export function MobileMoreMenu({
 }: MobileMoreMenuProps) {
   const menuGroups = groups.flatMap((group) => {
     const items = group.items.filter(
-      (item) => item.href !== '/' && item.href !== '/crm',
+      (item) =>
+        item.href !== '/' && item.href !== '/crm' && item.href !== '/settings',
     );
     return items.length > 0 ? [{ ...group, items }] : [];
   });

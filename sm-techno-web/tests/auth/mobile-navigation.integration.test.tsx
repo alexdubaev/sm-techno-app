@@ -82,6 +82,22 @@ describe('responsive AppShell navigation', () => {
     expect(navigation).toHaveAttribute('data-item-count', '3');
   });
 
+  it('does not duplicate the administrator settings link in the More drawer', async () => {
+    const user = userEvent.setup();
+    renderShell({ isAdmin: true }, '/settings');
+
+    const navigation = screen.getByLabelText('Основная навигация');
+    expect(
+      within(navigation).getByRole('link', { name: 'Настройки' }),
+    ).toBeInTheDocument();
+
+    await user.click(within(navigation).getByRole('button', { name: 'Ещё' }));
+    const drawer = screen.getByRole('dialog', { name: 'Ещё' });
+    expect(
+      within(drawer).queryByRole('link', { name: 'Настройки' }),
+    ).not.toBeInTheDocument();
+  });
+
   it.each([
     ['/', 'Остатки'],
     ['/crm', 'CRM'],
