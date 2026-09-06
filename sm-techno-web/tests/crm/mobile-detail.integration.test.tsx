@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import * as api from '@/lib/api';
+import { MobileClientCard } from '@/components/crm/mobile/mobile-client-card';
 import { MobileClientDetail } from '@/components/crm/mobile/mobile-client-detail';
 import { getReminderPresetValue } from '@/components/crm/mobile/mobile-client-reminders';
 import type { CrmReminder, CrmWorkspaceClient } from '@/lib/types';
@@ -192,6 +193,24 @@ describe('mobile detail daily actions', () => {
       7,
     );
     expect(props.onDetailChanged).toHaveBeenCalledWith(7, 3);
+  });
+
+  it('renders the client-card call action with white text', () => {
+    render(
+      <MobileClientCard
+        canEditWorkspace={false}
+        client={client}
+        color={null}
+        tabs={[]}
+        onColor={vi.fn()}
+        onMove={vi.fn()}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'Позвонить' })).toHaveStyle({
+      color: '#ffffff',
+    });
   });
 
   it('uses a newly saved primary contact for detail quick actions', async () => {
