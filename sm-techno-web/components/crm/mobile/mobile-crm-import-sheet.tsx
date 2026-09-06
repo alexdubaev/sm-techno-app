@@ -193,6 +193,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
             <div className="grid grid-cols-2 gap-2 text-sm">
               <p>Будет создано: {preview.clientsToCreate}</p>
               <p>Будет обновлено: {preview.clientsToUpdate}</p>
+              <p>Без изменений: {preview.unchangedClients}</p>
               <p>Назначено: {preview.clientsToAssign}</p>
               <p>Контактов создано: {preview.contactsToCreate}</p>
               <p>Контактов обновлено: {preview.contactsToUpdate}</p>

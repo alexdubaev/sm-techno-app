@@ -76,6 +76,7 @@ export type MobileCrmWorkspaceProps = {
   onDeleteTab: (tab: CrmTab) => void;
   onDetailChanged: (ownerId: number, activeTab: ActiveTab) => void;
   onExport: (scope: 'all' | 'tab') => void;
+  onImportCompleted: (targetTabId: number) => void;
   onMoveClient: (client: CrmWorkspaceClient, tabId: number) => void;
   onOpenClient: (
     client: CrmWorkspaceClient,
@@ -134,6 +135,7 @@ export function MobileCrmWorkspace({
   onDeleteTab,
   onDetailChanged,
   onExport,
+  onImportCompleted,
   onMoveClient,
   onOpenClient,
   onOpenReminder,
@@ -512,7 +514,7 @@ export function MobileCrmWorkspace({
           ownerName={ownerName}
           tabs={tabs}
           onClose={() => setIsImporting(false)}
-          onImported={(result) => onDetailChanged(ownerId, result.targetTab.id)}
+          onImported={(result) => onImportCompleted(result.targetTab.id)}
         />
       ) : null}
     </div>

@@ -44,6 +44,7 @@ const preview: CrmImportPreview = {
 function renderWorkspace(overrides: Partial<React.ComponentProps<typeof MobileCrmWorkspace>> = {}) {
   const callbacks = {
     onDetailChanged: vi.fn(),
+    onImportCompleted: vi.fn(),
     onRefresh: vi.fn(),
   };
   render(
@@ -86,6 +87,7 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof MobileCr
       onDeleteTab={vi.fn()}
       onDetailChanged={callbacks.onDetailChanged}
       onExport={vi.fn()}
+      onImportCompleted={callbacks.onImportCompleted}
       onMoveClient={vi.fn()}
       onOpenClient={vi.fn()}
       onOpenReminder={vi.fn()}
@@ -121,7 +123,7 @@ describe('mobile CRM Excel import', () => {
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   });
 
-  it('imports a file into an existing tab then reloads the returned local tab without syncing', async () => {
+  it('reports the returned existing tab through the dedicated local import callback without syncing', async () => {
     const result: CrmImportResult = { ...preview, targetTab: { id: 8, name: 'В работе', systemKind: 'work' } };
     vi.mocked(api.previewCrmImport).mockResolvedValue(preview);
     vi.mocked(api.importCrmFile).mockResolvedValue(result);
@@ -133,7 +135,8 @@ describe('mobile CRM Excel import', () => {
     await screen.findByText('Будет создано: 2');
     fireEvent.click(screen.getByRole('button', { name: 'Импортировать 2 клиента' }));
 
-    await waitFor(() => expect(callbacks.onDetailChanged).toHaveBeenCalledWith(7, 8));
+    await waitFor(() => expect(callbacks.onImportCompleted).toHaveBeenCalledWith(8));
+    expect(callbacks.onDetailChanged).not.toHaveBeenCalled();
     expect(callbacks.onRefresh).not.toHaveBeenCalled();
     expect(api.previewCrmImport).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 7, targetTabId: 8, includeExistingClients: true }));
     expect(api.importCrmFile).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 7, targetTabId: 8, includeExistingClients: true }));
@@ -153,7 +156,8 @@ describe('mobile CRM Excel import', () => {
     expect(api.importCrmFile).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Импортировать 2 клиента' }));
 
-    await waitFor(() => expect(callbacks.onDetailChanged).toHaveBeenCalledWith(7, 12));
+    await waitFor(() => expect(callbacks.onImportCompleted).toHaveBeenCalledWith(12));
+    expect(callbacks.onDetailChanged).not.toHaveBeenCalled();
     expect(api.importCrmFile).toHaveBeenCalledWith(expect.objectContaining({ newTabName: 'Новые', targetTabId: null }));
   });
 
@@ -170,6 +174,7 @@ describe('mobile CRM Excel import', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Загрузить клиентов' });
 
     expect(within(sheet).getByText('Клиенты, строка 4: ИНН указан неверно')).toBeInTheDocument();
+    expect(within(sheet).getByText('Без изменений: 0')).toBeInTheDocument();
     expect(within(sheet).queryByRole('button', { name: /Импортировать/ })).not.toBeInTheDocument();
     expect(api.importCrmFile).not.toHaveBeenCalled();
   });
