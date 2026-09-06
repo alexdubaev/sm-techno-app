@@ -159,6 +159,31 @@ class CrmSyncExecutionTest(unittest.TestCase):
             self.service.sync_crm_counterparties_for_user(self.owner_id),
         )
 
+    def test_successful_crm_sync_persists_last_success_status(self) -> None:
+        self.service.build_user_client = lambda **_: RecordingOneC()  # type: ignore[method-assign]
+
+        result = self.service.sync_crm_counterparties_for_user(self.owner_id)
+
+        status = self.service.get_crm_sync_status()
+        self.assertEqual("synced", result["status"])
+        self.assertEqual("synced", status["status"])
+        self.assertTrue(status["lastSyncAt"].endswith("+00:00"))
+
+    def test_failed_crm_sync_preserves_previous_success_timestamp_and_status_endpoint(self) -> None:
+        fake = FailingThenWorkingOneC()
+        fake.fail = False
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+        self.service.sync_crm_counterparties_for_user(self.owner_id)
+        first_timestamp = self.service.get_crm_sync_status()["lastSyncAt"]
+        fake.fail = True
+
+        with self.assertRaisesRegex(RuntimeError, "temporarily unavailable"):
+            self.service.sync_crm_counterparties_for_user(self.owner_id)
+
+        response = self.client.get("/api/crm/sync-status")
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"status": "error", "lastSyncAt": first_timestamp}, response.json())
+
     def test_app_lifecycle_blocks_an_explicit_legacy_job_without_onec_client(self) -> None:
         repo = CrmRepository(self.service.db)
         card, _assignment, _tab = repo.create_local_lead_for_actor(

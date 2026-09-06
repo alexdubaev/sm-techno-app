@@ -953,6 +953,13 @@ def sync_crm_counterparties(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/crm/sync-status")
+def crm_sync_status(
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, str]:
+    return SERVICE.get_crm_sync_status()
+
+
 @app.get("/api/references/counterparties")
 def list_counterparties(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     return {

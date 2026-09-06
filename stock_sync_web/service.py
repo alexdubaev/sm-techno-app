@@ -6,7 +6,7 @@ import tempfile
 import re
 import shutil
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -268,6 +268,19 @@ class WebStockSyncService:
                     self.db.update_crm_client_sync_state(int(card["id"]), sync_status="synced", synced=True)
         return count
 
+    def get_crm_sync_status(self) -> dict[str, str]:
+        values = self.db.get_settings()
+        last_sync_at = str(values.get("crm_last_sync_at") or "")
+        status = str(values.get("crm_last_sync_status") or ("synced" if last_sync_at else "never"))
+        return {"status": status, "lastSyncAt": last_sync_at}
+
+    def _save_crm_sync_status(self, *, status: str, last_sync_at: str | None = None) -> None:
+        values = self.db.get_settings()
+        values["crm_last_sync_status"] = status
+        if last_sync_at is not None:
+            values["crm_last_sync_at"] = last_sync_at
+        self.db.save_settings(values)
+
     def sync_crm_counterparties_for_user(self, user_id: int) -> dict[str, int | str]:
         """Pull the CRM catalogue once; overlapping in-process requests coalesce.
 
@@ -277,10 +290,15 @@ class WebStockSyncService:
         if not self._crm_refresh_lock.acquire(blocking=False):
             return {"status": "coalesced", "counterparties": 0}
         try:
-            return {
-                "status": "synced",
-                "counterparties": self.sync_counterparties(user_id=int(user_id)),
-            }
+            result = self.sync_counterparties(user_id=int(user_id))
+            self._save_crm_sync_status(
+                status="synced",
+                last_sync_at=datetime.now(timezone.utc).isoformat(),
+            )
+            return {"status": "synced", "counterparties": result}
+        except Exception:
+            self._save_crm_sync_status(status="error")
+            raise
         finally:
             self._crm_refresh_lock.release()
 
