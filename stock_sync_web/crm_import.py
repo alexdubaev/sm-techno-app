@@ -148,8 +148,8 @@ def plan_crm_import(book: WorkbookRows, *, owner_id: int, target_tab_id: int | N
             matches = [c for c in staged if text(c.get("inn")) == values["inn"] and (not values.get("kpp") or text(c.get("kpp")) == values["kpp"])]
             if not matches and values.get("kpp"):
                 matches = [c for c in staged if text(c.get("inn")) == values["inn"]]
-        if not matches and values.get("document_name") and (phone(values.get("phone")) or normalized(values.get("email"))):
-            matches = [c for c in staged if normalized(c.get("document_name") or c.get("full_name") or c.get("name")) == normalized(values["document_name"]) and _same_channel(values, c)]
+        if not matches and (phone(values.get("phone")) or normalized(values.get("email"))):
+            matches = [c for c in staged if _same_channel(values, c)]
         if len(matches) > 1:
             error("Клиенты", row, "ambiguous_client", "Найдено несколько клиентов с такими реквизитами.")
             continue
