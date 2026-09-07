@@ -2,7 +2,12 @@
 
 import base64
 import json
+import logging
+import random
 import re
+import socket
+import time
+import uuid
 import xml.etree.ElementTree as ET
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -11,8 +16,64 @@ from urllib.request import Request, urlopen
 from xml.sax.saxutils import quoteattr
 
 
+logger = logging.getLogger(__name__)
+
+
 class OneCClientError(RuntimeError):
     """Raised when 1C OData returns an error."""
+
+
+class OneCTransportError(OneCClientError):
+    """A safely-described 1C transport failure, without request secrets."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        method: str,
+        status_code: int | None = None,
+        request_id: str | None = None,
+        retryable: bool = False,
+        outcome_unknown: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.method = method.upper()
+        self.status_code = status_code
+        self.request_id = request_id
+        self.retryable = retryable
+        self.outcome_unknown = outcome_unknown
+
+
+class OneCAuthError(OneCTransportError):
+    """1C rejected credentials or permissions (HTTP 401/403)."""
+
+
+class OneCValidationError(OneCTransportError):
+    """1C rejected a request as invalid (other HTTP 4xx)."""
+
+
+class OneCTransientError(OneCTransportError):
+    """1C returned a server-side failure (HTTP 5xx)."""
+
+
+class OneCNetworkError(OneCTransportError):
+    """A safe read failed because the network was unavailable."""
+
+
+class OneCTimeoutError(OneCTransportError):
+    """A safe read exceeded the common socket timeout."""
+
+
+class OneCMalformedResponseError(OneCTransportError):
+    """1C returned a response that cannot be parsed as the expected format."""
+
+
+class OneCUnknownWriteOutcomeError(OneCTransportError):
+    """A write may have reached 1C before its network failure."""
+
+
+class OneCPaginationError(OneCTransportError):
+    """Pagination safety guard failed."""
 
 
 class OneCCounterpartySyncError(OneCClientError):
@@ -22,6 +83,10 @@ class OneCCounterpartySyncError(OneCClientError):
 
 
 class OneCClient:
+    SOCKET_TIMEOUT_SECONDS = 60
+    MAX_GET_ATTEMPTS = 3
+    RETRYABLE_GET_STATUS_CODES = {502, 503, 504}
+
     def __init__(self, base_url: str, username: str, password: str) -> None:
         self.base_url = self._normalize_base_url(base_url)
         self.username = username.strip()
@@ -37,6 +102,7 @@ class OneCClient:
         self._entity_property_types_cache: dict[str, dict[str, str]] = {}
         self._contact_kind_cache: dict[str, dict[str, Any] | None] = {}
         self._rub_currency_key_cache: str | None = None
+        self._last_request_id: str | None = None
         if not self.base_url or not self.username:
             raise OneCClientError("Не заполнены URL базы 1С или логин.")
 
@@ -61,29 +127,8 @@ class OneCClient:
         *,
         accept: str = "application/json",
     ) -> str:
-        url = endpoint_or_url
-        if not endpoint_or_url.lower().startswith("http"):
-            url = f"{self.base_url}/{endpoint_or_url.lstrip('/')}"
-        url = self._encode_url(url)
-
-        body = None
-        headers = {
-            "Authorization": self._authorization_header(),
-            "Accept": accept,
-        }
-        if payload is not None:
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            headers["Content-Type"] = "application/json; charset=utf-8"
-
-        request = Request(url=url, data=body, headers=headers, method=method.upper())
-        try:
-            with urlopen(request, timeout=60) as response:
-                return response.read().decode("utf-8")
-        except HTTPError as exc:
-            message = exc.read().decode("utf-8", errors="replace")
-            raise OneCClientError(f"1С вернула HTTP {exc.code}: {message}") from exc
-        except URLError as exc:
-            raise OneCClientError(f"Не удалось подключиться к 1С: {exc}") from exc
+        raw, _ = self._execute_request(method, endpoint_or_url, payload, accept=accept)
+        return raw
 
     def _request(self, method: str, endpoint_or_url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         raw = self._request_raw(method, endpoint_or_url, payload)
@@ -92,7 +137,11 @@ class OneCClient:
         try:
             return json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise OneCClientError(f"1С вернула не-JSON ответ: {raw[:500]}") from exc
+            raise OneCMalformedResponseError(
+                "1С вернула не-JSON ответ.",
+                method=method,
+                request_id=self._last_request_id,
+            ) from exc
 
     def _request_with_response_headers(
         self,
@@ -103,15 +152,40 @@ class OneCClient:
         extra_headers: dict[str, str] | None = None,
     ) -> tuple[str, str | None]:
         """Issue an isolated conditional request without changing legacy transport hooks."""
+        return self._execute_request(
+            method,
+            endpoint_or_url,
+            payload,
+            extra_headers=extra_headers,
+        )
+
+    def _execute_request(
+        self,
+        method: str,
+        endpoint_or_url: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        accept: str = "application/json",
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[str, str | None]:
+        """Perform one request policy for both legacy transport entry points.
+
+        urllib's ``urlopen`` only exposes one socket timeout rather than separate
+        connect/read limits, so the configured 60-second timeout applies to both.
+        """
         url = endpoint_or_url
         if not endpoint_or_url.lower().startswith("http"):
             url = f"{self.base_url}/{endpoint_or_url.lstrip('/')}"
         url = self._encode_url(url)
 
+        normalized_method = method.upper()
+        request_id = uuid.uuid4().hex
+        self._last_request_id = request_id
         body = None
         headers = {
             "Authorization": self._authorization_header(),
-            "Accept": "application/json",
+            "Accept": accept,
+            "X-Request-ID": request_id,
         }
         if extra_headers:
             headers.update(extra_headers)
@@ -119,15 +193,139 @@ class OneCClient:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
 
-        request = Request(url=url, data=body, headers=headers, method=method.upper())
-        try:
-            with urlopen(request, timeout=60) as response:
-                return response.read().decode("utf-8"), response.headers.get("ETag")
-        except HTTPError as exc:
-            message = exc.read().decode("utf-8", errors="replace")
-            raise OneCClientError(f"1С вернула HTTP {exc.code}: {message}") from exc
-        except URLError as exc:
-            raise OneCClientError(f"Не удалось подключиться к 1С: {exc}") from exc
+        request = Request(url=url, data=body, headers=headers, method=normalized_method)
+        endpoint_path = self._safe_endpoint_path(url)
+        max_attempts = self.MAX_GET_ATTEMPTS if normalized_method == "GET" else 1
+
+        for attempt in range(1, max_attempts + 1):
+            logger.info(
+                "1C request method=%s endpoint=%s attempt=%s request_id=%s outcome=started",
+                normalized_method,
+                endpoint_path,
+                attempt,
+                request_id,
+            )
+            try:
+                with urlopen(request, timeout=self.SOCKET_TIMEOUT_SECONDS) as response:
+                    raw = response.read().decode("utf-8")
+                    logger.info(
+                        "1C request method=%s endpoint=%s attempt=%s request_id=%s outcome=success",
+                        normalized_method,
+                        endpoint_path,
+                        attempt,
+                        request_id,
+                    )
+                    return raw, response.headers.get("ETag")
+            except HTTPError as exc:
+                retryable = normalized_method == "GET" and exc.code in self.RETRYABLE_GET_STATUS_CODES
+                if retryable and attempt < max_attempts:
+                    self._log_retry(normalized_method, endpoint_path, attempt, request_id, f"http_{exc.code}")
+                    self._sleep_before_retry(attempt)
+                    continue
+                error = self._http_error(normalized_method, exc.code, request_id, retryable)
+                self._log_failure(normalized_method, endpoint_path, attempt, request_id, type(error).__name__)
+                raise error from exc
+            except (URLError, OSError) as exc:
+                timeout = self._is_timeout_error(exc)
+                retryable = normalized_method == "GET"
+                if retryable and attempt < max_attempts:
+                    classification = "timeout" if timeout else "network"
+                    self._log_retry(normalized_method, endpoint_path, attempt, request_id, classification)
+                    self._sleep_before_retry(attempt)
+                    continue
+                error = self._network_error(normalized_method, request_id, timeout, retryable)
+                self._log_failure(normalized_method, endpoint_path, attempt, request_id, type(error).__name__)
+                raise error from exc
+
+        raise AssertionError("1C request executor exhausted without a result")
+
+    @staticmethod
+    def _safe_endpoint_path(url: str) -> str:
+        return urlsplit(url).path or "/"
+
+    @staticmethod
+    def _is_timeout_error(exc: URLError | OSError) -> bool:
+        reason = exc.reason if isinstance(exc, URLError) else exc
+        return isinstance(reason, (socket.timeout, TimeoutError))
+
+    @classmethod
+    def _http_error(
+        cls,
+        method: str,
+        status_code: int,
+        request_id: str,
+        retryable: bool,
+    ) -> OneCTransportError:
+        if status_code in {401, 403}:
+            return OneCAuthError(
+                f"1С вернула HTTP {status_code}.",
+                method=method,
+                status_code=status_code,
+                request_id=request_id,
+            )
+        if 400 <= status_code < 500:
+            return OneCValidationError(
+                f"1С вернула HTTP {status_code}.",
+                method=method,
+                status_code=status_code,
+                request_id=request_id,
+            )
+        return OneCTransientError(
+            f"1С вернула HTTP {status_code}.",
+            method=method,
+            status_code=status_code,
+            request_id=request_id,
+            retryable=retryable,
+        )
+
+    @staticmethod
+    def _network_error(
+        method: str,
+        request_id: str,
+        timeout: bool,
+        retryable: bool,
+    ) -> OneCTransportError:
+        if method in {"POST", "PATCH", "DELETE"}:
+            return OneCUnknownWriteOutcomeError(
+                "Неизвестен результат записи в 1С из-за сбоя соединения.",
+                method=method,
+                request_id=request_id,
+                outcome_unknown=True,
+            )
+        error_class = OneCTimeoutError if timeout else OneCNetworkError
+        message = "Превышено время ожидания ответа 1С." if timeout else "Не удалось подключиться к 1С."
+        return error_class(
+            message,
+            method=method,
+            request_id=request_id,
+            retryable=retryable,
+        )
+
+    @staticmethod
+    def _sleep_before_retry(attempt: int) -> None:
+        time.sleep((0.25 * (2 ** (attempt - 1))) + random.uniform(0, 0.25))
+
+    @staticmethod
+    def _log_retry(method: str, endpoint_path: str, attempt: int, request_id: str, classification: str) -> None:
+        logger.info(
+            "1C request method=%s endpoint=%s attempt=%s request_id=%s outcome=retry_%s",
+            method,
+            endpoint_path,
+            attempt,
+            request_id,
+            classification,
+        )
+
+    @staticmethod
+    def _log_failure(method: str, endpoint_path: str, attempt: int, request_id: str, classification: str) -> None:
+        logger.info(
+            "1C request method=%s endpoint=%s attempt=%s request_id=%s outcome=%s",
+            method,
+            endpoint_path,
+            attempt,
+            request_id,
+            classification,
+        )
 
     @staticmethod
     def _encode_url(url: str) -> str:
