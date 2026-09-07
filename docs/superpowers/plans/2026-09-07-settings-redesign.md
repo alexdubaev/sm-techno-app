@@ -129,4 +129,3 @@
 - [ ] Search the diff for `password`, `secret`, `token`, `FERNET`, and `.env`, and inspect every match.
 - [ ] Confirm diff does not change orders, inventory/stock, 1C transport/retry/timeout, CRM, Excel, reminders, or mobile navigation.
 - [ ] Commit only necessary Settings QA fixes and return a report with commands/results.
-

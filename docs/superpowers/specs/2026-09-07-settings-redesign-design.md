@@ -84,4 +84,3 @@ Settings uses the existing dark navy/yellow brand palette, white cards, restrain
 - Backend: focused auth/user/security/migration tests on temporary SQLite databases, including fresh and upgrade paths.
 - Frontend: Vitest/Testing Library coverage for landing, user flows, reveals, dirty-state, mobile/desktop structures, and 1C save/test behavior.
 - Verification: relevant pytest, frontend tests, build, lint, TypeScript, secret-pattern review, history/diff scope review, and browser QA at desktop and mobile widths.
-
