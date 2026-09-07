@@ -194,18 +194,27 @@ describe('OneCSettings', () => {
     const restoreHistory = vi
       .spyOn(window.history, 'forward')
       .mockImplementation(() => undefined);
-    setup();
-    const baseUrl = await screen.findByLabelText('URL базы 1С');
-    await userEvent.type(baseUrl, '/changed');
+    const routerListener = vi.fn();
+    window.addEventListener('popstate', routerListener);
 
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    try {
+      setup();
+      const baseUrl = await screen.findByLabelText('URL базы 1С');
+      await userEvent.type(baseUrl, '/changed');
 
-    expect(window.confirm).toHaveBeenCalledTimes(1);
-    expect(restoreHistory).toHaveBeenCalledTimes(1);
+      window.dispatchEvent(new PopStateEvent('popstate'));
 
-    window.dispatchEvent(new PopStateEvent('popstate'));
-    expect(window.confirm).toHaveBeenCalledTimes(1);
-    expect(restoreHistory).toHaveBeenCalledTimes(1);
+      expect(window.confirm).toHaveBeenCalledTimes(1);
+      expect(restoreHistory).toHaveBeenCalledTimes(1);
+      expect(routerListener).not.toHaveBeenCalled();
+
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      expect(window.confirm).toHaveBeenCalledTimes(1);
+      expect(restoreHistory).toHaveBeenCalledTimes(1);
+      expect(routerListener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('popstate', routerListener);
+    }
   });
 
   it('cancels Navigation API traversal before it discards dirty settings', async () => {

@@ -409,13 +409,14 @@ function useDirtyStateWarning(isDirty: boolean) {
       // oxlint-disable-next-line typescript/no-deprecated -- Required by older browsers to show the native unload warning.
       event.returnValue = '';
     };
-    const handlePopState = () => {
+    const handlePopState = (event: PopStateEvent) => {
       if (isRestoringHistory) {
         isRestoringHistory = false;
         return;
       }
 
       if (!window.confirm(warning)) {
+        event.stopImmediatePropagation();
         isRestoringHistory = true;
         window.history.forward();
       }
@@ -444,7 +445,7 @@ function useDirtyStateWarning(isDirty: boolean) {
     if (navigation) {
       navigation.addEventListener('navigate', handleNavigate);
     } else {
-      window.addEventListener('popstate', handlePopState);
+      window.addEventListener('popstate', handlePopState, true);
       document.addEventListener('click', handleLinkClick, true);
     }
     return () => {
@@ -452,7 +453,7 @@ function useDirtyStateWarning(isDirty: boolean) {
       if (navigation) {
         navigation.removeEventListener('navigate', handleNavigate);
       } else {
-        window.removeEventListener('popstate', handlePopState);
+        window.removeEventListener('popstate', handlePopState, true);
         document.removeEventListener('click', handleLinkClick, true);
       }
     };
