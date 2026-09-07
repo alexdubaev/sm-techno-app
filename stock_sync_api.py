@@ -2362,20 +2362,41 @@ def price_client_export(
     )
 
 
-@app.post("/api/price/import")
-async def price_import(
-    file: UploadFile = File(...),
-    current_user: dict[str, Any] = Depends(_get_admin_user),
-) -> dict[str, int]:
+async def _save_price_import_upload(file: UploadFile) -> Path:
     suffix = Path(file.filename or "stock_import.xlsx").suffix or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         temp_path = Path(tmp.name)
         tmp.write(await _read_upload_with_limit(file))
+    return temp_path
+
+
+@app.post("/api/price/import/preview")
+async def preview_price_import(
+    file: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> dict[str, Any]:
+    temp_path = await _save_price_import_upload(file)
+    try:
+        return SERVICE.preview_stock_excel(temp_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+@app.post("/api/price/import")
+async def price_import(
+    file: UploadFile = File(...),
+    plan_hash: str = Form(alias="planHash"),
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> dict[str, int]:
+    temp_path = await _save_price_import_upload(file)
     try:
         try:
-            result = SERVICE.import_stock_excel(temp_path)
+            result = SERVICE.commit_stock_excel(temp_path, plan_hash)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            status_code = 409 if "изменился" in str(exc) else 400
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     finally:
         temp_path.unlink(missing_ok=True)
     return result
