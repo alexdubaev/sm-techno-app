@@ -54,7 +54,7 @@ export function MobileSheet({
             : 'max-h-[92dvh] rounded-t-3xl',
         )}
       >
-        <div className="flex items-start justify-between gap-3">
+        <div className="sticky top-0 z-10 -mx-4 flex items-start justify-between gap-3 bg-[#F7F9FC] px-4 pb-3">
           <div className="min-w-0">
             <SheetTitle className="text-lg font-bold text-[var(--text-primary)]">
               {title}

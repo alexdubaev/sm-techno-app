@@ -137,6 +137,27 @@ async function ready() {
 }
 
 describe('shared desktop and mobile CRM list controls', () => {
+  test('keeps the mobile filter sheet close control visible above its scrollable filters', async () => {
+    const user = userEvent.setup();
+    await ready();
+    const sheet = await openSheet(user);
+    const dialog = screen.getByRole('dialog', { name: 'Фильтры и сортировка' });
+
+    const header = sheet
+      .getByRole('heading', { name: 'Фильтры и сортировка' })
+      .closest('div')?.parentElement as HTMLElement;
+    const filters = sheet.getByRole('group', { name: 'Сортировка' });
+
+    expect(dialog).toHaveClass('overflow-y-auto');
+    expect(header).toHaveClass('sticky', 'top-0', 'z-10', 'bg-[#F7F9FC]');
+    expect(header).toContainElement(
+      sheet.getByRole('button', { name: 'Закрыть форму' }),
+    );
+    expect(header.compareDocumentPosition(filters)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
   test('draft changes preview the real count and apply only on confirmation; closing discards changes', async () => {
     const user = userEvent.setup();
     await ready();
