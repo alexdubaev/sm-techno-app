@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import math
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -48,6 +49,11 @@ class OrderBusinessValidationTest(unittest.TestCase):
         line = SimpleNamespace(item_id=int(self.item["id"]), warehouse_id=int(self.warehouse["id"]), quantity=1, price=100, amount=100)
         with self.assertRaisesRegex(ValueError, "не принадлежит"):
             self.service.validate_order_command(counterparty_id=self.counterparty_id, contract_id=contract_id, organization_key=None, order_date="2026-09-07", draft_lines=[line])
+
+    def test_non_finite_quantity_is_rejected(self) -> None:
+        line = SimpleNamespace(item_id=int(self.item["id"]), warehouse_id=int(self.warehouse["id"]), quantity=math.nan, price=100, amount=100)
+        with self.assertRaisesRegex(ValueError, "конечным"):
+            self.service.validate_order_command(counterparty_id=self.counterparty_id, contract_id=None, organization_key=None, order_date="2026-09-07", draft_lines=[line])
 
 
 if __name__ == "__main__":
