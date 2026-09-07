@@ -576,7 +576,10 @@ class Database:
                     raise ValueError(
                         "Один артикул на одном складе не может иметь разные места хранения."
                     )
-                existing["quantity"] += quantity
+                existing["quantity"] = self._require_finite_nonnegative(
+                    existing["quantity"] + quantity,
+                    label="Остаток по складу",
+                )
                 if rack_provided:
                     existing["rack"] = rack
                     existing["rack_provided"] = True
@@ -2428,7 +2431,7 @@ class Database:
 
     def writeoff_order_locally(self, order_id: int) -> None:
         now = utc_now()
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             order = conn.execute(
                 """
                 SELECT id, local_number, status

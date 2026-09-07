@@ -248,6 +248,21 @@ class StockInvariantTest(unittest.TestCase):
         self.assertEqual(self._balance(), 5.0)
         self.assertEqual(self._movement_count("writeoff"), 0)
 
+    def test_duplicate_warehouse_quantities_cannot_overflow_to_infinity(self) -> None:
+        with self.assertRaises(ValueError):
+            self.db.create_local_item(
+                sku="OVERFLOW-001",
+                name="Переполнение",
+                print_name="Переполнение",
+                category_name="Тест",
+                group_name="Тест",
+                price=100,
+                warehouses=[
+                    {"warehouse_id": int(self.warehouse["id"]), "quantity": 1e308},
+                    {"warehouse_id": int(self.warehouse["id"]), "quantity": 1e308},
+                ],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
