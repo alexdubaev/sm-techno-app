@@ -7,6 +7,8 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from stock_sync_desktop.excel_tools import read_stock_import_bundle
+from stock_sync_web.database import WebDatabase
+from stock_sync_web.service import WebStockSyncService
 
 
 class ExcelImportSafetyTest(unittest.TestCase):
@@ -35,6 +37,18 @@ class ExcelImportSafetyTest(unittest.TestCase):
                     ]
                 )
             )
+
+    def test_preview_is_read_only_and_commit_requires_its_hash(self) -> None:
+        db = WebDatabase(self.temp_path / "stock.db")
+        service = WebStockSyncService(db=db)
+        workbook = self._write_workbook([["SKU-002", "Гайка", "Склад A", 1, 5]])
+
+        preview = service.preview_stock_excel(workbook)
+
+        self.assertEqual(db.list_items(), [])
+        self.assertEqual(preview["created"], 1)
+        with self.assertRaisesRegex(ValueError, "изменился"):
+            service.commit_stock_excel(workbook, "stale")
 
     def _write_workbook(self, rows: list[list[object]]) -> Path:
         workbook = Workbook()

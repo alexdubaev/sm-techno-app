@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import tempfile
@@ -487,6 +488,34 @@ class WebStockSyncService:
             "locationUpdated": location_result["updated"],
             "locationSkipped": location_result["skipped"],
         }
+
+    def preview_stock_excel(self, path: str | Path) -> dict[str, Any]:
+        from stock_sync_desktop.excel_tools import read_stock_import_bundle
+
+        import_bundle = read_stock_import_bundle(path)
+        stock_rows = import_bundle["stock_rows"]
+        plan_hash = self._stock_import_plan_hash(import_bundle)
+        return {
+            "planHash": plan_hash,
+            "created": len(stock_rows),
+            "updated": 0,
+            "unchanged": 0,
+            "locationUpdated": len(import_bundle["location_rows"]),
+            "errors": [],
+        }
+
+    def commit_stock_excel(self, path: str | Path, expected_plan_hash: str) -> dict[str, int]:
+        from stock_sync_desktop.excel_tools import read_stock_import_bundle
+
+        import_bundle = read_stock_import_bundle(path)
+        if self._stock_import_plan_hash(import_bundle) != expected_plan_hash:
+            raise ValueError("Импортируемый файл изменился после проверки. Проверьте его заново.")
+        return self.import_stock_excel(path)
+
+    @staticmethod
+    def _stock_import_plan_hash(import_bundle: dict[str, list[dict[str, Any]]]) -> str:
+        payload = json.dumps(import_bundle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def create_template_bytes(self) -> bytes:
         from stock_sync_desktop.excel_tools import create_import_template
