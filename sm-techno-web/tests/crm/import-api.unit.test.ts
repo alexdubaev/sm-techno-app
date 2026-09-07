@@ -15,6 +15,7 @@ const preview: CrmImportPreview = {
   contactsToUpdate: 5,
   duplicateConflicts: 0,
   skippedOneCLinked: 1,
+  skippedArchived: 0,
   errors: [],
 };
 

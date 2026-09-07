@@ -273,6 +273,7 @@ export type CrmImportPreview = {
   contactsToUpdate: number;
   duplicateConflicts: number;
   skippedOneCLinked: number;
+  skippedArchived: number;
   errors: CrmImportRowError[];
 };
 

@@ -122,6 +122,45 @@ class CrmRemindersApiTest(unittest.TestCase):
             reminder_row = conn.execute("SELECT status FROM crm_reminders WHERE id = ?", (reminder["id"],)).fetchone()
         self.assertEqual("active", reminder_row["status"])
 
+    def test_primary_archive_hides_active_and_due_reminder_until_restore(self) -> None:
+        client_id, reminder = self.create_client_and_reminder()
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (?, ?, ?, ?)",
+                (902, "onec-902", "Напоминание", "2026-09-07T00:00:00"),
+            )
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = ?, sync_status = 'synced' WHERE id = ?",
+                (902, client_id),
+            )
+
+        self.current_user = {"id": self.admin_id, "role": "admin"}
+        archived = self.client.post(
+            f"/api/crm/clients/{client_id}/primary-archive",
+            json={"reason": "Не звонить сейчас"},
+        )
+        self.current_user = {"id": self.owner_id, "role": "user"}
+        active_while_archived = self.client.get("/api/crm/reminders")
+        due_while_archived = self.client.get("/api/crm/reminders/due?now=2026-09-11T00:00:00Z")
+        with self.service.db.connect() as conn:
+            stored_status = conn.execute(
+                "SELECT status FROM crm_reminders WHERE id = ?", (reminder["id"],)
+            ).fetchone()["status"]
+
+        self.current_user = {"id": self.admin_id, "role": "admin"}
+        restored = self.client.post(f"/api/crm/clients/{client_id}/primary-restore")
+        self.current_user = {"id": self.owner_id, "role": "user"}
+        active_after_restore = self.client.get("/api/crm/reminders")
+        due_after_restore = self.client.get("/api/crm/reminders/due?now=2026-09-11T00:00:00Z")
+
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assertEqual([], active_while_archived.json()["items"])
+        self.assertEqual([], due_while_archived.json()["items"])
+        self.assertEqual("active", stored_status)
+        self.assertEqual(200, restored.status_code, restored.text)
+        self.assertEqual([reminder["id"]], [item["id"] for item in active_after_restore.json()["items"]])
+        self.assertEqual([reminder["id"]], [item["id"] for item in due_after_restore.json()["items"]])
+
     def test_linked_primary_client_without_assignment_can_be_moved_and_stays_primary(self) -> None:
         created = self.client.post("/api/crm/clients", json={"documentName": "Связанная компания"}).json()
         client_id = created["client"]["id"]

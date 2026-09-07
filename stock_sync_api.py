@@ -1584,6 +1584,7 @@ def export_crm_clients(
                 primary_only=True,
             )
             cards = list({int(card["id"]): card for card in [*primary_cards, *personal_cards]}.values())
+        cards = [card for card in cards if card.get("crm_archived_at") is None]
         export_rows: list[dict[str, Any]] = []
         contact_rows: list[dict[str, Any]] = []
         for card in cards:

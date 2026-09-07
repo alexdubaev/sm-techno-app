@@ -111,14 +111,19 @@ def _same_channel(left: dict[str, Any], right: dict[str, Any]) -> bool:
 def plan_crm_import(book: WorkbookRows, *, owner_id: int, target_tab_id: int | None,
                     new_tab_name: str | None, include_existing_clients: bool,
                     clients: list[dict[str, Any]], contacts: list[dict[str, Any]],
-                    assignments: list[dict[str, Any]], colors: frozenset[str]) -> dict[str, Any]:
+                    assignments: list[dict[str, Any]], colors: frozenset[str],
+                    archived_clients: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     preview = dict(ownerId=owner_id, target=dict(tabId=target_tab_id, newTabName=new_tab_name),
                    clientsToCreate=0, clientsToUpdate=0, unchangedClients=0, clientsToAssign=0,
                    contactsToCreate=0, contactsToUpdate=0, duplicateConflicts=0,
-                   skippedOneCLinked=0, errors=list(book.errors))
+                   skippedOneCLinked=0, skippedArchived=0, errors=list(book.errors))
     client_actions: list[dict[str, Any]] = []
     contact_actions: list[dict[str, Any]] = []
     accessible = [c for c in clients if c.get("linked_counterparty_id") is not None or c.get("crm_owner_user_id") == owner_id]
+    archived_accessible = [
+        c for c in (archived_clients or [])
+        if c.get("linked_counterparty_id") is not None or c.get("crm_owner_user_id") == owner_id
+    ]
     staged = list(accessible)
     resolved: dict[int, dict[str, Any]] = {}
     source_ids: dict[int, int] = {}
@@ -133,6 +138,21 @@ def plan_crm_import(book: WorkbookRows, *, owner_id: int, target_tab_id: int | N
         if code.startswith("ambiguous_") or code.startswith("duplicate_"):
             preview["duplicateConflicts"] += 1
 
+    def matches_for(values: dict[str, Any], client_id: int | None,
+                    candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        matches = [client for client in candidates if client["id"] == client_id] if client_id else []
+        if not matches and values.get("inn"):
+            matches = [
+                client for client in candidates
+                if text(client.get("inn")) == values["inn"]
+                and (not values.get("kpp") or text(client.get("kpp")) == values["kpp"])
+            ]
+            if not matches and values.get("kpp"):
+                matches = [client for client in candidates if text(client.get("inn")) == values["inn"]]
+        if not matches and (phone(values.get("phone")) or normalized(values.get("email"))):
+            matches = [client for client in candidates if _same_channel(values, client)]
+        return matches
+
     for row in book.clients:
         values = {field: row[header] for header, field in CLIENT_FIELDS.items() if row.get(header)}
         raw_id = row.get("__crm_client_id")
@@ -144,12 +164,33 @@ def plan_crm_import(book: WorkbookRows, *, owner_id: int, target_tab_id: int | N
         if matches and matches[0] not in accessible:
             error("Клиенты", row, "inaccessible_client", "Клиент недоступен в выбранной CRM.")
             continue
-        if not matches and values.get("inn"):
-            matches = [c for c in staged if text(c.get("inn")) == values["inn"] and (not values.get("kpp") or text(c.get("kpp")) == values["kpp"])]
-            if not matches and values.get("kpp"):
-                matches = [c for c in staged if text(c.get("inn")) == values["inn"]]
-        if not matches and (phone(values.get("phone")) or normalized(values.get("email"))):
-            matches = [c for c in staged if _same_channel(values, c)]
+        archived_matches = [c for c in archived_accessible if c["id"] == client_id] if client_id else []
+        if not matches and not archived_matches:
+            archived_matches = matches_for(values, None, archived_accessible)
+        if archived_matches:
+            existing = archived_matches[0]
+            key = existing["id"]
+            action = dict(
+                key=key,
+                existing=existing,
+                values=values,
+                changes={},
+                skipped=True,
+                assign=False,
+                assignment=next((a for a in assignments if a["crm_client_id"] == key), None),
+                color=None,
+            )
+            resolved[key] = action
+            if client_id:
+                source_ids[client_id] = key
+            for company in (row.get("Компания"), existing.get("document_name")):
+                if normalized(company):
+                    aliases.setdefault(normalized(company), set()).add(key)
+            client_actions.append(action)
+            preview["skippedArchived"] += 1
+            continue
+        if not matches:
+            matches = matches_for(values, None, staged)
         if len(matches) > 1:
             error("Клиенты", row, "ambiguous_client", "Найдено несколько клиентов с такими реквизитами.")
             continue

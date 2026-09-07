@@ -103,6 +103,64 @@ class CrmApiTest(unittest.TestCase):
         malformed = self.client.post("/api/crm/import/preview", files={"file": ("broken.xlsx", b"broken")}, data={"newTabName": "Загрузка"})
         self.assertEqual(400, malformed.status_code)
 
+    def test_excel_import_skips_matching_archived_primary_client_without_restoring_or_mutating_it(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Архивный импорт", "inn": "1234567890"},
+        ).json()
+        client_id = created["client"]["id"]
+        target_tab_id = created["assignment"]["tabId"]
+        self.link_primary_client(client_id, 1103)
+        self.as_user(self.admin_id, "admin")
+        archived = self.client.post(
+            f"/api/crm/clients/{client_id}/primary-archive",
+            json={"reason": "В архиве"},
+        )
+        self.as_user(self.owner_id)
+        workbook = load_workbook(BytesIO(self.import_workbook()))
+        contacts = workbook.create_sheet("Контакты")
+        contacts.append(["Компания", "Контактное лицо", "Телефон"])
+        contacts.append(["Импорт API", "Новый контакт", "+7 999 555-44-33"])
+        imported_workbook = BytesIO()
+        workbook.save(imported_workbook)
+        workbook.close()
+        content = imported_workbook.getvalue()
+        request = {
+            "data": {"targetTabId": str(target_tab_id)},
+            "files": {"file": ("crm.xlsx", content)},
+        }
+
+        with patch.object(
+            self.service,
+            "sync_crm_counterparties_for_user",
+            side_effect=AssertionError("1C invoked"),
+        ) as sync_spy:
+            preview = self.client.post("/api/crm/import/preview", **request)
+            imported = self.client.post("/api/crm/import", **request)
+
+        with self.service.db.connect() as conn:
+            client_rows = conn.execute(
+                "SELECT id, document_name, crm_archived_at, crm_archive_reason FROM crm_clients"
+            ).fetchall()
+            contact_count = conn.execute(
+                "SELECT COUNT(*) FROM crm_contacts WHERE crm_client_id = ?", (client_id,)
+            ).fetchone()[0]
+
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assertEqual(200, preview.status_code, preview.text)
+        self.assertEqual(1, preview.json()["skippedArchived"])
+        self.assertEqual(0, preview.json()["clientsToCreate"])
+        self.assertEqual(0, preview.json()["clientsToUpdate"])
+        self.assertEqual(0, preview.json()["clientsToAssign"])
+        self.assertEqual(200, imported.status_code, imported.text)
+        self.assertEqual(1, imported.json()["skippedArchived"])
+        self.assertEqual(0, sync_spy.call_count)
+        self.assertEqual(1, len(client_rows))
+        self.assertEqual("Архивный импорт", client_rows[0]["document_name"])
+        self.assertTrue(client_rows[0]["crm_archived_at"])
+        self.assertEqual("В архиве", client_rows[0]["crm_archive_reason"])
+        self.assertEqual(0, contact_count)
+
     def create_open_sync_conflict(self) -> tuple[int, dict[str, object]]:
         created = self.client.post("/api/crm/clients", json={"documentName": "Базовое имя"}).json()
         client_id = created["client"]["id"]
@@ -1210,6 +1268,49 @@ class CrmApiTest(unittest.TestCase):
             {"Личный экспорт", "Общий экспорт"},
             {row[0] for row in workbook["Клиенты"].iter_rows(min_row=2, values_only=True)},
         )
+
+    def test_primary_archive_omits_client_and_contacts_from_export_until_restore(self) -> None:
+        created = self.client.post(
+            "/api/crm/clients",
+            json={
+                "documentName": "Экспортный архив",
+                "inn": "7700000001",
+                "contactPerson": "Ирина",
+                "phone": "+7 900 111-22-33",
+            },
+        ).json()
+        client_id = created["client"]["id"]
+        self.link_primary_client(client_id, 912)
+
+        def exported_values() -> tuple[list[object], list[object]]:
+            response = self.client.get("/api/crm/export?scope=all")
+            self.assertEqual(200, response.status_code, response.text)
+            workbook = load_workbook(BytesIO(response.content), read_only=True)
+            try:
+                clients = [row[0] for row in workbook["Клиенты"].iter_rows(min_row=2, values_only=True)]
+                contacts = [row[1] for row in workbook["Контакты"].iter_rows(min_row=2, values_only=True)]
+                return clients, contacts
+            finally:
+                workbook.close()
+
+        before_archive = exported_values()
+        self.as_user(self.admin_id, "admin")
+        archived = self.client.post(
+            f"/api/crm/clients/{client_id}/primary-archive",
+            json={"reason": "Пауза"},
+        )
+        self.as_user(self.owner_id)
+        while_archived = exported_values()
+        self.as_user(self.admin_id, "admin")
+        restored = self.client.post(f"/api/crm/clients/{client_id}/primary-restore")
+        self.as_user(self.owner_id)
+        after_restore = exported_values()
+
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assertEqual((["Экспортный архив"], ["Ирина"]), before_archive)
+        self.assertEqual(([], []), while_archived)
+        self.assertEqual(200, restored.status_code, restored.text)
+        self.assertEqual((["Экспортный архив"], ["Ирина"]), after_restore)
 
     def test_new_lead_stores_initial_contact_and_comment_in_the_owner_crm(self) -> None:
         created = self.client.post(

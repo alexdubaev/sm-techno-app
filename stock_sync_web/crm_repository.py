@@ -63,10 +63,12 @@ class CrmRepository:
             existing_names = conn.execute("SELECT name FROM crm_tabs WHERE owner_user_id = ?", (owner_id,)).fetchall()
             if any(row["name"].casefold() == name.casefold() for row in existing_names):
                 raise ValueError("Вкладка с таким названием уже существует.")
+        client_rows = [dict(row) for row in conn.execute("SELECT * FROM crm_clients")]
         return plan_crm_import(
             book, owner_id=owner_id, target_tab_id=target_tab_id, new_tab_name=name,
             include_existing_clients=include_existing_clients,
-            clients=[dict(row) for row in conn.execute("SELECT * FROM crm_clients")],
+            clients=[row for row in client_rows if row.get("crm_archived_at") is None],
+            archived_clients=[row for row in client_rows if row.get("crm_archived_at") is not None],
             contacts=[dict(row) for row in conn.execute("SELECT * FROM crm_contacts WHERE owner_user_id = ?", (owner_id,))],
             assignments=[dict(row) for row in conn.execute("SELECT * FROM crm_assignments WHERE owner_user_id = ?", (owner_id,))],
             colors=CRM_COLOR_KEYS,

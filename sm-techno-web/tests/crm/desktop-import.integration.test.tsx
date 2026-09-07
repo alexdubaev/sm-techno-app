@@ -64,6 +64,7 @@ const preview: CrmImportPreview = {
   contactsToUpdate: 2,
   duplicateConflicts: 0,
   skippedOneCLinked: 1,
+  skippedArchived: 2,
   errors: [],
 };
 
@@ -108,6 +109,7 @@ describe("desktop CRM Excel import", () => {
     }));
     expect(screen.getByText("Будет создано клиентов: 2")).toBeVisible();
     expect(screen.getByText("Будет обновлено контактов: 2")).toBeVisible();
+    expect(screen.getByText("Клиент находится в архиве — импорт пропущен").parentElement).toHaveTextContent(": 2");
 
     await user.click(screen.getByRole("button", { name: "Импортировать" }));
     await waitFor(() => expect(api.importCrmFile).toHaveBeenCalledWith({

@@ -225,6 +225,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
               <p>Контактов создано: {preview.contactsToCreate}</p>
               <p>Контактов обновлено: {preview.contactsToUpdate}</p>
               <p>Пропущено 1С: {preview.skippedOneCLinked}</p>
+              {preview.skippedArchived > 0 ? <p><span>Клиент находится в архиве — импорт пропущен</span>: {preview.skippedArchived}</p> : null}
             </div>
             {preview.duplicateConflicts > 0 ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">Дубликаты: {preview.duplicateConflicts}. Исправьте файл перед импортом.</p> : null}
             {preview.errors.length > 0 ? (

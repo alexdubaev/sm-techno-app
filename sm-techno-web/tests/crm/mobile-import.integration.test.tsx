@@ -38,6 +38,7 @@ const preview: CrmImportPreview = {
   contactsToUpdate: 0,
   duplicateConflicts: 0,
   skippedOneCLinked: 0,
+  skippedArchived: 2,
   errors: [],
 };
 
@@ -147,6 +148,7 @@ describe('mobile CRM Excel import', () => {
     selectFile();
     fireEvent.click(screen.getByRole('button', { name: 'Проверить файл' }));
     await screen.findByText('Будет создано: 2');
+    expect(screen.getByText('Клиент находится в архиве — импорт пропущен').parentElement).toHaveTextContent(': 2');
     fireEvent.click(screen.getByRole('button', { name: 'Импортировать 2 клиента' }));
 
     await waitFor(() => expect(callbacks.onImportCompleted).toHaveBeenCalledWith(8));
