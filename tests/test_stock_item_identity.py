@@ -29,6 +29,20 @@ class StockItemIdentityTest(unittest.TestCase):
         self.assertNotEqual(first["id"], second["id"])
         self.assertEqual(len(self.db.list_items()), 2)
 
+    def test_normalized_sku_is_unique_and_matches_existing_item(self) -> None:
+        first = self.db.create_local_item(
+            sku=" AB-1 ", name="Первый", print_name="Первый",
+            category_name="Тест", group_name="Тест", price=10, quantity=1,
+        )
+
+        second = self.db.create_local_item(
+            sku="ab-1", name="Обновлённый", print_name="Обновлённый",
+            category_name="Тест", group_name="Тест", price=20, quantity=2,
+        )
+
+        self.assertEqual(first["id"], second["id"])
+        self.assertEqual(len(self.db.list_items()), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ import math
 import os
 import secrets
 import sqlite3
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     onec_key TEXT UNIQUE,
     sku TEXT,
+    sku_normalized TEXT,
     name TEXT NOT NULL,
     print_name TEXT,
     category_name TEXT,
@@ -228,6 +230,18 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN unit_name TEXT")
         if "created_at" not in item_columns:
             conn.execute("ALTER TABLE items ADD COLUMN created_at TEXT")
+        if "sku_normalized" not in item_columns:
+            conn.execute("ALTER TABLE items ADD COLUMN sku_normalized TEXT")
+        rows = conn.execute("SELECT id, sku FROM items WHERE COALESCE(sku_normalized, '') = ''").fetchall()
+        for row in rows:
+            conn.execute(
+                "UPDATE items SET sku_normalized = ? WHERE id = ?",
+                (self._normalize_stock_sku(row["sku"]), row["id"]),
+            )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_items_sku_normalized_not_empty "
+            "ON items(sku_normalized) WHERE sku_normalized IS NOT NULL AND sku_normalized <> ''"
+        )
 
         order_columns = {
             row["name"]
@@ -924,8 +938,8 @@ class Database:
                 return row
         if sku:
             row = conn.execute(
-                f"SELECT * FROM items WHERE sku = ?{local_clause}",
-                (sku,),
+                f"SELECT * FROM items WHERE sku_normalized = ?{local_clause}",
+                (self._normalize_stock_sku(sku),),
             ).fetchone()
             if row:
                 return row
@@ -935,6 +949,10 @@ class Database:
                 (name,),
             ).fetchone()
         return None
+
+    @staticmethod
+    def _normalize_stock_sku(value: Any) -> str:
+        return unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
 
     def import_stock_rows(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
         validated_rows: list[dict[str, Any]] = []
@@ -1527,6 +1545,7 @@ class Database:
                     """
                     UPDATE items
                     SET sku = ?,
+                        sku_normalized = ?,
                         name = ?,
                         print_name = ?,
                         category_name = ?,
@@ -1538,6 +1557,7 @@ class Database:
                     """,
                     (
                         normalized_sku or None,
+                        self._normalize_stock_sku(normalized_sku) or None,
                         normalized_name,
                         normalized_print_name,
                         normalized_category_name or None,
@@ -1551,12 +1571,13 @@ class Database:
                 cursor = conn.execute(
                     """
                     INSERT INTO items(
-                        sku, name, print_name, category_name, group_name, price, is_local, created_at, updated_at
+                        sku, sku_normalized, name, print_name, category_name, group_name, price, is_local, created_at, updated_at
                     )
-                    VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                     """,
                     (
                         normalized_sku or None,
+                        self._normalize_stock_sku(normalized_sku) or None,
                         normalized_name,
                         normalized_print_name,
                         normalized_category_name or None,
@@ -1609,6 +1630,7 @@ class Database:
                 """
                 UPDATE items
                 SET sku = ?,
+                    sku_normalized = ?,
                     name = ?,
                     print_name = ?,
                     category_name = ?,
@@ -1620,6 +1642,7 @@ class Database:
                 """,
                 (
                     normalized_sku or None,
+                    self._normalize_stock_sku(normalized_sku) or None,
                     normalized_name,
                     normalized_print_name,
                     normalized_category_name or None,
