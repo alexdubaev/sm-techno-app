@@ -43,6 +43,22 @@ class StockItemIdentityTest(unittest.TestCase):
         self.assertEqual(first["id"], second["id"])
         self.assertEqual(len(self.db.list_items()), 1)
 
+    def test_stock_import_persists_normalized_sku_for_following_import(self) -> None:
+        self.db.import_stock_rows([self._import_row(" AB-2 ", "Первый")])
+
+        created, updated = self.db.import_stock_rows([self._import_row("ab-2", "Второй")])
+
+        self.assertEqual((created, updated), (0, 1))
+        self.assertEqual(len(self.db.list_items()), 1)
+
+    @staticmethod
+    def _import_row(sku: str, name: str) -> dict[str, object]:
+        return {
+            "sku": sku, "name": name, "print_name": name, "category_name": "Тест",
+            "group_name": "Тест", "price": 10, "warehouse_name": "Склад A",
+            "quantity": 1, "onec_key": None, "unit_key": None, "unit_name": None,
+        }
+
 
 if __name__ == "__main__":
     unittest.main()

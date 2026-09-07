@@ -987,6 +987,7 @@ class Database:
                         UPDATE items
                         SET onec_key = COALESCE(?, onec_key),
                             sku = COALESCE(NULLIF(?, ''), sku),
+                            sku_normalized = COALESCE(NULLIF(?, ''), sku_normalized),
                             name = ?,
                             print_name = COALESCE(NULLIF(?, ''), ?),
                             category_name = COALESCE(NULLIF(?, ''), category_name),
@@ -1001,6 +1002,7 @@ class Database:
                         (
                             onec_key,
                             row.get("sku"),
+                            self._normalize_stock_sku(row.get("sku")),
                             row["name"],
                             row.get("print_name"),
                             row["name"],
@@ -1018,14 +1020,15 @@ class Database:
                     cursor = conn.execute(
                         """
                         INSERT INTO items(
-                            onec_key, sku, name, print_name, category_name, group_name,
+                            onec_key, sku, sku_normalized, name, print_name, category_name, group_name,
                             unit_key, unit_name, price, is_local, created_at, updated_at
                         )
-                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             onec_key,
                             row.get("sku"),
+                            self._normalize_stock_sku(row.get("sku")),
                             row["name"],
                             row.get("print_name") or row["name"],
                             row.get("category_name"),
