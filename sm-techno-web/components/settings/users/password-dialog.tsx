@@ -63,6 +63,10 @@ export function PasswordDialog({
             setError('Введите новый пароль');
             return;
           }
+          if (kind === 'app' && password.length < 6) {
+            setError('Пароль СМ ТЕХНО должен содержать не менее 6 символов');
+            return;
+          }
           if (password !== confirm) {
             setError('Пароли не совпадают');
             return;

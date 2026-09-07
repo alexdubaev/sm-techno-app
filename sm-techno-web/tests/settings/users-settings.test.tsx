@@ -228,6 +228,18 @@ describe('Users settings', () => {
     );
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByLabelText('Новый пароль'), {
+      target: { value: 'short' },
+    });
+    fireEvent.change(within(dialog).getByLabelText('Повторите пароль'), {
+      target: { value: 'short' },
+    });
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Изменить пароль' }),
+    );
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      'не менее 6 символов',
+    );
+    fireEvent.change(within(dialog).getByLabelText('Новый пароль'), {
       target: { value: 'new-password' },
     });
     fireEvent.change(within(dialog).getByLabelText('Повторите пароль'), {
@@ -484,6 +496,17 @@ describe('Users settings', () => {
     fireEvent.change(screen.getByLabelText('Логин'), {
       target: { value: 'new-user' },
     });
+    fireEvent.change(screen.getByLabelText('Пароль СМ ТЕХНО'), {
+      target: { value: 'short' },
+    });
+    fireEvent.change(screen.getByLabelText('Повторите пароль'), {
+      target: { value: 'short' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Создать пользователя' }),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('не менее 6 символов');
+    expect(props.createUser).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('Пароль СМ ТЕХНО'), {
       target: { value: 'new-password' },
     });

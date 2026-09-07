@@ -145,6 +145,10 @@ export function UsersSettings({
       setError('Укажите логин и пароль СМ ТЕХНО.');
       return;
     }
+    if (creating && draft.appPassword.length < 6) {
+      setError('Пароль СМ ТЕХНО должен содержать не менее 6 символов.');
+      return;
+    }
     if (creating && draft.appPassword !== draft.confirmPassword) {
       setError('Пароли не совпадают.');
       return;
