@@ -2257,7 +2257,7 @@ class Database:
         onec_date: str,
     ) -> None:
         now = utc_now()
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             order = conn.execute(
                 "SELECT status FROM orders WHERE id = ?",
                 (order_id,),
