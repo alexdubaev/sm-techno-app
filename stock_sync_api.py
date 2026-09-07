@@ -485,6 +485,7 @@ def _serialize_user(
         "fullName": row.get("full_name") or "",
         "onecUsername": row.get("onec_username") or "",
         "hasOnecPassword": bool(row.get("has_onec_password") or row.get("onec_password")),
+        "hasRecoverableAppPassword": bool(row.get("has_recoverable_app_password")),
         "isActive": bool(row.get("is_active", 1)),
         "createdAt": row.get("created_at") or "",
         "updatedAt": row.get("updated_at") or "",
@@ -877,6 +878,35 @@ def update_user_account(
     if not updated_user:
         raise HTTPException(status_code=404, detail="РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ РїРѕСЃР»Рµ РѕР±РЅРѕРІР»РµРЅРёСЏ.")
     return {"user": _serialize_user(updated_user)}
+
+
+def _reveal_user_password_response(user_id: int, actor_user_id: int, *, onec: bool) -> JSONResponse:
+    try:
+        reveal = SERVICE.reveal_user_onec_password if onec else SERVICE.reveal_user_app_password
+        result = reveal(actor_user_id=actor_user_id, user_id=user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="Доступ разрешен только администратору.") from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Пользователь не найден.") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Не удалось раскрыть пароль.") from exc
+    return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/users/{user_id}/reveal-app-password")
+def reveal_user_app_password(
+    user_id: int,
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> JSONResponse:
+    return _reveal_user_password_response(user_id, int(current_user["id"]), onec=False)
+
+
+@app.post("/api/users/{user_id}/reveal-onec-password")
+def reveal_user_onec_password(
+    user_id: int,
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> JSONResponse:
+    return _reveal_user_password_response(user_id, int(current_user["id"]), onec=True)
 
 
 @app.delete("/api/users/{user_id}")

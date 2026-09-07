@@ -14,7 +14,10 @@ from stock_sync_web.service import WebStockSyncService
 from .conftest import INITIAL_ADMIN_PASSWORD, AuthApiHarness
 
 
-PROHIBITED_USER_FIELDS = {"password", "passwordHash", "appPassword", "onecPassword"}
+PROHIBITED_USER_FIELDS = {
+    "password", "passwordHash", "appPassword", "onecPassword", "password_hash",
+    "app_password", "app_password_encrypted", "onec_password", "token", "secret",
+}
 
 
 def _create_user(
@@ -181,6 +184,8 @@ ADMIN_REQUESTS: list[tuple[str, str, dict[str, Any]]] = [
     ("POST", "/api/users", {"json": {"username": "new-user", "appPassword": "new-password"}}),
     ("PATCH", "/api/users/999", {"json": {"role": "user", "isActive": True}}),
     ("DELETE", "/api/users/999", {}),
+    ("POST", "/api/users/999/reveal-app-password", {}),
+    ("POST", "/api/users/999/reveal-onec-password", {}),
     ("POST", "/api/warehouses", {"json": {"name": "Denied"}}),
     ("DELETE", "/api/warehouses/999", {}),
     ("POST", "/api/stock/items/999/add-stock", {"json": {"warehouseId": 1, "quantity": 1}}),
@@ -509,3 +514,107 @@ def test_sql_failure_rolls_back_profile_password_and_session_revocation(
         "/api/auth/login",
         json={"username": "operator", "password": "operator-password"},
     ).status_code == 200
+
+
+def test_user_passwords_are_independent_revealable_and_redacted(auth_api: AuthApiHarness) -> None:
+    headers = auth_api.bearer(auth_api.login("admin", INITIAL_ADMIN_PASSWORD))
+    created = auth_api.client.post("/api/users", headers=headers, json={
+        "username": "recoverable", "appPassword": "app-secret-123",
+        "onecUsername": "onec-operator", "onecPassword": "onec-secret-456",
+    })
+    assert created.status_code == 200
+    user = created.json()["user"]
+    assert user["hasRecoverableAppPassword"] is True
+    user_id = user["id"]
+    login = auth_api.client.post("/api/auth/login", json={
+        "username": "recoverable", "password": "app-secret-123",
+    }).json()
+    me = auth_api.client.get("/api/auth/me", headers=auth_api.bearer(login["token"]))
+    listed = auth_api.client.get("/api/users", headers=headers).json()["items"]
+    for ordinary in [user, login["user"], me.json()["user"], *listed]:
+        assert PROHIBITED_USER_FIELDS.isdisjoint(ordinary)
+        assert "app-secret-123" not in str(ordinary)
+        assert "onec-secret-456" not in str(ordinary)
+        assert ordinary["hasRecoverableAppPassword"] is True
+
+    for kind, expected in [("app", "app-secret-123"), ("onec", "onec-secret-456")]:
+        response = auth_api.client.post(f"/api/users/{user_id}/reveal-{kind}-password", headers=headers)
+        assert response.status_code == 200
+        assert response.json() == {"available": True, "password": expected}
+        assert response.headers["cache-control"] == "no-store"
+    with auth_api.service.db.connect() as conn:
+        rows = [dict(row) for row in conn.execute("SELECT * FROM user_secret_reveal_audit ORDER BY id")]
+    actor_id = auth_api.service.db.get_user_by_username("admin")["id"]
+    assert [row["action"] for row in rows] == ["reveal_user_app_password", "reveal_user_onec_password"]
+    assert all(row["actor_user_id"] == actor_id and row["target_user_id"] == user_id for row in rows)
+    assert all(datetime.fromisoformat(row["created_at"]) for row in rows)
+    assert "app-secret-123" not in str(rows) and "onec-secret-456" not in str(rows)
+
+    changed = auth_api.client.patch(f"/api/users/{user_id}", headers=headers, json={
+        "role": "user", "isActive": True, "appPassword": "replacement-password",
+    })
+    assert changed.status_code == 200
+    assert auth_api.client.post(f"/api/users/{user_id}/reveal-app-password", headers=headers).json() == {
+        "available": True, "password": "replacement-password",
+    }
+    assert auth_api.client.post(f"/api/users/{user_id}/reveal-onec-password", headers=headers).json() == {
+        "available": True, "password": "onec-secret-456",
+    }
+    assert auth_api.client.get("/api/auth/me", headers=auth_api.bearer(login["token"])).status_code == 401
+    assert auth_api.client.post("/api/auth/login", json={
+        "username": "recoverable", "password": "app-secret-123",
+    }).status_code == 401
+    assert auth_api.login("recoverable", "replacement-password")
+    changed = auth_api.client.patch(f"/api/users/{user_id}", headers=headers, json={
+        "role": "user", "isActive": True, "onecPassword": "changed-onec-password",
+    })
+    assert changed.status_code == 200
+    assert auth_api.client.post(f"/api/users/{user_id}/reveal-app-password", headers=headers).json()["password"] == "replacement-password"
+
+
+def test_admin_can_reveal_self_but_legacy_and_missing_credentials_are_unavailable(auth_api: AuthApiHarness) -> None:
+    headers = auth_api.bearer(auth_api.login("admin", INITIAL_ADMIN_PASSWORD))
+    admin_id = auth_api.service.db.get_user_by_username("admin")["id"]
+    revealed = auth_api.client.post(f"/api/users/{admin_id}/reveal-app-password", headers=headers)
+    assert revealed.status_code == 200
+    assert revealed.json() == {"available": True, "password": INITIAL_ADMIN_PASSWORD}
+    legacy_id = _create_user(auth_api)
+    with auth_api.service.db.transaction() as conn:
+        conn.execute("UPDATE users SET app_password_encrypted = NULL WHERE id = ?", (legacy_id,))
+    for kind in ["app", "onec"]:
+        response = auth_api.client.post(f"/api/users/{legacy_id}/reveal-{kind}-password", headers=headers)
+        assert response.status_code == 200
+        assert response.json() == {"available": False, "password": None}
+        assert auth_api.client.post(f"/api/users/999/reveal-{kind}-password", headers=headers).status_code == 404
+    items = auth_api.client.get("/api/users", headers=headers).json()["items"]
+    assert next(item for item in items if item["id"] == legacy_id)["hasRecoverableAppPassword"] is False
+    assert auth_api.login("operator", "operator-password")
+    with auth_api.service.db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM user_secret_reveal_audit").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("secret", ["system", "token", "fernet-key", "env", "cookie"])
+def test_reveal_routes_cannot_select_system_secrets(auth_api: AuthApiHarness, secret: str) -> None:
+    headers = auth_api.bearer(auth_api.login("admin", INITIAL_ADMIN_PASSWORD))
+    admin_id = auth_api.service.db.get_user_by_username("admin")["id"]
+    assert auth_api.client.post(f"/api/users/{admin_id}/reveal-{secret}-password", headers=headers).status_code == 404
+
+
+@pytest.mark.parametrize("failure", ["audit", "decrypt"])
+def test_reveal_failure_never_returns_password_or_sensitive_error(auth_api: AuthApiHarness, failure: str) -> None:
+    headers = auth_api.bearer(auth_api.login("admin", INITIAL_ADMIN_PASSWORD))
+    admin_id = auth_api.service.db.get_user_by_username("admin")["id"]
+    with auth_api.service.db.transaction() as conn:
+        if failure == "audit":
+            conn.execute("""CREATE TRIGGER reject_audit BEFORE INSERT ON user_secret_reveal_audit
+                BEGIN SELECT RAISE(ABORT, 'sensitive audit error'); END""")
+        else:
+            conn.execute("UPDATE users SET app_password_encrypted = 'dpapi:broken-ciphertext' WHERE id = ?", (admin_id,))
+    response = auth_api.client.post(f"/api/users/{admin_id}/reveal-app-password", headers=headers)
+    assert response.status_code == 500
+    assert "password" not in response.json()
+    assert INITIAL_ADMIN_PASSWORD not in response.text
+    assert "sensitive audit error" not in response.text
+    assert "broken-ciphertext" not in response.text
+    with auth_api.service.db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM user_secret_reveal_audit").fetchone()[0] == 0

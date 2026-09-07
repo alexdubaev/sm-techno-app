@@ -29,7 +29,10 @@ class CredentialStorageSecurityTest(unittest.TestCase):
 
         self.assertNotIn("app_password", user)
         self.assertNotIn("onec_password", user)
+        self.assertNotIn("password_hash", user)
+        self.assertNotIn("app_password_encrypted", user)
         self.assertTrue(user["has_onec_password"])
+        self.assertTrue(user["has_recoverable_app_password"])
 
     def test_onec_password_is_not_stored_as_plaintext(self) -> None:
         user_id = self.db.create_user(
