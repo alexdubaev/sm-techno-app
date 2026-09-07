@@ -1705,6 +1705,7 @@ class Database:
                     delta=delta,
                     movement_type="adjustment",
                     comment="Ручная корректировка остатка.",
+                    keep_zero=True,
                 )
 
     def add_item_stock(
@@ -1857,10 +1858,11 @@ class Database:
         item_id: int,
         warehouse_id: int,
         quantity: float,
+        keep_zero: bool = False,
     ) -> None:
         now = utc_now()
         normalized_quantity = self._require_finite_nonnegative(quantity, label="Остаток")
-        if normalized_quantity <= 0:
+        if normalized_quantity <= 0 and not keep_zero:
             conn.execute(
                 """
                 DELETE FROM item_warehouse_balances
@@ -1891,6 +1893,7 @@ class Database:
         movement_type: str,
         comment: str,
         insufficient_message: str | None = None,
+        keep_zero: bool = False,
     ) -> None:
         amount = self._require_finite_positive(abs(float(delta)), label="Количество движения")
         current_quantity = self._get_warehouse_quantity(
@@ -1906,6 +1909,7 @@ class Database:
             item_id=item_id,
             warehouse_id=warehouse_id,
             quantity=current_quantity + float(delta),
+            keep_zero=keep_zero,
         )
         self._record_stock_movement(
             conn,

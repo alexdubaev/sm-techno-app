@@ -2365,7 +2365,12 @@ def update_stock_quantity(
         quantity = float(payload.get("quantity"))
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Некорректное количество.")
-    SERVICE.set_stock_quantity(item_id, quantity)
+    if not math.isfinite(quantity) or quantity < 0:
+        raise HTTPException(status_code=400, detail="Количество должно быть конечным неотрицательным числом.")
+    try:
+        SERVICE.set_stock_quantity(item_id, quantity)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     updated_item = SERVICE.get_item(item_id)
     return {"item": _serialize_item(updated_item or item)}
 
