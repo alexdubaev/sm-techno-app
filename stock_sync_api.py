@@ -1806,12 +1806,13 @@ def move_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | Non
 @app.put("/api/crm/clients/{client_id}/row-preference")
 def save_crm_row_preference(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo._require_workspace_write(actor_id, resolved_owner_id)
         tab_id = int(payload.get("tabId"))
         expected_order_version = int(payload.get("expectedOrderVersion"))
         color_key = payload.get("colorKey")
         if color_key is not None:
             color_key = str(color_key)
-        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
         preference = repo.set_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id, color_key=color_key, expected_order_version=expected_order_version)
         return {"preference": _serialize_crm_row_preference(preference or {})}
     except Exception as exc:
