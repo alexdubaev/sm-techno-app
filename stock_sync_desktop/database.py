@@ -695,6 +695,16 @@ class Database:
         finally:
             conn.close()
 
+    @contextmanager
+    def _stock_transaction(self) -> Iterable[sqlite3.Connection]:
+        try:
+            with self.transaction(immediate=True) as conn:
+                yield conn
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                raise ValueError("Склад временно занят. Повторите операцию.") from exc
+            raise
+
     @staticmethod
     def _rows_to_dicts(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
@@ -924,12 +934,22 @@ class Database:
         return None
 
     def import_stock_rows(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
-        self._validate_unique_storage_locations(rows)
+        validated_rows: list[dict[str, Any]] = []
+        for raw_row in rows:
+            row = dict(raw_row)
+            row["price"] = self._require_finite_nonnegative(row["price"], label="Цена")
+            row["quantity"] = self._require_finite_nonnegative(
+                row["quantity"],
+                label="Остаток по складу",
+            )
+            validated_rows.append(row)
+
+        self._validate_unique_storage_locations(validated_rows)
         created = 0
         updated = 0
         now = utc_now()
-        with self.transaction() as conn:
-            for row in rows:
+        with self._stock_transaction() as conn:
+            for row in validated_rows:
                 onec_key = self._normalize_guid(row.get("onec_key"))
                 unit_key = self._normalize_guid(row.get("unit_key"))
                 existing = self._find_existing_item(
@@ -1669,18 +1689,23 @@ class Database:
 
     def set_stock_quantity(self, item_id: int, quantity: float) -> None:
         normalized_quantity = self._require_finite_nonnegative(quantity, label="Остаток")
-        with self.transaction(immediate=True) as conn:
+        with self._stock_transaction() as conn:
             default_warehouse_id = self._ensure_default_warehouse(conn)
-            conn.execute(
-                """
-                INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, updated_at)
-                VALUES(?, ?, ?, ?)
-                ON CONFLICT(item_id, warehouse_id) DO UPDATE SET
-                    quantity = excluded.quantity,
-                    updated_at = excluded.updated_at
-                """,
-                (item_id, default_warehouse_id, normalized_quantity, utc_now()),
+            current_quantity = self._get_warehouse_quantity(
+                conn,
+                item_id=item_id,
+                warehouse_id=default_warehouse_id,
             )
+            delta = normalized_quantity - current_quantity
+            if delta:
+                self._apply_stock_delta(
+                    conn,
+                    item_id=item_id,
+                    warehouse_id=default_warehouse_id,
+                    delta=delta,
+                    movement_type="adjustment",
+                    comment="Ручная корректировка остатка.",
+                )
 
     def add_item_stock(
         self,
@@ -1690,10 +1715,9 @@ class Database:
         quantity: int,
         comment: str = "",
     ) -> dict[str, Any]:
-        if quantity <= 0:
-            raise ValueError("Укажите количество больше нуля.")
+        amount = self._require_finite_positive(quantity, label="Количество")
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             item = conn.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
             if item is None:
                 raise ValueError("Товар не найден.")
@@ -1702,23 +1726,12 @@ class Database:
                 conn,
                 warehouse_id=warehouse_id,
             )
-            current_quantity = self._get_warehouse_quantity(
+            self._apply_stock_delta(
                 conn,
                 item_id=item_id,
                 warehouse_id=resolved_warehouse_id,
-            )
-            self._set_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=resolved_warehouse_id,
-                quantity=current_quantity + quantity,
-            )
-            self._record_stock_movement(
-                conn,
-                item_id=item_id,
-                warehouse_id=resolved_warehouse_id,
+                delta=amount,
                 movement_type="manual_add",
-                quantity=quantity,
                 comment=comment or f"Добавление остатка на склад '{warehouse_name}'.",
             )
 
@@ -1736,12 +1749,11 @@ class Database:
         quantity: int,
         comment: str = "",
     ) -> dict[str, Any]:
-        if quantity <= 0:
-            raise ValueError("Укажите количество больше нуля.")
+        amount = self._require_finite_positive(quantity, label="Количество")
         if from_warehouse_id == to_warehouse_id:
             raise ValueError("Склады отправления и получения должны отличаться.")
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             item = conn.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
             if item is None:
                 raise ValueError("Товар не найден.")
@@ -1755,52 +1767,27 @@ class Database:
                 warehouse_id=to_warehouse_id,
             )
 
-            available_quantity = self._get_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=source_warehouse_id,
-            )
-            if available_quantity < quantity:
-                raise ValueError(
-                    f"На складе '{source_warehouse_name}' доступно только {int(available_quantity)} шт."
-                )
-
-            self._set_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=source_warehouse_id,
-                quantity=available_quantity - quantity,
-            )
-
-            target_quantity = self._get_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=target_warehouse_id,
-            )
-            self._set_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=target_warehouse_id,
-                quantity=target_quantity + quantity,
-            )
-
             shared_comment = comment or (
                 f"Перемещение между складами: {source_warehouse_name} → {target_warehouse_name}."
             )
-            self._record_stock_movement(
+            self._apply_stock_delta(
                 conn,
                 item_id=item_id,
                 warehouse_id=source_warehouse_id,
+                delta=-amount,
                 movement_type="transfer_out",
-                quantity=quantity,
                 comment=shared_comment,
+                insufficient_message=(
+                    f"На складе '{source_warehouse_name}' доступно только "
+                    f"{int(self._get_warehouse_quantity(conn, item_id=item_id, warehouse_id=source_warehouse_id))} шт."
+                ),
             )
-            self._record_stock_movement(
+            self._apply_stock_delta(
                 conn,
                 item_id=item_id,
                 warehouse_id=target_warehouse_id,
+                delta=amount,
                 movement_type="transfer_in",
-                quantity=quantity,
                 comment=shared_comment,
             )
 
@@ -1817,10 +1804,9 @@ class Database:
         quantity: int,
         comment: str = "",
     ) -> dict[str, Any]:
-        if quantity <= 0:
-            raise ValueError("Укажите количество больше нуля.")
+        amount = self._require_finite_positive(quantity, label="Количество")
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             item = conn.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
             if item is None:
                 raise ValueError("Товар не найден.")
@@ -1829,29 +1815,17 @@ class Database:
                 conn,
                 warehouse_id=warehouse_id,
             )
-            available_quantity = self._get_warehouse_quantity(
+            self._apply_stock_delta(
                 conn,
                 item_id=item_id,
                 warehouse_id=resolved_warehouse_id,
-            )
-            if available_quantity < quantity:
-                raise ValueError(
-                    f"На складе '{warehouse_name}' доступно только {int(available_quantity)} шт."
-                )
-
-            self._set_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=resolved_warehouse_id,
-                quantity=available_quantity - quantity,
-            )
-            self._record_stock_movement(
-                conn,
-                item_id=item_id,
-                warehouse_id=resolved_warehouse_id,
+                delta=-amount,
                 movement_type="writeoff",
-                quantity=quantity,
                 comment=comment or f"Списание со склада '{warehouse_name}'.",
+                insufficient_message=(
+                    f"На складе '{warehouse_name}' доступно только "
+                    f"{int(self._get_warehouse_quantity(conn, item_id=item_id, warehouse_id=resolved_warehouse_id))} шт."
+                ),
             )
 
         updated_item = self.get_item_by_id(item_id)
@@ -1885,7 +1859,7 @@ class Database:
         quantity: float,
     ) -> None:
         now = utc_now()
-        normalized_quantity = max(0.0, float(quantity))
+        normalized_quantity = self._require_finite_nonnegative(quantity, label="Остаток")
         if normalized_quantity <= 0:
             conn.execute(
                 """
@@ -1907,6 +1881,41 @@ class Database:
             (item_id, warehouse_id, normalized_quantity, now),
         )
 
+    def _apply_stock_delta(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        item_id: int,
+        warehouse_id: int,
+        delta: float,
+        movement_type: str,
+        comment: str,
+        insufficient_message: str | None = None,
+    ) -> None:
+        amount = self._require_finite_positive(abs(float(delta)), label="Количество движения")
+        current_quantity = self._get_warehouse_quantity(
+            conn,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+        )
+        if delta < 0 and current_quantity < amount:
+            raise ValueError(insufficient_message or "Недостаточно доступного остатка на складе.")
+
+        self._set_warehouse_quantity(
+            conn,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            quantity=current_quantity + float(delta),
+        )
+        self._record_stock_movement(
+            conn,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            movement_type=movement_type,
+            quantity=amount,
+            comment=comment,
+        )
+
     def _record_stock_movement(
         self,
         conn: sqlite3.Connection,
@@ -1917,6 +1926,7 @@ class Database:
         quantity: float,
         comment: str,
     ) -> None:
+        normalized_quantity = self._require_finite_positive(quantity, label="Количество движения")
         conn.execute(
             """
             INSERT INTO stock_movements(
@@ -1924,7 +1934,7 @@ class Database:
             )
             VALUES(?, NULL, ?, ?, ?, ?, ?)
             """,
-            (item_id, warehouse_id, movement_type, quantity, comment.strip(), utc_now()),
+            (item_id, warehouse_id, movement_type, normalized_quantity, comment.strip(), utc_now()),
         )
 
     def list_counterparties(self) -> list[dict[str, Any]]:
