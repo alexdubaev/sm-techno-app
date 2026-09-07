@@ -17,9 +17,15 @@ import {
   type MobileSyncFilter,
 } from '@/components/crm/mobile/mobile-crm-header';
 import { MobileCrmImportSheet } from '@/components/crm/mobile/mobile-crm-import-sheet';
-import { MobileCrmFilterSheet, type CrmListControlValues } from '@/components/crm/mobile/mobile-crm-filter-sheet';
+import {
+  MobileCrmFilterSheet,
+  type CrmListControlValues,
+} from '@/components/crm/mobile/mobile-crm-filter-sheet';
 import { MobileCrmTabs } from '@/components/crm/mobile/mobile-crm-tabs';
-import { MobileClientDetail } from '@/components/crm/mobile/mobile-client-detail';
+import {
+  MobileClientDetail,
+  MobilePrimaryArchiveDetail,
+} from '@/components/crm/mobile/mobile-client-detail';
 import { MobileClientMore } from '@/components/crm/mobile/mobile-client-more';
 import type { ImportantReminder } from '@/components/crm/mobile/mobile-crm-utils';
 import { MobileReminderSummary } from '@/components/crm/mobile/mobile-reminder-summary';
@@ -30,6 +36,8 @@ import {
 import type { MobileDetailSection } from '@/components/crm/mobile/types';
 import type {
   AppUser,
+  CrmPrimaryArchiveClient,
+  CrmPrimaryArchiveResponse,
   CrmReminder,
   CrmTab,
   CrmWorkspaceClient,
@@ -63,6 +71,11 @@ export type MobileCrmWorkspaceProps = {
   reminderError: string | null;
   search: string;
   selectedClient: CrmWorkspaceClient | null;
+  selectedArchivedClient?: CrmPrimaryArchiveClient | null;
+  primaryArchive?: CrmPrimaryArchiveResponse | null;
+  primaryArchiveMode?: 'active' | 'archive';
+  isPrimaryArchiveLoading?: boolean;
+  primaryArchiveError?: string | null;
   syncFilter: MobileSyncFilter;
   syncStatusText: string | null;
   tabs: CrmTab[];
@@ -70,6 +83,7 @@ export type MobileCrmWorkspaceProps = {
   workspaceError: string | null;
   onAddClient: () => void;
   onChangeClientForm: (form: MobileNewClientForm) => void;
+  onCloseArchivedClient?: () => void;
   onCloseClient: () => void;
   onCloseNewClient: () => void;
   onColorClient: (client: CrmWorkspaceClient, color: string | null) => void;
@@ -83,11 +97,14 @@ export type MobileCrmWorkspaceProps = {
     client: CrmWorkspaceClient,
     initialSection?: MobileDetailSection,
   ) => void;
+  onOpenArchivedClient?: (client: CrmPrimaryArchiveClient) => void;
   onOpenReminder: (reminder: CrmReminder) => void;
   onOwnerChange: (ownerId: number) => void;
   onListControlsChange: (values: CrmListControlValues) => void;
   onResetListControls: () => void;
   onRefresh: () => void;
+  onPrimaryArchiveChanged?: () => void | Promise<void>;
+  onPrimaryArchiveModeChange?: (mode: 'active' | 'archive') => void;
   onRenameTab: (tab: CrmTab) => void;
   onReorder: (clientId: number, insertionIndex: number) => void;
   onSearchChange: (value: string) => void;
@@ -124,6 +141,11 @@ export function MobileCrmWorkspace({
   reminderError,
   search,
   selectedClient,
+  selectedArchivedClient = null,
+  primaryArchive = null,
+  primaryArchiveMode = 'active',
+  isPrimaryArchiveLoading = false,
+  primaryArchiveError = null,
   syncFilter,
   syncStatusText,
   tabs,
@@ -131,6 +153,7 @@ export function MobileCrmWorkspace({
   workspaceError,
   onAddClient,
   onChangeClientForm,
+  onCloseArchivedClient = ignoreMobileArchiveAction,
   onCloseClient,
   onCloseNewClient,
   onColorClient,
@@ -141,11 +164,14 @@ export function MobileCrmWorkspace({
   onImportCompleted,
   onMoveClient,
   onOpenClient,
+  onOpenArchivedClient = ignoreMobileArchiveClient,
   onOpenReminder,
   onOwnerChange,
   onListControlsChange,
   onResetListControls,
   onRefresh,
+  onPrimaryArchiveChanged = ignoreMobileArchiveAction,
+  onPrimaryArchiveModeChange = ignoreMobileArchiveMode,
   onRenameTab,
   onReorder,
   onSearchChange,
@@ -159,15 +185,23 @@ export function MobileCrmWorkspace({
   const [drag, setDrag] = useState<DragState | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isFiltering, setIsFiltering] = useState(false);
-  const activeControlCount = Number(listControls.sortMode !== 'manual') + Number(listControls.phoneFilter !== 'all') + Number(listControls.emailFilter !== 'all');
+  const activeControlCount =
+    Number(listControls.sortMode !== 'manual') +
+    Number(listControls.phoneFilter !== 'all') +
+    Number(listControls.emailFilter !== 'all');
   const reorderMode = requestedReorderMode && manualOrderAvailable;
-  const hasFilters = search.trim().length > 0 || syncFilter !== 'all' || activeControlCount > 0;
+  const hasFilters =
+    search.trim().length > 0 ||
+    syncFilter !== 'all' ||
+    activeControlCount > 0;
   const reorderUnavailableReason = manualOrderAvailable
     ? null
     : listControls.sortMode !== 'manual'
       ? 'Выберите «Ручной порядок» и сбросьте поиск и фильтры.'
       : 'Сбросьте поиск и фильтры, чтобы изменить порядок.';
   const reorderActionLabel = reorderMode ? 'Готово' : 'Изменить порядок';
+  const isPrimaryArchiveView =
+    isAdmin && activeTab === 'primary' && primaryArchiveMode === 'archive';
 
   const toggleReorder = () => {
     if (!reorderMode && !manualOrderAvailable) return;
@@ -299,10 +333,19 @@ export function MobileCrmWorkspace({
       data-reminder-count={importantReminders.length}
       data-search={search}
       data-tab-count={tabs.length}
-      aria-busy={isLoading || isLoadingReminders}
+      aria-busy={isLoading || isLoadingReminders || isPrimaryArchiveLoading}
       className="min-h-dvh bg-[#F7F9FC] px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-[var(--text-primary)]"
     >
-      {selectedClient ? (
+      {selectedArchivedClient ? (
+        <MobilePrimaryArchiveDetail
+          client={selectedArchivedClient}
+          ownerId={ownerId}
+          ownerName={ownerName}
+          isAdmin={isAdmin}
+          onClose={onCloseArchivedClient}
+          onPrimaryArchiveChanged={onPrimaryArchiveChanged}
+        />
+      ) : selectedClient ? (
         <MobileClientDetail
           client={selectedClient}
           ownerId={ownerId}
@@ -314,6 +357,7 @@ export function MobileCrmWorkspace({
           canResolveSyncConflicts={isAdmin || canEditWorkspace}
           initialSection={initialDetailSection}
           onDetailChanged={onDetailChanged}
+          onPrimaryArchiveChanged={onPrimaryArchiveChanged}
           onClose={onCloseClient}
           renderMore={(controller) => (
             <MobileClientMore
@@ -333,7 +377,8 @@ export function MobileCrmWorkspace({
         <div data-mobile-crm-list="">
           <MobileCrmHeader
             activeTab={activeTab}
-            canEditWorkspace={canEditWorkspace}
+            archiveMode={isPrimaryArchiveView}
+            canEditWorkspace={canEditWorkspace && !isPrimaryArchiveView}
             isAdmin={isAdmin}
             isExporting={isExporting}
             isRefreshing={isRefreshing}
@@ -343,7 +388,7 @@ export function MobileCrmWorkspace({
             activeControlCount={activeControlCount}
             onOpenFilters={() => setIsFiltering(true)}
             reorderActionLabel={reorderActionLabel}
-            reorderMode={reorderMode}
+            reorderMode={reorderMode && !isPrimaryArchiveView}
             reorderUnavailableReason={reorderUnavailableReason}
             syncFilter={syncFilter}
             syncStatusText={syncStatusText}
@@ -367,12 +412,26 @@ export function MobileCrmWorkspace({
             onTabChange={onTabChange}
           />
 
-          {isRefreshing ? (
+          {isAdmin && activeTab === 'primary' ? (
+            <MobilePrimaryArchiveSwitch
+              activeCount={primaryArchive?.activeCount ?? totalClientCount}
+              archivedCount={primaryArchive?.archivedCount ?? 0}
+              mode={primaryArchiveMode}
+              disabled={isPrimaryArchiveLoading}
+              onChange={(mode) => {
+                setRequestedReorderMode(false);
+                setDrag(null);
+                onPrimaryArchiveModeChange(mode);
+              }}
+            />
+          ) : null}
+
+          {isRefreshing && !isPrimaryArchiveView ? (
             <output className="mb-3 block rounded-[11px] border border-[#B9D8FF] bg-[#EFF6FF] px-3 py-2 text-[11px] font-semibold text-[#174EA6]">
               Обновляем из 1С… Сохранённые карточки остаются доступны.
             </output>
           ) : null}
-          {workspaceError ? (
+          {workspaceError && !isPrimaryArchiveView ? (
             <div
               role="alert"
               className="mb-3 rounded-[13px] border border-[#F4C7C3] bg-[#FEF3F2] p-3 text-[#B42318]"
@@ -391,7 +450,7 @@ export function MobileCrmWorkspace({
               ) : null}
             </div>
           ) : null}
-          {reminderError ? (
+          {reminderError && !isPrimaryArchiveView ? (
             <p
               role="alert"
               className="mb-3 rounded-[11px] border border-[#F0D98A] bg-[#FFF9E8] px-3 py-2 text-[11px] text-[#7A4A00]"
@@ -399,18 +458,36 @@ export function MobileCrmWorkspace({
               {reminderError}
             </p>
           ) : null}
-          {notice ? (
+          {notice && !isPrimaryArchiveView ? (
             <output className="mb-3 block rounded-[11px] border border-[#ABEFC6] bg-[#ECFDF3] px-3 py-2 text-[11px] font-semibold text-[#067647]">
               {notice}
             </output>
           ) : null}
 
-          <MobileReminderSummary
-            reminders={importantReminders}
-            onOpenReminder={onOpenReminder}
-          />
+          {isPrimaryArchiveView ? (
+            <>
+              {primaryArchiveError ? (
+                <p
+                  role="alert"
+                  className="mb-3 rounded-[13px] border border-[#F4C7C3] bg-[#FEF3F2] p-3 text-[12px] text-[#B42318]"
+                >
+                  {primaryArchiveError}
+                </p>
+              ) : null}
+              <MobilePrimaryArchiveList
+                clients={primaryArchive?.items ?? []}
+                isLoading={isPrimaryArchiveLoading}
+                onOpenClient={onOpenArchivedClient}
+              />
+            </>
+          ) : (
+            <>
+              <MobileReminderSummary
+                reminders={importantReminders}
+                onOpenReminder={onOpenReminder}
+              />
 
-          <label className="relative mt-3 block">
+              <label className="relative mt-3 block">
             <span className="sr-only">Поиск клиента</span>
             <Search
               aria-hidden="true"
@@ -434,9 +511,9 @@ export function MobileCrmWorkspace({
                 <X aria-hidden="true" className="size-5" />
               </button>
             ) : null}
-          </label>
+              </label>
 
-          {reorderMode ? (
+              {reorderMode ? (
             <p
               id="mobile-crm-reorder-help"
               aria-live="polite"
@@ -446,9 +523,9 @@ export function MobileCrmWorkspace({
                 ? 'Перемещение активно. Стрелки меняют позицию, Enter сохраняет, Escape отменяет.'
                 : 'Перетяните карточку за ручку. С клавиатуры нажмите Enter, используйте стрелки и снова Enter.'}
             </p>
-          ) : null}
+              ) : null}
 
-          {isLoading && totalClientCount === 0 ? (
+              {isLoading && totalClientCount === 0 ? (
             <MobileClientSkeletons />
           ) : clients.length > 0 ? (
             <div className="mt-3 grid gap-3">
@@ -497,10 +574,12 @@ export function MobileCrmWorkspace({
               action={canEditWorkspace ? 'Добавить клиента' : undefined}
               onAction={canEditWorkspace ? onAddClient : undefined}
             />
+              )}
+            </>
           )}
         </div>
       )}
-      {isFiltering ? (
+      {isFiltering && !isPrimaryArchiveView ? (
         <MobileCrmFilterSheet
           values={listControls}
           clients={allClients}
@@ -510,7 +589,7 @@ export function MobileCrmWorkspace({
           onClose={() => setIsFiltering(false)}
         />
       ) : null}
-      {isAdding ? (
+      {isAdding && !isPrimaryArchiveView ? (
         <MobileNewClientSheet
           form={newClientForm}
           isSaving={isSavingClient}
@@ -520,7 +599,7 @@ export function MobileCrmWorkspace({
           onSubmit={onSubmitClient}
         />
       ) : null}
-      {isImporting ? (
+      {isImporting && !isPrimaryArchiveView ? (
         <MobileCrmImportSheet
           ownerId={ownerId}
           ownerName={ownerName}
@@ -532,6 +611,133 @@ export function MobileCrmWorkspace({
     </div>
   );
 }
+
+function MobilePrimaryArchiveSwitch({
+  activeCount,
+  archivedCount,
+  mode,
+  disabled,
+  onChange,
+}: {
+  activeCount: number;
+  archivedCount: number;
+  mode: 'active' | 'archive';
+  disabled: boolean;
+  onChange: (mode: 'active' | 'archive') => void;
+}) {
+  return (
+    <fieldset
+      className="mb-3 grid grid-cols-2 gap-1 rounded-[14px] bg-[#E9EEF5] p-1"
+    >
+      <legend className="sr-only">Режим основной CRM</legend>
+      <button
+        type="button"
+        aria-pressed={mode === 'active'}
+        disabled={disabled}
+        onClick={() => onChange('active')}
+        className={`min-h-11 rounded-[11px] px-3 text-[13px] font-bold transition-colors disabled:opacity-60 ${mode === 'active' ? 'bg-white text-[var(--text-primary)] shadow-[0_2px_8px_rgba(7,22,46,0.08)]' : 'text-[var(--text-secondary)]'}`}
+      >
+        Активные {activeCount}
+      </button>
+      <button
+        type="button"
+        aria-pressed={mode === 'archive'}
+        disabled={disabled}
+        onClick={() => onChange('archive')}
+        className={`min-h-11 rounded-[11px] px-3 text-[13px] font-bold transition-colors disabled:opacity-60 ${mode === 'archive' ? 'bg-white text-[var(--text-primary)] shadow-[0_2px_8px_rgba(7,22,46,0.08)]' : 'text-[var(--text-secondary)]'}`}
+      >
+        Архив {archivedCount}
+      </button>
+    </fieldset>
+  );
+}
+
+function MobilePrimaryArchiveList({
+  clients,
+  isLoading,
+  onOpenClient,
+}: {
+  clients: CrmPrimaryArchiveClient[];
+  isLoading: boolean;
+  onOpenClient: (client: CrmPrimaryArchiveClient) => void;
+}) {
+  if (isLoading && clients.length === 0) {
+    return <MobileClientSkeletons />;
+  }
+  if (clients.length === 0) {
+    return (
+      <MobileEmptyState
+        title="Архив пуст"
+        description="Здесь появятся клиенты, архивированные из основной CRM."
+      />
+    );
+  }
+  return (
+    <div className="grid gap-3">
+      {clients.map((client) => (
+        <article
+          key={client.id}
+          aria-label={client.documentName || client.fullName || client.name}
+          className="rounded-[16px] border border-[var(--border-color)] bg-white p-4 shadow-[0_8px_22px_rgba(7,22,46,0.04)]"
+        >
+          <h2 className="break-words text-[15px] font-bold leading-5">
+            {client.documentName || client.fullName || client.name}
+          </h2>
+          <p className="mt-1 text-[12px] text-[var(--text-secondary)]">
+            {client.city || 'Город не указан'} · ИНН {client.inn || 'не указан'}
+          </p>
+          <dl className="mt-4 grid gap-3 text-[12px]">
+            <div>
+              <dt className="font-semibold text-[var(--text-secondary)]">
+                В архиве с
+              </dt>
+              <dd className="mt-0.5">
+                <time dateTime={client.archivedAt}>
+                  {formatArchiveDate(client.archivedAt)}
+                </time>
+              </dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-[var(--text-secondary)]">
+                Архивировал
+              </dt>
+              <dd className="mt-0.5 break-words">
+                {client.archivedByFullName || 'Неизвестно'}
+              </dd>
+            </div>
+            <div>
+              <dt className="font-semibold text-[var(--text-secondary)]">
+                Причина
+              </dt>
+              <dd className="mt-0.5 break-words">
+                {client.archiveReason || 'Без причины'}
+              </dd>
+            </div>
+          </dl>
+          <button
+            type="button"
+            aria-label="Открыть архивную карточку"
+            onClick={() => onOpenClient(client)}
+            className="mt-4 min-h-11 w-full rounded-[11px] bg-[var(--brand-yellow)] px-4 text-[13px] font-bold text-[var(--brand-dark)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]"
+          >
+            Открыть и восстановить
+          </button>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function formatArchiveDate(value: string) {
+  return new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value));
+}
+
+function ignoreMobileArchiveAction() {}
+function ignoreMobileArchiveClient(_client: CrmPrimaryArchiveClient) {}
+function ignoreMobileArchiveMode(_mode: 'active' | 'archive') {}
 
 function MobileClientSkeletons() {
   return (

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 
 import {
   archiveLocalCrmClient,
+  archivePrimaryCrmClient,
   cancelCrmReminder,
   completeCrmReminder,
   confirmCrmExistingLink,
@@ -20,6 +21,7 @@ import {
   rescheduleCrmReminder as requestCrmReminderReschedule,
   resolveCrmSyncConflict,
   restoreLocalCrmClient,
+  restorePrimaryCrmClient,
   updateCrmClient,
 } from "@/lib/api";
 import type { CrmAuditAction, CrmContact, CrmEvent, CrmLinkCandidate, CrmReminder, CrmSyncConflict, CrmWorkspaceClient } from "@/lib/types";
@@ -42,6 +44,8 @@ export type CrmClientDetailControllerOptions = {
   canManageReminders: boolean;
   canResolveSyncConflicts: boolean;
   onChanged: (ownerId: number, activeTab: ActiveTab) => void;
+  primaryArchiveMode?: boolean;
+  onPrimaryArchiveChanged?: () => void | Promise<void>;
 };
 
 export type DetailController = {
@@ -72,12 +76,16 @@ export type DetailController = {
   canManageLocalClient: boolean;
   canRemoveAssignment: boolean;
   canConfirmExistingLink: boolean;
+  canArchivePrimaryClient: boolean;
+  canRestorePrimaryClient: boolean;
   setRequisitesForm: Dispatch<SetStateAction<CompanyRequisitesForm>>;
   setContactForm: Dispatch<SetStateAction<ContactForm>>;
   setEventForm: Dispatch<SetStateAction<EventForm>>;
   setReminderDueAt: Dispatch<SetStateAction<string>>;
   setArchiveReason: Dispatch<SetStateAction<string>>;
   setIsArchiveConfirmationOpen: Dispatch<SetStateAction<boolean>>;
+  isPrimaryRestoreConfirmationOpen: boolean;
+  setIsPrimaryRestoreConfirmationOpen: Dispatch<SetStateAction<boolean>>;
   setIsRemoveAssignmentConfirmationOpen: Dispatch<SetStateAction<boolean>>;
   setLinkCandidate: Dispatch<SetStateAction<CrmLinkCandidate | null>>;
   setSyncConflictResolution: Dispatch<SetStateAction<SyncConflictResolution | null>>;
@@ -88,7 +96,9 @@ export type DetailController = {
   rescheduleReminder: (reminder: CrmReminder, dueAtLocal: string) => Promise<boolean | void>;
   saveCompanyRequisites: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
   archiveLocalClient: () => Promise<void>;
+  archivePrimaryClient: () => Promise<void>;
   restoreLocalClient: () => Promise<void>;
+  restorePrimaryClient: () => Promise<void>;
   removeAssignment: () => Promise<void>;
   confirmExistingLink: () => Promise<void>;
   resolveSyncConflict: () => Promise<void>;
@@ -122,7 +132,22 @@ async function rescheduleCrmReminder(
 }
 
 export function useCrmClientDetailController(options: CrmClientDetailControllerOptions): DetailController {
-  const { client, ownerId, activeTab, ownerName, isAdmin, canEditWorkspace, canManageReminders, canResolveSyncConflicts, onChanged } = options;
+  const {
+    client,
+    ownerId,
+    activeTab,
+    ownerName,
+    isAdmin,
+    canEditWorkspace: requestedCanEditWorkspace,
+    canManageReminders: requestedCanManageReminders,
+    canResolveSyncConflicts: requestedCanResolveSyncConflicts,
+    onChanged,
+    primaryArchiveMode = false,
+    onPrimaryArchiveChanged,
+  } = options;
+  const canEditWorkspace = requestedCanEditWorkspace && !primaryArchiveMode;
+  const canManageReminders = requestedCanManageReminders && !primaryArchiveMode;
+  const canResolveSyncConflicts = requestedCanResolveSyncConflicts && !primaryArchiveMode;
   const [currentClient, setCurrentClient] = useState(client);
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [events, setEvents] = useState<CrmEvent[]>([]);
@@ -131,7 +156,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
   const [syncConflicts, setSyncConflicts] = useState<CrmSyncConflict[]>([]);
   const [linkCandidates, setLinkCandidates] = useState<CrmLinkCandidate[]>([]);
   const [linkCandidate, setLinkCandidate] = useState<CrmLinkCandidate | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!primaryArchiveMode);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<SavingAction | null>(null);
@@ -141,6 +166,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
   const [reminderDueAt, setReminderDueAt] = useState("");
   const [archiveReason, setArchiveReason] = useState("");
   const [isArchiveConfirmationOpen, setIsArchiveConfirmationOpen] = useState(false);
+  const [isPrimaryRestoreConfirmationOpen, setIsPrimaryRestoreConfirmationOpen] = useState(false);
   const [isRemoveAssignmentConfirmationOpen, setIsRemoveAssignmentConfirmationOpen] = useState(false);
   const [syncConflictResolution, setSyncConflictResolution] = useState<SyncConflictResolution | null>(null);
   const isResolvingSyncConflict = useRef(false);
@@ -151,6 +177,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     setCurrentClient(client);
     setRequisitesForm(companyRequisitesForm(client));
     setIsArchiveConfirmationOpen(false);
+    setIsPrimaryRestoreConfirmationOpen(false);
     setIsRemoveAssignmentConfirmationOpen(false);
     setLinkCandidate(null);
     setSyncConflictResolution(null);
@@ -172,6 +199,11 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
 
   useEffect(() => {
     let active = true;
+    if (primaryArchiveMode) {
+      return () => {
+        active = false;
+      };
+    }
     // oxlint-disable-next-line react/react-compiler -- Loading must replace stale detail state before this request starts.
     setIsLoading(true);
     setError(null);
@@ -203,7 +235,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     return () => {
       active = false;
     };
-  }, [currentClient.id, ownerId]);
+  }, [currentClient.id, currentClient.linkedCounterpartyId, ownerId, primaryArchiveMode]);
 
   const saveContact = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -424,6 +456,36 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     }
   };
 
+  const archivePrimaryClient = async () => {
+    if (!isAdmin || activeTab !== "primary" || primaryArchiveMode || currentClient.linkedCounterpartyId === null) return;
+    setIsSaving("archive");
+    setError(null);
+    try {
+      await archivePrimaryCrmClient(currentClient.id, archiveReason.trim() || undefined);
+      setIsArchiveConfirmationOpen(false);
+      await onPrimaryArchiveChanged?.();
+    } catch (cause) {
+      setError(errorMessage(cause, "Не удалось архивировать клиента. Изменение отменено."));
+    } finally {
+      setIsSaving(null);
+    }
+  };
+
+  const restorePrimaryClient = async () => {
+    if (!isAdmin || activeTab !== "primary" || !primaryArchiveMode) return;
+    setIsSaving("restore");
+    setError(null);
+    try {
+      await restorePrimaryCrmClient(currentClient.id);
+      setIsPrimaryRestoreConfirmationOpen(false);
+      await onPrimaryArchiveChanged?.();
+    } catch (cause) {
+      setError(errorMessage(cause, "Не удалось восстановить клиента. Изменение отменено."));
+    } finally {
+      setIsSaving(null);
+    }
+  };
+
   const removeAssignment = async () => {
     setIsSaving("remove");
     setError(null);
@@ -487,9 +549,11 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     }
   };
 
-  const canManageLocalClient = isAdmin && currentClient.linkedCounterpartyId === null;
-  const canRemoveAssignment = isAdmin && currentClient.linkedCounterpartyId !== null && currentClient.assignment !== null && currentClient.assignment.archivedAt === null;
+  const canManageLocalClient = !primaryArchiveMode && isAdmin && currentClient.linkedCounterpartyId === null;
+  const canRemoveAssignment = !primaryArchiveMode && isAdmin && currentClient.linkedCounterpartyId !== null && currentClient.assignment !== null && currentClient.assignment.archivedAt === null;
   const canConfirmExistingLink = canEditWorkspace && currentClient.linkedCounterpartyId === null && currentClient.syncStatus !== "archived";
+  const canArchivePrimaryClient = isAdmin && activeTab === "primary" && !primaryArchiveMode && currentClient.linkedCounterpartyId !== null;
+  const canRestorePrimaryClient = isAdmin && activeTab === "primary" && primaryArchiveMode;
 
   return {
     currentClient,
@@ -519,12 +583,16 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     canManageLocalClient,
     canRemoveAssignment,
     canConfirmExistingLink,
+    canArchivePrimaryClient,
+    canRestorePrimaryClient,
     setRequisitesForm,
     setContactForm,
     setEventForm,
     setReminderDueAt,
     setArchiveReason,
     setIsArchiveConfirmationOpen,
+    isPrimaryRestoreConfirmationOpen,
+    setIsPrimaryRestoreConfirmationOpen,
     setIsRemoveAssignmentConfirmationOpen,
     setLinkCandidate,
     setSyncConflictResolution,
@@ -535,7 +603,9 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     rescheduleReminder,
     saveCompanyRequisites,
     archiveLocalClient,
+    archivePrimaryClient,
     restoreLocalClient,
+    restorePrimaryClient,
     removeAssignment,
     confirmExistingLink,
     resolveSyncConflict,

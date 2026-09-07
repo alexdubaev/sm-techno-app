@@ -13,6 +13,7 @@ import {
   fetchPrimaryCrmClients,
   fetchCrmReminders,
   fetchCrmTabs,
+  fetchPrimaryCrmArchive,
   fetchUsers,
   invalidateApiCache,
   moveCrmClient,
@@ -48,12 +49,13 @@ import type { MobileDetailSection } from "@/components/crm/mobile/types";
 import { useCrmClientDetailController, type CrmClientDetailControllerOptions } from "@/components/crm/use-crm-client-detail";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { readCrmWorkspaceCache, saveCrmWorkspaceCache, updateCrmWorkspaceCache } from "@/lib/crm-workspace-cache";
-import type { AppUser, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/types";
+import type { AppUser, CrmPrimaryArchiveClient, CrmPrimaryArchiveResponse, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/types";
 
 type ActiveTab = "primary" | number;
 type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "blocked_credentials" | "conflict" | "sync_error";
 type LocalImportLoad = "activation" | "import";
 type LocalImportFreshness = { ownerId: number; tab: ActiveTab; generation: number; pendingLoads: Set<LocalImportLoad> };
+type PrimaryArchiveMode = "active" | "archive";
 
 const PRIMARY_TAB: { id: ActiveTab; name: string; systemKind: "primary" } = {
   id: "primary",
@@ -113,6 +115,10 @@ export function CrmWorkspace() {
   const canEditWorkspace = ownerId === user.id;
   const [tabs, setTabs] = useState<CrmTab[]>(() => initialWorkspaceCache?.tabs ?? []);
   const [activeTab, setActiveTab] = useState<ActiveTab>("primary");
+  const [primaryArchiveMode, setPrimaryArchiveMode] = useState<PrimaryArchiveMode>("active");
+  const [primaryArchive, setPrimaryArchive] = useState<CrmPrimaryArchiveResponse | null>(null);
+  const [isPrimaryArchiveLoading, setIsPrimaryArchiveLoading] = useState(false);
+  const [primaryArchiveError, setPrimaryArchiveError] = useState<string | null>(null);
   const [clientView, setClientView] = useState<WorkspaceClientView>(() => ({
     ownerId: user.id,
     activeTab: "primary",
@@ -139,6 +145,7 @@ export function CrmWorkspace() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [selectedClient, setSelectedClient] = useState<CrmWorkspaceClient | null>(null);
+  const [selectedArchivedClient, setSelectedArchivedClient] = useState<CrmPrimaryArchiveClient | null>(null);
   const [mobileDetail, setMobileDetail] = useState<MobileDetailSelection | null>(null);
   const [reminderState, setReminderState] = useState<OwnerReminderState>(null);
   const [reminderError, setReminderError] = useState<{ ownerId: number; message: string } | null>(null);
@@ -160,6 +167,7 @@ export function CrmWorkspace() {
   const localImportFreshnessGeneration = useRef(0);
   const loadedSyncVersion = useRef<{ ownerId: number; tab: ActiveTab; lastSyncAt: number } | null>(null);
   const reminderRequestId = useRef(0);
+  const primaryArchiveRequestId = useRef(0);
   const currentView = useRef({ activeTab, ownerId });
   currentView.current = { activeTab, ownerId };
   const isCurrentWorkspaceView = useCallback((requestTab: ActiveTab, requestOwnerId: number) => currentView.current.activeTab === requestTab && currentView.current.ownerId === requestOwnerId, []);
@@ -191,6 +199,29 @@ export function CrmWorkspace() {
       .catch((cause) => { if (active) setError(errorMessage(cause, "Не удалось загрузить список сотрудников.")); });
     return () => { active = false; };
   }, [isAdmin, user]);
+
+  const loadPrimaryArchive = useCallback(async () => {
+    if (!isAdmin) return;
+    const id = ++primaryArchiveRequestId.current;
+    setIsPrimaryArchiveLoading(true);
+    setPrimaryArchiveError(null);
+    try {
+      const archive = await fetchPrimaryCrmArchive();
+      if (id === primaryArchiveRequestId.current) setPrimaryArchive(archive);
+    } catch (cause) {
+      if (id === primaryArchiveRequestId.current) {
+        setPrimaryArchiveError(errorMessage(cause, "Не удалось загрузить архив клиентов."));
+      }
+    } finally {
+      if (id === primaryArchiveRequestId.current) setIsPrimaryArchiveLoading(false);
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin && activeTab === "primary") {
+      void Promise.resolve().then(loadPrimaryArchive);
+    }
+  }, [activeTab, isAdmin, loadPrimaryArchive]);
 
   const refreshReminders = useCallback(async (ownerId: number) => {
     const id = ++reminderRequestId.current;
@@ -250,6 +281,39 @@ export function CrmWorkspace() {
     void loadLocalWorkspace(requestTab, { silent: true });
     void refreshReminders(requestOwnerId);
   }, [isCurrentWorkspaceView, loadLocalWorkspace, refreshReminders]);
+
+  const reloadPrimaryAfterArchiveMutation = useCallback(async () => {
+    const requestOwnerId = ownerId;
+    setIsPrimaryArchiveLoading(true);
+    setPrimaryArchiveError(null);
+    const [primaryResult, archiveResult] = await Promise.allSettled([
+      fetchPrimaryCrmClients(requestOwnerId, { bypassCache: true }),
+      fetchPrimaryCrmArchive(),
+    ]);
+
+    if (primaryResult.status === "fulfilled") {
+      const primary = primaryResult.value;
+      const cached = readCrmWorkspaceCache(requestOwnerId, "primary");
+      saveCrmWorkspaceCache(requestOwnerId, "primary", {
+        tabs: cached?.tabs ?? tabs,
+        clients: primary.items,
+        primaryOrderVersion: primary.orderVersion,
+      });
+      if (isCurrentWorkspaceView("primary", requestOwnerId)) {
+        setClientView({ ownerId: requestOwnerId, activeTab: "primary", clients: primary.items });
+        setPrimaryOrderVersion(primary.orderVersion);
+      }
+    }
+    if (archiveResult.status === "fulfilled") setPrimaryArchive(archiveResult.value);
+
+    if (primaryResult.status === "rejected" || archiveResult.status === "rejected") {
+      setPrimaryArchiveError("Изменение выполнено, но не удалось полностью обновить активный список и архив. Повторите загрузку.");
+    }
+    setSelectedClient(null);
+    setSelectedArchivedClient(null);
+    setMobileDetail(null);
+    setIsPrimaryArchiveLoading(false);
+  }, [isCurrentWorkspaceView, ownerId, tabs]);
 
   const syncCrmBeforeReload = useCallback(() => {
     if (!crmSyncInFlight.current) {
@@ -407,6 +471,8 @@ export function CrmWorkspace() {
   const chooseTab = (tab: ActiveTab) => {
     localImportFreshness.current = null;
     activateTab(tab);
+    setPrimaryArchiveMode("active");
+    setSelectedArchivedClient(null);
     setSearch("");
     setSyncFilter("all");
   };
@@ -414,6 +480,8 @@ export function CrmWorkspace() {
   const chooseMobileTab = (tab: ActiveTab) => {
     localImportFreshness.current = null;
     activateTab(tab);
+    setPrimaryArchiveMode("active");
+    setSelectedArchivedClient(null);
   };
 
   const chooseOwner = (nextOwnerId: number) => {
@@ -422,6 +490,8 @@ export function CrmWorkspace() {
     currentView.current = { activeTab: "primary", ownerId: nextOwnerId };
     requestId.current += 1;
     setSelectedClient(null); setIsAdding(false); setForm(emptyClientForm()); setTabEditor(null);
+    setSelectedArchivedClient(null);
+    setPrimaryArchiveMode("active");
     setMobileDetail(null);
     setTabPendingDelete(null);
     setIsSavingTab(false);
@@ -759,6 +829,9 @@ export function CrmWorkspace() {
     || owners.find((owner) => owner.id === ownerId)?.username
     || `сотрудник #${ownerId}`;
   const syncStatusText = formatCrmSyncStatusText(syncStatus, isRefreshing);
+  const isPrimaryArchiveView = isAdmin && activeTab === "primary" && primaryArchiveMode === "archive";
+  const primaryActiveCount = primaryArchive?.activeCount ?? clients.length;
+  const primaryArchivedCount = primaryArchive?.archivedCount ?? 0;
 
   return (
     <section className="mx-auto max-w-[1500px]">
@@ -789,6 +862,11 @@ export function CrmWorkspace() {
           reminderError={reminderError?.ownerId === ownerId ? reminderError.message : null}
           search={search}
           selectedClient={mobileDetail?.client ?? null}
+          selectedArchivedClient={selectedArchivedClient}
+          primaryArchive={primaryArchive}
+          primaryArchiveMode={primaryArchiveMode}
+          isPrimaryArchiveLoading={isPrimaryArchiveLoading}
+          primaryArchiveError={primaryArchiveError}
           syncFilter={syncFilter}
           syncStatusText={syncStatusText}
           tabs={tabs}
@@ -796,6 +874,7 @@ export function CrmWorkspace() {
           workspaceError={error}
           onAddClient={() => setIsAdding(true)}
           onChangeClientForm={setForm}
+          onCloseArchivedClient={() => setSelectedArchivedClient(null)}
           onCloseClient={closeMobileClient}
           onCloseNewClient={() => setIsAdding(false)}
           onColorClient={(client, color) => void setRowColor(client, color)}
@@ -806,11 +885,19 @@ export function CrmWorkspace() {
           onImportCompleted={importIntoWorkspace}
           onMoveClient={(client, tabId) => void moveClient(client, tabId)}
           onOpenClient={openMobileClient}
+          onOpenArchivedClient={setSelectedArchivedClient}
           onOpenReminder={(reminder) => void openReminder(reminder)}
           onOwnerChange={chooseOwner}
           onListControlsChange={(values) => { setSortMode(values.sortMode); setPhoneFilter(values.phoneFilter); setEmailFilter(values.emailFilter); }}
           onResetListControls={resetListControls}
           onRefresh={() => void syncAndReloadWorkspace(activeTab, { manual: true })}
+          onPrimaryArchiveChanged={reloadPrimaryAfterArchiveMutation}
+          onPrimaryArchiveModeChange={(mode) => {
+            setPrimaryArchiveMode(mode);
+            setSelectedClient(null);
+            setMobileDetail(null);
+            setSelectedArchivedClient(null);
+          }}
           onRenameTab={openTabEditor}
           onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients}
           onSearchChange={setSearch}
@@ -828,18 +915,18 @@ export function CrmWorkspace() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {isAdmin ? <label className="flex h-10 items-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold text-[var(--text-secondary)]"><span>CRM сотрудника</span><select value={ownerId} onChange={(event) => chooseOwner(Number(event.target.value))} className="min-w-28 bg-transparent text-[12px] font-semibold text-[var(--text-primary)] outline-none">{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.fullName || owner.username}</option>)}</select></label> : null}
-          <details className="relative">
+          {!isPrimaryArchiveView ? <details className="relative">
             <summary className="flex h-10 cursor-pointer list-none items-center rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">{isExporting ? "Выгружаем…" : "Выгрузить Excel"}</summary>
             <div className="absolute right-0 z-20 mt-1 grid w-52 gap-1 rounded-[12px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]">
               <button type="button" disabled={isExporting} onClick={() => void exportCrm("all")} className="rounded-[8px] px-2 py-2 text-left text-[11px] font-semibold hover:bg-[#F6F8FB] disabled:opacity-60">Все клиенты</button>
               <button type="button" disabled={isExporting || activeTab === "primary"} onClick={() => void exportCrm("tab")} className="rounded-[8px] px-2 py-2 text-left text-[11px] font-semibold hover:bg-[#F6F8FB] disabled:opacity-60">Текущая вкладка</button>
             </div>
-          </details>
-          {canEditWorkspace ? <button type="button" onClick={() => setIsImportDialogOpen(true)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">Загрузить клиентов</button> : null}
-          <button type="button" onClick={() => void syncAndReloadWorkspace(activeTab, { manual: true })} disabled={isRefreshing} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:opacity-60">
+          </details> : null}
+          {canEditWorkspace && !isPrimaryArchiveView ? <button type="button" onClick={() => setIsImportDialogOpen(true)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]">Загрузить клиентов</button> : null}
+          {!isPrimaryArchiveView ? <button type="button" onClick={() => void syncAndReloadWorkspace(activeTab, { manual: true })} disabled={isRefreshing} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD] disabled:opacity-60">
             {isRefreshing ? "Обновляем…" : "Обновить"}
-          </button>
-          {canEditWorkspace ? <button type="button" onClick={() => setIsAdding(true)} className="app-action-button h-10 rounded-[12px] px-4 text-[12px]">Добавить клиента</button> : null}
+          </button> : null}
+          {canEditWorkspace && !isPrimaryArchiveView ? <button type="button" onClick={() => setIsAdding(true)} className="app-action-button h-10 rounded-[12px] px-4 text-[12px]">Добавить клиента</button> : null}
         </div>
       </header>
 
@@ -850,8 +937,13 @@ export function CrmWorkspace() {
           {canEditWorkspace ? <button type="button" onClick={() => openTabEditor("new")} className="mb-1 h-8 shrink-0 rounded-[8px] border border-dashed border-[var(--border-color)] px-2.5 text-[11px] font-semibold text-[var(--brand-dark)] hover:bg-[#F6F8FB]">+ Новая вкладка</button> : null}
         </nav>
         <p className="px-2 pt-2 text-[10px] leading-4 text-[var(--text-secondary)]">«Клиенты 1С» и «В работе» — постоянные вкладки. Новые клиенты автоматически попадают в «В работе».</p>
+        {isAdmin && activeTab === "primary" ? <PrimaryArchiveSwitch activeCount={primaryActiveCount} archivedCount={primaryArchivedCount} mode={primaryArchiveMode} disabled={isPrimaryArchiveLoading} onChange={setPrimaryArchiveMode} /> : null}
         <div className="mt-2 min-w-0">
           <div className="rounded-[20px] border border-[var(--border-color)] bg-white/90 p-3 shadow-[0_10px_24px_rgba(7,22,46,0.04)] sm:p-4">
+            {isPrimaryArchiveView ? <>
+              {primaryArchiveError ? <Message tone="error">{primaryArchiveError}</Message> : null}
+              {isPrimaryArchiveLoading && !primaryArchive ? <LoadingRows /> : <PrimaryArchiveList clients={primaryArchive?.items ?? []} onOpenClient={setSelectedArchivedClient} />}
+            </> : <>
             <div className="flex flex-col gap-2 md:flex-row">
               <label className="min-w-0 flex-1">
                 <span className="sr-only">Поиск клиентов</span>
@@ -871,6 +963,7 @@ export function CrmWorkspace() {
             {error ? <><Message tone="error">{error}</Message>{error === CRM_SYNC_FAILURE_MESSAGE ? <button type="button" onClick={() => void syncAndReloadWorkspace(activeTab, { manual: true })} disabled={isRefreshing} className="mt-2 h-9 rounded-[9px] border border-[#F9D4D4] bg-white px-3 text-[11px] font-semibold text-[#B91C1C] disabled:opacity-60">Повторить</button> : null}</> : null}
             {notice ? <Message tone="success">{notice}</Message> : null}
             {isLoading ? <LoadingRows /> : clients.length > 0 && visibleClients.length === 0 ? <FilteredClientEmpty onReset={resetListControls} /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} canEditWorkspace={canEditWorkspace} manualOrderEnabled={isManualOrderAvailable} onColor={setRowColor} onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
+            </>}
           </div>
         </div>
       </div>
@@ -879,10 +972,31 @@ export function CrmWorkspace() {
       {canEditWorkspace && isImportDialogOpen ? <DesktopCrmImportDialog ownerId={ownerId} tabs={tabs} onClose={() => setIsImportDialogOpen(false)} onImported={importIntoWorkspace} /> : null}
       {tabEditor ? <form role="dialog" aria-modal="true" aria-labelledby="crm-tab-editor-title" onSubmit={saveTab} className="fixed inset-0 z-50 flex items-center justify-center bg-[#07162e]/35 p-4"><div className="w-full max-w-sm rounded-[18px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"><h2 id="crm-tab-editor-title" className="text-[16px] font-bold">{tabEditor === "new" ? "Новая вкладка" : "Переименовать вкладку"}</h2>{error ? <div role="alert" aria-live="assertive" className="mt-3 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#B91C1C]">{error}</div> : null}<label className="mt-4 grid gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Название</span><input autoFocus value={tabName} onChange={(event) => setTabName(event.target.value)} className="h-10 rounded-[10px] border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label><div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTabEditor(null)} className="h-9 rounded-[9px] px-3 text-[11px] font-semibold text-[var(--text-secondary)]">Отмена</button><button type="submit" disabled={isSavingTab} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSavingTab ? "Сохраняем…" : "Сохранить"}</button></div></div></form> : null}
       <AlertDialog open={tabPendingDelete !== null} onOpenChange={(open) => { if (!open) setTabPendingDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Удалить вкладку</AlertDialogTitle><AlertDialogDescription>Карточки и история из вкладки «{tabPendingDelete?.name}» сохранятся. Выберите личную вкладку для переноса; по умолчанию выбрана «В работе».</AlertDialogDescription></AlertDialogHeader><label className="grid gap-1 text-[12px] font-medium"><span>Перенести карточки в</span><select value={replacementTabId ?? ""} onChange={(event) => setReplacementTabId(Number(event.target.value))} className="h-10 rounded-[9px] border border-[var(--border-color)] bg-white px-2">{tabs.filter((tab) => tab.id !== tabPendingDelete?.id).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select></label><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeTab()} disabled={isSavingTab || replacementTabId === null}>{isSavingTab ? "Удаляем…" : "Удалить вкладку"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
-      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} activeTab={activeTab} ownerName={ownerName} isAdmin={isAdmin} canEditWorkspace={canEditWorkspace} canManageReminders={canEditWorkspace} canResolveSyncConflicts={isAdmin || canEditWorkspace} onChanged={refreshAfterDetailChange} onClose={() => setSelectedClient(null)} /> : null}
+      {selectedClient ? <ClientDetailDialog client={selectedClient} ownerId={ownerId} activeTab={activeTab} ownerName={ownerName} isAdmin={isAdmin} canEditWorkspace={canEditWorkspace} canManageReminders={canEditWorkspace} canResolveSyncConflicts={isAdmin || canEditWorkspace} onChanged={refreshAfterDetailChange} onPrimaryArchiveChanged={reloadPrimaryAfterArchiveMutation} onClose={() => setSelectedClient(null)} /> : null}
+      {selectedArchivedClient ? <ClientDetailDialog client={selectedArchivedClient} ownerId={ownerId} activeTab="primary" ownerName={ownerName} isAdmin={isAdmin} canEditWorkspace={false} canManageReminders={false} canResolveSyncConflicts={false} primaryArchiveMode onChanged={() => undefined} onPrimaryArchiveChanged={reloadPrimaryAfterArchiveMutation} onClose={() => setSelectedArchivedClient(null)} /> : null}
       </div>
     </section>
   );
+}
+
+function PrimaryArchiveSwitch({ activeCount, archivedCount, mode, disabled, onChange }: { activeCount: number; archivedCount: number; mode: PrimaryArchiveMode; disabled: boolean; onChange: (mode: PrimaryArchiveMode) => void }) {
+  return <fieldset className="mx-2 mt-3 inline-flex rounded-[12px] border border-[var(--border-color)] bg-[#EEF2F7] p-1"><legend className="sr-only">Режим списка Клиенты 1С</legend>
+    <button type="button" aria-pressed={mode === "active"} disabled={disabled} onClick={() => onChange("active")} className={`h-9 rounded-[9px] px-3 text-[11px] font-bold transition-colors disabled:opacity-60 ${mode === "active" ? "bg-white text-[var(--text-primary)] shadow-[0_2px_8px_rgba(7,22,46,0.08)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}>Активные {activeCount}</button>
+    <button type="button" aria-pressed={mode === "archive"} disabled={disabled} onClick={() => onChange("archive")} className={`h-9 rounded-[9px] px-3 text-[11px] font-bold transition-colors disabled:opacity-60 ${mode === "archive" ? "bg-white text-[var(--text-primary)] shadow-[0_2px_8px_rgba(7,22,46,0.08)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"}`}>Архив {archivedCount}</button>
+  </fieldset>;
+}
+
+function PrimaryArchiveList({ clients, onOpenClient }: { clients: CrmPrimaryArchiveClient[]; onOpenClient: (client: CrmPrimaryArchiveClient) => void }) {
+  if (!clients.length) return <div className="py-12 text-center"><p className="text-[14px] font-semibold">Архив пуст</p><p className="mt-1 text-[12px] text-[var(--text-secondary)]">Архивированные клиенты появятся здесь.</p></div>;
+  return <>
+    <div className="hidden overflow-x-auto lg:block">
+      <table className="min-w-[1120px] table-fixed border-separate border-spacing-0">
+        <thead><tr className="bg-[#FAFBFD] text-left text-[10px] text-[var(--text-secondary)]"><th className="w-[22%] border-b border-[var(--border-color)] px-3 py-2 font-semibold">Компания</th><th className="w-[11%] border-b border-[var(--border-color)] px-3 py-2 font-semibold">ИНН</th><th className="w-[12%] border-b border-[var(--border-color)] px-3 py-2 font-semibold">Город</th><th className="w-[14%] border-b border-[var(--border-color)] px-3 py-2 font-semibold">Дата архивации</th><th className="w-[15%] border-b border-[var(--border-color)] px-3 py-2 font-semibold">Архивировал</th><th className="w-[18%] border-b border-[var(--border-color)] px-3 py-2 font-semibold">Причина</th><th className="w-[12%] border-b border-[var(--border-color)] px-3 py-2 font-semibold">Действия</th></tr></thead>
+        <tbody>{clients.map((client) => <tr key={client.id} className="text-[10px] text-[var(--text-primary)]"><td className="border-t border-[var(--border-color)] px-3 py-2 font-semibold [overflow-wrap:anywhere]">{client.documentName || client.fullName || client.name}</td><td className="border-t border-[var(--border-color)] px-3 py-2 tabular-nums">{client.inn || "—"}</td><td className="border-t border-[var(--border-color)] px-3 py-2">{client.city || "—"}</td><td className="border-t border-[var(--border-color)] px-3 py-2"><time dateTime={client.archivedAt}>{formatDate(client.archivedAt)}</time></td><td className="border-t border-[var(--border-color)] px-3 py-2 [overflow-wrap:anywhere]">{client.archivedByFullName || "Неизвестно"}</td><td className="border-t border-[var(--border-color)] px-3 py-2 [overflow-wrap:anywhere]">{client.archiveReason || "Без причины"}</td><td className="border-t border-[var(--border-color)] px-3 py-2"><div className="flex flex-wrap gap-1"><button type="button" aria-label="Открыть" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 font-semibold hover:bg-[#F6F8FB]">Открыть</button><button type="button" aria-label="Восстановить" onClick={() => onOpenClient(client)} className="h-8 rounded-[8px] bg-[var(--brand-yellow)] px-2 font-semibold text-[var(--brand-dark)]">Восстановить</button></div></td></tr>)}</tbody>
+      </table>
+    </div>
+    <div className="grid gap-3 lg:hidden">{clients.map((client) => <article key={client.id} className="rounded-[14px] border border-[var(--border-color)] bg-white p-3"><h2 className="text-[13px] font-bold [overflow-wrap:anywhere]">{client.documentName || client.fullName || client.name}</h2><p className="mt-1 text-[11px] text-[var(--text-secondary)]">{client.city || "Город не указан"} · ИНН {client.inn || "не указан"}</p><dl className="mt-3 grid gap-2 text-[11px]"><div><dt className="font-semibold text-[var(--text-secondary)]">В архиве с</dt><dd>{formatDate(client.archivedAt)}</dd></div><div><dt className="font-semibold text-[var(--text-secondary)]">Архивировал</dt><dd>{client.archivedByFullName || "Неизвестно"}</dd></div><div><dt className="font-semibold text-[var(--text-secondary)]">Причина</dt><dd className="[overflow-wrap:anywhere]">{client.archiveReason || "Без причины"}</dd></div></dl><div className="mt-3 flex gap-2"><button type="button" onClick={() => onOpenClient(client)} className="h-9 rounded-[9px] border border-[var(--border-color)] px-3 text-[11px] font-semibold">Открыть</button><button type="button" onClick={() => onOpenClient(client)} className="h-9 rounded-[9px] bg-[var(--brand-yellow)] px-3 text-[11px] font-semibold text-[var(--brand-dark)]">Восстановить</button></div></article>)}</div>
+  </>;
 }
 
 function TabButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
@@ -993,12 +1107,16 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
     canManageLocalClient,
     canRemoveAssignment,
     canConfirmExistingLink,
+    canArchivePrimaryClient,
+    canRestorePrimaryClient,
     setRequisitesForm,
     setContactForm,
     setEventForm,
     setReminderDueAt,
     setArchiveReason,
     setIsArchiveConfirmationOpen,
+    isPrimaryRestoreConfirmationOpen,
+    setIsPrimaryRestoreConfirmationOpen,
     setIsRemoveAssignmentConfirmationOpen,
     setLinkCandidate,
     setSyncConflictResolution,
@@ -1009,11 +1127,24 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
     rescheduleReminder,
     saveCompanyRequisites,
     archiveLocalClient,
+    archivePrimaryClient,
     restoreLocalClient,
+    restorePrimaryClient,
     removeAssignment,
     confirmExistingLink,
     resolveSyncConflict,
   } = useCrmClientDetailController(controllerOptions);
+
+  if (controllerOptions.primaryArchiveMode) {
+    const archivedClient = controllerOptions.client as CrmPrimaryArchiveClient;
+    return <dialog open aria-labelledby="crm-client-detail-title" className="fixed inset-0 z-50 m-0 h-full max-h-none w-full max-w-none overflow-y-auto border-0 bg-[#07162e]/35 p-2 sm:p-5">
+      <div className="mx-auto my-3 w-full max-w-3xl rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5">
+        <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">Архивная карточка · Только просмотр</p><h2 id="crm-client-detail-title" className="mt-1 text-[20px] font-bold tracking-[-0.03em]">{currentClient.documentName || currentClient.fullName || currentClient.name}</h2><p className="mt-1 text-[12px] text-[var(--text-secondary)]">{currentClient.city || "Город не указан"} · ИНН {currentClient.inn || "не указан"}</p></div><button type="button" onClick={onClose} className="h-9 rounded-[9px] px-3 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div>
+        {error ? <Message tone="error">{error}</Message> : null}
+        <div className="mt-5 grid gap-4 md:grid-cols-2"><DetailSection title="Реквизиты компании"><ReadonlyCompanyRequisites client={currentClient} />{currentClient.notes ? <div className="text-[11px] text-[var(--text-secondary)]"><p className="font-semibold">Комментарий</p><p className="mt-1 [overflow-wrap:anywhere]">{currentClient.notes}</p></div> : null}</DetailSection><DetailSection title="Архив"><dl className="grid gap-2 text-[11px]"><div><dt className="font-semibold text-[var(--text-secondary)]">В архиве с</dt><dd><time dateTime={archivedClient.archivedAt}>{formatDate(archivedClient.archivedAt)}</time></dd></div><div><dt className="font-semibold text-[var(--text-secondary)]">Архивировал</dt><dd>{archivedClient.archivedByFullName || "Неизвестно"}</dd></div><div><dt className="font-semibold text-[var(--text-secondary)]">Причина</dt><dd className="[overflow-wrap:anywhere]">{archivedClient.archiveReason || "Без причины"}</dd></div></dl>{canRestorePrimaryClient ? <><button type="button" onClick={() => setIsPrimaryRestoreConfirmationOpen(true)} disabled={isSaving !== null} className="app-action-button h-10 rounded-[10px] px-4 text-[12px]">{isSaving === "restore" ? "Восстанавливаем…" : "Восстановить"}</button>{isPrimaryRestoreConfirmationOpen ? <div role="alert" className="grid gap-3 rounded-[12px] border border-[#F0D98A] bg-[#FFF9E8] p-3 text-[12px]"><p>Восстановить клиента в активной CRM для всех пользователей?</p><div className="flex justify-end gap-2"><button type="button" onClick={() => setIsPrimaryRestoreConfirmationOpen(false)} className="h-9 rounded-[9px] px-3 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void restorePrimaryClient()} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "restore" ? "Восстанавливаем…" : "Подтвердить восстановление"}</button></div></div> : null}</> : null}</DetailSection></div>
+      </div>
+    </dialog>;
+  }
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="crm-client-detail-title" className="fixed inset-0 z-50 overflow-y-auto bg-[#07162e]/35 p-2 sm:p-5">
@@ -1080,6 +1211,7 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
               <DetailEmpty items={syncConflicts} empty="Открытых конфликтов синхронизации нет." render={(conflict) => <div key={conflict.id} className="rounded-[9px] bg-[#FFF9E8] px-2.5 py-2 text-[11px]"><div className="font-semibold">{syncConflictFieldLabel(conflict.fieldName)}</div><div className="mt-1 grid gap-1 text-[var(--text-secondary)]"><span><strong className="text-[var(--text-primary)]">CRM:</strong> {formatSyncConflictValue(conflict.localValue)}</span><span><strong className="text-[var(--text-primary)]">1С:</strong> {formatSyncConflictValue(conflict.remoteValue)}</span></div>{canResolveSyncConflicts ? <div className="mt-2 flex flex-wrap gap-2"><button type="button" onClick={() => setSyncConflictResolution({ conflict, choice: "local" })} disabled={isSaving !== null} className="h-8 rounded-[8px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">Оставить локальное</button><button type="button" onClick={() => setSyncConflictResolution({ conflict, choice: "remote" })} disabled={isSaving !== null} className="app-action-button h-8 rounded-[8px] px-2 text-[10px]">Принять из 1С</button></div> : null}</div>} />
               <AlertDialog open={syncConflictResolution !== null} onOpenChange={(open) => { if (!open) setSyncConflictResolution(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Подтверждение разрешения конфликта</AlertDialogTitle><AlertDialogDescription>{syncConflictResolution ? <>Разрешить только этот конфликт клиента «{currentClient.documentName || currentClient.name}» по полю «{syncConflictFieldLabel(syncConflictResolution.conflict.fieldName)}», выбрав значение «{formatSyncConflictValue(syncConflictResolution.choice === "local" ? syncConflictResolution.conflict.localValue : syncConflictResolution.conflict.remoteValue)}»? Выбор необратимо разрешит этот открытый конфликт для текущей карточки.</> : null}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void resolveSyncConflict()} disabled={isSaving !== null}>{isSaving === "resolve" ? "Разрешаем…" : "Подтвердить"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
             </DetailSection>
+            {canArchivePrimaryClient ? <DetailSection title="Администрирование"><button type="button" onClick={() => setIsArchiveConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[#F9D4D4] bg-[#FEF2F2] px-3 text-[11px] font-semibold text-[#B91C1C]">Архивировать</button>{isArchiveConfirmationOpen ? <div role="alertdialog" aria-label="Подтверждение архивации клиента 1С" className="grid gap-3 rounded-[12px] border border-[#F9D4D4] bg-[#FEF2F2] p-3 text-[11px]"><p>Клиент будет скрыт от всех пользователей CRM. Архивация не влияет на данные в 1С.</p><label className="grid gap-1.5"><span className="font-semibold">Причина (необязательно)</span><textarea value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} className="min-h-20 rounded-[9px] border border-[#F4B9B9] bg-white px-2 py-2 outline-none focus:border-[#B91C1C]" /></label><div className="flex justify-end gap-2"><button type="button" onClick={() => setIsArchiveConfirmationOpen(false)} className="h-9 rounded-[9px] px-3 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void archivePrimaryClient()} disabled={isSaving !== null} className="h-9 rounded-[9px] bg-[#B91C1C] px-3 font-semibold text-white">{isSaving === "archive" ? "Архивируем…" : "Подтвердить архивирование"}</button></div></div> : null}</DetailSection> : null}
             {canManageLocalClient ? <DetailSection title="Административные действия"><p className="text-[11px] text-[var(--text-secondary)]">CRM сотрудника: {ownerName}</p>{currentClient.syncStatus === "archived" ? <button type="button" onClick={() => void restoreLocalClient()} disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "restore" ? "Восстанавливаем…" : "Восстановить локального клиента"}</button> : <><button type="button" onClick={() => setIsArchiveConfirmationOpen(true)} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-transparent bg-[#B91C1C] px-3 text-[11px] font-semibold text-white">Архивировать локального клиента</button>{isArchiveConfirmationOpen ? <div role="alertdialog" aria-label="Подтверждение архивации" className="grid gap-2 rounded-[10px] border border-[#F9D4D4] bg-[#FEF2F2] p-3 text-[11px]"><p>Подтвердите архивирование «{currentClient.documentName || currentClient.name}» в CRM сотрудника «{ownerName}». Активные напоминания будут отменены, история сохранится.</p><label className="grid gap-1"><span className="font-semibold">Причина</span><textarea value={archiveReason} onChange={(event) => setArchiveReason(event.target.value)} className="min-h-16 rounded-[8px] border border-[#F4B9B9] bg-white px-2 py-1.5" /></label><div className="flex gap-2"><button type="button" onClick={() => setIsArchiveConfirmationOpen(false)} className="h-8 rounded-[8px] px-2 font-semibold text-[var(--text-secondary)]">Отмена</button><button type="button" onClick={() => void archiveLocalClient()} disabled={isSaving !== null} className="h-8 rounded-[8px] bg-[#B91C1C] px-3 font-semibold text-white">{isSaving === "archive" ? "Архивируем…" : "Подтвердить архивирование"}</button></div></div> : null}</>}</DetailSection> : null}
             {canRemoveAssignment ? <DetailSection title="Административные действия"><p className="text-[11px] text-[var(--text-secondary)]">CRM сотрудника: {ownerName}</p><button type="button" onClick={() => setIsRemoveAssignmentConfirmationOpen(true)} disabled={isSaving !== null} className="app-action-button h-9 whitespace-nowrap rounded-[9px] px-3 text-[11px]">Вернуть в Клиенты 1С</button><AlertDialog open={isRemoveAssignmentConfirmationOpen} onOpenChange={setIsRemoveAssignmentConfirmationOpen}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Подтверждение удаления из личной вкладки</AlertDialogTitle><AlertDialogDescription>Оставить «{currentClient.documentName || currentClient.name}» только в основной вкладке «Клиенты 1С» CRM сотрудника «{ownerName}»? Карточка останется в основной вкладке «Клиенты 1С», а история и напоминания сохранятся.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void removeAssignment()} disabled={isSaving !== null}>{isSaving === "remove" ? "Удаляем…" : "Подтвердить"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></DetailSection> : null}
             <DetailSection title="Журнал действий"><DetailEmpty items={audit} empty="Административных действий пока нет." render={(item) => <div key={item.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{auditActionLabel(item.action)} · {formatDate(item.createdAt)}</div><div className="mt-0.5 text-[var(--text-secondary)]">{item.reason || "Без комментария"}</div></div>} /></DetailSection>

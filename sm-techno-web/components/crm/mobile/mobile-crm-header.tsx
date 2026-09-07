@@ -26,6 +26,7 @@ type ActiveTab = 'primary' | number;
 
 type MobileCrmHeaderProps = {
   activeTab: ActiveTab;
+  archiveMode: boolean;
   canEditWorkspace: boolean;
   isAdmin: boolean;
   isExporting: boolean;
@@ -55,6 +56,7 @@ type MobileCrmHeaderProps = {
 
 export function MobileCrmHeader({
   activeTab,
+  archiveMode,
   canEditWorkspace,
   isAdmin,
   isExporting,
@@ -89,7 +91,11 @@ export function MobileCrmHeader({
             Рабочее пространство
           </p>
           <h1 className="truncate text-[20px] font-bold tracking-[-0.035em] text-[var(--text-primary)]">
-            {canEditWorkspace ? 'CRM' : `CRM: ${ownerName}`}
+            {archiveMode
+              ? 'CRM · Архив'
+              : canEditWorkspace
+                ? 'CRM'
+                : `CRM: ${ownerName}`}
           </h1>
           {syncStatusText ? (
             <p className="truncate text-[10px] text-[var(--text-secondary)]">
@@ -108,20 +114,24 @@ export function MobileCrmHeader({
           </button>
         ) : (
           <>
-            <button
-              type="button"
-              onClick={onRefresh}
-              disabled={isRefreshing}
-              aria-label={
-                isRefreshing ? 'CRM обновляется из 1С' : 'Обновить CRM из 1С'
-              }
-              className="flex size-11 items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] outline-offset-2 transition-colors hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:opacity-55"
-            >
-              <RefreshCw
-                aria-hidden="true"
-                className={`size-5 ${isRefreshing ? 'animate-spin' : ''}`}
-              />
-            </button>
+            {!archiveMode ? (
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={isRefreshing}
+                aria-label={
+                  isRefreshing
+                    ? 'CRM обновляется из 1С'
+                    : 'Обновить CRM из 1С'
+                }
+                className="flex size-11 items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] outline-offset-2 transition-colors hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:opacity-55"
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`size-5 ${isRefreshing ? 'animate-spin' : ''}`}
+                />
+              </button>
+            ) : null}
             {canEditWorkspace ? (
               <button
                 type="button"
@@ -159,7 +169,8 @@ export function MobileCrmHeader({
                   </label>
                 ) : null}
 
-                <div className="mt-3 grid gap-3 border-t border-[var(--border-color)] pt-3">
+                {!archiveMode ? (
+                  <div className="mt-3 grid gap-3 border-t border-[var(--border-color)] pt-3">
                   <label className="grid gap-1.5 text-[11px] font-bold text-[var(--text-secondary)]">
                     <span>Синхронизация</span>
                     <select
@@ -202,9 +213,11 @@ export function MobileCrmHeader({
                       ) : null}
                     </div>
                   ) : null}
-                </div>
+                  </div>
+                ) : null}
 
-                <div className="mt-3 border-t border-[var(--border-color)] pt-3">
+                {!archiveMode ? (
+                  <div className="mt-3 border-t border-[var(--border-color)] pt-3">
                   <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
                     Выгрузка Excel
                   </p>
@@ -228,7 +241,8 @@ export function MobileCrmHeader({
                       Эта вкладка
                     </button>
                   </div>
-                </div>
+                  </div>
+                ) : null}
 
                 {canEditWorkspace ? (
                   <div className="mt-3 border-t border-[var(--border-color)] pt-3">
@@ -298,18 +312,31 @@ export function MobileCrmHeader({
           </>
         )}
       </div>
-      <button
-        type="button"
-        onClick={onOpenFilters}
-        disabled={reorderMode}
-        aria-label={activeControlCount ? `Фильтры и сортировка: ${activeControlCount}` : 'Фильтры и сортировка'}
-        aria-haspopup="dialog"
-        className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[var(--border-color)] bg-[#F7F9FC] px-3 text-[12px] font-semibold outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:opacity-50"
-      >
-        <SlidersHorizontal aria-hidden="true" className="size-4" />
-        Фильтры и сортировка
-        {activeControlCount > 0 ? <span aria-hidden="true" className="flex size-6 items-center justify-center rounded-full bg-[var(--brand-yellow)] text-[var(--brand-dark)]">{activeControlCount}</span> : null}
-      </button>
+      {!archiveMode ? (
+        <button
+          type="button"
+          onClick={onOpenFilters}
+          disabled={reorderMode}
+          aria-label={
+            activeControlCount
+              ? `Фильтры и сортировка: ${activeControlCount}`
+              : 'Фильтры и сортировка'
+          }
+          aria-haspopup="dialog"
+          className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[var(--border-color)] bg-[#F7F9FC] px-3 text-[12px] font-semibold outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:opacity-50"
+        >
+          <SlidersHorizontal aria-hidden="true" className="size-4" />
+          Фильтры и сортировка
+          {activeControlCount > 0 ? (
+            <span
+              aria-hidden="true"
+              className="flex size-6 items-center justify-center rounded-full bg-[var(--brand-yellow)] text-[var(--brand-dark)]"
+            >
+              {activeControlCount}
+            </span>
+          ) : null}
+        </button>
+      ) : null}
     </header>
   );
 }

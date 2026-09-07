@@ -37,7 +37,11 @@ import {
 import { getSafeMailtoHref } from '@/components/crm/mobile/mobile-crm-utils';
 import { MessengerLinks } from '@/components/crm/messenger-links';
 import type { MobileDetailSection } from '@/components/crm/mobile/types';
-import type { CrmReminder, CrmWorkspaceClient } from '@/lib/types';
+import type {
+  CrmPrimaryArchiveClient,
+  CrmReminder,
+  CrmWorkspaceClient,
+} from '@/lib/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
@@ -81,6 +85,204 @@ export function MobileClientDetail(props: MobileClientDetailProps) {
     />
   ) : null;
 }
+
+export function MobilePrimaryArchiveDetail({
+  client,
+  ownerId,
+  ownerName,
+  isAdmin,
+  onClose,
+  onPrimaryArchiveChanged,
+}: {
+  client: CrmPrimaryArchiveClient;
+  ownerId: number;
+  ownerName: string;
+  isAdmin: boolean;
+  onClose: () => void;
+  onPrimaryArchiveChanged: () => void | Promise<void>;
+}) {
+  const isMobile = useIsMobile();
+  const controller = useCrmClientDetailController({
+    client,
+    ownerId,
+    activeTab: 'primary',
+    ownerName,
+    isAdmin,
+    canEditWorkspace: false,
+    canManageReminders: false,
+    canResolveSyncConflicts: false,
+    primaryArchiveMode: true,
+    onChanged: ignoreDetailChange,
+    onPrimaryArchiveChanged,
+  });
+  if (!isMobile) return null;
+
+  const title = client.documentName || client.fullName || client.name;
+  const busy = controller.isSaving !== null;
+  return (
+    <Sheet
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <SheetContent
+        side="bottom"
+        showCloseButton={false}
+        data-mobile-primary-archive-detail=""
+        className="data-[side=bottom]:h-[100dvh] max-h-[100dvh] gap-0 overflow-hidden border-0 bg-[#F7F9FC] pt-[env(safe-area-inset-top)] text-[var(--text-primary)]"
+      >
+        <header className="shrink-0 border-b border-[var(--border-color)] bg-white px-3 pb-3">
+          <div className="flex items-start gap-2 py-2">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Назад к архиву"
+              className={`${mobileButton} flex size-11 shrink-0 items-center justify-center px-0`}
+            >
+              <ArrowLeft aria-hidden="true" className="size-5" />
+            </button>
+            <SheetTitle
+              title={title}
+              className="line-clamp-2 min-w-0 flex-1 break-words py-2 text-base font-bold leading-6 text-[var(--text-primary)] [overflow-wrap:anywhere]"
+            >
+              {title}
+            </SheetTitle>
+          </div>
+          <SheetDescription className="break-words text-xs text-[var(--text-secondary)]">
+            {client.city || 'Город не указан'} · ИНН {client.inn || 'не указан'}
+          </SheetDescription>
+          <p className="mt-2 inline-flex rounded-md bg-[#EEF2F7] px-2 py-1 text-xs font-semibold text-[#334155]">
+            Архивная карточка · Только просмотр
+          </p>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+          {controller.error ? (
+            <p
+              role="alert"
+              className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-800"
+            >
+              {controller.error}
+            </p>
+          ) : null}
+          <section className="rounded-2xl border border-[var(--border-color)] bg-white p-4">
+            <h2 className="text-base font-bold">Данные клиента</h2>
+            <dl className="mt-3 grid gap-3 text-sm">
+              <ArchiveDetailRow
+                label="Полное наименование"
+                value={client.fullName || 'Не указано'}
+              />
+              <ArchiveDetailRow
+                label="ИНН / КПП"
+                value={[client.inn, client.kpp].filter(Boolean).join(' / ') || 'Не указано'}
+              />
+              <ArchiveDetailRow
+                label="Город"
+                value={client.city || 'Не указано'}
+              />
+              <ArchiveDetailRow
+                label="Телефон / почта"
+                value={[client.phone, client.email].filter(Boolean).join(' / ') || 'Не указано'}
+              />
+              {client.notes ? (
+                <ArchiveDetailRow label="Комментарий" value={client.notes} />
+              ) : null}
+            </dl>
+          </section>
+
+          <section className="mt-3 rounded-2xl border border-[var(--border-color)] bg-white p-4">
+            <h2 className="text-base font-bold">Архив</h2>
+            <dl className="mt-3 grid gap-3 text-sm">
+              <ArchiveDetailRow
+                label="В архиве с"
+                value={formatArchiveDetailDate(client.archivedAt)}
+              />
+              <ArchiveDetailRow
+                label="Архивировал"
+                value={client.archivedByFullName || 'Неизвестно'}
+              />
+              <ArchiveDetailRow
+                label="Причина"
+                value={client.archiveReason || 'Без причины'}
+              />
+            </dl>
+            {controller.canRestorePrimaryClient ? (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    controller.setIsPrimaryRestoreConfirmationOpen(true)
+                  }
+                  className={`${mobileButton} mt-4 w-full border-transparent bg-[var(--brand-yellow)] text-[var(--brand-dark)]`}
+                >
+                  {controller.isSaving === 'restore'
+                    ? 'Восстанавливаем…'
+                    : 'Восстановить'}
+                </button>
+                {controller.isPrimaryRestoreConfirmationOpen ? (
+                  <div
+                    role="alertdialog"
+                    aria-label="Подтверждение восстановления"
+                    className="mt-3 rounded-xl border border-[#F0D98A] bg-[#FFF9E8] p-3"
+                  >
+                    <p className="text-sm">
+                      Восстановить клиента в активной CRM для всех
+                      пользователей?
+                    </p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          controller.setIsPrimaryRestoreConfirmationOpen(false)
+                        }
+                        className={mobileButton}
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void controller.restorePrimaryClient()}
+                        className={`${mobileButton} border-transparent bg-[var(--brand-yellow)] text-[var(--brand-dark)]`}
+                      >
+                        {controller.isSaving === 'restore'
+                          ? 'Восстанавливаем…'
+                          : 'Подтвердить восстановление'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </section>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function ArchiveDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="font-semibold text-[var(--text-secondary)]">{label}</dt>
+      <dd className="mt-0.5 break-words [overflow-wrap:anywhere]">{value}</dd>
+    </div>
+  );
+}
+
+function formatArchiveDetailDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.valueOf())
+    ? value
+    : date.toLocaleString('ru-RU', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+}
+
+function ignoreDetailChange() {}
 
 function MobileClientDetailContent({
   initialSection = 'overview',

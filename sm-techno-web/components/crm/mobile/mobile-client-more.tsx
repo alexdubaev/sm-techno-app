@@ -50,6 +50,7 @@ export function MobileClientMore({
     currentClient,
     audit,
     archiveReason,
+    canArchivePrimaryClient,
     canConfirmExistingLink,
     canEditWorkspace,
     canManageLocalClient,
@@ -70,6 +71,7 @@ export function MobileClientMore({
     syncConflictResolution,
     syncConflicts,
     archiveLocalClient,
+    archivePrimaryClient,
     confirmExistingLink,
     removeAssignment,
     resolveSyncConflict,
@@ -144,6 +146,62 @@ export function MobileClientMore({
           </>
         ) : null}
       </section>
+
+      {canArchivePrimaryClient ? (
+        <section className={mobilePanel}>
+          <h2 className="text-base font-bold">Администрирование</h2>
+          <p className="mt-2 text-sm text-[var(--text-secondary)]">
+            Управление видимостью клиента в основной CRM.
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setIsArchiveConfirmationOpen(true)}
+            className={`${mobileButton} mt-3 w-full border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]`}
+          >
+            Архивировать
+          </button>
+          {isArchiveConfirmationOpen ? (
+            <div
+              role="alertdialog"
+              aria-label="Подтверждение архивации клиента 1С"
+              className="mt-3 rounded-xl border border-[#F9D4D4] bg-[#FEF2F2] p-3"
+            >
+              <p className="text-sm">
+                Клиент будет скрыт от всех пользователей CRM. Архивация не
+                влияет на данные в 1С.
+              </p>
+              <label className="mt-3 grid gap-1.5 text-sm font-medium">
+                <span>Причина (необязательно)</span>
+                <textarea
+                  value={archiveReason}
+                  onChange={(event) => setArchiveReason(event.target.value)}
+                  className="min-h-24 rounded-xl border border-[#F4B9B9] bg-white p-3 text-base outline-none focus:border-[#B91C1C] focus:ring-2 focus:ring-[#F9D4D4]"
+                />
+              </label>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsArchiveConfirmationOpen(false)}
+                  className={mobileButton}
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void archivePrimaryClient()}
+                  className={`${mobileButton} border-transparent bg-[#B91C1C] text-white`}
+                >
+                  {isSaving === 'archive'
+                    ? 'Архивируем…'
+                    : 'Подтвердить архивирование'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {canConfirmExistingLink ? (
         <section className={mobilePanel}>
