@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS crm_clients (
     signer_basis TEXT,
     notes TEXT,
     crm_owner_user_id INTEGER,
+    crm_archived_at TEXT,
+    crm_archived_by_user_id INTEGER,
+    crm_archive_reason TEXT,
     linked_counterparty_id INTEGER,
     sync_status TEXT NOT NULL DEFAULT 'local',
     sync_error TEXT,
@@ -497,6 +500,9 @@ class WebDatabase(Database):
             "sync_error": "ALTER TABLE crm_clients ADD COLUMN sync_error TEXT",
             "onec_synced_at": "ALTER TABLE crm_clients ADD COLUMN onec_synced_at TEXT",
             "crm_owner_user_id": "ALTER TABLE crm_clients ADD COLUMN crm_owner_user_id INTEGER",
+            "crm_archived_at": "ALTER TABLE crm_clients ADD COLUMN crm_archived_at TEXT",
+            "crm_archived_by_user_id": "ALTER TABLE crm_clients ADD COLUMN crm_archived_by_user_id INTEGER",
+            "crm_archive_reason": "ALTER TABLE crm_clients ADD COLUMN crm_archive_reason TEXT",
         }
         for column_name, ddl in client_migrations.items():
             if column_name not in client_columns:
@@ -1101,6 +1107,9 @@ class WebDatabase(Database):
                 signer_basis,
                 notes,
                 crm_owner_user_id,
+                crm_archived_at,
+                crm_archived_by_user_id,
+                crm_archive_reason,
                 linked_counterparty_id,
                 sync_status,
                 sync_error,

@@ -449,6 +449,30 @@ class CrmPersistenceTest(unittest.TestCase):
         self.assertEqual("Локальная правка", card["document_name"])
         self.assertEqual("pending", card["sync_status"])
 
+    def test_onec_pull_preserves_archive_metadata_on_linked_primary_client(self) -> None:
+        with self.db.transaction() as conn:
+            conn.execute("INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (702, 'onec-702', '1С имя', '2026-09-04T00:00:00')")
+            conn.execute(
+                """UPDATE crm_clients
+                   SET linked_counterparty_id = 702,
+                       sync_status = 'synced',
+                       crm_archived_at = '2026-09-07T10:00:00',
+                       crm_archived_by_user_id = ?,
+                       crm_archive_reason = 'Неактуальный'
+                   WHERE id = ?""",
+                (self.admin_id, self.client["id"]),
+            )
+
+        self.db.upsert_crm_clients_from_counterparties(
+            [{"onec_key": "onec-702", "document_name": "Имя обновлено из 1С"}],
+        )
+
+        card = self.db.get_crm_client(self.client["id"])
+        self.assertEqual("Имя обновлено из 1С", card["document_name"])
+        self.assertEqual("2026-09-07T10:00:00", card["crm_archived_at"])
+        self.assertEqual(self.admin_id, card["crm_archived_by_user_id"])
+        self.assertEqual("Неактуальный", card["crm_archive_reason"])
+
     def test_confirmed_link_rejects_same_inn_with_different_kpp(self) -> None:
         candidate = self.repo.create_local_client(
             actor_id=self.owner_id,
