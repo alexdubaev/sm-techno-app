@@ -9,6 +9,7 @@ import socket
 import time
 import uuid
 import xml.etree.ElementTree as ET
+from http.client import IncompleteRead
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urljoin, urlsplit, urlunsplit
@@ -102,7 +103,6 @@ class OneCClient:
         self._entity_property_types_cache: dict[str, dict[str, str]] = {}
         self._contact_kind_cache: dict[str, dict[str, Any] | None] = {}
         self._rub_currency_key_cache: str | None = None
-        self._last_request_id: str | None = None
         if not self.base_url or not self.username:
             raise OneCClientError("Не заполнены URL базы 1С или логин.")
 
@@ -127,11 +127,19 @@ class OneCClient:
         *,
         accept: str = "application/json",
     ) -> str:
-        raw, _ = self._execute_request(method, endpoint_or_url, payload, accept=accept)
+        raw, _, _ = self._execute_request(method, endpoint_or_url, payload, accept=accept)
         return raw
 
     def _request(self, method: str, endpoint_or_url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        raw = self._request_raw(method, endpoint_or_url, payload)
+        if self._uses_default_request_raw():
+            raw, _, request_id = self._execute_request(method, endpoint_or_url, payload)
+        else:
+            raw = self._request_raw(method, endpoint_or_url, payload)
+            request_id = None
+        return self._decode_json_response(raw, method=method, request_id=request_id)
+
+    @staticmethod
+    def _decode_json_response(raw: str, *, method: str, request_id: str | None) -> dict[str, Any]:
         if not raw:
             return {}
         try:
@@ -140,8 +148,11 @@ class OneCClient:
             raise OneCMalformedResponseError(
                 "1С вернула не-JSON ответ.",
                 method=method,
-                request_id=self._last_request_id,
+                request_id=request_id,
             ) from exc
+
+    def _uses_default_request_raw(self) -> bool:
+        return getattr(self._request_raw, "__func__", None) is OneCClient._request_raw
 
     def _request_with_response_headers(
         self,
@@ -152,6 +163,30 @@ class OneCClient:
         extra_headers: dict[str, str] | None = None,
     ) -> tuple[str, str | None]:
         """Issue an isolated conditional request without changing legacy transport hooks."""
+        raw, etag, _ = self._execute_request(
+            method,
+            endpoint_or_url,
+            payload,
+            extra_headers=extra_headers,
+        )
+        return raw, etag
+
+    def _request_with_response_headers_and_request_id(
+        self,
+        method: str,
+        endpoint_or_url: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[str, str | None, str | None]:
+        if getattr(self._request_with_response_headers, "__func__", None) is not OneCClient._request_with_response_headers:
+            raw, etag = self._request_with_response_headers(
+                method,
+                endpoint_or_url,
+                payload,
+                extra_headers=extra_headers,
+            )
+            return raw, etag, None
         return self._execute_request(
             method,
             endpoint_or_url,
@@ -167,7 +202,7 @@ class OneCClient:
         *,
         accept: str = "application/json",
         extra_headers: dict[str, str] | None = None,
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str, str | None, str]:
         """Perform one request policy for both legacy transport entry points.
 
         urllib's ``urlopen`` only exposes one socket timeout rather than separate
@@ -180,7 +215,6 @@ class OneCClient:
 
         normalized_method = method.upper()
         request_id = uuid.uuid4().hex
-        self._last_request_id = request_id
         body = None
         headers = {
             "Authorization": self._authorization_header(),
@@ -215,7 +249,7 @@ class OneCClient:
                         attempt,
                         request_id,
                     )
-                    return raw, response.headers.get("ETag")
+                    return raw, response.headers.get("ETag"), request_id
             except HTTPError as exc:
                 retryable = normalized_method == "GET" and exc.code in self.RETRYABLE_GET_STATUS_CODES
                 if retryable and attempt < max_attempts:
@@ -225,7 +259,7 @@ class OneCClient:
                 error = self._http_error(normalized_method, exc.code, request_id, retryable)
                 self._log_failure(normalized_method, endpoint_path, attempt, request_id, type(error).__name__)
                 raise error from exc
-            except (URLError, OSError) as exc:
+            except (URLError, OSError, IncompleteRead) as exc:
                 timeout = self._is_timeout_error(exc)
                 retryable = normalized_method == "GET"
                 if retryable and attempt < max_attempts:
@@ -244,7 +278,7 @@ class OneCClient:
         return urlsplit(url).path or "/"
 
     @staticmethod
-    def _is_timeout_error(exc: URLError | OSError) -> bool:
+    def _is_timeout_error(exc: URLError | OSError | IncompleteRead) -> bool:
         reason = exc.reason if isinstance(exc, URLError) else exc
         return isinstance(reason, (socket.timeout, TimeoutError))
 
@@ -1231,13 +1265,8 @@ class OneCClient:
     def get_counterparty_with_etag(self, ref_key: str) -> tuple[dict[str, Any], str | None]:
         """Read a counterparty and its response ETag for an explicit future probe."""
         endpoint = f"Catalog_Контрагенты(guid'{ref_key}')?$format=json"
-        raw, etag = self._request_with_response_headers("GET", endpoint)
-        if not raw:
-            return {}, etag
-        try:
-            return json.loads(raw), etag
-        except json.JSONDecodeError as exc:
-            raise OneCClientError(f"1С вернула не-JSON ответ: {raw[:500]}") from exc
+        raw, etag, request_id = self._request_with_response_headers_and_request_id("GET", endpoint)
+        return self._decode_json_response(raw, method="GET", request_id=request_id), etag
 
     def update_counterparty_if_match(
         self,
@@ -1247,15 +1276,10 @@ class OneCClient:
     ) -> dict[str, Any]:
         """PATCH a counterparty only with the caller-supplied If-Match token."""
         endpoint = f"Catalog_Контрагенты(guid'{ref_key}')?$format=json"
-        raw, _ = self._request_with_response_headers(
+        raw, _, request_id = self._request_with_response_headers_and_request_id(
             "PATCH", endpoint, payload, extra_headers={"If-Match": etag}
         )
-        if not raw:
-            return {}
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise OneCClientError(f"1С вернула не-JSON ответ: {raw[:500]}") from exc
+        return self._decode_json_response(raw, method="PATCH", request_id=request_id)
 
     def create_counterparty(self, card: dict[str, Any]) -> dict[str, Any]:
         core_payload = self._build_counterparty_payload(card, include_extra_fields=False)

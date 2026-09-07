@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 import unittest
+from http.client import IncompleteRead
 from io import BytesIO
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -10,6 +11,7 @@ from stock_sync_desktop.onec_api import (
     OneCClient,
     OneCMalformedResponseError,
     OneCTimeoutError,
+    OneCTransientError,
     OneCUnknownWriteOutcomeError,
     OneCValidationError,
 )
@@ -109,6 +111,71 @@ class OneCTransportReliabilityTest(unittest.TestCase):
         self.assertEqual("GET", raised.exception.method)
         self.assertFalse(raised.exception.retryable)
         self.assertFalse(raised.exception.outcome_unknown)
+
+    def test_etag_read_malformed_json_is_typed_without_response_body(self) -> None:
+        """Restoring raw JSON in the ETag-read error or a generic error must fail this test."""
+        with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(b'{"secret":"upstream-secret"')) as open_mock:
+            with self.assertRaises(OneCMalformedResponseError) as raised:
+                self.client.get_counterparty_with_etag("counterparty-ref")
+
+        self.assertEqual(1, open_mock.call_count)
+        self.assertEqual("GET", raised.exception.method)
+        self.assertTrue(raised.exception.request_id)
+        self.assertNotIn("upstream-secret", str(raised.exception))
+
+    def test_conditional_write_malformed_json_is_typed_without_response_body(self) -> None:
+        """Restoring raw JSON in the conditional-write error or a generic error must fail this test."""
+        with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(b'{"secret":"upstream-secret"')) as open_mock:
+            with self.assertRaises(OneCMalformedResponseError) as raised:
+                self.client.update_counterparty_if_match("counterparty-ref", {"Description": "Safe"}, 'W/"v1"')
+
+        self.assertEqual(1, open_mock.call_count)
+        self.assertEqual("PATCH", raised.exception.method)
+        self.assertTrue(raised.exception.request_id)
+        self.assertNotIn("upstream-secret", str(raised.exception))
+
+    def test_get_retries_incomplete_read_then_returns_json(self) -> None:
+        """Treating an incomplete GET response as non-retryable must fail this test."""
+        with (
+            patch("stock_sync_desktop.onec_api.urlopen", side_effect=[IncompleteRead(b"", 3), FakeResponse(b"{}")]) as open_mock,
+            patch("stock_sync_desktop.onec_api.time.sleep") as sleep_mock,
+            patch("stock_sync_desktop.onec_api.random.uniform", return_value=0),
+        ):
+            result = self.client._request("GET", "Catalog?$format=json")
+
+        self.assertEqual({}, result)
+        self.assertEqual(2, open_mock.call_count)
+        sleep_mock.assert_called_once()
+
+    def test_write_incomplete_read_has_unknown_outcome_after_one_attempt(self) -> None:
+        """Retrying a partially read write response must fail this test."""
+        with patch("stock_sync_desktop.onec_api.urlopen", side_effect=IncompleteRead(b"", 3)) as open_mock:
+            with self.assertRaises(OneCUnknownWriteOutcomeError) as raised:
+                self.client._request("POST", "Document_ЗаказПокупателя?$format=json", {"secret": "payload-secret"})
+
+        self.assertEqual(1, open_mock.call_count)
+        self.assertTrue(raised.exception.outcome_unknown)
+
+    def test_get_retries_502_and_504_but_not_500(self) -> None:
+        """Changing the explicit HTTP retry matrix must fail this test."""
+        for status_code, expected_attempts, expected_error in (
+            (502, 2, None),
+            (504, 2, None),
+            (500, 1, OneCTransientError),
+        ):
+            with self.subTest(status_code=status_code), patch(
+                "stock_sync_desktop.onec_api.urlopen",
+                side_effect=[http_error(status_code), FakeResponse(b"{}")],
+            ) as open_mock, patch("stock_sync_desktop.onec_api.time.sleep"), patch(
+                "stock_sync_desktop.onec_api.random.uniform", return_value=0
+            ):
+                if expected_error:
+                    with self.assertRaises(expected_error):
+                        self.client._request("GET", "Catalog?$format=json")
+                else:
+                    self.assertEqual({}, self.client._request("GET", "Catalog?$format=json"))
+
+            self.assertEqual(expected_attempts, open_mock.call_count)
 
     def test_transport_logs_only_safe_request_metadata(self) -> None:
         """Logging request query, credentials, or payload must fail this test."""
