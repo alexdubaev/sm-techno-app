@@ -13,6 +13,7 @@
   CrmImportPreview,
   CrmImportResult,
   CrmLinkCandidate,
+  CrmPrimaryArchiveResponse,
   CrmPrimaryListResponse,
   CrmPrimaryRowPreference,
   CrmReminder,
@@ -1229,6 +1230,33 @@ export async function archiveLocalCrmClient(
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
     "Не удалось архивировать локального клиента.",
   );
+}
+
+export async function archivePrimaryCrmClient(
+  clientId: number,
+  reason?: string,
+): Promise<{ ok: true }> {
+  return requestJsonWithInit<{ ok: true }>(
+    `/api/crm/clients/${clientId}/primary-archive`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason }),
+    },
+    "Не удалось архивировать клиента из 1С.",
+  );
+}
+
+export async function restorePrimaryCrmClient(clientId: number): Promise<{ ok: true }> {
+  return requestJsonWithInit<{ ok: true }>(
+    `/api/crm/clients/${clientId}/primary-restore`,
+    { method: "POST" },
+    "Не удалось восстановить клиента в CRM.",
+  );
+}
+
+export async function fetchPrimaryCrmArchive(): Promise<CrmPrimaryArchiveResponse> {
+  return requestJson<CrmPrimaryArchiveResponse>("/api/crm/primary-archive");
 }
 
 export async function restoreLocalCrmClient(

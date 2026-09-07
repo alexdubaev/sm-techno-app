@@ -241,6 +241,19 @@ export type CrmPrimaryListResponse = {
   orderVersion: number;
 };
 
+export type CrmPrimaryArchiveClient = CrmWorkspaceClient & {
+  archivedAt: string;
+  archivedByUserId: number | null;
+  archivedByFullName: string;
+  archiveReason: string;
+};
+
+export type CrmPrimaryArchiveResponse = {
+  items: CrmPrimaryArchiveClient[];
+  activeCount: number;
+  archivedCount: number;
+};
+
 export type CrmImportRowError = {
   sheet: "Клиенты" | "Контакты";
   row: number;

@@ -432,6 +432,8 @@ function auditLabel(action: string) {
   return (
     (
       {
+        archive_primary_client: 'Клиент архивирован из CRM',
+        restore_primary_client: 'Клиент восстановлен в CRM',
         archive_local_client: 'Локальный клиент архивирован',
         restore_local_client: 'Локальный клиент восстановлен',
         archive_assignment: 'Назначение архивировано',

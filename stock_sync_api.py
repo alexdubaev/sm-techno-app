@@ -528,6 +528,8 @@ def _crm_error(exc: Exception) -> None:
     message = str(exc)
     if message == CRM_LOCAL_ONLY_POLICY_MESSAGE:
         raise HTTPException(status_code=409, detail=message) from exc
+    if "уже находится в архиве" in message.lower() or "не находится в архиве" in message.lower():
+        raise HTTPException(status_code=409, detail=message) from exc
     if "не найден" in message.lower():
         raise HTTPException(status_code=404, detail=message) from exc
     if "конфликт" in message.lower():
@@ -586,6 +588,16 @@ def _serialize_crm_client(
         "rowPreference": _serialize_crm_row_preference(row_preference) if row_preference else None,
         "primaryRowPreference": _serialize_crm_primary_row_preference(primary_row_preference) if primary_row_preference else None,
         "workOwners": work_owners or [],
+    }
+
+
+def _serialize_primary_crm_archive_client(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **_serialize_crm_client(row),
+        "archivedAt": row.get("crm_archived_at") or "",
+        "archivedByUserId": row.get("crm_archived_by_user_id"),
+        "archivedByFullName": row.get("archived_by_full_name") or "",
+        "archiveReason": row.get("crm_archive_reason") or "",
     }
 
 
@@ -1803,6 +1815,59 @@ def archive_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | 
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
         repo.archive_assignment(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, reason=str(payload.get("reason") or ""))
         return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/primary-archive")
+def archive_primary_crm_client(
+    client_id: int,
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, bool]:
+    try:
+        if str(current_user.get("role") or "") != "admin":
+            raise PermissionError("Доступно только администратору.")
+        repo = CrmRepository(SERVICE.db)
+        repo.archive_primary_client(
+            actor_id=int(current_user["id"]),
+            client_id=client_id,
+            reason=str(payload.get("reason") or ""),
+        )
+        return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/primary-restore")
+def restore_primary_crm_client(
+    client_id: int,
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, bool]:
+    try:
+        if str(current_user.get("role") or "") != "admin":
+            raise PermissionError("Доступно только администратору.")
+        repo = CrmRepository(SERVICE.db)
+        repo.restore_primary_client(actor_id=int(current_user["id"]), client_id=client_id)
+        return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.get("/api/crm/primary-archive")
+def list_primary_crm_archive(
+    current_user: dict[str, Any] = Depends(_get_current_user),
+) -> dict[str, Any]:
+    try:
+        if str(current_user.get("role") or "") != "admin":
+            raise PermissionError("Доступно только администратору.")
+        repo = CrmRepository(SERVICE.db)
+        archive = repo.list_archived_primary_clients_for_actor(actor_id=int(current_user["id"]))
+        return {
+            "items": [_serialize_primary_crm_archive_client(row) for row in archive["clients"]],
+            "activeCount": archive["active_count"],
+            "archivedCount": archive["archived_count"],
+        }
     except Exception as exc:
         _crm_error(exc)
 

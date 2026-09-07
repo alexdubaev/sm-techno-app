@@ -27,7 +27,12 @@ class CrmApiTest(unittest.TestCase):
         self.service.bootstrap()
         self.owner_id = self.service.db.create_user(username="owner", password="password", role="user")
         self.other_id = self.service.db.create_user(username="other", password="password", role="user")
-        self.admin_id = self.service.db.create_user(username="admin-api", password="password", role="admin")
+        self.admin_id = self.service.db.create_user(
+            username="admin-api",
+            password="password",
+            role="admin",
+            full_name="Администратор Архива",
+        )
         self.original_service = stock_sync_api.SERVICE
         stock_sync_api.SERVICE = self.service
         self.current_user = {"id": self.owner_id, "role": "user", "username": "owner"}
@@ -121,6 +126,67 @@ class CrmApiTest(unittest.TestCase):
                 "UPDATE crm_clients SET linked_counterparty_id = ?, sync_status = 'synced' WHERE id = ?",
                 (counterparty_id, client_id),
             )
+
+    def test_admin_can_archive_list_and_restore_linked_primary_client_without_onec(self) -> None:
+        client_id = self.client.post(
+            "/api/crm/clients",
+            json={"documentName": "Короткое имя", "fullName": "Полное имя клиента", "inn": "1234567890"},
+        ).json()["client"]["id"]
+        self.link_primary_client(client_id, 1101)
+        self.as_user(self.admin_id, "admin")
+
+        with patch.object(
+            self.service,
+            "sync_crm_counterparties_for_user",
+            side_effect=AssertionError("1C invoked"),
+        ) as sync_spy:
+            archived = self.client.post(
+                f"/api/crm/clients/{client_id}/primary-archive",
+                json={"reason": "  Неактуальный  "},
+            )
+            archive = self.client.get("/api/crm/primary-archive")
+            repeated_archive = self.client.post(
+                f"/api/crm/clients/{client_id}/primary-archive",
+                json={"reason": "Повтор"},
+            )
+            restored = self.client.post(f"/api/crm/clients/{client_id}/primary-restore")
+            repeated_restore = self.client.post(f"/api/crm/clients/{client_id}/primary-restore")
+
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assertEqual(200, archive.status_code, archive.text)
+        self.assertEqual(409, repeated_archive.status_code, repeated_archive.text)
+        self.assertEqual(200, restored.status_code, restored.text)
+        self.assertEqual(409, repeated_restore.status_code, repeated_restore.text)
+        self.assertEqual(0, sync_spy.call_count)
+
+        payload = archive.json()
+        self.assertEqual(0, payload["activeCount"])
+        self.assertEqual(1, payload["archivedCount"])
+        self.assertEqual(1, len(payload["items"]))
+        row = payload["items"][0]
+        self.assertEqual(client_id, row["id"])
+        self.assertEqual("Полное имя клиента", row["fullName"])
+        self.assertEqual("Неактуальный", row["archiveReason"])
+        self.assertEqual(self.admin_id, row["archivedByUserId"])
+        self.assertEqual("Администратор Архива", row["archivedByFullName"])
+        self.assertTrue(row["archivedAt"])
+        self.assertNotIn("username", row)
+        self.assertNotIn("login", row)
+        with self.service.db.connect() as conn:
+            is_inactive = conn.execute("SELECT is_inactive FROM crm_clients WHERE id = ?", (client_id,)).fetchone()[0]
+        self.assertEqual(0, is_inactive)
+
+    def test_non_admin_cannot_list_archive_or_mutate_primary_archive(self) -> None:
+        client_id = self.client.post("/api/crm/clients", json={"documentName": "Закрытая компания"}).json()["client"]["id"]
+        self.link_primary_client(client_id, 1102)
+
+        responses = [
+            self.client.get("/api/crm/primary-archive"),
+            self.client.post(f"/api/crm/clients/{client_id}/primary-archive", json={"reason": "Нет прав"}),
+            self.client.post(f"/api/crm/clients/{client_id}/primary-restore"),
+        ]
+
+        self.assertEqual([403, 403, 403], [response.status_code for response in responses])
 
     def test_local_card_is_created_in_own_work_tab_without_onec(self) -> None:
         response = self.client.post("/api/crm/clients", json={"documentName": "Новый лид"})
