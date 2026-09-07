@@ -10,6 +10,7 @@
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "test:auth": "vitest run --config vitest.auth.config.ts",
+    "test:settings": "vitest run --config vitest.settings.config.ts",
     "test:auth:e2e": "node tests/support/run-isolated-playwright.mjs test --config playwright.auth.config.ts",
     "test:auth:lint": "oxlint components/auth-provider.tsx lib/api.ts lib/storage.ts tests/auth tests/e2e tests/deployment-auth-smoke.test.mjs tests/support playwright.auth.config.ts vite.config.ts vitest.auth.config.ts",
     "test:deployment:auth-smoke": "node tests/support/verify-deployed-auth-proxy.mjs",

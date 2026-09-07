@@ -15,6 +15,7 @@ function user(id: number, username: string): AppUser {
     fullName: username,
     onecUsername: "",
     hasOnecPassword: false,
+    hasRecoverableAppPassword: false,
     isActive: true,
     createdAt: "",
     updatedAt: "",

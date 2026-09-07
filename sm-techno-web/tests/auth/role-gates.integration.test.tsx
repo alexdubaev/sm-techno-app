@@ -19,6 +19,7 @@ function account(role: AppUser["role"]): AppUser {
     fullName: role === "admin" ? "Administrator" : "Operator",
     onecUsername: "",
     hasOnecPassword: false,
+    hasRecoverableAppPassword: false,
     isActive: true,
     createdAt: "",
     updatedAt: "",

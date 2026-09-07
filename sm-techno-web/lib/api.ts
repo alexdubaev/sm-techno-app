@@ -23,6 +23,7 @@
   OrderDetails,
   OrderHistoryItem,
   Organization,
+  PasswordRevealResponse,
   StockCatalogResponse,
   StockSortOrder,
   StockItem,
@@ -674,6 +675,22 @@ export async function deleteAppUser(userId: number): Promise<{ ok: boolean }> {
       method: "DELETE",
     },
     "Не удалось удалить пользователя.",
+  );
+}
+
+export async function revealAppPassword(userId: number): Promise<PasswordRevealResponse> {
+  return requestJsonWithInit<PasswordRevealResponse>(
+    `/api/users/${userId}/reveal-app-password`,
+    { method: "POST" },
+    "Не удалось показать пароль СМ ТЕХНО.",
+  );
+}
+
+export async function revealOneCPassword(userId: number): Promise<PasswordRevealResponse> {
+  return requestJsonWithInit<PasswordRevealResponse>(
+    `/api/users/${userId}/reveal-onec-password`,
+    { method: "POST" },
+    "Не удалось показать пароль 1С.",
   );
 }
 

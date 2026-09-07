@@ -24,6 +24,7 @@ function account(id: number, username: string, role: AppUser["role"] = "user"): 
     fullName: username,
     onecUsername: "",
     hasOnecPassword: false,
+    hasRecoverableAppPassword: false,
     isActive: true,
     createdAt: "",
     updatedAt: "",
