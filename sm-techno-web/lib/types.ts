@@ -74,9 +74,15 @@ export type AppUser = {
   fullName: string;
   onecUsername: string;
   hasOnecPassword: boolean;
+  hasRecoverableAppPassword: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type PasswordRevealResponse = {
+  available: boolean;
+  password: string | null;
 };
 
 export type DraftLine = {
