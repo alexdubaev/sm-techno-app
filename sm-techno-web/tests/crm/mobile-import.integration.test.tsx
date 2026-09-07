@@ -69,7 +69,8 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof MobileCr
       ownerId={owner.id}
       ownerName={owner.fullName}
       owners={[owner]}
-      primaryOrderMode="manual"
+      listControls={{ sortMode: 'manual', phoneFilter: 'all', emailFilter: 'all' }}
+      allClients={[]}
       reminderError={null}
       search=""
       selectedClient={null}
@@ -92,7 +93,8 @@ function renderWorkspace(overrides: Partial<React.ComponentProps<typeof MobileCr
       onOpenClient={vi.fn()}
       onOpenReminder={vi.fn()}
       onOwnerChange={vi.fn()}
-      onPrimaryOrderModeChange={vi.fn()}
+      onListControlsChange={vi.fn()}
+      onResetListControls={vi.fn()}
       onRefresh={callbacks.onRefresh}
       onRenameTab={vi.fn()}
       onReorder={vi.fn()}

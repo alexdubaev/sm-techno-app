@@ -52,7 +52,6 @@ import type { AppUser, CrmReminder, CrmTab, CrmWorkspaceClient } from "@/lib/typ
 
 type ActiveTab = "primary" | number;
 type SyncFilter = "all" | "synced" | "local" | "pending" | "blocked_capability" | "blocked_credentials" | "conflict" | "sync_error";
-type PrimaryOrderMode = "manual" | "name";
 type LocalImportLoad = "activation" | "import";
 type LocalImportFreshness = { ownerId: number; tab: ActiveTab; generation: number; pendingLoads: Set<LocalImportLoad> };
 
@@ -675,8 +674,6 @@ export function CrmWorkspace() {
     setPhoneFilter("all");
     setEmailFilter("all");
   };
-  const primaryOrderMode: PrimaryOrderMode = sortMode === "name_asc" ? "name" : "manual";
-  const setPrimaryOrderMode = (mode: PrimaryOrderMode) => setSortMode(mode === "name" ? "name_asc" : "manual");
 
   const exportCrm = async (scope: "all" | "tab") => {
     if (scope === "tab" && activeTab === "primary") {
@@ -787,7 +784,8 @@ export function CrmWorkspace() {
           ownerId={ownerId}
           ownerName={ownerName}
           owners={owners}
-          primaryOrderMode={primaryOrderMode}
+          listControls={{ sortMode, phoneFilter, emailFilter }}
+          allClients={clients}
           reminderError={reminderError?.ownerId === ownerId ? reminderError.message : null}
           search={search}
           selectedClient={mobileDetail?.client ?? null}
@@ -810,7 +808,8 @@ export function CrmWorkspace() {
           onOpenClient={openMobileClient}
           onOpenReminder={(reminder) => void openReminder(reminder)}
           onOwnerChange={chooseOwner}
-          onPrimaryOrderModeChange={setPrimaryOrderMode}
+          onListControlsChange={(values) => { setSortMode(values.sortMode); setPhoneFilter(values.phoneFilter); setEmailFilter(values.emailFilter); }}
+          onResetListControls={resetListControls}
           onRefresh={() => void syncAndReloadWorkspace(activeTab, { manual: true })}
           onRenameTab={openTabEditor}
           onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients}

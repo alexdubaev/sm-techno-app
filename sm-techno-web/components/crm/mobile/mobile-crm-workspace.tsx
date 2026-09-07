@@ -14,10 +14,10 @@ import {
 } from '@/components/crm/mobile/mobile-client-card';
 import {
   MobileCrmHeader,
-  type MobilePrimaryOrderMode,
   type MobileSyncFilter,
 } from '@/components/crm/mobile/mobile-crm-header';
 import { MobileCrmImportSheet } from '@/components/crm/mobile/mobile-crm-import-sheet';
+import { MobileCrmFilterSheet, type CrmListControlValues } from '@/components/crm/mobile/mobile-crm-filter-sheet';
 import { MobileCrmTabs } from '@/components/crm/mobile/mobile-crm-tabs';
 import { MobileClientDetail } from '@/components/crm/mobile/mobile-client-detail';
 import { MobileClientMore } from '@/components/crm/mobile/mobile-client-more';
@@ -58,7 +58,8 @@ export type MobileCrmWorkspaceProps = {
   ownerId: number;
   ownerName: string;
   owners: AppUser[];
-  primaryOrderMode: MobilePrimaryOrderMode;
+  listControls: CrmListControlValues;
+  allClients: CrmWorkspaceClient[];
   reminderError: string | null;
   search: string;
   selectedClient: CrmWorkspaceClient | null;
@@ -84,7 +85,8 @@ export type MobileCrmWorkspaceProps = {
   ) => void;
   onOpenReminder: (reminder: CrmReminder) => void;
   onOwnerChange: (ownerId: number) => void;
-  onPrimaryOrderModeChange: (mode: MobilePrimaryOrderMode) => void;
+  onListControlsChange: (values: CrmListControlValues) => void;
+  onResetListControls: () => void;
   onRefresh: () => void;
   onRenameTab: (tab: CrmTab) => void;
   onReorder: (clientId: number, insertionIndex: number) => void;
@@ -117,7 +119,8 @@ export function MobileCrmWorkspace({
   ownerId,
   ownerName,
   owners,
-  primaryOrderMode,
+  listControls,
+  allClients,
   reminderError,
   search,
   selectedClient,
@@ -140,7 +143,8 @@ export function MobileCrmWorkspace({
   onOpenClient,
   onOpenReminder,
   onOwnerChange,
-  onPrimaryOrderModeChange,
+  onListControlsChange,
+  onResetListControls,
   onRefresh,
   onRenameTab,
   onReorder,
@@ -154,12 +158,14 @@ export function MobileCrmWorkspace({
     useState<number | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [isFiltering, setIsFiltering] = useState(false);
+  const activeControlCount = Number(listControls.sortMode !== 'manual') + Number(listControls.phoneFilter !== 'all') + Number(listControls.emailFilter !== 'all');
   const reorderMode = requestedReorderMode && manualOrderAvailable;
-  const hasFilters = search.trim().length > 0 || syncFilter !== 'all';
+  const hasFilters = search.trim().length > 0 || syncFilter !== 'all' || activeControlCount > 0;
   const reorderUnavailableReason = manualOrderAvailable
     ? null
-    : activeTab === 'primary' && primaryOrderMode !== 'manual'
-      ? 'Выберите порядок «Мой порядок» и сбросьте поиск и фильтры.'
+    : listControls.sortMode !== 'manual'
+      ? 'Выберите «Ручной порядок» и сбросьте поиск и фильтры.'
       : 'Сбросьте поиск и фильтры, чтобы изменить порядок.';
   const reorderActionLabel = reorderMode ? 'Готово' : 'Изменить порядок';
 
@@ -285,11 +291,6 @@ export function MobileCrmWorkspace({
         }
       : undefined;
 
-  const clearFilters = () => {
-    onSearchChange('');
-    onSyncFilterChange('all');
-  };
-
   return (
     <div
       data-mobile-crm-workspace=""
@@ -339,7 +340,8 @@ export function MobileCrmWorkspace({
             ownerId={ownerId}
             ownerName={ownerName}
             owners={owners}
-            primaryOrderMode={primaryOrderMode}
+            activeControlCount={activeControlCount}
+            onOpenFilters={() => setIsFiltering(true)}
             reorderActionLabel={reorderActionLabel}
             reorderMode={reorderMode}
             reorderUnavailableReason={reorderUnavailableReason}
@@ -352,7 +354,6 @@ export function MobileCrmWorkspace({
             onExport={onExport}
             onImport={() => setIsImporting(true)}
             onOwnerChange={onOwnerChange}
-            onPrimaryOrderModeChange={onPrimaryOrderModeChange}
             onRefresh={onRefresh}
             onRenameTab={onRenameTab}
             onSyncFilterChange={onSyncFilterChange}
@@ -480,10 +481,10 @@ export function MobileCrmWorkspace({
             </div>
           ) : hasFilters || totalClientCount > 0 ? (
             <MobileEmptyState
-              title="Ничего не найдено"
-              description="Измените запрос или сбросьте фильтр синхронизации."
-              action="Очистить поиск и фильтры"
-              onAction={clearFilters}
+              title="Клиенты не найдены"
+              description="Измените запрос или сбросьте фильтры."
+              action="Сбросить фильтры"
+              onAction={onResetListControls}
             />
           ) : (
             <MobileEmptyState
@@ -499,6 +500,16 @@ export function MobileCrmWorkspace({
           )}
         </div>
       )}
+      {isFiltering ? (
+        <MobileCrmFilterSheet
+          values={listControls}
+          clients={allClients}
+          search={search}
+          syncFilter={syncFilter}
+          onApply={onListControlsChange}
+          onClose={() => setIsFiltering(false)}
+        />
+      ) : null}
       {isAdding ? (
         <MobileNewClientSheet
           form={newClientForm}

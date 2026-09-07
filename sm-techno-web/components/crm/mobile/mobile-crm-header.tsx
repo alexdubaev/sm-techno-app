@@ -6,6 +6,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
 
@@ -21,8 +22,6 @@ export type MobileSyncFilter =
   | 'conflict'
   | 'sync_error';
 
-export type MobilePrimaryOrderMode = 'manual' | 'name';
-
 type ActiveTab = 'primary' | number;
 
 type MobileCrmHeaderProps = {
@@ -34,7 +33,8 @@ type MobileCrmHeaderProps = {
   ownerId: number;
   ownerName: string;
   owners: AppUser[];
-  primaryOrderMode: MobilePrimaryOrderMode;
+  activeControlCount: number;
+  onOpenFilters: () => void;
   reorderActionLabel: string;
   reorderMode: boolean;
   reorderUnavailableReason: string | null;
@@ -47,7 +47,6 @@ type MobileCrmHeaderProps = {
   onExport: (scope: 'all' | 'tab') => void;
   onImport: () => void;
   onOwnerChange: (ownerId: number) => void;
-  onPrimaryOrderModeChange: (mode: MobilePrimaryOrderMode) => void;
   onRefresh: () => void;
   onRenameTab: (tab: CrmTab) => void;
   onSyncFilterChange: (filter: MobileSyncFilter) => void;
@@ -63,7 +62,8 @@ export function MobileCrmHeader({
   ownerId,
   ownerName,
   owners,
-  primaryOrderMode,
+  activeControlCount,
+  onOpenFilters,
   reorderActionLabel,
   reorderMode,
   reorderUnavailableReason,
@@ -76,7 +76,6 @@ export function MobileCrmHeader({
   onExport,
   onImport,
   onOwnerChange,
-  onPrimaryOrderModeChange,
   onRefresh,
   onRenameTab,
   onSyncFilterChange,
@@ -186,23 +185,6 @@ export function MobileCrmHeader({
                       <option value="sync_error">С ошибкой</option>
                     </select>
                   </label>
-                  {activeTab === 'primary' ? (
-                    <label className="grid gap-1.5 text-[11px] font-bold text-[var(--text-secondary)]">
-                      <span>Порядок</span>
-                      <select
-                        value={primaryOrderMode}
-                        onChange={(event) =>
-                          onPrimaryOrderModeChange(
-                            event.target.value as MobilePrimaryOrderMode,
-                          )
-                        }
-                        className="h-11 rounded-[11px] border border-[var(--border-color)] bg-white px-3 text-[13px] font-semibold text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"
-                      >
-                        <option value="manual">Мой порядок</option>
-                        <option value="name">По названию</option>
-                      </select>
-                    </label>
-                  ) : null}
                   {canEditWorkspace ? (
                     <div>
                       <button
@@ -316,6 +298,18 @@ export function MobileCrmHeader({
           </>
         )}
       </div>
+      <button
+        type="button"
+        onClick={onOpenFilters}
+        disabled={reorderMode}
+        aria-label={activeControlCount ? `Фильтры и сортировка: ${activeControlCount}` : 'Фильтры и сортировка'}
+        aria-haspopup="dialog"
+        className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[var(--border-color)] bg-[#F7F9FC] px-3 text-[12px] font-semibold outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:opacity-50"
+      >
+        <SlidersHorizontal aria-hidden="true" className="size-4" />
+        Фильтры и сортировка
+        {activeControlCount > 0 ? <span aria-hidden="true" className="flex size-6 items-center justify-center rounded-full bg-[var(--brand-yellow)] text-[var(--brand-dark)]">{activeControlCount}</span> : null}
+      </button>
     </header>
   );
 }
