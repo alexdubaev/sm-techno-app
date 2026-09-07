@@ -973,13 +973,27 @@ class Database:
             for row in validated_rows:
                 onec_key = self._normalize_guid(row.get("onec_key"))
                 unit_key = self._normalize_guid(row.get("unit_key"))
-                existing = self._find_existing_item(
+                existing_by_onec = self._find_existing_item(
                     conn,
                     onec_key=onec_key,
+                    sku=None,
+                    name=None,
+                    match_by_name=False,
+                )
+                existing_by_sku = self._find_existing_item(
+                    conn,
+                    onec_key=None,
                     sku=row.get("sku"),
                     name=row.get("name"),
                     match_by_name=False,
                 )
+                if (
+                    existing_by_onec is not None
+                    and existing_by_sku is not None
+                    and existing_by_onec["id"] != existing_by_sku["id"]
+                ):
+                    raise ValueError("1С-ключ и артикул указывают на разные товары.")
+                existing = existing_by_onec or existing_by_sku
                 if existing:
                     item_id = existing["id"]
                     conn.execute(

@@ -51,6 +51,12 @@ class StockItemIdentityTest(unittest.TestCase):
         self.assertEqual((created, updated), (0, 1))
         self.assertEqual(len(self.db.list_items()), 1)
 
+    def test_stock_import_rejects_conflicting_onec_key_and_sku(self) -> None:
+        self.db.import_stock_rows([dict(self._import_row("SKU-A", "Первый"), onec_key="11111111-1111-1111-1111-111111111111")])
+        self.db.import_stock_rows([dict(self._import_row("SKU-B", "Второй"), onec_key="22222222-2222-2222-2222-222222222222")])
+        with self.assertRaises(ValueError):
+            self.db.import_stock_rows([dict(self._import_row("SKU-B", "Конфликт"), onec_key="11111111-1111-1111-1111-111111111111")])
+
     @staticmethod
     def _import_row(sku: str, name: str) -> dict[str, object]:
         return {
