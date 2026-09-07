@@ -14,7 +14,12 @@ class CrmRepositoryGapsTest(unittest.TestCase):
         self.db = WebDatabase(Path(self.temp_dir.name) / "crm-gaps.db")
         self.owner_id = self.db.create_user(username="owner", password="password", role="user")
         self.other_id = self.db.create_user(username="other", password="password", role="user")
-        self.admin_id = self.db.create_user(username="admin", password="password", role="admin")
+        self.admin_id = self.db.create_user(
+            username="admin-login",
+            password="password",
+            role="admin",
+            full_name="Администратор Архива",
+        )
         self.repo = CrmRepository(self.db)
 
     def tearDown(self) -> None:
@@ -120,6 +125,123 @@ class CrmRepositoryGapsTest(unittest.TestCase):
         self.assertIsNone(cancelled["completed_at"])
         audit = self.repo.list_audit_actions_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=int(client["id"]))
         self.assertEqual("cancel_reminder", audit[-1]["action"])
+
+    def test_primary_archive_operations_require_admin_linked_client_and_expected_state(self) -> None:
+        linked = self._linked_primary_client()
+        local = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Локальный лид"})
+
+        with self.assertRaisesRegex(PermissionError, "администратору"):
+            self.repo.archive_primary_client(
+                actor_id=self.owner_id,
+                client_id=int(linked["id"]),
+                reason="Нет прав",
+            )
+        with self.assertRaisesRegex(ValueError, "связан"):
+            self.repo.archive_primary_client(
+                actor_id=self.admin_id,
+                client_id=int(local["id"]),
+                reason="Не тот тип",
+            )
+
+        self.repo.archive_primary_client(
+            actor_id=self.admin_id,
+            client_id=int(linked["id"]),
+            reason="Дубликат",
+        )
+        with self.assertRaisesRegex(ValueError, "уже.*архив"):
+            self.repo.archive_primary_client(
+                actor_id=self.admin_id,
+                client_id=int(linked["id"]),
+                reason="Повтор",
+            )
+        with self.assertRaisesRegex(PermissionError, "администратору"):
+            self.repo.restore_primary_client(actor_id=self.owner_id, client_id=int(linked["id"]))
+
+        self.repo.restore_primary_client(actor_id=self.admin_id, client_id=int(linked["id"]))
+        with self.assertRaisesRegex(ValueError, "не находится.*архив"):
+            self.repo.restore_primary_client(actor_id=self.admin_id, client_id=int(linked["id"]))
+
+    def test_archived_primary_list_is_admin_only_and_exposes_full_name_with_counts(self) -> None:
+        archived = self._linked_primary_client()
+        active = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Активная компания"})
+        with self.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (702, 'onec-702', 'Активная компания', '2026-09-04T00:00:00')"
+            )
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = 702, sync_status = 'synced' WHERE id = ?",
+                (active["id"],),
+            )
+        self.repo.archive_primary_client(
+            actor_id=self.admin_id,
+            client_id=int(archived["id"]),
+            reason="Неактуальный",
+        )
+
+        with self.assertRaisesRegex(PermissionError, "администратору"):
+            self.repo.list_archived_primary_clients_for_actor(actor_id=self.owner_id)
+        result = self.repo.list_archived_primary_clients_for_actor(actor_id=self.admin_id)
+
+        self.assertEqual(1, result["active_count"])
+        self.assertEqual(1, result["archived_count"])
+        self.assertEqual([int(archived["id"])], [row["id"] for row in result["clients"]])
+        row = result["clients"][0]
+        self.assertTrue(row["crm_archived_at"])
+        self.assertEqual(self.admin_id, row["crm_archived_by_user_id"])
+        self.assertEqual("Неактуальный", row["crm_archive_reason"])
+        self.assertEqual("Администратор Архива", row["archived_by_full_name"])
+        self.assertNotIn("username", row)
+        self.assertNotIn("login", row)
+
+    def test_primary_preference_changes_exclude_archived_clients(self) -> None:
+        archived = self._linked_primary_client()
+        active = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Активная компания"})
+        with self.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (703, 'onec-703', 'Активная компания', '2026-09-04T00:00:00')"
+            )
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = 703, sync_status = 'synced' WHERE id = ?",
+                (active["id"],),
+            )
+        self.repo.list_cards_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, primary_only=True)
+        self.repo.archive_primary_client(
+            actor_id=self.admin_id,
+            client_id=int(archived["id"]),
+            reason="Неактуальный",
+        )
+
+        self.repo.set_primary_row_color_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=int(active["id"]),
+            color_key="green",
+            expected_order_version=0,
+        )
+
+        with self.db.connect() as conn:
+            archived_preference = conn.execute(
+                "SELECT color_key, order_version FROM crm_primary_row_preferences WHERE owner_user_id = ? AND crm_client_id = ?",
+                (self.owner_id, archived["id"]),
+            ).fetchone()
+        self.assertEqual((None, 0), tuple(archived_preference))
+        with self.assertRaisesRegex(ValueError, "основной вкладке"):
+            self.repo.set_primary_row_color_for_actor(
+                actor_id=self.owner_id,
+                owner_id=self.owner_id,
+                client_id=int(archived["id"]),
+                color_key="pink",
+                expected_order_version=1,
+            )
+        with self.assertRaisesRegex(ValueError, "Соседняя строка"):
+            self.repo.reorder_primary_client_for_actor(
+                actor_id=self.owner_id,
+                owner_id=self.owner_id,
+                client_id=int(active["id"]),
+                before_client_id=int(archived["id"]),
+                after_client_id=None,
+                expected_order_version=1,
+            )
 
 
 if __name__ == "__main__":

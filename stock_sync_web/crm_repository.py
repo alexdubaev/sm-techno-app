@@ -181,7 +181,12 @@ class CrmRepository:
         return bool(row and str(row["role"] or "") == "admin")
 
     def _require_client_access(self, conn: sqlite3.Connection, actor_id: int, client_id: int) -> sqlite3.Row:
-        client = self._require_row(conn, "SELECT id, linked_counterparty_id, crm_owner_user_id FROM crm_clients WHERE id = ?", (client_id,), "Клиент не найден.")
+        client = self._require_row(
+            conn,
+            "SELECT id, linked_counterparty_id, crm_owner_user_id FROM crm_clients WHERE id = ? AND crm_archived_at IS NULL",
+            (client_id,),
+            "Клиент не найден.",
+        )
         if client["linked_counterparty_id"] is None:
             if client["crm_owner_user_id"] is None and not self._is_admin(conn, actor_id):
                 raise PermissionError("Нет доступа к личному клиенту.")
@@ -390,7 +395,7 @@ class CrmRepository:
                     + " JOIN crm_assignments a ON a.crm_client_id = crm_clients.id"
                     + " JOIN crm_tabs t ON t.id = a.tab_id"
                     + " LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id"
-                    + " WHERE a.owner_user_id = ? AND a.tab_id = ? AND a.archived_at IS NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
+                    + " WHERE a.owner_user_id = ? AND a.tab_id = ? AND a.archived_at IS NULL AND COALESCE(crm_clients.is_inactive, 0) = 0 AND crm_clients.crm_archived_at IS NULL"
                     + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
                     (owner_id, tab_id),
                 ).fetchall()
@@ -405,7 +410,7 @@ class CrmRepository:
                         rows = write_conn.execute(
                             "SELECT crm_clients.* FROM crm_clients"
                             + " JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = crm_clients.id"
-                            + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
+                            + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0 AND crm_clients.crm_archived_at IS NULL"
                             + " ORDER BY p.position, crm_clients.name COLLATE NOCASE",
                             (owner_id,),
                         ).fetchall()
@@ -413,7 +418,7 @@ class CrmRepository:
                     rows = conn.execute(
                         "SELECT crm_clients.* FROM crm_clients"
                         + " LEFT JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = crm_clients.id"
-                        + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
+                        + " WHERE crm_clients.linked_counterparty_id IS NOT NULL AND COALESCE(crm_clients.is_inactive, 0) = 0 AND crm_clients.crm_archived_at IS NULL"
                         + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
                         (owner_id,),
                     ).fetchall()
@@ -423,7 +428,7 @@ class CrmRepository:
                     + " JOIN crm_assignments a ON a.crm_client_id = crm_clients.id"
                     + " JOIN crm_tabs t ON t.id = a.tab_id"
                     + " LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id"
-                    + " WHERE a.owner_user_id = ? AND a.archived_at IS NULL AND COALESCE(crm_clients.is_inactive, 0) = 0"
+                    + " WHERE a.owner_user_id = ? AND a.archived_at IS NULL AND COALESCE(crm_clients.is_inactive, 0) = 0 AND crm_clients.crm_archived_at IS NULL"
                     + " ORDER BY COALESCE(p.position, 0), crm_clients.name COLLATE NOCASE",
                     (owner_id,),
                 ).fetchall()
@@ -439,9 +444,11 @@ class CrmRepository:
             rows = conn.execute(
                 "SELECT a.crm_client_id AS clientId, u.id AS userId, u.full_name AS fullName "
                 "FROM crm_assignments AS a "
+                "JOIN crm_clients ON crm_clients.id = a.crm_client_id "
                 "JOIN users AS u ON u.id = a.owner_user_id "
                 f"WHERE a.crm_client_id IN ({placeholders}) "
                 "AND a.archived_at IS NULL "
+                "AND crm_clients.crm_archived_at IS NULL "
                 "ORDER BY a.crm_client_id, u.full_name, u.id",
                 normalized_ids,
             ).fetchall()
@@ -1085,7 +1092,10 @@ class CrmRepository:
             self._require_row(conn, "SELECT id FROM crm_tabs WHERE id = ? AND owner_user_id = ?", (tab_id, owner_id), "Вкладка не найдена.")
             assignment = self._require_row(
                 conn,
-                "SELECT tab_id FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NULL",
+                """SELECT a.tab_id FROM crm_assignments a
+                   JOIN crm_clients c ON c.id = a.crm_client_id
+                   WHERE a.owner_user_id = ? AND a.crm_client_id = ? AND a.archived_at IS NULL
+                     AND c.crm_archived_at IS NULL""",
                 (owner_id, client_id),
                 "Активное назначение не найдено.",
             )
@@ -1129,6 +1139,7 @@ class CrmRepository:
         linked_rows = conn.execute(
             """SELECT id FROM crm_clients
                WHERE linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0
+                 AND crm_archived_at IS NULL
                ORDER BY id"""
         ).fetchall()
         for row in linked_rows:
@@ -1139,7 +1150,8 @@ class CrmRepository:
                      (SELECT COALESCE(MAX(position), 0) + 1000 FROM crm_primary_row_preferences WHERE owner_user_id = ?),
                      0, ?
                    FROM crm_clients c
-                   WHERE c.id = ? AND c.linked_counterparty_id IS NOT NULL AND COALESCE(c.is_inactive, 0) = 0
+                   WHERE c.id = ? AND c.linked_counterparty_id IS NOT NULL
+                     AND COALESCE(c.is_inactive, 0) = 0 AND c.crm_archived_at IS NULL
                    ON CONFLICT(owner_user_id, crm_client_id) DO NOTHING""",
                 (owner_id, owner_id, utc_now(), client_id),
             )
@@ -1147,7 +1159,7 @@ class CrmRepository:
     def _require_primary_client(self, conn: sqlite3.Connection, client_id: int) -> None:
         self._require_row(
             conn,
-            "SELECT id FROM crm_clients WHERE id = ? AND linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0",
+            "SELECT id FROM crm_clients WHERE id = ? AND linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0 AND crm_archived_at IS NULL",
             (client_id,),
             "В основной вкладке доступен только связанный с 1С клиент.",
         )
@@ -1174,14 +1186,24 @@ class CrmRepository:
                 "Настройка основной строки не найдена.",
             )
             current_order_version = conn.execute(
-                "SELECT COALESCE(MAX(order_version), 0) AS value FROM crm_primary_row_preferences WHERE owner_user_id = ?",
+                """SELECT COALESCE(MAX(p.order_version), 0) AS value
+                   FROM crm_primary_row_preferences p
+                   JOIN crm_clients c ON c.id = p.crm_client_id
+                   WHERE p.owner_user_id = ? AND c.linked_counterparty_id IS NOT NULL
+                     AND COALESCE(c.is_inactive, 0) = 0 AND c.crm_archived_at IS NULL""",
                 (owner_id,),
             ).fetchone()["value"]
             if int(expected_order_version) != int(current_order_version):
                 raise ValueError("Конфликт версии порядка. Загрузите актуальный список.")
             next_order_version = int(current_order_version) + 1
             conn.execute(
-                "UPDATE crm_primary_row_preferences SET order_version = ?, updated_at = ? WHERE owner_user_id = ?",
+                """UPDATE crm_primary_row_preferences
+                   SET order_version = ?, updated_at = ?
+                   WHERE owner_user_id = ? AND crm_client_id IN (
+                     SELECT id FROM crm_clients
+                     WHERE linked_counterparty_id IS NOT NULL
+                       AND COALESCE(is_inactive, 0) = 0 AND crm_archived_at IS NULL
+                   )""",
                 (next_order_version, utc_now(), owner_id),
             )
             conn.execute(
@@ -1216,6 +1238,7 @@ class CrmRepository:
                    FROM crm_clients c
                    JOIN crm_primary_row_preferences p ON p.owner_user_id = ? AND p.crm_client_id = c.id
                    WHERE c.linked_counterparty_id IS NOT NULL AND COALESCE(c.is_inactive, 0) = 0
+                     AND c.crm_archived_at IS NULL
                    ORDER BY p.position, c.name COLLATE NOCASE""",
                 (owner_id,),
             ).fetchall()
@@ -1285,8 +1308,10 @@ class CrmRepository:
                 """SELECT a.crm_client_id, COALESCE(p.color_key, NULL) AS color_key, COALESCE(p.position, 0) AS position,
                           COALESCE(p.order_version, 0) AS order_version
                    FROM crm_assignments a
+                   JOIN crm_clients c ON c.id = a.crm_client_id
                    LEFT JOIN crm_row_preferences p ON p.owner_user_id = a.owner_user_id AND p.tab_id = a.tab_id AND p.crm_client_id = a.crm_client_id
                    WHERE a.owner_user_id = ? AND a.tab_id = ? AND a.archived_at IS NULL
+                     AND c.crm_archived_at IS NULL
                    ORDER BY COALESCE(p.position, 0), a.crm_client_id""",
                 (owner_id, tab_id),
             ).fetchall()
@@ -1349,6 +1374,78 @@ class CrmRepository:
             conn.execute("DELETE FROM crm_row_preferences WHERE owner_user_id = ? AND crm_client_id = ?", (owner_id, client_id))
             conn.execute("DELETE FROM crm_assignments WHERE id = ?", (assignment["id"],))
             self._audit(conn, actor_id, owner_id, client_id, "remove_assignment", "")
+
+    @staticmethod
+    def _require_linked_primary_client(conn: sqlite3.Connection, client_id: int) -> sqlite3.Row:
+        return CrmRepository._require_row(
+            conn,
+            """SELECT * FROM crm_clients
+               WHERE id = ? AND linked_counterparty_id IS NOT NULL
+                 AND COALESCE(is_inactive, 0) = 0""",
+            (client_id,),
+            "В основной вкладке доступен только связанный с 1С клиент.",
+        )
+
+    def archive_primary_client(self, actor_id: int, client_id: int, reason: str) -> dict[str, Any]:
+        """Hide one linked 1C client from every active CRM view without removing related data."""
+        with self.db.transaction() as conn:
+            self._require_admin(conn, actor_id)
+            client = self._require_linked_primary_client(conn, client_id)
+            if client["crm_archived_at"] is not None:
+                raise ValueError("Клиент уже находится в архиве.")
+            now = utc_now()
+            conn.execute(
+                """UPDATE crm_clients
+                   SET crm_archived_at = ?, crm_archived_by_user_id = ?, crm_archive_reason = ?
+                   WHERE id = ?""",
+                (now, actor_id, reason.strip() or None, client_id),
+            )
+            self._audit(conn, actor_id, actor_id, client_id, "archive_primary_client", reason)
+            archived = conn.execute("SELECT * FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+        return dict(archived)
+
+    def restore_primary_client(self, actor_id: int, client_id: int) -> dict[str, Any]:
+        """Restore a globally archived linked client without rebuilding its relationships."""
+        with self.db.transaction() as conn:
+            self._require_admin(conn, actor_id)
+            client = self._require_linked_primary_client(conn, client_id)
+            if client["crm_archived_at"] is None:
+                raise ValueError("Клиент не находится в архиве.")
+            conn.execute(
+                """UPDATE crm_clients
+                   SET crm_archived_at = NULL, crm_archived_by_user_id = NULL, crm_archive_reason = NULL
+                   WHERE id = ?""",
+                (client_id,),
+            )
+            self._audit(conn, actor_id, actor_id, client_id, "restore_primary_client", "")
+            restored = conn.execute("SELECT * FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
+        return dict(restored)
+
+    def list_archived_primary_clients_for_actor(self, actor_id: int) -> dict[str, Any]:
+        """Return the admin archive plus counts for the shared primary CRM list."""
+        with self.db.connect() as conn:
+            self._require_admin(conn, actor_id)
+            counts = conn.execute(
+                """SELECT
+                     COALESCE(SUM(CASE WHEN crm_archived_at IS NULL THEN 1 ELSE 0 END), 0) AS active_count,
+                     COALESCE(SUM(CASE WHEN crm_archived_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS archived_count
+                   FROM crm_clients
+                   WHERE linked_counterparty_id IS NOT NULL AND COALESCE(is_inactive, 0) = 0"""
+            ).fetchone()
+            rows = conn.execute(
+                """SELECT c.*, u.full_name AS archived_by_full_name
+                   FROM crm_clients c
+                   LEFT JOIN users u ON u.id = c.crm_archived_by_user_id
+                   WHERE c.linked_counterparty_id IS NOT NULL
+                     AND COALESCE(c.is_inactive, 0) = 0
+                     AND c.crm_archived_at IS NOT NULL
+                   ORDER BY c.crm_archived_at DESC, c.id"""
+            ).fetchall()
+        return {
+            "clients": [dict(row) for row in rows],
+            "active_count": int(counts["active_count"]),
+            "archived_count": int(counts["archived_count"]),
+        }
 
     def archive_local_client(self, *, actor_id: int, owner_id: int, client_id: int, reason: str, expected_version: int) -> int:
         """Archive a local lead reversibly without deleting its document identity or history."""

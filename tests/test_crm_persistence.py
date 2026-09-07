@@ -376,6 +376,166 @@ class CrmPersistenceTest(unittest.TestCase):
         self.assertEqual([self.client["id"], second["id"]], [row["id"] for row in primary])
         self.assertEqual(("pink", 1000), (preference["color_key"], preference["position"]))
 
+    def test_primary_archive_hides_globally_and_restore_preserves_related_data(self) -> None:
+        other_owner_id = self.db.create_user(username="other-owner", password="password", role="user")
+        owner_work = self.repo.ensure_work_tab(self.owner_id)
+        other_work = self.repo.ensure_work_tab(other_owner_id)
+        with self.db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO counterparties(id, onec_key, name, updated_at) VALUES (803, 'onec-803', 'Агроснаб', '2026-09-04T00:00:00')"
+            )
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = 803, sync_status = 'synced' WHERE id = ?",
+                (self.client["id"],),
+            )
+
+        self.repo.assign_client_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            tab_id=owner_work["id"],
+        )
+        self.repo.assign_client_for_actor(
+            actor_id=other_owner_id,
+            owner_id=other_owner_id,
+            client_id=self.client["id"],
+            tab_id=other_work["id"],
+        )
+        self.repo.list_cards_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, primary_only=True)
+        self.repo.list_cards_for_actor(actor_id=other_owner_id, owner_id=other_owner_id, primary_only=True)
+        self.repo.set_primary_row_color_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            color_key="pink",
+            expected_order_version=0,
+        )
+        self.repo.set_row_preference_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            tab_id=owner_work["id"],
+            client_id=self.client["id"],
+            color_key="blue",
+            position=1000,
+        )
+        self.repo.add_contact_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            name="Иван",
+        )
+        self.repo.add_event_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            kind="comment",
+            body="Сохранить историю",
+        )
+        self.repo.add_reminder_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            due_at="2026-10-01T10:00:00+03:00",
+        )
+        with self.db.connect() as conn:
+            before_counts = {
+                table: conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE crm_client_id = ?", (self.client["id"],)
+                ).fetchone()[0]
+                for table in (
+                    "crm_assignments",
+                    "crm_contacts",
+                    "crm_events",
+                    "crm_reminders",
+                    "crm_row_preferences",
+                    "crm_primary_row_preferences",
+                )
+            }
+
+        archived = self.repo.archive_primary_client(
+            actor_id=self.admin_id,
+            client_id=self.client["id"],
+            reason="  Неактуальный  ",
+        )
+
+        self.assertTrue(archived["crm_archived_at"])
+        self.assertEqual(self.admin_id, archived["crm_archived_by_user_id"])
+        self.assertEqual("Неактуальный", archived["crm_archive_reason"])
+        self.assertFalse(bool(archived["is_inactive"]))
+        self.assertEqual("synced", archived["sync_status"])
+        for owner_id, tab_id in ((self.owner_id, owner_work["id"]), (other_owner_id, other_work["id"])):
+            self.assertNotIn(
+                self.client["id"],
+                [row["id"] for row in self.repo.list_cards_for_actor(actor_id=owner_id, owner_id=owner_id, primary_only=True)],
+            )
+            self.assertNotIn(
+                self.client["id"],
+                [row["id"] for row in self.repo.list_cards_for_actor(actor_id=owner_id, owner_id=owner_id, tab_id=tab_id)],
+            )
+        self.assertNotIn(
+            self.client["id"],
+            self.repo.list_active_work_owners_for_client_ids([self.client["id"]]),
+        )
+        with self.assertRaisesRegex(ValueError, "Клиент не найден"):
+            self.repo.get_card_for_actor(
+                actor_id=self.owner_id,
+                owner_id=self.owner_id,
+                client_id=self.client["id"],
+            )
+        with self.db.connect() as conn:
+            after_archive_counts = {
+                table: conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE crm_client_id = ?", (self.client["id"],)
+                ).fetchone()[0]
+                for table in before_counts
+            }
+        self.assertEqual(before_counts, after_archive_counts)
+
+        restored = self.repo.restore_primary_client(actor_id=self.admin_id, client_id=self.client["id"])
+
+        self.assertIsNone(restored["crm_archived_at"])
+        self.assertIsNone(restored["crm_archived_by_user_id"])
+        self.assertIsNone(restored["crm_archive_reason"])
+        self.assertFalse(bool(restored["is_inactive"]))
+        self.assertEqual("synced", restored["sync_status"])
+        for owner_id, tab_id in ((self.owner_id, owner_work["id"]), (other_owner_id, other_work["id"])):
+            self.assertIn(
+                self.client["id"],
+                [row["id"] for row in self.repo.list_cards_for_actor(actor_id=owner_id, owner_id=owner_id, primary_only=True)],
+            )
+            self.assertIn(
+                self.client["id"],
+                [row["id"] for row in self.repo.list_cards_for_actor(actor_id=owner_id, owner_id=owner_id, tab_id=tab_id)],
+            )
+        self.assertEqual(
+            "pink",
+            self.repo.get_primary_row_preference_for_actor(
+                actor_id=self.owner_id,
+                owner_id=self.owner_id,
+                client_id=self.client["id"],
+            )["color_key"],
+        )
+        self.assertEqual(
+            "blue",
+            self.repo.get_row_preference_for_actor(
+                actor_id=self.owner_id,
+                owner_id=self.owner_id,
+                tab_id=owner_work["id"],
+                client_id=self.client["id"],
+            )["color_key"],
+        )
+        with self.db.connect() as conn:
+            self.assertEqual(
+                ["archive_primary_client", "restore_primary_client"],
+                [
+                    row["action"]
+                    for row in conn.execute(
+                        "SELECT action FROM crm_audit_actions WHERE crm_client_id = ? ORDER BY id",
+                        (self.client["id"],),
+                    )
+                ],
+            )
+
     def test_row_preference_must_match_clients_active_personal_tab(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
         another_tab = self.repo.create_tab(self.owner_id, "Другой список")
