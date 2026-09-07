@@ -1710,6 +1710,14 @@ class Database:
                     comment=comment.strip() or "Ручная корректировка остатка.",
                     keep_zero=True,
                 )
+            else:
+                self._set_warehouse_quantity(
+                    conn,
+                    item_id=item_id,
+                    warehouse_id=default_warehouse_id,
+                    quantity=normalized_quantity,
+                    keep_zero=True,
+                )
 
     def add_item_stock(
         self,
@@ -1934,15 +1942,15 @@ class Database:
                     (item_id, warehouse_id),
                 )
         else:
-            conn.execute(
-                """
-                INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, updated_at)
-                VALUES(?, ?, ?, ?)
-                ON CONFLICT(item_id, warehouse_id) DO UPDATE SET
-                    quantity = quantity + excluded.quantity,
-                    updated_at = excluded.updated_at
-                """,
-                (item_id, warehouse_id, amount, utc_now()),
+            next_quantity = self._require_finite_nonnegative(
+                current_quantity + amount,
+                label="Остаток",
+            )
+            self._set_warehouse_quantity(
+                conn,
+                item_id=item_id,
+                warehouse_id=warehouse_id,
+                quantity=next_quantity,
             )
         self._record_stock_movement(
             conn,

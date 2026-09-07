@@ -324,6 +324,71 @@ class StockInvariantTest(unittest.TestCase):
         self.assertEqual(float(row["quantity"]), 0.0)
         self.assertEqual((row["rack"], row["cell"]), ("A", "10"))
 
+    def test_stock_add_cannot_overflow_balance_to_infinity(self) -> None:
+        overflow_item = self.db.create_local_item(
+            sku="ADD-OVERFLOW-001",
+            name="Большой остаток",
+            print_name="Большой остаток",
+            category_name="Тест",
+            group_name="Тест",
+            price=100,
+            warehouses=[{"warehouse_id": int(self.warehouse["id"]), "quantity": 1e308}],
+        )
+
+        with self.assertRaises(ValueError):
+            self.db.add_item_stock(
+                item_id=int(overflow_item["id"]),
+                warehouse_id=int(self.warehouse["id"]),
+                quantity=1e308,
+            )
+
+        with self.db.connect() as conn:
+            quantity = conn.execute(
+                "SELECT quantity FROM item_warehouse_balances WHERE item_id = ? AND warehouse_id = ?",
+                (int(overflow_item["id"]), int(self.warehouse["id"])),
+            ).fetchone()["quantity"]
+        self.assertEqual(float(quantity), 1e308)
+
+    def test_stock_move_rolls_back_when_target_balance_would_overflow(self) -> None:
+        target_warehouse = self.db.create_warehouse(name="Склад с большим остатком")
+        overflow_item = self.db.create_local_item(
+            sku="MOVE-OVERFLOW-001",
+            name="Перемещаемый большой остаток",
+            print_name="Перемещаемый большой остаток",
+            category_name="Тест",
+            group_name="Тест",
+            price=100,
+            warehouses=[
+                {"warehouse_id": int(self.warehouse["id"]), "quantity": 1e308},
+                {"warehouse_id": int(target_warehouse["id"]), "quantity": 1e308},
+            ],
+        )
+
+        with self.assertRaises(ValueError):
+            self.db.move_item_stock(
+                item_id=int(overflow_item["id"]),
+                from_warehouse_id=int(self.warehouse["id"]),
+                to_warehouse_id=int(target_warehouse["id"]),
+                quantity=1e308,
+            )
+
+        with self.db.connect() as conn:
+            balances = conn.execute(
+                """
+                SELECT warehouse_id, quantity
+                FROM item_warehouse_balances
+                WHERE item_id = ?
+                ORDER BY warehouse_id
+                """,
+                (int(overflow_item["id"]),),
+            ).fetchall()
+            movement_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM stock_movements WHERE item_id = ?",
+                (int(overflow_item["id"]),),
+            ).fetchone()["count"]
+        self.assertEqual([float(row["quantity"]) for row in balances], [1e308, 1e308])
+        self.assertEqual(int(movement_count), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

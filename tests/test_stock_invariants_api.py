@@ -7,13 +7,21 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+_bootstrap_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+_previous_db_path = os.environ.get("SM_TECHNO_DB_PATH")
 _previous_admin_password = os.environ.get("SM_TECHNO_INITIAL_ADMIN_PASSWORD")
+os.environ["SM_TECHNO_DB_PATH"] = str(Path(_bootstrap_dir.name) / "bootstrap.db")
 os.environ["SM_TECHNO_INITIAL_ADMIN_PASSWORD"] = _previous_admin_password or "test-password"
 try:
     import stock_sync_api
 finally:
+    if _previous_db_path is None:
+        os.environ.pop("SM_TECHNO_DB_PATH", None)
+    else:
+        os.environ["SM_TECHNO_DB_PATH"] = _previous_db_path
     if _previous_admin_password is None:
         os.environ.pop("SM_TECHNO_INITIAL_ADMIN_PASSWORD", None)
+    _bootstrap_dir.cleanup()
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.service import WebStockSyncService
 
