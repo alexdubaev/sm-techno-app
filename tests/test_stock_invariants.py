@@ -215,6 +215,39 @@ class StockInvariantTest(unittest.TestCase):
             )
         )
 
+    def test_manual_writeoff_cannot_consume_stock_reserved_for_order_finalization(self) -> None:
+        self.db.upsert_counterparties(
+            [{"onec_key": "counterparty-1", "name": "Контрагент", "full_name": "Контрагент"}]
+        )
+        counterparty_id = int(self.db.list_counterparties()[0]["id"])
+        self.db.create_reserved_order(
+            counterparty_id=counterparty_id,
+            contract_id=None,
+            organization_key=None,
+            order_date="2026-09-07",
+            comment="Резерв",
+            attempt_key="reservation-protects-stock",
+            lines=[
+                {
+                    "item_id": int(self.item["id"]),
+                    "warehouse_id": int(self.warehouse["id"]),
+                    "quantity": 4,
+                    "price": 100,
+                    "amount": 400,
+                }
+            ],
+        )
+
+        with self.assertRaises(ValueError):
+            self.db.writeoff_item_stock(
+                item_id=int(self.item["id"]),
+                warehouse_id=int(self.warehouse["id"]),
+                quantity=2,
+            )
+
+        self.assertEqual(self._balance(), 5.0)
+        self.assertEqual(self._movement_count("writeoff"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

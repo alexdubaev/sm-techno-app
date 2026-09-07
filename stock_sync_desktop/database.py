@@ -1901,7 +1901,19 @@ class Database:
             item_id=item_id,
             warehouse_id=warehouse_id,
         )
-        if delta < 0 and current_quantity < amount:
+        reservation_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(r.quantity), 0) AS quantity
+            FROM order_reservations r
+            JOIN orders o ON o.id = r.order_id
+            WHERE r.item_id = ?
+              AND r.warehouse_id = ?
+              AND o.status IN ('reserved', 'sending_to_1c', 'remote_created_pending_finalize', 'remote_state_unknown')
+            """,
+            (item_id, warehouse_id),
+        ).fetchone()
+        available_quantity = current_quantity - float(reservation_row["quantity"])
+        if delta < 0 and available_quantity < amount:
             raise ValueError(insufficient_message or "Недостаточно доступного остатка на складе.")
 
         self._set_warehouse_quantity(
