@@ -50,6 +50,12 @@ class ExcelImportSafetyTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "изменился"):
             service.commit_stock_excel(workbook, "stale")
 
+    def test_preview_reports_an_existing_sku_as_an_update(self) -> None:
+        db = WebDatabase(self.temp_path / "stock.db")
+        db.import_stock_rows([{"sku": "SKU-003", "name": "Болт", "print_name": "Болт", "category_name": "", "group_name": "", "price": 1, "warehouse_name": "Склад A", "quantity": 1, "onec_key": None, "unit_key": None, "unit_name": None}])
+        preview = WebStockSyncService(db=db).preview_stock_excel(self._write_workbook([["sku-003", "Болт", "Склад A", 2, 1]]))
+        self.assertEqual((preview["created"], preview["updated"]), (0, 1))
+
     def _write_workbook(self, rows: list[list[object]]) -> Path:
         workbook = Workbook()
         sheet = workbook.active

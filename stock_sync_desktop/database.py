@@ -1075,6 +1075,24 @@ class Database:
                 )
         return created, updated
 
+    def preview_stock_import_rows(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
+        created = 0
+        updated = 0
+        with self.connect() as conn:
+            for row in rows:
+                existing = self._find_existing_item(
+                    conn,
+                    onec_key=self._normalize_guid(row.get("onec_key")),
+                    sku=row.get("sku"),
+                    name=None,
+                    match_by_name=False,
+                )
+                if existing is None:
+                    created += 1
+                else:
+                    updated += 1
+        return created, updated
+
     def import_storage_location_rows(self, rows: list[dict[str, Any]]) -> dict[str, int]:
         self._validate_unique_storage_locations(
             rows,

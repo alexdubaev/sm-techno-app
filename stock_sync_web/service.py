@@ -494,11 +494,12 @@ class WebStockSyncService:
 
         import_bundle = read_stock_import_bundle(path)
         stock_rows = import_bundle["stock_rows"]
+        created, updated = self.db.preview_stock_import_rows(stock_rows)
         plan_hash = self._stock_import_plan_hash(import_bundle)
         return {
             "planHash": plan_hash,
-            "created": len(stock_rows),
-            "updated": 0,
+            "created": created,
+            "updated": updated,
             "unchanged": 0,
             "locationUpdated": len(import_bundle["location_rows"]),
             "errors": [],
