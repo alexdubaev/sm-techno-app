@@ -253,11 +253,11 @@ def test_malformed_workbook_is_rejected(setup):
         run(setup, b"not xlsx")
 
 
-def test_unmatched_kpp_falls_back_to_unique_inn(setup):
+def test_unmatched_kpp_does_not_fall_back_to_unique_inn(setup):
     _, repo, owner, _, _ = setup
     repo.create_local_client(actor_id=owner, values={"document_name": "А", "inn": "123", "kpp": "old"})
     preview = run(setup, workbook([{"Компания": "А", "ИНН": "123", "КПП": "new"}]))
-    assert (preview["clientsToCreate"], preview["clientsToUpdate"]) == (0, 1)
+    assert (preview["clientsToCreate"], preview["clientsToUpdate"]) == (1, 0)
 
 
 def test_colour_restores_for_existing_target_even_when_assignment_inclusion_is_false(setup):
