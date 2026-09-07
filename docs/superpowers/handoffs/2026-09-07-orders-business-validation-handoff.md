@@ -1,4 +1,4 @@
-# Заказы → 1С: ТЗ 01 + ТЗ 02 — полный handoff
+# Заказы → 1С и склад: ТЗ 01 + ТЗ 02 + ТЗ 04 — полный handoff
 
 Дата: 2026-09-07.
 
@@ -9,6 +9,7 @@
 - База: `b4bc198` (актуальный CRM archive handoff).
 - ТЗ 01: `a297cf8`, `4269003`; его docs/handoff: `ad9915e`, `dc2d1aa`, `58983e6`.
 - ТЗ 02: `b857dc7`, `6732edb`, `379a00f`, `9bbece1`.
+- ТЗ 04: `f1781d3`…`4e3b247`; design/plan: `6f49eb2`, `e4ab0e1`.
 
 Не использовать `git reset --hard`, `git clean` или массовое восстановление в других worktree: там есть сторонние изменения.
 
@@ -36,6 +37,17 @@
 
 Цена из браузера не принимается: сервер берёт `items.price` и пересчитывает amount. `onecUsername`/`onecPassword` в `POST /api/orders/send` игнорируются: используются только сохранённые credentials текущего пользователя. Invalid command не создаёт order/reservation и не строит OneCClient.
 
+## ТЗ 04: инварианты и конкурентные складские операции
+
+- Все ручные stock mutations выполняются в `BEGIN IMMEDIATE`; `busy_timeout=5000`, исчерпание lock wait превращается в контролируемый domain error.
+- Балансы и цены принимают только конечные неотрицательные значения; количество движения — только конечное положительное.
+- Добавление и целевая сторона перемещения проверяют переполнение результата до записи, поэтому `Infinity` не попадает в SQLite.
+- Списание использует conditional `UPDATE` и учитывает активные `order_reservations`; два конкурентных списания последней единицы дают максимум один успех.
+- Баланс и `stock_movements` фиксируются одной транзакцией; неуспешное перемещение откатывает обе стороны и оба движения.
+- Ручная установка абсолютного остатка пишет движение `adjustment` с delta и комментарием.
+- Нулевая строка сохраняется вместе с `rack/cell`; это не ломает последующее ТЗ 05.
+- Финализация заказа и ручное списание заказа сериализованы через тот же stock transaction boundary.
+
 ## Изменённые файлы
 
 - `stock_sync_desktop/database.py` — migration, reservations, transitions, ledger.
@@ -44,14 +56,19 @@
 - `stock_sync_api.py` — recovery endpoint, safe payload parse.
 - `sm-techno-web/lib/api.ts`, `sm-techno-web/app/orders/[id]/page.tsx` — recovery UI.
 - `tests/test_order_sync_recovery.py`, `tests/test_order_business_validation.py`.
+- `tests/test_stock_invariants.py`, `tests/test_stock_invariants_api.py`, `tests/test_order_manual_writeoff.py`.
 
 ## Проверки
 
-Последняя combined focused backend проверка: 24/24 passed.
+Последняя combined focused backend проверка ТЗ 01/02/04: 54/54 passed.
 
 ```powershell
-& 'D:\codex\sm-techno-app\worktrees\vps-self-hosting\.venv\Scripts\python.exe' -m unittest tests.test_order_business_validation tests.test_order_sync_recovery tests.test_order_manual_writeoff tests.test_order_item_matching_by_sku tests.test_order_category_fallback -v
+& 'D:\codex\sm-techno-app\worktrees\vps-self-hosting\.venv\Scripts\python.exe' -m unittest tests.test_stock_invariants tests.test_stock_invariants_api tests.test_persistence_after_restart tests.test_storage_locations tests.test_order_business_validation tests.test_order_sync_recovery tests.test_order_manual_writeoff tests.test_order_item_matching_by_sku tests.test_order_category_fallback
 ```
+
+Независимый read-only review ТЗ 04: `Ready to merge`, Critical/Important/Minor — 0.
+
+Полный `unittest discover` на финальном дереве: 304 tests, 9 failures, 5 errors, 22 skipped. Красные тесты воспроизводят уже зафиксированные отдельные проблемы ТЗ 10/11/12/21 и legacy frontend source-string checks; целевой stock/order regression зелёный.
 
 `tests.test_order_writeoff_api` требует `SM_TECHNO_INITIAL_ADMIN_PASSWORD` при import API; с временным test value проходит.
 
