@@ -149,8 +149,12 @@ def plan_crm_import(book: WorkbookRows, *, owner_id: int, target_tab_id: int | N
             ]
             if not matches and values.get("kpp"):
                 matches = [client for client in candidates if text(client.get("inn")) == values["inn"]]
-        if not matches and (phone(values.get("phone")) or normalized(values.get("email"))):
-            matches = [client for client in candidates if _same_channel(values, client)]
+        if not matches and values.get("document_name") and (phone(values.get("phone")) or normalized(values.get("email"))):
+            matches = [
+                client for client in candidates
+                if normalized(client.get("document_name")) == normalized(values["document_name"])
+                and _same_channel(values, client)
+            ]
         return matches
 
     for row in book.clients:

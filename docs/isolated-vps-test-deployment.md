@@ -53,5 +53,9 @@ python3 scripts/vps_backup.py --root /srv/sm-techno-test --backups-dir /srv/sm-t
 python3 scripts/vps_restore.py --archive /srv/sm-techno-test/backups/NAME.tar.gz --target-root /srv/sm-techno-restore-test
 ```
 
-Restore requires an empty target root. Stop only `sm-techno-test` before a
-restore into its live data root; do not run a restore against any other project.
+Restore requires an empty target root: `vps_restore.py` refuses to run when
+`data/` or `storage/` already exist there. To restore back into the live root
+of `sm-techno-test`, stop that project's containers, remove
+`/srv/sm-techno-test/data` and `/srv/sm-techno-test/storage` (or restore into a
+fresh root such as `/srv/sm-techno-restore-test` and move the directories
+afterwards). Do not run a restore against any other project.

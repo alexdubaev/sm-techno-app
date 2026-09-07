@@ -122,17 +122,17 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn('onChange={(event) => setSignerPosition(event.target.value)}', source)
 
     def test_sidebar_places_journal_inside_documents_section(self) -> None:
-        source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
+        source = Path("sm-techno-web/components/navigation/app-navigation.tsx").read_text(encoding="utf-8")
 
-        documents_start = source.index('label: "Документы"')
-        admin_start = source.index('label: "Администрирование"', documents_start)
+        documents_start = source.index("label: 'Документы'")
+        admin_start = source.index("label: 'Администрирование'", documents_start)
         documents_block = source[documents_start:admin_start]
 
-        self.assertIn('href: "/documents"', documents_block)
-        self.assertIn('isActive: (path) => path === "/documents"', documents_block)
-        self.assertIn('href: "/documents/journal"', documents_block)
-        self.assertIn('label: "Журнал документов"', documents_block)
-        self.assertNotIn('label: "Журнал",', source)
+        self.assertIn("href: '/documents'", documents_block)
+        self.assertIn("isActive: (path) => path === '/documents'", documents_block)
+        self.assertIn("href: '/documents/journal'", documents_block)
+        self.assertIn("label: 'Журнал документов'", documents_block)
+        self.assertNotIn("label: 'Журнал',", source)
 
     def test_parent_menu_click_only_toggles_its_group_without_navigation(self) -> None:
         source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")

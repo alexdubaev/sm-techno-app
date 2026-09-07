@@ -146,8 +146,13 @@ def test_inn_kpp_phone_and_email_matching_without_technical_identifiers(setup):
     for kpp in ("1", "2"):
         repo.create_local_client(actor_id=owner, values={"document_name": "Филиал", "inn": "123", "kpp": kpp})
     repo.create_local_client(actor_id=owner, values={"document_name": "  Альфа  Сервис ", "phone": "+7 (900) 123-45-67"})
-    preview = run(setup, legacy_workbook([{"Компания": "Филиал новый", "ИНН": "123", "КПП": "2"}, {"Компания": "Переименованная Альфа", "Телефон": "79001234567"}]))
+    preview = run(setup, legacy_workbook([
+        {"Компания": "Филиал новый", "ИНН": "123", "КПП": "2"},
+        {"Компания": "альфа  сервис", "Телефон": "79001234567"},
+        {"Компания": "Переименованная Альфа", "Телефон": "79001234567"},
+    ]))
     assert preview["clientsToUpdate"] == 2
+    assert preview["clientsToCreate"] == 1
     assert not preview["errors"]
 
 

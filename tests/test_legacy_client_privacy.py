@@ -70,6 +70,88 @@ class LegacyClientPrivacyTest(unittest.TestCase):
         self.assertNotIn(self.private_client["id"], ids)
         self.assertIn(self.shared_client["id"], ids)
 
+    def test_legacy_client_list_hides_globally_archived_primary_client(self) -> None:
+        self._archive_shared_client()
+
+        response = self.client.get("/api/clients")
+
+        self.assertEqual(200, response.status_code, response.text)
+        items = response.json()["items"]
+        local_ids = [row["id"] for row in items if row["source"] == "local"]
+        self.assertNotIn(self.shared_client["id"], local_ids)
+        onec_ids = [row["counterpartyId"] for row in items if row["source"] == "onec"]
+        self.assertIn(901, onec_ids)
+
+    def _archive_shared_client(self) -> None:
+        admin_id = self.service.db.create_user(username="legacy-admin", password="password", role="admin")
+        self.repo.archive_primary_client(
+            actor_id=admin_id, client_id=int(self.shared_client["id"]), reason="Клиент закрыт"
+        )
+
+    def test_legacy_send_to_onec_rejects_archived_primary_client(self) -> None:
+        self._archive_shared_client()
+        fake = RecordingOneC()
+
+        def build_user_client(**_: object) -> RecordingOneC:
+            fake.calls += 1
+            return fake
+
+        self.service.build_user_client = build_user_client  # type: ignore[method-assign]
+        response = self.client.post(f"/api/clients/{self.shared_client['id']}/send-to-onec")
+
+        self.assertEqual(400, response.status_code, response.text)
+        self.assertIn("архиве", response.json()["detail"])
+        self.assertEqual(0, fake.calls)
+
+    def test_legacy_document_rejects_archived_primary_client(self) -> None:
+        self._archive_shared_client()
+        response = self.client.post(
+            "/api/documents",
+            json={
+                "documentType": "contract",
+                "clientSource": "local",
+                "clientId": self.shared_client["id"],
+            },
+        )
+
+        self.assertEqual(400, response.status_code, response.text)
+        self.assertIn("архиве", response.json()["detail"])
+
+    def test_commercial_offer_rejects_archived_client_name(self) -> None:
+        self._archive_shared_client()
+        item = self.service.db.create_local_item(
+            sku="SKU-ARCHIVE",
+            name="Фильтр архивный",
+            print_name="Фильтр архивный",
+            category_name="CAT",
+            group_name="Фильтры",
+            price=100,
+            warehouses=[{"warehouse_name": "Основной склад", "quantity": 5}],
+        )
+        response = self.client.post(
+            "/api/commercial-offers/from-draft",
+            json={
+                "clientName": "Общий клиент",
+                "lines": [
+                    {
+                        "itemId": item["id"],
+                        "article": "SKU-ARCHIVE",
+                        "name": "Фильтр архивный",
+                        "brand": "CAT",
+                        "qty": 1,
+                        "priceVat": 100,
+                        "deliveryTime": "",
+                        "note": "",
+                        "warehouseId": item["warehouses"][0]["warehouse_id"],
+                        "warehouseName": "Основной склад",
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(400, response.status_code, response.text)
+        self.assertIn("архиве", response.json()["detail"])
+
     def test_legacy_send_denies_private_lead_before_building_onec_client(self) -> None:
         fake = RecordingOneC()
 

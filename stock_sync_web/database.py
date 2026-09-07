@@ -1093,6 +1093,8 @@ class WebDatabase(Database):
                 bank_account,
                 correspondent_account,
                 contact_person,
+                telegram,
+                max_link,
                 city,
                 website,
                 email,

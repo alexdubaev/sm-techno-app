@@ -4,8 +4,9 @@ node_modules
 sm-techno-web/node_modules
 sm-techno-web/.next
 *.db
+**/*.db
 storage
-transfer
+transfer*
 backups
 .env
 **/.env

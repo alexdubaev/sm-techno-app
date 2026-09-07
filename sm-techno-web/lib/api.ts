@@ -415,9 +415,10 @@ async function requestJsonWithInit<T>(
 }
 
 export function buildApiUrl(path: string) {
-  // The browser always uses the published Sites origin. The server-side route
-  // forwards /api/* requests to the private application server, so an external
-  // device never needs direct access to its Tailscale address.
+  // The browser always calls the same origin: in local development the Next
+  // proxy route (app/api/[...path]/route.ts, BACKEND_API_BASE_URL) forwards
+  // /api/* to the backend, and in production the reverse proxy routes /api/*
+  // to the backend container.
   return path;
 }
 

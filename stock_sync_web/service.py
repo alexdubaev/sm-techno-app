@@ -719,9 +719,16 @@ class WebStockSyncService:
         ):
             raise PermissionError("Частный CRM-клиент другого сотрудника недоступен.")
 
+    @staticmethod
+    def _require_legacy_client_active(row: dict[str, Any]) -> None:
+        if row.get("crm_archived_at") is not None:
+            raise ValueError("Клиент находится в архиве. Сначала восстановите его из архива.")
+
     def _legacy_client_is_hidden(
         self, row: dict[str, Any], *, actor_user_id: int | None
     ) -> bool:
+        if row.get("crm_archived_at") is not None:
+            return True
         try:
             self._require_legacy_client_access(row, actor_user_id=actor_user_id)
         except PermissionError:
@@ -1021,6 +1028,7 @@ class WebStockSyncService:
         if not row:
             raise ValueError("Клиент не найден.")
         self._require_legacy_client_access(row, actor_user_id=actor_user_id)
+        self._require_legacy_client_active(row)
 
         linked_counterparty_id = int(row["linked_counterparty_id"]) if row.get("linked_counterparty_id") else None
         self._ensure_no_client_inn_duplicate(
@@ -1517,6 +1525,7 @@ class WebStockSyncService:
             if not target:
                 raise ValueError("Локальный клиент не найден.")
             self._require_legacy_client_access(target, actor_user_id=actor_user_id)
+            self._require_legacy_client_active(target)
             return {
                 "client_source": "local",
                 "counterparty_id": target.get("linked_counterparty_id"),
@@ -1525,6 +1534,7 @@ class WebStockSyncService:
             }
 
         target = self.db.get_or_create_crm_client(name=client_name)
+        self._require_legacy_client_active(target)
         return {
             "client_source": "local",
             "counterparty_id": target.get("linked_counterparty_id"),
@@ -1564,6 +1574,7 @@ class WebStockSyncService:
             if not target:
                 raise ValueError("Локальный клиент не найден.")
             self._require_legacy_client_access(target, actor_user_id=actor_user_id)
+            self._require_legacy_client_active(target)
             return {
                 "client_source": "local",
                 "counterparty_id": target.get("linked_counterparty_id"),
