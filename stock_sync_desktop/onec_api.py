@@ -1372,6 +1372,23 @@ class OneCClient:
         endpoint = f"Document_ЗаказПокупателя(guid'{ref_key}')?$format=json"
         return self._request("GET", endpoint)
 
+    def find_sales_order_by_comment_marker(self, marker: str) -> dict[str, Any] | None:
+        normalized_marker = str(marker or "").strip()
+        if not normalized_marker:
+            raise OneCClientError("Не задан marker для поиска заказа в 1С.")
+        escaped_marker = self._escape_odata_string(normalized_marker)
+        endpoint = (
+            "Document_ЗаказПокупателя?"
+            f"$filter=substringof('{escaped_marker}',Комментарий)&$top=2&$format=json"
+        )
+        payload = self._request("GET", endpoint)
+        rows = payload.get("value", [])
+        if not isinstance(rows, list):
+            raise OneCClientError("1С вернула некорректный ответ поиска заказа по marker.")
+        if len(rows) > 1:
+            raise OneCClientError("В 1С найдено несколько заказов с одним marker; нужна ручная сверка.")
+        return dict(rows[0]) if rows else None
+
     def fetch_entity(self, entity_name: str, top: int = 1) -> list[dict[str, Any]]:
         payload = self._request(
             "GET",

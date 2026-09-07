@@ -1788,7 +1788,17 @@ class WebStockSyncService:
             }
             for line in draft_lines
         ]
-        order_id = self.db.create_order(counterparty_id=counterparty_id, contract_id=contract_id, organization_key=organization_key, order_date=order_date, comment=comment, lines=bundle_lines, created_by_user_id=actor_user_id)
+        attempt_key = uuid.uuid4().hex
+        order_id = self.db.create_reserved_order(
+            counterparty_id=counterparty_id,
+            contract_id=contract_id,
+            organization_key=organization_key,
+            order_date=order_date,
+            comment=comment,
+            lines=bundle_lines,
+            attempt_key=attempt_key,
+            created_by_user_id=actor_user_id,
+        )
         try:
             bundle = self.db.get_order_bundle(order_id)
             client = self.build_user_client(
@@ -1798,16 +1808,71 @@ class WebStockSyncService:
             )
             self._ensure_order_items_ready(bundle, client)
             payload = self._build_order_payload(bundle, client)
+        except Exception as exc:
+            self.db.release_order_reservations(
+                order_id,
+                status="error_before_remote_write",
+                error_message=str(exc),
+            )
+            raise
+
+        marker = f"[SMT:{attempt_key}]"
+        payload["Комментарий"] = " ".join(
+            part for part in (str(payload.get("Комментарий") or "").strip(), marker) if part
+        )
+        try:
+            self.db.mark_order_sending_to_onec(order_id)
             created_doc = client.create_sales_order(payload)
-            ref_key = created_doc.get("Ref_Key")
-            if not ref_key:
-                raise OneCClientError("1С не вернула Ref_Key созданного заказа. Проверь ответ сервера.")
+        except Exception as exc:
+            self.db.mark_order_remote_unknown(order_id, str(exc))
+            raise
+
+        ref_key = created_doc.get("Ref_Key")
+        if not ref_key:
+            error = OneCClientError("1С не вернула Ref_Key созданного заказа. Проверь ответ сервера.")
+            self.db.mark_order_remote_unknown(order_id, str(error))
+            raise error
+        self.db.record_remote_order(order_id, onec_ref_key=str(ref_key))
+        try:
             loaded_doc = client.get_sales_order(ref_key)
             self.db.finalize_order_sync(order_id, onec_ref_key=ref_key, onec_number=loaded_doc.get("Number", ""), onec_date=loaded_doc.get("Date", ""))
             return order_id, loaded_doc
         except Exception as exc:
-            self.db.mark_order_error(order_id, str(exc))
+            self.db.mark_order_pending_finalize_error(order_id, str(exc))
             raise
+
+    def recover_order_sync_for_admin(self, *, order_id: int, actor_user_id: int) -> dict[str, Any]:
+        bundle = self.db.get_order_bundle(order_id)
+        order = bundle["order"]
+        status = str(order.get("status") or "")
+        if status not in {"remote_state_unknown", "remote_created_pending_finalize", "posted_to_1c"}:
+            raise ValueError("Заказ не ожидает сверки с 1С.")
+        if status == "posted_to_1c":
+            return bundle
+
+        client = self.build_user_client(user_id=actor_user_id)
+        ref_key = str(order.get("onec_ref_key") or "").strip()
+        if ref_key:
+            remote_document = client.get_sales_order(ref_key)
+        else:
+            attempt_key = str(order.get("sync_attempt_key") or "").strip()
+            if not attempt_key:
+                raise ValueError("У заказа нет marker для безопасной сверки с 1С.")
+            remote_document = client.find_sales_order_by_comment_marker(f"[SMT:{attempt_key}]")
+            if remote_document is None:
+                raise ValueError("Заказ в 1С по marker не найден; повторная отправка запрещена.")
+            ref_key = str(remote_document.get("Ref_Key") or "").strip()
+            if not ref_key:
+                raise OneCClientError("1С не вернула Ref_Key найденного заказа.")
+            self.db.record_remote_order(order_id, onec_ref_key=ref_key)
+
+        self.db.finalize_order_sync(
+            order_id,
+            onec_ref_key=ref_key,
+            onec_number=str(remote_document.get("Number") or ""),
+            onec_date=str(remote_document.get("Date") or ""),
+        )
+        return self.db.get_order_bundle(order_id)
 
     @staticmethod
     def is_guid(value: str | None) -> bool:

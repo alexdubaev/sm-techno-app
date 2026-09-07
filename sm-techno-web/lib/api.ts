@@ -1491,6 +1491,14 @@ export async function writeoffOrder(orderId: number): Promise<OrderDetails> {
   );
 }
 
+export async function recoverOrderOnec(orderId: number): Promise<OrderDetails> {
+  return requestJsonWithInit<OrderDetails>(
+    `/api/orders/${orderId}/recover-onec`,
+    { method: "POST" },
+    "Не удалось сверить заказ с 1С.",
+  );
+}
+
 export async function importPriceFile(file: File): Promise<{
   created: number;
   updated: number;

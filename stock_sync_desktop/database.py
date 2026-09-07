@@ -176,9 +176,6 @@ CREATE TABLE IF NOT EXISTS order_sync_finalizations (
     FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_sync_attempt_key
-ON orders(sync_attempt_key)
-WHERE sync_attempt_key IS NOT NULL AND sync_attempt_key <> '';
 """
 
 
@@ -2225,16 +2222,40 @@ class Database:
     ) -> None:
         now = utc_now()
         with self.transaction() as conn:
+            order = conn.execute(
+                "SELECT status FROM orders WHERE id = ?",
+                (order_id,),
+            ).fetchone()
+            if order is None:
+                raise ValueError(f"Order {order_id} not found")
+            if str(order["status"] or "") == "posted_to_1c":
+                return
+            if str(order["status"] or "") != "remote_created_pending_finalize":
+                raise ValueError("Заказ нельзя финализировать в текущем статусе.")
+            already_finalized = conn.execute(
+                "SELECT 1 FROM order_sync_finalizations WHERE order_id = ?",
+                (order_id,),
+            ).fetchone()
+            if already_finalized is not None:
+                conn.execute(
+                    """
+                    UPDATE orders
+                    SET status = 'posted_to_1c', error_message = NULL, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, order_id),
+                )
+                return
             lines = conn.execute(
                 """
                 SELECT
-                    item_id,
-                    warehouse_id,
-                    COALESCE(warehouse_name_snapshot, ?) AS warehouse_name_snapshot,
-                    SUM(quantity) AS quantity
-                FROM order_lines
-                WHERE order_id = ?
-                GROUP BY item_id, warehouse_id, warehouse_name_snapshot
+                    r.item_id,
+                    r.warehouse_id,
+                    COALESCE(w.name, ?) AS warehouse_name_snapshot,
+                    r.quantity
+                FROM order_reservations r
+                LEFT JOIN warehouses w ON w.id = r.warehouse_id
+                WHERE r.order_id = ?
                 """,
                 (DEFAULT_WAREHOUSE_NAME, order_id),
             ).fetchall()
@@ -2257,6 +2278,10 @@ class Database:
                         f"доступно {current_qty}, требуется {line['quantity']}."
                     )
 
+            conn.execute(
+                "INSERT INTO order_sync_finalizations(order_id, finalized_at) VALUES (?, ?)",
+                (order_id, now),
+            )
             for line in lines:
                 conn.execute(
                     """
@@ -2297,6 +2322,61 @@ class Database:
                 """,
                 (onec_ref_key, onec_number, onec_date, now, order_id),
             )
+            conn.execute("DELETE FROM order_reservations WHERE order_id = ?", (order_id,))
+
+    def record_remote_order(self, order_id: int, *, onec_ref_key: str) -> None:
+        if not str(onec_ref_key or "").strip():
+            raise ValueError("1С не вернула Ref_Key созданного заказа.")
+        with self.transaction() as conn:
+            order = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+            if order is None:
+                raise ValueError(f"Order {order_id} not found")
+            if str(order["status"] or "") == "posted_to_1c":
+                return
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'remote_created_pending_finalize',
+                    onec_ref_key = ?, remote_created_at = ?, error_message = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (onec_ref_key, utc_now(), utc_now(), order_id),
+            )
+
+    def mark_order_sending_to_onec(self, order_id: int) -> None:
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE orders
+                SET status = 'sending_to_1c', remote_attempted_at = ?, error_message = NULL, updated_at = ?
+                WHERE id = ? AND status = 'reserved'
+                """,
+                (utc_now(), utc_now(), order_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Заказ нельзя отправить в 1С в текущем статусе.")
+
+    def mark_order_remote_unknown(self, order_id: int, error_message: str) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'remote_state_unknown', error_message = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (error_message[:4000], utc_now(), order_id),
+            )
+
+    def mark_order_pending_finalize_error(self, order_id: int, error_message: str) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'remote_created_pending_finalize', error_message = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (error_message[:4000], utc_now(), order_id),
+            )
 
     def writeoff_order_locally(self, order_id: int) -> None:
         now = utc_now()
@@ -2317,6 +2397,12 @@ class Database:
                 raise ValueError("Заказ уже списан локально.")
             if status == "posted_to_1c":
                 raise ValueError("Заказ уже отправлен в 1С и повторно списывать его нельзя.")
+            if status in {
+                "sending_to_1c",
+                "remote_created_pending_finalize",
+                "remote_state_unknown",
+            }:
+                raise ValueError("Сначала нужно сверить состояние 1С; ручное списание запрещено.")
             if status not in {"posting_to_1c", "error"}:
                 raise ValueError("Заказ нельзя списать в текущем статусе.")
 
