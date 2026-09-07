@@ -144,11 +144,27 @@ class _OneCSafeRedirectHandler(HTTPRedirectHandler):
                 status_code=code,
                 request_id=request_id,
             ) from exc
-        redirected = super().redirect_request(req, fp, code, msg, headers, trusted_url)
+        if code == 308:
+            content_headers = {"content-length", "content-type"}
+            redirected_headers = {
+                key: value for key, value in req.headers.items() if key.lower() not in content_headers
+            }
+            redirected = Request(
+                trusted_url,
+                headers=redirected_headers,
+                origin_req_host=req.origin_req_host,
+                unverifiable=True,
+                method=method,
+            )
+        else:
+            redirected = super().redirect_request(req, fp, code, msg, headers, trusted_url)
         if redirected is not None:
             redirected._onec_base_url = base_url
             redirected._onec_request_id = request_id
         return redirected
+
+    def http_error_308(self, req, fp, code, msg, headers):  # type: ignore[no-untyped-def]
+        return self.http_error_302(req, fp, code, msg, headers)
 
 
 def urlopen(request: Request, *, timeout: float):  # type: ignore[no-untyped-def]
@@ -235,6 +251,12 @@ class OneCClient:
         if not isinstance(decoded, dict):
             raise OneCMalformedResponseError(
                 "1С вернула JSON с некорректным корневым объектом.",
+                method=method,
+                request_id=request_id,
+            )
+        if "error" in decoded:
+            raise OneCMalformedResponseError(
+                "1С вернула OData error envelope вместо ожидаемого результата.",
                 method=method,
                 request_id=request_id,
             )

@@ -233,6 +233,33 @@ class OneCTransportReliabilityTest(unittest.TestCase):
                 self.assertEqual("GET", raised.exception.method)
                 self.assertTrue(raised.exception.request_id)
 
+    def test_etag_entity_rejects_odata_error_envelope_without_exposing_body(self) -> None:
+        """An HTTP 200 OData error object must not masquerade as a valid entity."""
+        body = b'{"error":{"code":"Failure","message":"password=upstream-secret"}}'
+        with patch(
+            "stock_sync_desktop.onec_api.urlopen",
+            return_value=FakeResponse(body, etag='W/"v1"'),
+        ) as open_mock:
+            with self.assertRaises(OneCMalformedResponseError) as raised:
+                self.client.get_counterparty_with_etag("counterparty-ref")
+
+        self.assertEqual(1, open_mock.call_count)
+        self.assertEqual("GET", raised.exception.method)
+        self.assertTrue(raised.exception.request_id)
+        self.assertNotIn("upstream-secret", str(raised.exception))
+
+    def test_collection_rejects_http_200_odata_error_in_common_decoder(self) -> None:
+        """Collection requests must reject an OData error before collection extraction."""
+        body = b'{"error":{"code":"Failure","message":"upstream-secret"}}'
+        with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(body)) as open_mock:
+            with self.assertRaises(OneCMalformedResponseError) as raised:
+                self.client._collect_all("Catalog?$format=json")
+
+        self.assertEqual(1, open_mock.call_count)
+        self.assertEqual("GET", raised.exception.method)
+        self.assertTrue(raised.exception.request_id)
+        self.assertNotIn("upstream-secret", str(raised.exception))
+
     def test_etag_read_malformed_json_is_typed_without_response_body(self) -> None:
         """Restoring raw JSON in the ETag-read error or a generic error must fail this test."""
         with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(b'{"secret":"upstream-secret"')) as open_mock:
@@ -453,27 +480,34 @@ class OneCTransportReliabilityTest(unittest.TestCase):
         self.assertEqual(1, SourceHandler.requests)
         self.assertEqual([], destination_requests)
 
-    def test_write_redirect_is_not_followed_or_resent(self) -> None:
-        """A write redirect must not turn one POST into another request controlled by urllib."""
+    def test_write_redirect_matrix_is_not_followed_or_resent(self) -> None:
+        """Every redirect status must leave each write at exactly one upstream request."""
         redirected_requests: list[tuple[str, str | None]] = []
 
         class RedirectingHandler(BaseHTTPRequestHandler):
             source_requests = 0
 
-            def do_POST(self) -> None:
-                if self.path.startswith("/odata/standard.odata/source"):
-                    type(self).source_requests += 1
-                    self.send_response(302)
-                    self.send_header("Location", "/odata/standard.odata/redirected")
-                    self.end_headers()
-                    return
-                redirected_requests.append(("POST", self.headers.get("Authorization")))
-                self.send_response(200)
+            def _redirect_write(self) -> None:
+                content_length = int(self.headers.get("Content-Length") or 0)
+                if content_length:
+                    self.rfile.read(content_length)
+                type(self).source_requests += 1
+                status_code = int(self.path.rsplit("/", 1)[-1].split("?", 1)[0])
+                self.send_response(status_code)
+                self.send_header("Location", "/odata/standard.odata/redirected")
                 self.end_headers()
-                self.wfile.write(b"{}")
+
+            def do_POST(self) -> None:
+                self._redirect_write()
+
+            def do_PATCH(self) -> None:
+                self._redirect_write()
+
+            def do_DELETE(self) -> None:
+                self._redirect_write()
 
             def do_GET(self) -> None:
-                redirected_requests.append(("GET", self.headers.get("Authorization")))
+                redirected_requests.append((self.command, self.headers.get("Authorization")))
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b"{}")
@@ -490,16 +524,25 @@ class OneCTransportReliabilityTest(unittest.TestCase):
                 "user",
                 "password",
             )
-            with self.assertRaises(OneCUnknownWriteOutcomeError) as raised:
-                client._request("POST", "source?$format=json", {"Description": "Order"})
+            for method in ("POST", "PATCH", "DELETE"):
+                for status_code in (301, 302, 303, 307, 308):
+                    with self.subTest(method=method, status_code=status_code):
+                        with self.assertRaises(OneCUnknownWriteOutcomeError) as raised:
+                            client._request(
+                                method,
+                                f"source/{status_code}?$format=json",
+                                {"Description": "Order"},
+                            )
+                        self.assertEqual(method, raised.exception.method)
+                        self.assertEqual(status_code, raised.exception.status_code)
+                        self.assertTrue(raised.exception.outcome_unknown)
         finally:
             server.shutdown()
             server.server_close()
             server_thread.join()
 
-        self.assertEqual(1, RedirectingHandler.source_requests)
+        self.assertEqual(15, RedirectingHandler.source_requests)
         self.assertEqual([], redirected_requests)
-        self.assertTrue(raised.exception.outcome_unknown)
 
     def test_get_redirect_outside_odata_base_is_blocked_before_destination_request(self) -> None:
         """A same-origin redirect outside the OData base must receive neither request nor credentials."""
@@ -578,6 +621,60 @@ class OneCTransportReliabilityTest(unittest.TestCase):
 
         self.assertEqual({"value": []}, result)
         self.assertEqual(2, len(seen_paths))
+
+    def test_trusted_get_308_preserves_method_headers_and_redirect_context(self) -> None:
+        """Python 3.10 must follow trusted 308 GETs without losing auth or redirect safety attrs."""
+        seen_requests: list[tuple[str, str, str | None, str | None]] = []
+
+        class RedirectingHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                seen_requests.append(
+                    (
+                        self.command,
+                        self.path,
+                        self.headers.get("Authorization"),
+                        self.headers.get("X-Request-ID"),
+                    )
+                )
+                if self.path.startswith("/odata/standard.odata/source"):
+                    self.send_response(308)
+                    self.send_header("Location", "/odata/standard.odata/intermediate")
+                    self.end_headers()
+                    return
+                if self.path.startswith("/odata/standard.odata/intermediate"):
+                    self.send_response(302)
+                    self.send_header("Location", "/odata/standard.odata/target?$format=json")
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"value": []}')
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectingHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            client = OneCClient(
+                f"http://127.0.0.1:{server.server_port}/odata/standard.odata",
+                "user",
+                "password",
+            )
+            result = client._request("GET", "source?$format=json")
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join()
+
+        self.assertEqual({"value": []}, result)
+        self.assertEqual(3, len(seen_requests))
+        self.assertEqual({"GET"}, {method for method, _, _, _ in seen_requests})
+        self.assertTrue(all(auth and auth.startswith("Basic ") for _, _, auth, _ in seen_requests))
+        request_ids = {request_id for _, _, _, request_id in seen_requests}
+        self.assertEqual(1, len(request_ids))
+        self.assertNotIn(None, request_ids)
 
     def test_malformed_metadata_xml_is_typed_with_default_request_context(self) -> None:
         """Parsing metadata outside the executor must still preserve safe request attributes."""

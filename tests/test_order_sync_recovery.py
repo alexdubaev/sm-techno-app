@@ -301,6 +301,27 @@ class OrderSyncRecoveryTest(unittest.TestCase):
                 self.assertEqual("posted_to_1c", recovered["order"]["status"])
                 self.assertEqual(0, recovery_client.create_calls)
 
+    def test_recovery_known_ref_keeps_pending_state_on_http_200_odata_error(self) -> None:
+        """An OData error entity must not finalize stock or trigger another remote write."""
+        order_id = self._create_reserved_order([self._line(2)], "attempt-known-ref")
+        self.db.record_remote_order(order_id, onec_ref_key="ref-known")
+        client = OneCClient("http://onec.example", "user", "password")
+        self.service.build_user_client = lambda **_: client  # type: ignore[method-assign]
+
+        response = FakeResponse(b'{"error":{"code":"Failure","message":"upstream-secret"}}')
+        with patch("stock_sync_desktop.onec_api.urlopen", return_value=response) as open_mock:
+            with self.assertRaises(OneCMalformedResponseError) as raised:
+                self.service.recover_order_sync_for_admin(order_id=order_id, actor_user_id=1)
+
+        order = self.db.get_order_bundle(order_id)["order"]
+        request = open_mock.call_args.args[0]
+        self.assertEqual(1, open_mock.call_count)
+        self.assertEqual("GET", request.get_method())
+        self.assertEqual("remote_created_pending_finalize", order["status"])
+        self.assertEqual("ref-known", order["onec_ref_key"])
+        self.assertEqual(0, self._out_movement_count(order_id))
+        self.assertNotIn("upstream-secret", str(raised.exception))
+
     def test_recovery_finds_remote_order_and_finalizes_once(self) -> None:
         order_id = self._create_reserved_order([self._line(2)], "attempt-a")
         self.db.mark_order_remote_unknown(order_id, "connection reset")
