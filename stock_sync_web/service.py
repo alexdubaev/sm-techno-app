@@ -1719,8 +1719,8 @@ class WebStockSyncService:
 
         path.unlink(missing_ok=True)
 
-    def set_stock_quantity(self, item_id: int, quantity: float) -> None:
-        self.db.set_stock_quantity(item_id, quantity)
+    def set_stock_quantity(self, item_id: int, quantity: float, comment: str = "") -> None:
+        self.db.set_stock_quantity(item_id, quantity, comment=comment)
 
     def create_local_item(
         self,

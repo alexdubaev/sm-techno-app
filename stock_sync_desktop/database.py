@@ -1512,7 +1512,7 @@ class Database:
         normalized_price = self._require_finite_nonnegative(price, label="Цена")
         now = utc_now()
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             existing = self._find_existing_item(
                 conn,
                 onec_key=None,
@@ -1603,7 +1603,7 @@ class Database:
         normalized_price = self._require_finite_nonnegative(price, label="Цена")
         now = utc_now()
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             conn.execute(
                 """
                 UPDATE items
@@ -1690,7 +1690,7 @@ class Database:
             item["warehouses"] = self._load_item_warehouses(conn, item_id=item_id, active_only=True)
         return item
 
-    def set_stock_quantity(self, item_id: int, quantity: float) -> None:
+    def set_stock_quantity(self, item_id: int, quantity: float, comment: str = "") -> None:
         normalized_quantity = self._require_finite_nonnegative(quantity, label="Остаток")
         with self._stock_transaction() as conn:
             default_warehouse_id = self._ensure_default_warehouse(conn)
@@ -1707,7 +1707,7 @@ class Database:
                     warehouse_id=default_warehouse_id,
                     delta=delta,
                     movement_type="adjustment",
-                    comment="Ручная корректировка остатка.",
+                    comment=comment.strip() or "Ручная корректировка остатка.",
                     keep_zero=True,
                 )
 
@@ -1781,10 +1781,6 @@ class Database:
                 delta=-amount,
                 movement_type="transfer_out",
                 comment=shared_comment,
-                insufficient_message=(
-                    f"На складе '{source_warehouse_name}' доступно только "
-                    f"{int(self._get_warehouse_quantity(conn, item_id=item_id, warehouse_id=source_warehouse_id))} шт."
-                ),
             )
             self._apply_stock_delta(
                 conn,
@@ -1826,10 +1822,6 @@ class Database:
                 delta=-amount,
                 movement_type="writeoff",
                 comment=comment or f"Списание со склада '{warehouse_name}'.",
-                insufficient_message=(
-                    f"На складе '{warehouse_name}' доступно только "
-                    f"{int(self._get_warehouse_quantity(conn, item_id=item_id, warehouse_id=resolved_warehouse_id))} шт."
-                ),
             )
 
         updated_item = self.get_item_by_id(item_id)
@@ -1915,17 +1907,43 @@ class Database:
             """,
             (item_id, warehouse_id),
         ).fetchone()
-        available_quantity = current_quantity - float(reservation_row["quantity"])
-        if delta < 0 and available_quantity < amount:
-            raise ValueError(insufficient_message or "Недостаточно доступного остатка на складе.")
-
-        self._set_warehouse_quantity(
-            conn,
-            item_id=item_id,
-            warehouse_id=warehouse_id,
-            quantity=current_quantity + float(delta),
-            keep_zero=keep_zero,
-        )
+        reserved_quantity = float(reservation_row["quantity"])
+        available_quantity = current_quantity - reserved_quantity
+        if delta < 0:
+            cursor = conn.execute(
+                """
+                UPDATE item_warehouse_balances
+                SET quantity = quantity - ?, updated_at = ?
+                WHERE item_id = ?
+                  AND warehouse_id = ?
+                  AND quantity >= ?
+                """,
+                (amount, utc_now(), item_id, warehouse_id, amount + reserved_quantity),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(
+                    insufficient_message
+                    or f"Недостаточно доступного остатка на складе: доступно {available_quantity}."
+                )
+            if not keep_zero:
+                conn.execute(
+                    """
+                    DELETE FROM item_warehouse_balances
+                    WHERE item_id = ? AND warehouse_id = ? AND quantity <= 0
+                    """,
+                    (item_id, warehouse_id),
+                )
+        else:
+            conn.execute(
+                """
+                INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, updated_at)
+                VALUES(?, ?, ?, ?)
+                ON CONFLICT(item_id, warehouse_id) DO UPDATE SET
+                    quantity = quantity + excluded.quantity,
+                    updated_at = excluded.updated_at
+                """,
+                (item_id, warehouse_id, amount, utc_now()),
+            )
         self._record_stock_movement(
             conn,
             item_id=item_id,

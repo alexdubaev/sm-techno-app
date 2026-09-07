@@ -2368,7 +2368,11 @@ def update_stock_quantity(
     if not math.isfinite(quantity) or quantity < 0:
         raise HTTPException(status_code=400, detail="Количество должно быть конечным неотрицательным числом.")
     try:
-        SERVICE.set_stock_quantity(item_id, quantity)
+        SERVICE.set_stock_quantity(
+            item_id,
+            quantity,
+            comment=str(payload.get("comment") or "").strip(),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     updated_item = SERVICE.get_item(item_id)
@@ -2381,7 +2385,10 @@ def create_stock_item(
     current_user: dict[str, Any] = Depends(_get_admin_user),
 ) -> dict[str, Any]:
     values = _parse_local_item_payload(payload)
-    item = SERVICE.create_local_item(**values)
+    try:
+        item = SERVICE.create_local_item(**values)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"item": _serialize_item(item)}
 
 
@@ -2396,7 +2403,10 @@ def update_stock_item(
         raise HTTPException(status_code=404, detail="РўРѕРІР°СЂ РЅРµ РЅР°Р№РґРµРЅ.")
 
     values = _parse_local_item_payload(payload)
-    updated_item = SERVICE.update_local_item(item_id, **values)
+    try:
+        updated_item = SERVICE.update_local_item(item_id, **values)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if updated_item is None:
         raise HTTPException(status_code=404, detail="РўРѕРІР°СЂ РЅРµ РЅР°Р№РґРµРЅ РїРѕСЃР»Рµ РѕР±РЅРѕРІР»РµРЅРёСЏ.")
     return {"item": _serialize_item(updated_item)}
