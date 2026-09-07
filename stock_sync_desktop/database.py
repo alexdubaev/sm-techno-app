@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import os
+import secrets
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -117,6 +118,9 @@ CREATE TABLE IF NOT EXISTS orders (
     onec_ref_key TEXT,
     onec_number TEXT,
     onec_date TEXT,
+    sync_attempt_key TEXT,
+    remote_attempted_at TEXT,
+    remote_created_at TEXT,
     total_amount REAL NOT NULL DEFAULT 0,
     error_message TEXT,
     created_at TEXT NOT NULL,
@@ -152,6 +156,29 @@ CREATE TABLE IF NOT EXISTS stock_movements (
     FOREIGN KEY(item_id) REFERENCES items(id),
     FOREIGN KEY(order_id) REFERENCES orders(id)
 );
+
+CREATE TABLE IF NOT EXISTS order_reservations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    warehouse_id INTEGER NOT NULL,
+    quantity REAL NOT NULL CHECK(quantity > 0),
+    created_at TEXT NOT NULL,
+    UNIQUE(order_id, item_id, warehouse_id),
+    FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY(item_id) REFERENCES items(id),
+    FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+);
+
+CREATE TABLE IF NOT EXISTS order_sync_finalizations (
+    order_id INTEGER PRIMARY KEY,
+    finalized_at TEXT NOT NULL,
+    FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_sync_attempt_key
+ON orders(sync_attempt_key)
+WHERE sync_attempt_key IS NOT NULL AND sync_attempt_key <> '';
 """
 
 
@@ -203,6 +230,48 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN unit_name TEXT")
         if "created_at" not in item_columns:
             conn.execute("ALTER TABLE items ADD COLUMN created_at TEXT")
+
+        order_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(orders)").fetchall()
+        }
+        order_migrations = {
+            "sync_attempt_key": "ALTER TABLE orders ADD COLUMN sync_attempt_key TEXT",
+            "remote_attempted_at": "ALTER TABLE orders ADD COLUMN remote_attempted_at TEXT",
+            "remote_created_at": "ALTER TABLE orders ADD COLUMN remote_created_at TEXT",
+        }
+        for column, statement in order_migrations.items():
+            if column not in order_columns:
+                conn.execute(statement)
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_sync_attempt_key
+            ON orders(sync_attempt_key)
+            WHERE sync_attempt_key IS NOT NULL AND sync_attempt_key <> ''
+            """
+        )
+        conn.execute(
+            """
+            UPDATE orders
+            SET status = 'remote_state_unknown',
+                error_message = COALESCE(NULLIF(error_message, ''), 'Статус старой отправки в 1С требует сверки.'),
+                updated_at = ?
+            WHERE status = 'posting_to_1c'
+            """,
+            (utc_now(),),
+        )
+        conn.execute(
+            """
+            UPDATE orders
+            SET status = CASE
+                    WHEN COALESCE(onec_ref_key, '') <> '' THEN 'remote_created_pending_finalize'
+                    ELSE 'error_before_remote_write'
+                END,
+                updated_at = ?
+            WHERE status = 'error'
+            """,
+            (utc_now(),),
+        )
 
         created_at_backfill_key = "migration.items_created_at_backfilled"
         if not migration_completed(created_at_backfill_key):
@@ -613,9 +682,11 @@ class Database:
         return conn
 
     @contextmanager
-    def transaction(self) -> Iterable[sqlite3.Connection]:
+    def transaction(self, *, immediate: bool = False) -> Iterable[sqlite3.Connection]:
         conn = self.connect()
         try:
+            if immediate:
+                conn.execute("BEGIN IMMEDIATE")
             yield conn
             conn.commit()
         except Exception:
@@ -1974,6 +2045,110 @@ class Database:
                     ),
                 )
         return order_id
+
+    def create_reserved_order(
+        self,
+        *,
+        counterparty_id: int,
+        contract_id: int | None,
+        organization_key: str | None,
+        order_date: str,
+        comment: str,
+        lines: list[dict[str, Any]],
+        attempt_key: str,
+        created_by_user_id: int | None = None,
+    ) -> int:
+        if not lines:
+            raise ValueError("Добавь хотя бы одну строку в заказ.")
+        now = utc_now()
+        total_amount = round(sum(float(line["amount"]) for line in lines), 2)
+        local_number = f"LOC-{datetime.utcnow():%Y%m%d-%H%M%S}-{secrets.token_hex(2).upper()}"
+        reserved_lines: dict[tuple[int, int], float] = {}
+        with self.transaction(immediate=True) as conn:
+            default_warehouse_id = self._ensure_default_warehouse(conn)
+            for line in lines:
+                item_id = int(line["item_id"])
+                warehouse_id = int(line.get("warehouse_id") or default_warehouse_id)
+                quantity = float(line["quantity"])
+                if quantity <= 0:
+                    raise ValueError("Количество в заказе должно быть больше нуля.")
+                key = (item_id, warehouse_id)
+                reserved_lines[key] = reserved_lines.get(key, 0.0) + quantity
+
+            for (item_id, warehouse_id), quantity in reserved_lines.items():
+                balance = conn.execute(
+                    "SELECT COALESCE(quantity, 0) AS quantity FROM item_warehouse_balances WHERE item_id = ? AND warehouse_id = ?",
+                    (item_id, warehouse_id),
+                ).fetchone()
+                reservations = conn.execute(
+                    "SELECT COALESCE(SUM(quantity), 0) AS quantity FROM order_reservations WHERE item_id = ? AND warehouse_id = ?",
+                    (item_id, warehouse_id),
+                ).fetchone()
+                available = float(balance["quantity"] if balance else 0) - float(reservations["quantity"])
+                if available < quantity:
+                    raise ValueError(
+                        "Недостаточно доступного остатка для резервирования заказа. "
+                        f"Item ID: {item_id}, склад ID: {warehouse_id}, доступно {available}, требуется {quantity}."
+                    )
+
+            cursor = conn.execute(
+                """
+                INSERT INTO orders(
+                    local_number, counterparty_id, contract_id, organization_key,
+                    order_date, comment, status, sync_attempt_key, total_amount,
+                    created_at, updated_at, created_by_user_id
+                ) VALUES(?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?, ?)
+                """,
+                (
+                    local_number, counterparty_id, contract_id, organization_key,
+                    order_date, comment, attempt_key, total_amount, now, now, created_by_user_id,
+                ),
+            )
+            order_id = int(cursor.lastrowid)
+            for line in lines:
+                warehouse_id = int(line.get("warehouse_id") or default_warehouse_id)
+                warehouse = conn.execute("SELECT name FROM warehouses WHERE id = ?", (warehouse_id,)).fetchone()
+                location = conn.execute(
+                    "SELECT rack, cell FROM item_warehouse_balances WHERE item_id = ? AND warehouse_id = ?",
+                    (line["item_id"], warehouse_id),
+                ).fetchone()
+                conn.execute(
+                    """
+                    INSERT INTO order_lines(
+                        order_id, item_id, warehouse_id, warehouse_name_snapshot,
+                        rack_snapshot, cell_snapshot, quantity, price, amount
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        order_id, line["item_id"], warehouse_id,
+                        str(line.get("warehouse_name_snapshot") or line.get("warehouse_name") or (warehouse["name"] if warehouse else DEFAULT_WAREHOUSE_NAME)),
+                        self._clean_optional_text(location["rack"]) if location else None,
+                        self._clean_optional_text(location["cell"]) if location else None,
+                        line["quantity"], line["price"], line["amount"],
+                    ),
+                )
+            for (item_id, warehouse_id), quantity in reserved_lines.items():
+                conn.execute(
+                    "INSERT INTO order_reservations(order_id, item_id, warehouse_id, quantity, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (order_id, item_id, warehouse_id, quantity, now),
+                )
+        return order_id
+
+    def release_order_reservations(
+        self,
+        order_id: int,
+        *,
+        status: str,
+        error_message: str,
+    ) -> None:
+        if status != "error_before_remote_write":
+            raise ValueError("Резерв можно освободить только до отправки в 1С.")
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM order_reservations WHERE order_id = ?", (order_id,))
+            conn.execute(
+                "UPDATE orders SET status = ?, error_message = ?, updated_at = ? WHERE id = ?",
+                (status, error_message[:4000], utc_now(), order_id),
+            )
 
     def get_order_bundle(self, order_id: int) -> dict[str, Any]:
         with self.connect() as conn:
