@@ -1555,10 +1555,12 @@ class WebDatabase(Database):
                 )
 
                 existing = conn.execute(
-                    "SELECT id, sync_status FROM crm_clients WHERE linked_counterparty_id = ? ORDER BY id LIMIT 1",
+                    "SELECT id, sync_status, crm_archived_at FROM crm_clients WHERE linked_counterparty_id = ? ORDER BY id LIMIT 1",
                     (counterparty_id,),
                 ).fetchone()
                 if existing:
+                    if existing["crm_archived_at"] is not None:
+                        continue
                     if str(existing["sync_status"] or "") in {"pending", "blocked_capability"}:
                         # A newer local edit is awaiting a safe conditional write.
                         # Importing the full 1C catalogue must never erase it.

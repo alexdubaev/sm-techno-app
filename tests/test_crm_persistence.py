@@ -628,7 +628,7 @@ class CrmPersistenceTest(unittest.TestCase):
         )
 
         card = self.db.get_crm_client(self.client["id"])
-        self.assertEqual("Имя обновлено из 1С", card["document_name"])
+        self.assertEqual(self.client["document_name"], card["document_name"])
         self.assertEqual("2026-09-07T10:00:00", card["crm_archived_at"])
         self.assertEqual(self.admin_id, card["crm_archived_by_user_id"])
         self.assertEqual("Неактуальный", card["crm_archive_reason"])
