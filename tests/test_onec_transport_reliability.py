@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 from stock_sync_desktop.onec_api import (
     OneCClient,
     OneCMalformedResponseError,
+    OneCPaginationError,
     OneCTimeoutError,
     OneCTransientError,
     OneCUnknownWriteOutcomeError,
@@ -196,6 +197,92 @@ class OneCTransportReliabilityTest(unittest.TestCase):
         self.assertNotIn("payload-secret", logs)
         self.assertNotIn("sensitive-user", logs)
         self.assertNotIn("sensitive-password", logs)
+
+    def test_collect_all_rejects_a_repeated_next_link(self) -> None:
+        """Removing the seen-URL guard must permit an endless OData page loop."""
+        with patch.object(
+            self.client,
+            "_request",
+            side_effect=[
+                {"value": [{"Ref_Key": "first"}], "odata.nextLink": "Catalog?$format=json"},
+            ],
+        ) as request:
+            with self.assertRaises(OneCPaginationError) as raised:
+                self.client._collect_all("Catalog?$format=json")
+
+        self.assertEqual("GET", raised.exception.method)
+        self.assertEqual(1, request.call_count)
+
+    def test_collect_all_stops_at_configured_page_limit(self) -> None:
+        """Removing the page cap must allow an unbounded OData collection."""
+        self.client.MAX_PAGES = 2
+        with patch.object(
+            self.client,
+            "_request",
+            side_effect=[
+                {"value": [{"Ref_Key": "first"}], "odata.nextLink": "Catalog?$skip=1&$format=json"},
+                {"value": [{"Ref_Key": "second"}], "odata.nextLink": "Catalog?$skip=2&$format=json"},
+            ],
+        ) as request:
+            with self.assertRaises(OneCPaginationError):
+                self.client._collect_all("Catalog?$format=json")
+
+        self.assertEqual(2, request.call_count)
+
+    def test_collect_all_rejects_next_link_from_another_origin(self) -> None:
+        """Removing the origin guard would issue a credentialed GET to another host."""
+        with patch.object(
+            self.client,
+            "_request",
+            return_value={
+                "value": [],
+                "odata.nextLink": "https://untrusted.example/odata/standard.odata/Catalog?$format=json",
+            },
+        ) as request:
+            with self.assertRaises(OneCPaginationError) as raised:
+                self.client._collect_all("Catalog?$format=json")
+
+        self.assertEqual("GET", raised.exception.method)
+        self.assertEqual(1, request.call_count)
+
+    def test_collect_all_rejects_next_link_outside_odata_base_path(self) -> None:
+        """Removing the base-path guard would follow a same-origin non-OData link."""
+        with patch.object(
+            self.client,
+            "_request",
+            return_value={
+                "value": [],
+                "odata.nextLink": "http://onec.example/private/Catalog?$format=json",
+            },
+        ) as request:
+            with self.assertRaises(OneCPaginationError):
+                self.client._collect_all("Catalog?$format=json")
+
+        self.assertEqual(1, request.call_count)
+
+    def test_metadata_and_schema_caches_refresh_after_ttl(self) -> None:
+        """Keeping derived schema cache after metadata expires must return stale fields."""
+        first_metadata = b'''<?xml version="1.0"?>
+            <edmx:Edmx xmlns:edmx="urn:edmx"><edmx:DataServices><Schema>
+              <EntityContainer><EntitySet Name="Catalog" EntityType="Model.CatalogType" /></EntityContainer>
+              <EntityType Name="CatalogType"><Property Name="OldField" Type="Edm.String" /></EntityType>
+            </Schema></edmx:DataServices></edmx:Edmx>'''
+        refreshed_metadata = b'''<?xml version="1.0"?>
+            <edmx:Edmx xmlns:edmx="urn:edmx"><edmx:DataServices><Schema>
+              <EntityContainer><EntitySet Name="Catalog" EntityType="Model.CatalogType" /></EntityContainer>
+              <EntityType Name="CatalogType"><Property Name="NewField" Type="Edm.String" /></EntityType>
+            </Schema></edmx:DataServices></edmx:Edmx>'''
+        clock = [100.0]
+        with (
+            patch("stock_sync_desktop.onec_api.urlopen", side_effect=[FakeResponse(first_metadata), FakeResponse(refreshed_metadata)]) as open_mock,
+            patch("stock_sync_desktop.onec_api.time.monotonic", side_effect=lambda: clock[0]),
+        ):
+            self.assertEqual({"OldField"}, self.client._list_entity_properties("Catalog"))
+            self.assertEqual({"OldField"}, self.client._list_entity_properties("Catalog"))
+            clock[0] = 401.0
+            self.assertEqual({"NewField"}, self.client._list_entity_properties("Catalog"))
+
+        self.assertEqual(2, open_mock.call_count)
 
 
 if __name__ == "__main__":

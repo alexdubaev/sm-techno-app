@@ -86,6 +86,8 @@ class OneCCounterpartySyncError(OneCClientError):
 class OneCClient:
     SOCKET_TIMEOUT_SECONDS = 60
     MAX_GET_ATTEMPTS = 3
+    MAX_PAGES = 1000
+    METADATA_CACHE_TTL_SECONDS = 5 * 60
     RETRYABLE_GET_STATUS_CODES = {502, 503, 504}
 
     def __init__(self, base_url: str, username: str, password: str) -> None:
@@ -98,6 +100,7 @@ class OneCClient:
         self._units_cache: list[dict[str, Any]] | None = None
         self._vat_rates_cache: list[dict[str, Any]] | None = None
         self._metadata_root_cache: ET.Element | None = None
+        self._metadata_cache_created_at: float | None = None
         self._entity_type_cache: dict[str, str] = {}
         self._entity_properties_cache: dict[str, set[str]] = {}
         self._entity_property_types_cache: dict[str, dict[str, str]] = {}
@@ -413,15 +416,47 @@ class OneCClient:
             url = f"{url}{separator}$format=json"
 
         all_rows: list[dict[str, Any]] = []
+        seen_urls: set[str] = set()
+        page_count = 0
         while url:
+            if page_count >= self.MAX_PAGES:
+                raise OneCPaginationError(
+                    "Превышен допустимый лимит страниц OData.",
+                    method="GET",
+                )
+            if url in seen_urls:
+                raise OneCPaginationError(
+                    "Обнаружен цикл в OData pagination.",
+                    method="GET",
+                )
+            seen_urls.add(url)
+            page_count += 1
             payload = self._request("GET", url)
             all_rows.extend(payload.get("value", []))
             next_link = payload.get("odata.nextLink") or payload.get("@odata.nextLink")
             if next_link:
-                url = next_link if next_link.lower().startswith("http") else urljoin(f"{self.base_url}/", next_link)
+                url = self._validated_next_page_url(url, next_link)
             else:
                 url = ""
         return all_rows
+
+    def _validated_next_page_url(self, current_url: str, next_link: str) -> str:
+        next_url = urljoin(current_url, next_link)
+        expected_origin = urlsplit(self.base_url)
+        actual_origin = urlsplit(next_url)
+        expected_base_path = expected_origin.path.rstrip("/")
+        actual_path = actual_origin.path
+        same_origin = (
+            actual_origin.scheme.lower() == expected_origin.scheme.lower()
+            and actual_origin.netloc.lower() == expected_origin.netloc.lower()
+        )
+        within_odata_base_path = actual_path == expected_base_path or actual_path.startswith(f"{expected_base_path}/")
+        if not same_origin or not within_odata_base_path:
+            raise OneCPaginationError(
+                "OData nextLink выходит за пределы доверенного источника.",
+                method="GET",
+            )
+        return next_url
 
     def _fetch_first(
         self,
@@ -443,6 +478,7 @@ class OneCClient:
         return rows[0] if rows else None
 
     def _metadata_root(self) -> ET.Element:
+        self._expire_metadata_cache_if_stale()
         if self._metadata_root_cache is not None:
             return self._metadata_root_cache
         raw_metadata = self._request_raw("GET", "$metadata", accept="application/xml")
@@ -450,9 +486,26 @@ class OneCClient:
             self._metadata_root_cache = ET.fromstring(raw_metadata)
         except ET.ParseError as exc:
             raise OneCClientError("1С вернула некорректный OData metadata XML.") from exc
+        self._metadata_cache_created_at = time.monotonic()
         return self._metadata_root_cache
 
+    def _expire_metadata_cache_if_stale(self) -> None:
+        if (
+            self._metadata_root_cache is not None
+            and self._metadata_cache_created_at is not None
+            and time.monotonic() - self._metadata_cache_created_at >= self.METADATA_CACHE_TTL_SECONDS
+        ):
+            self._clear_metadata_cache()
+
+    def _clear_metadata_cache(self) -> None:
+        self._metadata_root_cache = None
+        self._metadata_cache_created_at = None
+        self._entity_type_cache.clear()
+        self._entity_properties_cache.clear()
+        self._entity_property_types_cache.clear()
+
     def _entity_type_name(self, entity_set_name: str) -> str:
+        self._expire_metadata_cache_if_stale()
         cached = self._entity_type_cache.get(entity_set_name)
         if cached is not None:
             return cached
@@ -472,6 +525,7 @@ class OneCClient:
         return entity_type_name
 
     def _list_entity_property_types(self, entity_set_name: str) -> dict[str, str]:
+        self._expire_metadata_cache_if_stale()
         cached = self._entity_property_types_cache.get(entity_set_name)
         if cached is not None:
             return cached
@@ -495,6 +549,7 @@ class OneCClient:
         return property_types
 
     def _list_entity_properties(self, entity_set_name: str) -> set[str]:
+        self._expire_metadata_cache_if_stale()
         cached = self._entity_properties_cache.get(entity_set_name)
         if cached is not None:
             return cached
