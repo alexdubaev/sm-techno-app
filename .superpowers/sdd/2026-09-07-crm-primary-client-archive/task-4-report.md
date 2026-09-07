@@ -143,3 +143,31 @@ Task 4 did not change reminder input validation or lead creation/serialization, 
 - Corrected an edge case during review so a valid explicit active client ID is not overridden by an archived identity fallback.
 - Confirmed the new API field is additive and all in-repository typed import fixtures were updated.
 - Confirmed unrelated dirty-worktree files were not edited, staged, or reverted.
+
+## Review round 1 — final import result retention
+
+Reviewer finding: both desktop and mobile import flows rendered only the preview and immediately closed after a successful final import. If a client was archived between preview and final transactional revalidation, the final response could increase `skippedArchived`, but the user never saw the required message.
+
+Fix:
+
+- both import components now retain the returned `CrmImportResult` and replace the stale preview counters with the final counters;
+- both display an explicit `Импорт завершён` state and the exact `Клиент находится в архиве — импорт пропущен` message when the final result reports archive skips;
+- the existing local workspace refresh callback still runs immediately after import;
+- the dialog/sheet remains open until the user acknowledges the final result with `Готово`;
+- desktop input controls remain locked and acknowledgement remains disabled while its asynchronous workspace reload finishes;
+- the existing desktop activation/freshness race test now acknowledges the final result before interacting with the background workspace.
+
+Focused TDD evidence:
+
+- added desktop and mobile tests with `skippedArchived: 0` in preview and `skippedArchived: 1` in the final result;
+- before implementation, both failed because the exact message was absent after final import;
+- after implementation, the final-result message, count, completion heading, retained dialog/sheet, refresh callback, and explicit acknowledgement all pass.
+
+Fresh review-round verification:
+
+1. `npx vitest run --config vitest.auth.config.ts tests/crm/desktop-import.integration.test.tsx tests/crm/mobile-import.integration.test.tsx tests/crm/import-api.unit.test.ts`
+   - Result: 3 files passed, 19 tests passed.
+2. `npx tsc --noEmit`
+   - Result: exit 0, no diagnostics.
+3. `npx oxlint components/crm/import/desktop-crm-import-dialog.tsx components/crm/mobile/mobile-crm-import-sheet.tsx tests/crm/desktop-import.integration.test.tsx tests/crm/mobile-import.integration.test.tsx`
+   - Result: exit 0, no diagnostics.

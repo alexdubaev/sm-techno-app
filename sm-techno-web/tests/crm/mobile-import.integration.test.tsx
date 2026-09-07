@@ -158,6 +158,32 @@ describe('mobile CRM Excel import', () => {
     expect(api.importCrmFile).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 7, targetTabId: 8, includeExistingClients: true }));
   });
 
+  it('keeps the final result visible when archive skips appear after preview', async () => {
+    vi.mocked(api.previewCrmImport).mockResolvedValue({ ...preview, skippedArchived: 0 });
+    vi.mocked(api.importCrmFile).mockResolvedValue({
+      ...preview,
+      skippedArchived: 1,
+      targetTab: { id: 8, name: 'В работе', systemKind: 'work' },
+    });
+    const callbacks = renderWorkspace();
+
+    openImport();
+    selectFile();
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить файл' }));
+    await screen.findByRole('button', { name: 'Импортировать 2 клиента' });
+    expect(screen.queryByText('Клиент находится в архиве — импорт пропущен')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Импортировать 2 клиента' }));
+
+    const message = await screen.findByText('Клиент находится в архиве — импорт пропущен');
+    expect(message.parentElement).toHaveTextContent(': 1');
+    expect(screen.getByText('Импорт завершён')).toBeVisible();
+    expect(callbacks.onImportCompleted).toHaveBeenCalledWith(8);
+    expect(screen.getByRole('dialog', { name: 'Загрузить клиентов' })).toBeVisible();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Готово' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Загрузить клиентов' })).not.toBeInTheDocument());
+  });
+
   it('uses a new tab target only when the user confirms the preview', async () => {
     vi.mocked(api.previewCrmImport).mockResolvedValue({ ...preview, target: { tabId: null, newTabName: 'Новые' } });
     vi.mocked(api.importCrmFile).mockResolvedValue({ ...preview, target: { tabId: null, newTabName: 'Новые' }, targetTab: { id: 12, name: 'Новые', systemKind: 'custom' } });

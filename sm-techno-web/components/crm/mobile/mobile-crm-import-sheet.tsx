@@ -35,6 +35,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
   const [newTabName, setNewTabName] = useState('');
   const [includeExistingClients, setIncludeExistingClients] = useState(true);
   const [preview, setPreview] = useState<CrmImportPreview | null>(null);
+  const [finalResult, setFinalResult] = useState<CrmImportResult | null>(null);
   const [previewRequest, setPreviewRequest] = useState<ImportRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
@@ -44,6 +45,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
   const resetPreview = () => {
     previewVersion.current += 1;
     setPreview(null);
+    setFinalResult(null);
     setPreviewRequest(null);
     setError(null);
     setIsPreviewing(false);
@@ -98,8 +100,10 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
     setIsImporting(true);
     try {
       const result = await importCrmFile(previewRequest);
+      setFinalResult(result);
+      setPreview(result);
+      setPreviewRequest(null);
       onImported(result);
-      onClose();
     } catch (requestError) {
       setError(importErrorMessage(requestError));
     } finally {
@@ -111,8 +115,8 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
   const targetLabel = targetKind === 'new'
     ? `Новая вкладка «${newTabName.trim() || 'Без названия'}»`
     : selectedTab?.name ?? 'Не выбрана';
-  const canImport = preview !== null && previewRequest !== null && preview.errors.length === 0 && preview.duplicateConflicts === 0;
-  const isRequestLocked = isPreviewing || isImporting;
+  const canImport = finalResult === null && preview !== null && previewRequest !== null && preview.errors.length === 0 && preview.duplicateConflicts === 0;
+  const isRequestLocked = isPreviewing || isImporting || finalResult !== null;
 
   return (
     <MobileSheet
@@ -213,7 +217,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
         {preview ? (
           <section aria-label="Результат проверки" className={`${mobilePanel} grid gap-3`}>
             <div>
-              <p className="text-sm font-bold">Проверка завершена</p>
+              <p className="text-sm font-bold">{finalResult ? 'Импорт завершён' : 'Проверка завершена'}</p>
               <p className="mt-1 text-sm text-[var(--text-secondary)]">Цель: {targetLabel}</p>
               <p className="text-sm text-[var(--text-secondary)]">CRM: {ownerName}</p>
             </div>
@@ -233,7 +237,9 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
                 {preview.errors.map((rowError) => <p key={`${rowError.sheet}-${rowError.row}-${rowError.code}`}>{rowError.sheet}, строка {rowError.row}: {rowError.message}</p>)}
               </div>
             ) : null}
-            {canImport ? (
+            {finalResult ? (
+              <button type="button" onClick={onClose} className={`${mobileButton} border-transparent bg-[var(--brand-dark)] text-white`}>Готово</button>
+            ) : canImport ? (
               <button type="button" onClick={confirmImport} disabled={isImporting} className={`${mobileButton} border-transparent bg-[var(--brand-dark)] text-white`}>
                 {isImporting ? 'Импортируем…' : `Импортировать ${preview.clientsToCreate} клиента`}
               </button>

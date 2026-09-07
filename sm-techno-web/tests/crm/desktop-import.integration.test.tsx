@@ -122,6 +122,34 @@ describe("desktop CRM Excel import", () => {
     expect(onImported).toHaveBeenCalledWith(3);
   });
 
+  test("keeps the final result visible when archive skips appear after preview", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onImported = vi.fn();
+    vi.mocked(api.previewCrmImport).mockResolvedValue({ ...preview, skippedArchived: 0 });
+    vi.mocked(api.importCrmFile).mockResolvedValue({
+      ...preview,
+      skippedArchived: 1,
+      targetTab: { id: 3, name: "В работе", systemKind: "work" },
+    });
+    render(<DesktopCrmImportDialog ownerId={7} tabs={tabs} onClose={onClose} onImported={onImported} />);
+
+    await user.upload(screen.getByLabelText("Excel-файл"), selectWorkbook());
+    await user.click(screen.getByRole("button", { name: "Проверить файл" }));
+    await screen.findByRole("button", { name: "Импортировать" });
+    expect(screen.queryByText("Клиент находится в архиве — импорт пропущен")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Импортировать" }));
+
+    const message = await screen.findByText("Клиент находится в архиве — импорт пропущен");
+    expect(message.parentElement).toHaveTextContent(": 1");
+    expect(screen.getByText("Импорт завершён")).toBeVisible();
+    expect(onImported).toHaveBeenCalledWith(3);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Готово" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
   test("uses a new tab name without creating it during preview", async () => {
     const user = userEvent.setup();
     render(<DesktopCrmImportDialog ownerId={7} tabs={tabs} onClose={vi.fn()} onImported={vi.fn()} />);
@@ -214,6 +242,7 @@ describe("desktop CRM Excel import", () => {
     });
     // Both deterministic local reloads are complete now, so a later
     // visibility refresh returns to the ordinary stale-workspace policy.
+    await user.click(await within(dialog).findByRole("button", { name: "Готово" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Сентябрь" })).toHaveAttribute("aria-current", "page"));
     document.dispatchEvent(new Event("visibilitychange"));
     await waitFor(() => expect(api.syncCrmWorkspace).toHaveBeenCalledTimes(1));
