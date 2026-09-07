@@ -1518,6 +1518,7 @@ class Database:
                 onec_key=None,
                 sku=normalized_sku or None,
                 name=normalized_name,
+                match_by_name=False,
             )
 
             if existing:
