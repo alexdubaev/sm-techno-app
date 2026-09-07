@@ -183,5 +183,16 @@ describe('filterAndSortCrmClients', () => {
     expect(
       ids(filterAndSortCrmClients(clients, { sortMode: 'manual' })),
     ).toEqual([12, 4, 9]);
+    expect(ids(clients)).toEqual([12, 4, 9]);
+  });
+
+  test('does not mutate the loaded manual order while automatically sorting', () => {
+    const clients = [
+      client(8, { documentName: 'Вега' }),
+      client(3, { documentName: 'Альфа' }),
+    ];
+
+    expect(ids(filterAndSortCrmClients(clients, { sortMode: 'name_asc' }))).toEqual([3, 8]);
+    expect(ids(clients)).toEqual([8, 3]);
   });
 });

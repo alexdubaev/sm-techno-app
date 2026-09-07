@@ -26,6 +26,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { MobileCrmWorkspace } from "@/components/crm/mobile/mobile-crm-workspace";
+import { filterAndSortCrmClients, type CrmSortMode, type PresenceFilter } from "@/components/crm/crm-client-list-controls";
 import { MessengerLinks } from "@/components/crm/messenger-links";
 import { DesktopCrmImportDialog } from "@/components/crm/import/desktop-crm-import-dialog";
 import { WorkOwnersStatus } from "@/components/crm/work-owners-status";
@@ -127,7 +128,9 @@ export function CrmWorkspace() {
   }, []);
   const [search, setSearch] = useState("");
   const [syncFilter, setSyncFilter] = useState<SyncFilter>("all");
-  const [primaryOrderMode, setPrimaryOrderMode] = useState<PrimaryOrderMode>("manual");
+  const [sortMode, setSortMode] = useState<CrmSortMode>("manual");
+  const [phoneFilter, setPhoneFilter] = useState<PresenceFilter>("all");
+  const [emailFilter, setEmailFilter] = useState<PresenceFilter>("all");
   const [primaryOrderVersion, setPrimaryOrderVersion] = useState(() => initialWorkspaceCache?.primaryOrderVersion ?? 0);
   const [isLoading, setIsLoading] = useState(() => initialWorkspaceCache === null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -361,31 +364,17 @@ export function CrmWorkspace() {
     };
   }, [activeTab, checkWorkspaceFreshness]);
 
-  const visibleClients = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase("ru-RU");
-    const filtered = clients.filter((client) => {
-      const matchesStatus = syncFilter === "all" || client.syncStatus === syncFilter;
-      if (!matchesStatus) return false;
-      if (!needle) return true;
-      return [client.name, client.documentName, client.fullName, client.contactPerson, client.inn, client.email, client.phone]
-        .join(" ")
-        .toLocaleLowerCase("ru-RU")
-        .includes(needle);
-    });
-    if (activeTab === "primary" && primaryOrderMode === "name") {
-      return [...filtered].sort((left, right) => (left.documentName || left.name).localeCompare(right.documentName || right.name, "ru"));
-    }
-    return filtered;
-  }, [activeTab, clients, primaryOrderMode, search, syncFilter]);
+  const visibleClients = useMemo(
+    () => filterAndSortCrmClients(clients, { search, syncFilter, phoneFilter, emailFilter, sortMode }),
+    [clients, emailFilter, phoneFilter, search, sortMode, syncFilter],
+  );
 
   const ownerReminders = useMemo(() => getOwnerReminders(reminderState, ownerId), [ownerId, reminderState]);
   const importantReminders = useMemo(() => getImportantReminders(ownerReminders), [ownerReminders]);
   const nearestReminderByClient = useMemo(() => getNearestActiveReminderByClient(ownerReminders), [ownerReminders]);
 
   const personalOrderVersion = clients.reduce((version, client) => Math.max(version, client.rowPreference?.orderVersion ?? 0), 0);
-  const isPrimaryManualOrderAvailable = activeTab === "primary" && primaryOrderMode === "manual" && !search.trim() && syncFilter === "all";
-  const isPersonalManualOrderAvailable = activeTab !== "primary" && !search.trim() && syncFilter === "all";
-  const isManualOrderAvailable = canEditWorkspace && (isPrimaryManualOrderAvailable || isPersonalManualOrderAvailable);
+  const isManualOrderAvailable = canEditWorkspace && sortMode === "manual" && !search.trim() && syncFilter === "all" && phoneFilter === "all" && emailFilter === "all";
 
   const activateTab = (tab: ActiveTab) => {
     currentView.current = { activeTab: tab, ownerId };
@@ -601,7 +590,7 @@ export function CrmWorkspace() {
   };
 
   const reorderPrimaryClients = async (clientId: number, insertionIndex: number) => {
-    if (!canEditWorkspace) return;
+    if (!isManualOrderAvailable) return;
     const requestOwnerId = ownerId;
     const reordered = moveClientInList(clients, clientId, insertionIndex);
     const nextIndex = reordered.findIndex((client) => client.id === clientId);
@@ -640,7 +629,7 @@ export function CrmWorkspace() {
   };
 
   const reorderPersonalClients = async (clientId: number, insertionIndex: number) => {
-    if (!canEditWorkspace || activeTab === "primary") return;
+    if (!isManualOrderAvailable || activeTab === "primary") return;
     const requestTab = activeTab;
     const requestOwnerId = ownerId;
     const reordered = moveClientInList(clients, clientId, insertionIndex);
@@ -681,11 +670,13 @@ export function CrmWorkspace() {
     }
   };
 
-  const returnToPrimaryManualOrder = () => {
-    setPrimaryOrderMode("manual");
-    setSearch("");
-    setSyncFilter("all");
+  const resetListControls = () => {
+    setSortMode("manual");
+    setPhoneFilter("all");
+    setEmailFilter("all");
   };
+  const primaryOrderMode: PrimaryOrderMode = sortMode === "name_asc" ? "name" : "manual";
+  const setPrimaryOrderMode = (mode: PrimaryOrderMode) => setSortMode(mode === "name" ? "name_asc" : "manual");
 
   const exportCrm = async (scope: "all" | "tab") => {
     if (scope === "tab" && activeTab === "primary") {
@@ -873,12 +864,14 @@ export function CrmWorkspace() {
                   <option value="all">Все</option><option value="synced">Связанные с 1С</option><option value="local">Локальные</option><option value="pending">Ожидают отправки</option><option value="blocked_capability">Заблокировано</option><option value="blocked_credentials">Нужны учётные данные 1С</option><option value="conflict">Конфликт</option><option value="sync_error">С ошибкой</option>
                 </select>
               </label>
-              {activeTab === "primary" ? <label className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Порядок</span><select value={primaryOrderMode} onChange={(event) => setPrimaryOrderMode(event.target.value as PrimaryOrderMode)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"><option value="manual">Мой порядок</option><option value="name">По названию</option></select></label> : null}
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Сортировка</span><select value={sortMode} onChange={(event) => setSortMode(event.target.value as CrmSortMode)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"><option value="manual">Ручной порядок</option><option value="name_asc">По названию: А–Я</option><option value="name_desc">По названию: Я–А</option><option value="newest">Сначала новые</option><option value="oldest">Сначала старые</option><option value="free_first">Сначала свободные</option><option value="busy_first">Сначала занятые</option></select></label>
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Телефон</span><select value={phoneFilter} onChange={(event) => setPhoneFilter(event.target.value as PresenceFilter)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"><option value="all">Все</option><option value="present">Есть</option><option value="missing">Нет</option></select></label>
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Почта</span><select value={emailFilter} onChange={(event) => setEmailFilter(event.target.value as PresenceFilter)} className="h-10 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]"><option value="all">Все</option><option value="present">Есть</option><option value="missing">Нет</option></select></label>
             </div>
-            {!isManualOrderAvailable ? <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[10px] bg-[#F6F8FB] px-3 py-2 text-[11px] text-[var(--text-secondary)]"><span>Перемещение доступно только без поиска и фильтров{activeTab === "primary" ? " в режиме «Мой порядок»" : ""}.</span>{activeTab === "primary" ? <button type="button" onClick={returnToPrimaryManualOrder} className="font-semibold text-[var(--brand-dark)] underline underline-offset-2">Вернуться к «Мой порядок»</button> : null}</div> : null}
+            {!isManualOrderAvailable ? <div className="mt-3 flex flex-wrap items-center gap-2 rounded-[10px] bg-[#F6F8FB] px-3 py-2 text-[11px] text-[var(--text-secondary)]"><span>Перемещение доступно только без поиска и фильтров в режиме «Ручной порядок».</span>{sortMode !== "manual" ? <button type="button" onClick={resetListControls} className="font-semibold text-[var(--brand-dark)] underline underline-offset-2">Вернуться к «Ручному порядку»</button> : null}</div> : null}
             {error ? <><Message tone="error">{error}</Message>{error === CRM_SYNC_FAILURE_MESSAGE ? <button type="button" onClick={() => void syncAndReloadWorkspace(activeTab, { manual: true })} disabled={isRefreshing} className="mt-2 h-9 rounded-[9px] border border-[#F9D4D4] bg-white px-3 text-[11px] font-semibold text-[#B91C1C] disabled:opacity-60">Повторить</button> : null}</> : null}
             {notice ? <Message tone="success">{notice}</Message> : null}
-            {isLoading ? <LoadingRows /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} canEditWorkspace={canEditWorkspace} manualOrderEnabled={isManualOrderAvailable} onColor={setRowColor} onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
+            {isLoading ? <LoadingRows /> : clients.length > 0 && visibleClients.length === 0 ? <FilteredClientEmpty onReset={resetListControls} /> : <ClientList activeTab={activeTab} clients={visibleClients} tabs={tabs} canEditWorkspace={canEditWorkspace} manualOrderEnabled={isManualOrderAvailable} onColor={setRowColor} onReorder={activeTab === "primary" ? reorderPrimaryClients : reorderPersonalClients} onMove={moveClient} onOpenAssignment={chooseTab} onOpenClient={setSelectedClient} />}
           </div>
         </div>
       </div>
@@ -964,6 +957,7 @@ function Contact({ client }: { client: CrmWorkspaceClient }) { return <div class
 function Status({ status }: { status: CrmWorkspaceClient["syncStatus"] }) { const labels = { synced: "1С", local: "Локальный", pending: "Ожидает отправки", blocked_capability: "Отправка заблокирована", blocked_credentials: "Нужны учётные данные 1С", conflict: "Конфликт", sync_error: "Ошибка", archived: "В архиве" }; const tone = status === "synced" ? "bg-emerald-600 text-white" : status === "pending" ? "bg-amber-500 text-[#312000]" : status === "conflict" || status === "sync_error" || status === "blocked_capability" || status === "blocked_credentials" ? "bg-red-600 text-white" : "bg-slate-700 text-white"; return <span className={`inline-flex rounded-[6px] px-1.5 py-0.5 text-[9px] font-bold ${tone}`}>{labels[status]}</span>; }
 function Actions({ client, color, tabs, canEditWorkspace, onColor, onMove, onOpenClient }: RowProps) { const tabActionLabel = client.assignment ? "Переместить…" : "Добавить во вкладку…"; return <div className="flex min-w-max items-center gap-1"><button type="button" onClick={() => onOpenClient(client)} className="h-7 rounded-[6px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold hover:bg-[#F6F8FB]">Открыть</button>{canEditWorkspace ? <><select aria-label={`${client.assignment ? "Переместить" : "Добавить"} ${client.documentName || client.name} во вкладку`} value="" onChange={(event) => { const target = Number(event.target.value); if (target) onMove(client, target); }} className="h-7 max-w-[126px] rounded-[6px] border border-[var(--border-color)] bg-white/80 px-1.5 text-[10px] font-semibold"><option value="">{tabActionLabel}</option>{tabs.filter((tab) => tab.id !== client.assignment?.tabId).map((tab) => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select><details className="relative"><summary className="flex h-7 cursor-pointer list-none items-center rounded-[6px] border border-[var(--border-color)] bg-white/80 px-2 text-[10px] font-semibold">Цвет</summary><div className="absolute right-0 z-10 mt-1 grid w-[184px] grid-cols-4 gap-1 rounded-[10px] border border-[var(--border-color)] bg-white p-2 shadow-[0_12px_28px_rgba(7,22,46,0.16)]"><button type="button" onClick={() => onColor(client, null)} className={`col-span-4 rounded-[6px] px-2 py-1 text-left text-[10px] ${color === null ? "bg-[#F1F5F9] font-bold" : "hover:bg-[#F8FAFC]"}`}>Сбросить цвет</button>{ROW_COLORS.map(([key, label, swatch]) => <button key={key} type="button" onClick={() => onColor(client, key)} aria-label={`Цвет строки: ${label}`} aria-pressed={color === key} title={label} style={{ backgroundColor: swatch }} className="h-7 rounded-[6px] border border-black/5 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]" />)}</div></details></> : null}</div>; }
 function LoadingRows() { return <div className="mt-4 space-y-2" aria-label="Загрузка клиентов">{[1, 2, 3, 4].map((row) => <div key={row} className="h-16 animate-pulse rounded-[12px] bg-[#F3F6FA]" />)}</div>; }
+function FilteredClientEmpty({ onReset }: { onReset: () => void }) { return <div className="py-12 text-center"><p className="text-[14px] font-semibold">Клиенты не найдены</p><p className="mt-1 text-[12px] text-[var(--text-secondary)]">Измените условия или сбросьте сортировку и фильтры.</p><button type="button" onClick={onReset} className="mt-3 rounded-[9px] border border-[var(--border-color)] bg-white px-3 py-2 text-[11px] font-semibold text-[var(--brand-dark)] hover:bg-[#F6F8FB]">Сбросить фильтры</button></div>; }
 function Message({ children, tone }: { children: string; tone: "error" | "success" }) { return <div role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"} className={`mt-3 rounded-[10px] border px-3 py-2 text-[11px] ${tone === "error" ? "border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]" : "border-[#BBE6CA] bg-[#F0FDF4] text-[#166534]"}`}>{children}</div>; }
 function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: ReturnType<typeof emptyClientForm>; isSaving: boolean; onChange: (form: ReturnType<typeof emptyClientForm>) => void; onClose: () => void; onSubmit: (event: SubmitEvent<HTMLFormElement>) => void }) { const update = (key: keyof ReturnType<typeof emptyClientForm>, value: string) => onChange({ ...form, [key]: value }); return <div role="dialog" aria-modal="true" aria-labelledby="crm-new-client-title" className="fixed inset-0 z-50 flex items-end bg-[#07162e]/35 p-2 sm:items-center sm:justify-center sm:p-4"><form onSubmit={onSubmit} className="w-full max-w-[620px] rounded-[22px] bg-white p-4 shadow-[0_24px_64px_rgba(7,22,46,0.24)] sm:p-5"><div className="flex items-start justify-between gap-4"><div><h2 id="crm-new-client-title" className="text-[19px] font-bold tracking-[-0.03em]">Новый локальный клиент</h2><p className="mt-1 text-[11px] text-[var(--text-secondary)]">Будет сохранён локально во вкладке «В работе» без отправки в 1С.</p></div><button type="button" onClick={onClose} className="h-8 rounded-[8px] px-2 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Закрыть</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="Наименование компании *" value={form.documentName} onChange={(value) => update("documentName", value)} autoFocus /><Field label="Город" value={form.city} onChange={(value) => update("city", value)} /><Field label="Контактное лицо" value={form.contactPerson} onChange={(value) => update("contactPerson", value)} /><Field label="Телефон" value={form.phone} onChange={(value) => update("phone", value)} type="tel" /><Field label="Почта" value={form.email} onChange={(value) => update("email", value)} type="email" /><Field label="Telegram (username, ссылка или номер)" value={form.telegram} onChange={(value) => update("telegram", value)} /><Field label="MAX (ссылка)" value={form.maxLink} onChange={(value) => update("maxLink", value)} /><label className="flex flex-col gap-1.5 text-[11px] font-semibold text-[var(--text-secondary)]"><span>Комментарий</span><textarea value={form.notes} onChange={(event) => update("notes", event.target.value)} className="min-h-10 rounded-[10px] border border-[var(--border-color)] px-3 py-2 text-[12px] font-normal text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)]" /></label></div><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} className="h-10 rounded-[11px] px-3 text-[12px] font-semibold text-[var(--text-secondary)] hover:bg-[#F6F8FB]">Отмена</button><button type="submit" disabled={isSaving} className="app-action-button h-10 rounded-[11px] px-4 text-[12px]">{isSaving ? "Сохраняем…" : "Добавить клиента"}</button></div></form></div>; }
 

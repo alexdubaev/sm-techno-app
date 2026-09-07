@@ -853,8 +853,8 @@ test("primary CRM list has an accessible manual-order control and preserves its 
   assert.match(types, /export type CrmPrimaryRowPreference/);
   assert.match(types, /primaryRowPreference\?: CrmPrimaryRowPreference \| null/);
   assert.match(workspace, /client\.primaryRowPreference\?\.colorKey/);
-  assert.match(workspace, /Мой порядок/);
-  assert.match(workspace, /Вернуться к «Мой порядок»/);
+  assert.match(workspace, /Ручной порядок/);
+  assert.match(workspace, /Вернуться к «Ручному порядку»/);
   assert.match(workspace, /aria-label=\{`Переместить \$\{client\.documentName \|\| client\.name\}`\}/);
   assert.match(workspace, /onKeyDown/);
   assert.match(workspace, /Escape/);
@@ -1061,7 +1061,7 @@ test("foreign administrator workspace is read-only while lifecycle and conflict 
   assert.match(workspace, /if \(!canEditWorkspace\) return;/);
   assert.match(workspace, /canEditWorkspace \? <button type="button" onClick=\{\(\) => setIsAdding\(true\)\}/);
   assert.match(workspace, /canEditWorkspace \? <button type="button" onClick=\{\(\) => openTabEditor\("new"\)\}/);
-  assert.match(workspace, /const isManualOrderAvailable = canEditWorkspace && \(isPrimaryManualOrderAvailable \|\| isPersonalManualOrderAvailable\);/);
+  assert.match(workspace, /const isManualOrderAvailable = canEditWorkspace && sortMode === "manual" && !search\.trim\(\) && syncFilter === "all" && phoneFilter === "all" && emailFilter === "all";/);
   assert.match(workspace, /canEditWorkspace=\{canEditWorkspace\}/);
   assert.match(controller, /canEditWorkspace && currentClient\.linkedCounterpartyId === null/);
   assert.match(controller, /canManageLocalClient = isAdmin/);
@@ -1084,4 +1084,22 @@ test("foreign detail keeps values visible and stale detail reloads through the s
   assert.match(workspace, /if \(!isCurrentWorkspaceView\(requestTab, requestOwnerId\)\) return;/);
   assert.match(workspace, /void loadLocalWorkspace\(requestTab, \{ silent: true \}\);\s+void refreshReminders\(requestOwnerId\);/);
   assert.match(workspace, /<ReadonlyCompanyRequisites client=\{currentClient\} \/>/);
+});
+
+test("CRM desktop keeps sort and contact filters local, resettable, and outside persisted reorder paths", async () => {
+  const workspace = await readFile(crmWorkspaceUrl, "utf8");
+
+  assert.match(workspace, /import \{ filterAndSortCrmClients, type CrmSortMode, type PresenceFilter \} from "@\/components\/crm\/crm-client-list-controls";/);
+  assert.match(workspace, /const \[sortMode, setSortMode\] = useState<CrmSortMode>\("manual"\);/);
+  assert.match(workspace, /const \[phoneFilter, setPhoneFilter\] = useState<PresenceFilter>\("all"\);/);
+  assert.match(workspace, /const \[emailFilter, setEmailFilter\] = useState<PresenceFilter>\("all"\);/);
+  assert.match(workspace, /filterAndSortCrmClients\(clients, \{ search, syncFilter, phoneFilter, emailFilter, sortMode \}\)/);
+  assert.match(workspace, /<span>Сортировка<\/span>/);
+  assert.match(workspace, /<span>Телефон<\/span>/);
+  assert.match(workspace, /<span>Почта<\/span>/);
+  assert.match(workspace, /Клиенты не найдены/);
+  assert.match(workspace, /Сбросить фильтры/);
+  assert.match(workspace, /const resetListControls = \(\) => \{\s+setSortMode\("manual"\);\s+setPhoneFilter\("all"\);\s+setEmailFilter\("all"\);\s+\};/);
+  assert.match(workspace, /sortMode === "manual" && !search\.trim\(\) && syncFilter === "all" && phoneFilter === "all" && emailFilter === "all"/);
+  assert.match(workspace, /if \(!isManualOrderAvailable\) return;/);
 });
