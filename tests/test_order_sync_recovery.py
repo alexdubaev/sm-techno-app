@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from stock_sync_desktop.onec_api import OneCClient, OneCClientError
+from stock_sync_desktop.onec_api import (
+    OneCClient,
+    OneCClientError,
+    OneCTransientError,
+    OneCUnknownWriteOutcomeError,
+)
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.service import WebStockSyncService
 
@@ -223,9 +228,11 @@ class OrderSyncRecoveryTest(unittest.TestCase):
             self.db.writeoff_order_locally(order_id)
 
     def test_ref_key_is_saved_when_get_after_post_fails(self) -> None:
-        client = FakeOneCClient(get_error=OneCClientError("GET failed"))
+        client = FakeOneCClient(
+            get_error=OneCTransientError("GET failed", method="GET", status_code=503, retryable=True)
+        )
 
-        with self.assertRaisesRegex(OneCClientError, "GET failed"):
+        with self.assertRaisesRegex(OneCTransientError, "GET failed"):
             self._send(client)
 
         order = self._only_order()
@@ -233,14 +240,21 @@ class OrderSyncRecoveryTest(unittest.TestCase):
         self.assertEqual(order["onec_ref_key"], "ref-1")
         self.assertEqual(client.create_calls, 1)
 
-    def test_connection_reset_after_post_is_unknown_and_not_resent(self) -> None:
-        client = FakeOneCClient(create_error=ConnectionResetError("connection reset"))
+    def test_unknown_post_transport_failure_is_not_resent_for_network_or_timeout(self) -> None:
+        for label, timed_out in (("network", False), ("timeout", True)):
+            error = OneCUnknownWriteOutcomeError(
+                f"unknown {label}",
+                method="POST",
+                outcome_unknown=True,
+                timed_out=timed_out,
+            )
+            client = FakeOneCClient(create_error=error)
 
-        with self.assertRaises(ConnectionResetError):
-            self._send(client)
+            with self.subTest(kind=label), self.assertRaises(OneCUnknownWriteOutcomeError):
+                self._send(client)
 
-        self.assertEqual(self._only_order()["status"], "remote_state_unknown")
-        self.assertEqual(client.create_calls, 1)
+            self.assertEqual(self._only_order()["status"], "remote_state_unknown")
+            self.assertEqual(client.create_calls, 1)
 
     def test_recovery_finds_remote_order_and_finalizes_once(self) -> None:
         order_id = self._create_reserved_order([self._line(2)], "attempt-a")

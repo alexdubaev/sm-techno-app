@@ -17,6 +17,14 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from stock_sync_desktop.onec_api import (
+    OneCClientError,
+    OneCNetworkError,
+    OneCTimeoutError,
+    OneCTransportError,
+    OneCTransientError,
+    OneCUnknownWriteOutcomeError,
+)
 from stock_sync_web.service import CRM_LOCAL_ONLY_POLICY_MESSAGE, WebStockSyncService, create_default_service
 from stock_sync_web.crm_export import build_crm_export_xlsx
 from stock_sync_web.crm_import import ImportValidationError
@@ -538,6 +546,21 @@ def _crm_error(exc: Exception) -> None:
     raise HTTPException(status_code=400, detail=message) from exc
 
 
+def _onec_http_exception(exc: OneCClientError) -> HTTPException:
+    if isinstance(exc, OneCUnknownWriteOutcomeError):
+        status_code = 504 if exc.timed_out else 503
+    elif isinstance(exc, OneCTimeoutError):
+        status_code = 504
+    elif isinstance(exc, OneCNetworkError):
+        status_code = 503
+    elif isinstance(exc, OneCTransientError) and exc.status_code in {502, 503, 504}:
+        status_code = exc.status_code
+    else:
+        status_code = 502
+    detail = str(exc) if isinstance(exc, OneCTransportError) else "Ошибка обмена с 1С."
+    return HTTPException(status_code=status_code, detail=detail)
+
+
 def _crm_owner(repo: CrmRepository, current_user: dict[str, Any], requested_owner_id: int | None) -> int:
     actor_id = int(current_user["id"])
     is_admin = str(current_user.get("role") or "") == "admin"
@@ -924,6 +947,8 @@ def test_onec_access(
             onec_username=onec_username,
             onec_password=onec_password,
         )
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -951,6 +976,8 @@ def sync_references(
             onec_username=onec_username,
             onec_password=onec_password,
         )
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -968,6 +995,8 @@ def sync_crm_counterparties(
     """Refresh CRM companies with the authenticated user's 1C credentials."""
     try:
         return SERVICE.sync_crm_counterparties_for_user(int(current_user["id"]))
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2486,6 +2515,8 @@ def recover_order_onec(
             order_id=order_id,
             actor_user_id=int(current_user["id"]),
         )
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if "not found" in message.lower() or "не найден" in message.lower() else 400
@@ -2511,6 +2542,8 @@ def create_and_send_order(
             comment=values["comment"],
             draft_lines=values["draft_lines"],
         )
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -36,6 +36,7 @@ class OneCTransportError(OneCClientError):
         request_id: str | None = None,
         retryable: bool = False,
         outcome_unknown: bool = False,
+        timed_out: bool = False,
     ) -> None:
         super().__init__(message)
         self.method = method.upper()
@@ -43,6 +44,7 @@ class OneCTransportError(OneCClientError):
         self.request_id = request_id
         self.retryable = retryable
         self.outcome_unknown = outcome_unknown
+        self.timed_out = timed_out
 
 
 class OneCAuthError(OneCTransportError):
@@ -328,6 +330,7 @@ class OneCClient:
                 method=method,
                 request_id=request_id,
                 outcome_unknown=True,
+                timed_out=timeout,
             )
         error_class = OneCTimeoutError if timeout else OneCNetworkError
         message = "Превышено время ожидания ответа 1С." if timeout else "Не удалось подключиться к 1С."

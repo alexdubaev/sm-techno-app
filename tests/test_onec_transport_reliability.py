@@ -1,15 +1,40 @@
 from __future__ import annotations
 
+import os
 import socket
+import tempfile
 import unittest
 from http.client import IncompleteRead
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
+from fastapi.testclient import TestClient
+
+_bootstrap_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+_previous_db_path = os.environ.get("SM_TECHNO_DB_PATH")
+_previous_admin_password = os.environ.get("SM_TECHNO_INITIAL_ADMIN_PASSWORD")
+os.environ["SM_TECHNO_DB_PATH"] = str(Path(_bootstrap_dir.name) / "bootstrap.db")
+os.environ["SM_TECHNO_INITIAL_ADMIN_PASSWORD"] = _previous_admin_password or "test-password"
+try:
+    import stock_sync_api
+finally:
+    if _previous_db_path is None:
+        os.environ.pop("SM_TECHNO_DB_PATH", None)
+    else:
+        os.environ["SM_TECHNO_DB_PATH"] = _previous_db_path
+    if _previous_admin_password is None:
+        os.environ.pop("SM_TECHNO_INITIAL_ADMIN_PASSWORD", None)
+    else:
+        os.environ["SM_TECHNO_INITIAL_ADMIN_PASSWORD"] = _previous_admin_password
+
 from stock_sync_desktop.onec_api import (
+    OneCAuthError,
     OneCClient,
+    OneCClientError,
     OneCMalformedResponseError,
+    OneCNetworkError,
     OneCPaginationError,
     OneCTimeoutError,
     OneCTransientError,
@@ -41,6 +66,20 @@ def http_error(status_code: int) -> HTTPError:
         hdrs=None,
         fp=BytesIO(b'{"password":"upstream-secret"}'),
     )
+
+
+class RaisingApiService:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def _raise(self, *_: object, **__: object) -> None:
+        raise self.error
+
+    test_user_onec_access = _raise
+    sync_counterparties = _raise
+    sync_crm_counterparties_for_user = _raise
+    create_and_sync_order = _raise
+    recover_order_sync_for_admin = _raise
 
 
 class OneCTransportReliabilityTest(unittest.TestCase):
@@ -101,6 +140,17 @@ class OneCTransportReliabilityTest(unittest.TestCase):
             self.assertEqual(method, raised.exception.method)
             self.assertFalse(raised.exception.retryable)
             self.assertTrue(raised.exception.outcome_unknown)
+            self.assertIs(getattr(raised.exception, "timed_out", None), False)
+
+    def test_write_timeout_marks_unknown_outcome_as_timed_out(self) -> None:
+        """Dropping the timeout discriminator must make API 504 mapping impossible."""
+        with patch("stock_sync_desktop.onec_api.urlopen", side_effect=socket.timeout("socket timed out")) as open_mock:
+            with self.assertRaises(OneCUnknownWriteOutcomeError) as raised:
+                self.client._request("POST", "Document_ЗаказПокупателя?$format=json", {"secret": "payload-secret"})
+
+        self.assertEqual(1, open_mock.call_count)
+        self.assertTrue(raised.exception.outcome_unknown)
+        self.assertIs(getattr(raised.exception, "timed_out", None), True)
 
     def test_malformed_json_is_typed_and_is_not_retried(self) -> None:
         """Returning generic client errors or retrying an invalid JSON document must fail this test."""
@@ -283,6 +333,117 @@ class OneCTransportReliabilityTest(unittest.TestCase):
             self.assertEqual({"NewField"}, self.client._list_entity_properties("Catalog"))
 
         self.assertEqual(2, open_mock.call_count)
+
+
+class OneCApiTransportMappingTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.original_service = stock_sync_api.SERVICE
+        stock_sync_api.app.dependency_overrides[stock_sync_api._get_current_user] = lambda: {
+            "id": 1,
+            "role": "admin",
+        }
+        self.client = TestClient(stock_sync_api.app, raise_server_exceptions=False)
+
+    def tearDown(self) -> None:
+        self.client.close()
+        stock_sync_api.app.dependency_overrides.clear()
+        stock_sync_api.SERVICE = self.original_service
+
+    @staticmethod
+    def _error_cases() -> tuple[tuple[str, OneCClientError, int], ...]:
+        return (
+            ("auth", OneCAuthError("auth", method="GET", status_code=401), 502),
+            ("validation", OneCValidationError("validation", method="GET", status_code=400), 502),
+            ("malformed", OneCMalformedResponseError("malformed", method="GET"), 502),
+            ("upstream-502", OneCTransientError("502", method="GET", status_code=502), 502),
+            ("upstream-503", OneCTransientError("503", method="GET", status_code=503), 503),
+            ("upstream-504", OneCTransientError("504", method="GET", status_code=504), 504),
+            ("upstream-other", OneCTransientError("500", method="GET", status_code=500), 502),
+            ("network", OneCNetworkError("network", method="GET"), 503),
+            ("timeout", OneCTimeoutError("timeout", method="GET"), 504),
+            (
+                "unknown-network",
+                OneCUnknownWriteOutcomeError("unknown network", method="POST", outcome_unknown=True),
+                503,
+            ),
+            (
+                "unknown-timeout",
+                OneCUnknownWriteOutcomeError(
+                    "unknown timeout",
+                    method="POST",
+                    outcome_unknown=True,
+                    timed_out=True,
+                ),
+                504,
+            ),
+            ("generic-onec", OneCClientError("upstream body password=secret"), 502),
+        )
+
+    @staticmethod
+    def _endpoint_cases() -> tuple[tuple[str, dict[str, object] | None], ...]:
+        return (
+            ("/api/onec/test", {}),
+            ("/api/references/sync", {}),
+            ("/api/crm/sync", None),
+            (
+                "/api/orders/send",
+                {
+                    "counterpartyId": 1,
+                    "orderDate": "2026-09-07",
+                    "draftLines": [
+                        {"itemId": 1, "warehouseId": 1, "quantity": 1, "price": 100},
+                    ],
+                },
+            ),
+            ("/api/orders/1/recover-onec", None),
+        )
+
+    def test_selected_onec_endpoints_map_only_upstream_failures(self) -> None:
+        """Restoring blanket HTTP 400 handling or losing upstream status semantics must fail this test."""
+        for endpoint, payload in self._endpoint_cases():
+            for label, error, expected_status in self._error_cases():
+                with self.subTest(endpoint=endpoint, error=label):
+                    stock_sync_api.SERVICE = RaisingApiService(error)  # type: ignore[assignment]
+                    response = self.client.post(endpoint, json=payload)
+
+                    self.assertEqual(expected_status, response.status_code, response.text)
+                    if type(error) is OneCClientError:
+                        self.assertEqual("Ошибка обмена с 1С.", response.json()["detail"])
+                        self.assertNotIn("secret", response.text)
+                    else:
+                        self.assertEqual(str(error), response.json()["detail"])
+
+    def test_order_payload_validation_remains_http_400_before_service_call(self) -> None:
+        """Routing local payload validation through the upstream mapper must fail this test."""
+        stock_sync_api.SERVICE = RaisingApiService(AssertionError("service must not be called"))  # type: ignore[assignment]
+
+        response = self.client.post(
+            "/api/orders/send",
+            json={
+                "counterpartyId": 1,
+                "orderDate": "not-an-iso-date",
+                "draftLines": [{"itemId": 1, "warehouseId": 1, "quantity": 1, "price": 100}],
+            },
+        )
+
+        self.assertEqual(400, response.status_code, response.text)
+        self.assertIn("ISO", response.json()["detail"])
+
+    def test_order_service_validation_remains_http_400(self) -> None:
+        """Broadening the 1C mapper to local service errors must fail this test."""
+        stock_sync_api.SERVICE = RaisingApiService(ValueError("local validation"))  # type: ignore[assignment]
+
+        response = self.client.post(
+            "/api/orders/send",
+            json={
+                "counterpartyId": 1,
+                "orderDate": "2026-09-07",
+                "draftLines": [{"itemId": 1, "warehouseId": 1, "quantity": 1, "price": 100}],
+            },
+        )
+
+        self.assertEqual(400, response.status_code, response.text)
+        self.assertEqual("local validation", response.json()["detail"])
 
 
 if __name__ == "__main__":
