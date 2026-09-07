@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 import re
@@ -1776,6 +1777,13 @@ class WebStockSyncService:
         return self.db.delete_all_local_items()
 
     def create_and_sync_order(self, *, actor_user_id: int | None, onec_username: str, onec_password: str, counterparty_id: int, contract_id: int | None, organization_key: str | None, order_date: str, comment: str, draft_lines: list[Any]) -> tuple[int, dict[str, Any]]:
+        draft_lines = self.validate_order_command(
+            counterparty_id=counterparty_id,
+            contract_id=contract_id,
+            organization_key=organization_key,
+            order_date=order_date,
+            draft_lines=draft_lines,
+        )
         if not draft_lines:
             raise ValueError("Добавь хотя бы одну строку в заказ.")
         bundle_lines = [
@@ -1826,7 +1834,6 @@ class WebStockSyncService:
         except Exception as exc:
             self.db.mark_order_remote_unknown(order_id, str(exc))
             raise
-
         ref_key = created_doc.get("Ref_Key")
         if not ref_key:
             error = OneCClientError("1С не вернула Ref_Key созданного заказа. Проверь ответ сервера.")
@@ -1840,6 +1847,62 @@ class WebStockSyncService:
         except Exception as exc:
             self.db.mark_order_pending_finalize_error(order_id, str(exc))
             raise
+
+    def validate_order_command(
+        self,
+        *,
+        counterparty_id: int,
+        contract_id: int | None,
+        organization_key: str | None,
+        order_date: str,
+        draft_lines: list[Any],
+    ) -> list[Any]:
+        try:
+            datetime.fromisoformat(str(order_date).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("Дата заказа должна быть ISO date или datetime.") from exc
+
+        counterparties = self.db.list_counterparties()
+        counterparty = next((row for row in counterparties if int(row["id"]) == int(counterparty_id)), None)
+        if not counterparty or not str(counterparty.get("onec_key") or "").strip():
+            raise ValueError("Контрагент не найден или не связан с 1С.")
+
+        if organization_key:
+            organization = next(
+                (row for row in self.db.list_organizations() if str(row.get("onec_key") or "") == organization_key),
+                None,
+            )
+            if organization is None:
+                raise ValueError("Организация не найдена.")
+
+        if contract_id is not None:
+            contract = next((row for row in self.db.list_contracts() if int(row["id"]) == int(contract_id)), None)
+            if contract is None or str(contract.get("counterparty_key") or "") != str(counterparty["onec_key"]):
+                raise ValueError("Договор не принадлежит выбранному контрагенту.")
+            if organization_key and str(contract.get("organization_key") or "") not in {"", organization_key}:
+                raise ValueError("Договор не соответствует выбранной организации.")
+
+        warehouses = {int(row["id"]): row for row in self.db.list_warehouses(active_only=True)}
+        validated: list[Any] = []
+        for line in draft_lines:
+            item_id = int(line.item_id)
+            warehouse_id = int(line.warehouse_id) if line.warehouse_id is not None else None
+            item = self.db.get_item_by_id(item_id)
+            if item is None:
+                raise ValueError("Товар не найден.")
+            if warehouse_id is None or warehouse_id not in warehouses:
+                raise ValueError("Склад не найден или неактивен.")
+            quantity = float(line.quantity)
+            if not math.isfinite(quantity) or quantity <= 0:
+                raise ValueError("Количество заказа должно быть конечным положительным числом.")
+            price = float(item["price"] or 0)
+            if not math.isfinite(price) or price < 0:
+                raise ValueError("В прайсе указана некорректная цена товара.")
+            line.quantity = quantity
+            line.price = price
+            line.amount = round(quantity * price, 2)
+            validated.append(line)
+        return validated
 
     def recover_order_sync_for_admin(self, *, order_id: int, actor_user_id: int) -> dict[str, Any]:
         bundle = self.db.get_order_bundle(order_id)

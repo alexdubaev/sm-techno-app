@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import tempfile
 from contextlib import asynccontextmanager
@@ -650,9 +651,10 @@ def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
     order_date = str(payload.get("orderDate") or "").strip()
     if not order_date:
         raise HTTPException(status_code=400, detail="Укажите дату заказа.")
-
-    onec_username = str(payload.get("onecUsername") or "").strip()
-    onec_password = str(payload.get("onecPassword") or "")
+    try:
+        datetime.fromisoformat(order_date.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Дата заказа должна быть ISO date или datetime.") from exc
 
     raw_lines = payload.get("draftLines")
     if not isinstance(raw_lines, list) or not raw_lines:
@@ -677,9 +679,9 @@ def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail="В строке счета указан некорректный склад.")
 
-        if quantity <= 0:
+        if not math.isfinite(quantity) or quantity <= 0:
             raise HTTPException(status_code=400, detail="Количество в строках счета должно быть больше нуля.")
-        if price < 0:
+        if not math.isfinite(price) or price < 0:
             raise HTTPException(status_code=400, detail="Цена в строках счета не может быть отрицательной.")
 
         draft_lines.append(
@@ -701,8 +703,8 @@ def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "organization_key": organization_key,
         "order_date": order_date,
         "comment": str(payload.get("comment") or "").strip(),
-        "onec_username": onec_username,
-        "onec_password": onec_password,
+        "onec_username": "",
+        "onec_password": "",
         "draft_lines": draft_lines,
     }
 
