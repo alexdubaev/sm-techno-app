@@ -924,7 +924,14 @@ class CrmRepository:
 
     def _list_reminders(self, owner_id: int) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
-            rows = conn.execute("SELECT * FROM crm_reminders WHERE owner_user_id = ? AND status = 'active' ORDER BY due_at, id", (owner_id,)).fetchall()
+            rows = conn.execute(
+                """SELECT r.* FROM crm_reminders r
+                   JOIN crm_clients c ON c.id = r.crm_client_id
+                   WHERE r.owner_user_id = ? AND r.status = 'active'
+                     AND c.crm_archived_at IS NULL
+                   ORDER BY r.due_at, r.id""",
+                (owner_id,),
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def list_reminders_for_actor(self, *, actor_id: int, owner_id: int) -> list[dict[str, Any]]:
@@ -939,6 +946,7 @@ class CrmRepository:
                 """SELECT r.*, COALESCE(c.document_name, c.name, '') AS client_label
                    FROM crm_reminders r JOIN crm_clients c ON c.id = r.crm_client_id
                    WHERE r.owner_user_id = ? AND r.status = 'active' AND r.due_at <= ?
+                     AND c.crm_archived_at IS NULL
                    ORDER BY r.due_at, r.id""",
                 (actor_id, canonical_utc_instant(now_utc)),
             ).fetchall()
@@ -1104,11 +1112,34 @@ class CrmRepository:
             preference_exists = conn.execute("SELECT 1 FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, tab_id, client_id)).fetchone()
             if not preference_exists:
                 self._append_personal_preference(conn, owner_id, tab_id, client_id, position=0)
-            current = conn.execute("SELECT COALESCE(MAX(order_version), 0) AS value FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ?", (owner_id, tab_id)).fetchone()["value"]
+            current = conn.execute(
+                """SELECT COALESCE(MAX(p.order_version), 0) AS value
+                   FROM crm_row_preferences p
+                   JOIN crm_assignments a
+                     ON a.owner_user_id = p.owner_user_id
+                    AND a.tab_id = p.tab_id
+                    AND a.crm_client_id = p.crm_client_id
+                   JOIN crm_clients c ON c.id = p.crm_client_id
+                   WHERE p.owner_user_id = ? AND p.tab_id = ?
+                     AND a.archived_at IS NULL AND c.crm_archived_at IS NULL""",
+                (owner_id, tab_id),
+            ).fetchone()["value"]
             if expected_order_version is not None and int(expected_order_version) != int(current):
                 raise ValueError("Конфликт версии порядка. Загрузите актуальный список.")
             next_version = int(current) + 1
-            conn.execute("UPDATE crm_row_preferences SET order_version = ?, updated_at = ? WHERE owner_user_id = ? AND tab_id = ?", (next_version, utc_now(), owner_id, tab_id))
+            conn.execute(
+                """UPDATE crm_row_preferences
+                   SET order_version = ?, updated_at = ?
+                   WHERE owner_user_id = ? AND tab_id = ? AND EXISTS (
+                     SELECT 1 FROM crm_assignments a
+                     JOIN crm_clients c ON c.id = a.crm_client_id
+                     WHERE a.owner_user_id = crm_row_preferences.owner_user_id
+                       AND a.tab_id = crm_row_preferences.tab_id
+                       AND a.crm_client_id = crm_row_preferences.crm_client_id
+                       AND a.archived_at IS NULL AND c.crm_archived_at IS NULL
+                   )""",
+                (next_version, utc_now(), owner_id, tab_id),
+            )
             conn.execute("UPDATE crm_row_preferences SET color_key = ?, order_version = ?, updated_at = ? WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (color_key, next_version, utc_now(), owner_id, tab_id, client_id))
             row = conn.execute("SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, tab_id, client_id)).fetchone()
         return dict(row)

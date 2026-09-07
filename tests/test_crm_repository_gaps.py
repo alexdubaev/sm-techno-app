@@ -243,6 +243,102 @@ class CrmRepositoryGapsTest(unittest.TestCase):
                 expected_order_version=1,
             )
 
+    def test_primary_archive_hides_stored_reminder_until_restore(self) -> None:
+        client = self._linked_primary_client()
+        reminder = self.repo.add_reminder_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=int(client["id"]),
+            due_at="2026-09-05T10:00:00+03:00",
+        )
+        due_now = "2026-09-06T10:00:00+03:00"
+        self.assertEqual(
+            [int(reminder["id"])],
+            [row["id"] for row in self.repo.list_reminders_for_actor(actor_id=self.owner_id, owner_id=self.owner_id)],
+        )
+        self.assertEqual(
+            [int(reminder["id"])],
+            [row["id"] for row in self.repo.list_due_reminders_for_current_actor(actor_id=self.owner_id, now_utc=due_now)],
+        )
+
+        self.repo.archive_primary_client(
+            actor_id=self.admin_id,
+            client_id=int(client["id"]),
+            reason="Неактуальный",
+        )
+
+        self.assertEqual([], self.repo.list_reminders_for_actor(actor_id=self.owner_id, owner_id=self.owner_id))
+        self.assertEqual([], self.repo.list_due_reminders_for_current_actor(actor_id=self.owner_id, now_utc=due_now))
+        with self.db.connect() as conn:
+            stored = conn.execute("SELECT * FROM crm_reminders WHERE id = ?", (reminder["id"],)).fetchone()
+        self.assertIsNotNone(stored)
+        self.assertEqual("active", stored["status"])
+
+        self.repo.restore_primary_client(actor_id=self.admin_id, client_id=int(client["id"]))
+
+        self.assertEqual(
+            [int(reminder["id"])],
+            [row["id"] for row in self.repo.list_reminders_for_actor(actor_id=self.owner_id, owner_id=self.owner_id)],
+        )
+        self.assertEqual(
+            [int(reminder["id"])],
+            [row["id"] for row in self.repo.list_due_reminders_for_current_actor(actor_id=self.owner_id, now_utc=due_now)],
+        )
+
+    def test_active_personal_preference_edit_does_not_touch_archived_sibling(self) -> None:
+        archived = self._linked_primary_client()
+        active = self.repo.create_local_client(actor_id=self.owner_id, values={"document_name": "Активный лид"})
+        work = self.repo.ensure_work_tab_for_actor(actor_id=self.owner_id, owner_id=self.owner_id)
+        for client in (archived, active):
+            self.repo.assign_client_for_actor(
+                actor_id=self.owner_id,
+                owner_id=self.owner_id,
+                client_id=int(client["id"]),
+                tab_id=int(work["id"]),
+            )
+        self.repo.set_row_preference_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            tab_id=int(work["id"]),
+            client_id=int(archived["id"]),
+            color_key="blue",
+            expected_order_version=0,
+        )
+        self.repo.set_row_preference_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            tab_id=int(work["id"]),
+            client_id=int(active["id"]),
+            color_key="green",
+            expected_order_version=1,
+        )
+        self.repo.archive_primary_client(
+            actor_id=self.admin_id,
+            client_id=int(archived["id"]),
+            reason="Неактуальный",
+        )
+        with self.db.connect() as conn:
+            before = dict(conn.execute(
+                "SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?",
+                (self.owner_id, work["id"], archived["id"]),
+            ).fetchone())
+
+        self.repo.set_row_preference_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            tab_id=int(work["id"]),
+            client_id=int(active["id"]),
+            color_key="orange",
+            expected_order_version=2,
+        )
+
+        with self.db.connect() as conn:
+            after = dict(conn.execute(
+                "SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?",
+                (self.owner_id, work["id"], archived["id"]),
+            ).fetchone())
+        self.assertEqual(before, after)
+
 
 if __name__ == "__main__":
     unittest.main()
