@@ -4,7 +4,7 @@
 
 **Goal:** Make 1C order sends recoverable and idempotent while reserving stock before remote submission.
 
-**Architecture:** Reservations are durable local intent created atomically with an order. A state machine separates pre-POST failures from uncertain outcomes after POST starts. The service stores remote identity before GET and finalization; finalization consumes reservations and uses a unique database guard for physical movements.
+**Architecture:** Reservations are durable local intent created atomically with an order. A state machine separates pre-POST failures from uncertain outcomes after POST starts. The service stores remote identity before GET and finalization; finalization consumes reservations and uses a unique per-order ledger for physical movements.
 
 **Tech Stack:** Python 3, SQLite, FastAPI, unittest, Next.js 16, TypeScript, React 19.
 
@@ -20,8 +20,8 @@
 
 ## File Map
 
-- `stock_sync_desktop/database.py`: schema, migrations, reservations and idempotent finalization.
-- `stock_sync_desktop/onec_api.py`: exact 1C marker lookup.
+- `stock_sync_desktop/database.py`: schema, migrations, reservations and idempotent finalization ledger.
+- `stock_sync_desktop/onec_api.py`: marker-substring 1C lookup.
 - `stock_sync_web/service.py`: order state machine and recovery.
 - `stock_sync_api.py`: admin-only recovery endpoint.
 - `sm-techno-web/lib/api.ts`, `sm-techno-web/app/orders/[id]/page.tsx`: recovery client and UX.
@@ -48,7 +48,7 @@
 
 - [ ] Write a failing test that calls finalization twice and asserts one `out` movement, one stock decrement, no remaining reservation, and `posted_to_1c`. Write a second test that attempts manual write-off from `remote_state_unknown` and expects the message `сверить состояние 1С`.
 - [ ] Run only these tests and confirm RED: the implementation either duplicates a movement or permits manual write-off.
-- [ ] Add a partial unique index on `(order_id,item_id,warehouse_id,movement_type)` where movement type is `out`. Persist Ref_Key and `remote_created_pending_finalize` in `record_remote_order` in its own transaction. In finalization, accept only remote-pending/posted records; skip already recorded aggregates, decrement and insert only missing movement rows, delete reservations, and set `posted_to_1c` in one transaction. Reject `sending_to_1c`, `remote_created_pending_finalize`, and `remote_state_unknown` before manual write-off evaluates stock.
+- [ ] Add `order_sync_finalizations(order_id PRIMARY KEY, finalized_at)` as a migration-safe exactly-once ledger. Persist Ref_Key and `remote_created_pending_finalize` in `record_remote_order` in its own transaction. In finalization, accept only remote-pending/posted records; if the ledger row exists, return the order unchanged; otherwise insert the ledger row, decrement balances, insert `out` movements, delete reservations, and set `posted_to_1c` in one transaction. Reject `sending_to_1c`, `remote_created_pending_finalize`, and `remote_state_unknown` before manual write-off evaluates stock.
 - [ ] Run `tests.test_order_sync_recovery` and `tests.test_order_manual_writeoff`; confirm GREEN.
 - [ ] Commit with message `fix: make order finalization idempotent`.
 
@@ -60,7 +60,7 @@
 
 - [ ] Write failing fake-client tests for: Ref_Key retained if GET fails after POST; connection reset during POST leaves `remote_state_unknown` and exactly one create call; recovery finds an order by marker, performs no POST, and produces one local movement; a marker lookup returning two documents fails safely.
 - [ ] Run `..\.venv\Scripts\python.exe -m unittest tests.test_order_sync_recovery.OrderSyncRecoveryTest tests.test_order_sync_recovery.OneCMarkerLookupTest -v`; confirm RED because all current errors become `error` and no recovery or marker lookup exists.
-- [ ] Generate `uuid.uuid4().hex`, reserve first, and append the marker to the remote comment. Classify preparation failures as `error_before_remote_write` and release their reservation. Immediately before POST set `sending_to_1c`; classify any POST exception as `remote_state_unknown`, retaining the reservation. Persist a returned Ref_Key before GET. Preserve `remote_created_pending_finalize` for GET/finalization failures. Implement recovery to use Ref_Key first, then a bounded exact 1C OData marker lookup with `$top=2`; no result, ambiguous result, or unsupported filtering remains pending with diagnostics. Recovery never invokes POST.
+- [ ] Generate `uuid.uuid4().hex`, reserve first, and append the marker to the remote comment. Classify preparation failures as `error_before_remote_write` and release their reservation. Immediately before POST set `sending_to_1c`; classify any POST exception as `remote_state_unknown`, retaining the reservation. Persist a returned Ref_Key before GET. Preserve `remote_created_pending_finalize` for GET/finalization failures. Implement recovery to use Ref_Key first, then a bounded 1C OData substring-marker lookup with `$top=2`; no result, ambiguous result, or unsupported filtering remains pending with diagnostics. Recovery never invokes POST.
 - [ ] Re-run the fake-client tests and existing `test_order_item_matching_by_sku`, `test_order_category_fallback`, and `test_order_manual_writeoff`; confirm GREEN.
 - [ ] Commit with message `feat: recover uncertain 1C order sends`.
 
