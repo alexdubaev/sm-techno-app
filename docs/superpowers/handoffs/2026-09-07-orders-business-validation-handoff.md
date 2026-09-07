@@ -110,6 +110,34 @@ npm run build
 Pop-Location
 ```
 
+## Оставшиеся ТЗ аудита (не начаты)
+
+Этот раздел включает все согласованные задания аудита после ТЗ 04, кроме отдельно исключённого ТЗ 90 о полном redesign Settings. Перед началом CRM/Excel задач сначала перечитать свежий код после merge global archive клиентов 1С и не откатывать его изменения.
+
+### P1 — следующий этап
+
+- **ТЗ 05 — сохранение стеллажа/ячейки при нулевом остатке.** Не удалять location при `quantity = 0`; после пополнения показывать прежние rack/cell. Зависит от завершённого ТЗ 04.
+- **ТЗ 06 — безопасный Excel import склада.** Добавить validate/preview/commit, финитную валидацию price/quantity, явную политику duplicates и один atomic commit. Делать после ТЗ 04 и согласовать с ТЗ 07.
+- **ТЗ 07 — идентичность товаров и duplicates.** Убрать скрытый update товара по совпавшему name, централизовать normalised SKU и вернуть domain errors вместо raw SQLite errors. Согласовать до окончательной реализации ТЗ 06.
+- **ТЗ 09 — консистентный CRM pull-sync из 1С.** Убрать N+1, определить ownership полей и conflict policy, применить batch/transaction, cross-process lease и защитить local-only/archived clients. Перед работой прочитать код после merge global archive клиентов.
+- **ТЗ 10 — timezone contract CRM reminders.** Хранить UTC ISO8601, принимать только aware input, мигрировать legacy naive Moscow timestamps и привести UI к `Date.toISOString()`. После merge archive clients.
+- **ТЗ 11 — authorization-first CRM mutation.** Исправить `PUT /api/crm/clients/{id}/row-preference`: permission guard до parse payload, чтобы чужой workspace всегда получал 403. После archive merge повторно проверить новые archive routes.
+- **ТЗ 12 — сохранение ручной позиции CRM-карточки.** Обновлять `position` в existing row preference независимо от color и не ломать optimistic versioning/primary order.
+- **ТЗ 13 — безопасный CRM Excel matching без hidden IDs.** INN+KPP — только exact pair; без INN — normalized company name + phone/email; ambiguous rows — conflict без update. Не возвращать technical hidden IDs в обычный export. Перед началом перечитать свежий archive/import code.
+- **ТЗ 15 — целостность коммерческих предложений.** Проверять Excel lines, рассчитывать amount server-side, manual client делать snapshot-only, согласовать DB/files через staging/cleanup и проверить ownership.
+- **ТЗ 16 — целостность документов/specifications.** Строго валидировать дату и связь offer/client, contract очищает irrelevant offer ID, определить policy missing requisites и сделать staging/cleanup/path guard. Делать после/вместе с ТЗ 15.
+- **ТЗ 17 — security сессий.** Хранить hash bearer token, инвалидировать legacy sessions, добавить idle/absolute lifetime и сохранить revocation при password change/disable/delete. Если Settings изменяет password/users, выполнять после Settings либо изолировать изменения.
+- **ТЗ 18 — backup/restore SQLite + storage.** Quiesce/read lock, manifest/checksums, integrity/reference checks, restore через staging и verify-only. Делать после ТЗ 15/16.
+- **ТЗ 19 — безопасные SQLite migrations.** Ввести формальный migration registry/lock, one-time backfills, FK/integrity checks и upgrade fixtures. Делать после merge текущих archive/settings migrations.
+- **ТЗ 21 — CI reliability.** Стабилизировать env defaults/dependencies, вернуть или заменить network resilience script, разделить suites и добавить critical smoke gates. Часть assertions станет зелёной после соответствующих ТЗ.
+- **ТЗ 22 — startup/readiness preflight.** Проверять writable DB/storage, credentials/templates, разделить liveness/readiness и не связывать readiness с доступностью 1С. Согласовать с будущей Settings работой.
+
+### P2 — после стабилизации
+
+- **ТЗ 08 — масштабирование stock catalog.** Перенести search/filter/pagination/count в SQLite и benchmark на 30k товаров × несколько складов. После стабилизации модели ТЗ 04–07.
+- **ТЗ 14 — cleanup CRM local-only policy.** Убрать недостижимый CRM push/outbox worker, terminally обработать legacy jobs и не затронуть отдельный legacy Clients→1С flow. Согласовать с ТЗ 09.
+- **ТЗ 20 — API error contract и кодировка.** Исправить mojibake, добавить `{detail, code}` и единый HTTP mapping без secret/traceback. Делать после ТЗ 11 и желательно после order/transport state work.
+
 ## Merge и deployment
 
 1. Merge ветку `codex/orders-business-validation` в `codex/vps-self-hosting` целиком: цепочка ТЗ 01/02/03/04 взаимосвязана. Не cherry-pick только frontend, только validation или только transport.
