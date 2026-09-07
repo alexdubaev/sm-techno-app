@@ -21,7 +21,6 @@ finally:
         os.environ["SM_TECHNO_DB_PATH"] = _previous_db_path
     if _previous_admin_password is None:
         os.environ.pop("SM_TECHNO_INITIAL_ADMIN_PASSWORD", None)
-    _bootstrap_dir.cleanup()
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.service import WebStockSyncService
 
@@ -82,6 +81,29 @@ class StockInvariantApiTest(unittest.TestCase):
                     "groupName": "Тест",
                     "price": 100,
                     "quantity": 1,
+                },
+            )
+        finally:
+            lock_connection.rollback()
+            lock_connection.close()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Склад временно занят", response.json()["detail"])
+
+    def test_busy_item_update_returns_controlled_400(self) -> None:
+        lock_connection = self.db.connect()
+        lock_connection.execute("BEGIN IMMEDIATE")
+        try:
+            response = self.client.patch(
+                f"/api/stock/items/{self.item['id']}",
+                json={
+                    "sku": self.item["sku"],
+                    "name": "Обновлённый товар",
+                    "printName": "Обновлённый товар",
+                    "categoryName": "Тест",
+                    "groupName": "Тест",
+                    "price": 100,
+                    "quantity": 5,
                 },
             )
         finally:

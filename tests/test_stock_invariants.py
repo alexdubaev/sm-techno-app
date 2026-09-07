@@ -324,6 +324,37 @@ class StockInvariantTest(unittest.TestCase):
         self.assertEqual(float(row["quantity"]), 0.0)
         self.assertEqual((row["rack"], row["cell"]), ("A", "10"))
 
+    def test_manual_set_to_zero_creates_missing_default_balance_row(self) -> None:
+        no_balance_item = self.db.create_local_item(
+            sku="ZERO-MISSING-001",
+            name="Товар без остатка",
+            print_name="Товар без остатка",
+            category_name="Тест",
+            group_name="Тест",
+            price=100,
+            warehouses=[],
+        )
+        with self.db.connect() as conn:
+            conn.execute(
+                "DELETE FROM item_warehouse_balances WHERE item_id = ?",
+                (int(no_balance_item["id"]),),
+            )
+            conn.commit()
+
+        self.db.set_stock_quantity(int(no_balance_item["id"]), 0)
+
+        with self.db.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT quantity
+                FROM item_warehouse_balances
+                WHERE item_id = ? AND warehouse_id = ?
+                """,
+                (int(no_balance_item["id"]), int(self.warehouse["id"])),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(float(row["quantity"]), 0.0)
+
     def test_stock_add_cannot_overflow_balance_to_infinity(self) -> None:
         overflow_item = self.db.create_local_item(
             sku="ADD-OVERFLOW-001",
