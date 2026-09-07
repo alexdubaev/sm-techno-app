@@ -55,6 +55,20 @@ class OrderBusinessValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "конечным"):
             self.service.validate_order_command(counterparty_id=self.counterparty_id, contract_id=None, organization_key=None, order_date="2026-09-07", draft_lines=[line])
 
+    def test_invalid_command_does_not_build_onec_client_or_create_order(self) -> None:
+        called = False
+        def build_client(**_: object) -> object:
+            nonlocal called
+            called = True
+            raise AssertionError("1С client must not be built")
+        self.service.build_user_client = build_client  # type: ignore[method-assign]
+        line = SimpleNamespace(item_id=9999, warehouse_id=int(self.warehouse["id"]), quantity=1, price=100, amount=100)
+        with self.assertRaisesRegex(ValueError, "Товар не найден"):
+            self.service.create_and_sync_order(actor_user_id=None, onec_username="spoof", onec_password="spoof", counterparty_id=self.counterparty_id, contract_id=None, organization_key=None, order_date="2026-09-07", comment="", draft_lines=[line])
+        self.assertFalse(called)
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
