@@ -97,16 +97,16 @@ function SettingsDestinationCard({
         aria-hidden="true"
         className="absolute inset-x-0 top-0 h-1 bg-[#ffc400]"
       />
-      <span className="relative z-10 flex h-full flex-col">
-        <span className="flex items-start justify-between gap-5">
-          <span className="max-w-md pt-1">
+      <div className="relative z-10 flex h-full flex-col">
+        <div className="flex items-start justify-between gap-5">
+          <div className="max-w-md pt-1">
             <h2 className="text-xl font-bold tracking-[-0.02em] text-[#07162e] sm:text-2xl">
               {title}
             </h2>
             <span className="mt-2 block max-w-sm text-sm leading-6 text-[#5f6d82] sm:text-base">
               {description}
             </span>
-          </span>
+          </div>
           <span className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl bg-[#f1f4f8] sm:h-32 sm:w-32">
             <Image
               alt={imageAlt}
@@ -116,15 +116,15 @@ function SettingsDestinationCard({
               width={112}
             />
           </span>
-        </span>
-        <span className="mt-auto flex items-end justify-between gap-4 pt-7">
-          <span>{children}</span>
+        </div>
+        <div className="mt-auto flex items-end justify-between gap-4 pt-7">
+          <div>{children}</div>
           <span className="flex items-center gap-2 text-sm font-bold text-[#07162e]">
             Открыть
             <ArrowRightIcon />
           </span>
-        </span>
-      </span>
+        </div>
+      </div>
     </a>
   );
 }

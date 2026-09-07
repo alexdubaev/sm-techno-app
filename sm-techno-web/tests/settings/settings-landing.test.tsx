@@ -80,6 +80,20 @@ describe('SettingsLanding', () => {
     expect(onUsersNavigate).toHaveBeenCalledOnce();
     expect(onOnecNavigate).toHaveBeenCalledOnce();
   });
+
+  it('keeps headings and user-count descriptions outside phrasing-only wrappers', () => {
+    const { container } = render(
+      <SettingsLanding
+        activeUsersCount={3}
+        totalUsersCount={4}
+        usersHref="/settings/users"
+        onecHref="/settings/onec"
+      />,
+    );
+
+    // span accepts phrasing content; headings and description lists need flow containers.
+    expect(container.querySelector('span h2, span dl, span div')).toBeNull();
+  });
 });
 
 describe('shared Settings chrome', () => {
