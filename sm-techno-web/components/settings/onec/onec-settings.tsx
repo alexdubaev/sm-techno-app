@@ -403,13 +403,27 @@ function useDirtyStateWarning(isDirty: boolean) {
     }
 
     const warning = 'Есть несохранённые изменения. Покинуть страницу?';
+    let isRestoringHistory = false;
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       // oxlint-disable-next-line typescript/no-deprecated -- Required by older browsers to show the native unload warning.
       event.returnValue = '';
     };
     const handlePopState = () => {
-      window.confirm(warning);
+      if (isRestoringHistory) {
+        isRestoringHistory = false;
+        return;
+      }
+
+      if (!window.confirm(warning)) {
+        isRestoringHistory = true;
+        window.history.forward();
+      }
+    };
+    const handleNavigate = (event: Event) => {
+      if (event.cancelable && !window.confirm(warning)) {
+        event.preventDefault();
+      }
     };
     const handleLinkClick = (event: MouseEvent) => {
       const target = event.target;
@@ -425,12 +439,22 @@ function useDirtyStateWarning(isDirty: boolean) {
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('popstate', handlePopState);
-    document.addEventListener('click', handleLinkClick, true);
+    const navigation = (window as Window & { navigation?: EventTarget })
+      .navigation;
+    if (navigation) {
+      navigation.addEventListener('navigate', handleNavigate);
+    } else {
+      window.addEventListener('popstate', handlePopState);
+      document.addEventListener('click', handleLinkClick, true);
+    }
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('popstate', handlePopState);
-      document.removeEventListener('click', handleLinkClick, true);
+      if (navigation) {
+        navigation.removeEventListener('navigate', handleNavigate);
+      } else {
+        window.removeEventListener('popstate', handlePopState);
+        document.removeEventListener('click', handleLinkClick, true);
+      }
     };
   }, [isDirty]);
 }

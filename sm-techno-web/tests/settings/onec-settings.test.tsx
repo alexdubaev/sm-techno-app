@@ -94,6 +94,7 @@ describe('OneCSettings', () => {
 
   afterEach(() => {
     cleanup();
+    Reflect.deleteProperty(window, 'navigation');
     vi.restoreAllMocks();
   });
 
@@ -189,16 +190,48 @@ describe('OneCSettings', () => {
     expect(saveButton).toHaveClass('min-h-12');
   });
 
-  it('intercepts in-app navigation, browser back, and unload while the form is dirty', async () => {
+  it('returns to the current history entry when dirty browser Back is cancelled', async () => {
+    const restoreHistory = vi
+      .spyOn(window.history, 'forward')
+      .mockImplementation(() => undefined);
+    setup();
+    const baseUrl = await screen.findByLabelText('URL базы 1С');
+    await userEvent.type(baseUrl, '/changed');
+
+    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(restoreHistory).toHaveBeenCalledTimes(1);
+
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(restoreHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels Navigation API traversal before it discards dirty settings', async () => {
+    const navigation = new EventTarget();
+    Object.defineProperty(window, 'navigation', {
+      configurable: true,
+      value: navigation,
+    });
+    setup();
+    const baseUrl = await screen.findByLabelText('URL базы 1С');
+    await userEvent.type(baseUrl, '/changed');
+
+    const navigateEvent = new Event('navigate', { cancelable: true });
+    navigation.dispatchEvent(navigateEvent);
+
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(navigateEvent.defaultPrevented).toBe(true);
+  });
+
+  it('intercepts in-app navigation and unload while the form is dirty', async () => {
     setup();
     const baseUrl = await screen.findByLabelText('URL базы 1С');
     await userEvent.type(baseUrl, '/changed');
 
     fireEvent.click(screen.getByRole('link', { name: 'Назад к настройкам' }));
     expect(window.confirm).toHaveBeenCalledTimes(1);
-
-    window.dispatchEvent(new PopStateEvent('popstate'));
-    expect(window.confirm).toHaveBeenCalledTimes(2);
 
     const unloadEvent = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(unloadEvent);
