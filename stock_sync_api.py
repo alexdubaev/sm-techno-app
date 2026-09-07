@@ -553,8 +553,8 @@ def _onec_http_exception(exc: OneCClientError) -> HTTPException:
         status_code = 504
     elif isinstance(exc, OneCNetworkError):
         status_code = 503
-    elif isinstance(exc, OneCTransientError) and exc.status_code in {502, 503, 504}:
-        status_code = exc.status_code
+    elif isinstance(exc, OneCTransientError):
+        status_code = 503
     else:
         status_code = 502
     detail = str(exc) if isinstance(exc, OneCTransportError) else "Ошибка обмена с 1С."

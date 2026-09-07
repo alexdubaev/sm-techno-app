@@ -3,6 +3,7 @@
 import base64
 import json
 import logging
+import posixpath
 import random
 import re
 import socket
@@ -12,8 +13,8 @@ import xml.etree.ElementTree as ET
 from http.client import IncompleteRead
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urljoin, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from xml.sax.saxutils import quoteattr
 
 
@@ -77,6 +78,82 @@ class OneCUnknownWriteOutcomeError(OneCTransportError):
 
 class OneCPaginationError(OneCTransportError):
     """Pagination safety guard failed."""
+
+
+def _decode_path_layers(path: str) -> str:
+    """Decode all percent-encoding layers so validation sees the eventual path."""
+    decoded = path
+    for _ in range(len(path) + 1):
+        if "\\" in decoded or re.search(r"%(?:2f|5c)", decoded, flags=re.IGNORECASE):
+            raise ValueError("encoded path separator")
+        next_decoded = unquote(decoded, encoding="utf-8", errors="strict")
+        if next_decoded == decoded:
+            return decoded
+        decoded = next_decoded
+    raise ValueError("excessive path encoding")
+
+
+def _trusted_odata_url(base_url: str, current_url: str, target: str) -> str:
+    if not isinstance(target, str) or not target:
+        raise ValueError("redirect target must be a non-empty string")
+    target_path = _decode_path_layers(urlsplit(target).path)
+    if any(segment in {".", ".."} for segment in target_path.split("/")):
+        raise ValueError("target contains dot traversal")
+    resolved_url = urljoin(current_url, target)
+    expected = urlsplit(base_url)
+    actual = urlsplit(resolved_url)
+    if (
+        actual.scheme.lower() != expected.scheme.lower()
+        or actual.netloc.lower() != expected.netloc.lower()
+    ):
+        raise ValueError("target origin is not trusted")
+
+    decoded_base_path = _decode_path_layers(expected.path)
+    decoded_actual_path = _decode_path_layers(actual.path)
+    if any(segment in {".", ".."} for segment in decoded_actual_path.split("/")):
+        raise ValueError("path contains dot traversal")
+
+    canonical_base_path = posixpath.normpath(decoded_base_path).rstrip("/")
+    canonical_actual_path = posixpath.normpath(decoded_actual_path)
+    if canonical_actual_path != canonical_base_path and not canonical_actual_path.startswith(
+        f"{canonical_base_path}/"
+    ):
+        raise ValueError("target path is outside OData base")
+    return resolved_url
+
+
+class _OneCSafeRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        method = req.get_method().upper()
+        request_id = getattr(req, "_onec_request_id", None)
+        if method != "GET":
+            raise OneCUnknownWriteOutcomeError(
+                "Неизвестен результат записи в 1С после перенаправления ответа.",
+                method=method,
+                status_code=code,
+                request_id=request_id,
+                outcome_unknown=True,
+            )
+        base_url = getattr(req, "_onec_base_url", "")
+        try:
+            trusted_url = _trusted_odata_url(base_url, req.full_url, newurl)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise OneCPaginationError(
+                "Перенаправление 1С выходит за пределы доверенного OData источника.",
+                method=method,
+                status_code=code,
+                request_id=request_id,
+            ) from exc
+        redirected = super().redirect_request(req, fp, code, msg, headers, trusted_url)
+        if redirected is not None:
+            redirected._onec_base_url = base_url
+            redirected._onec_request_id = request_id
+        return redirected
+
+
+def urlopen(request: Request, *, timeout: float):  # type: ignore[no-untyped-def]
+    """Patchable transport entry point with a fresh redirect-safe opener."""
+    return build_opener(_OneCSafeRedirectHandler()).open(request, timeout=timeout)
 
 
 class OneCCounterpartySyncError(OneCClientError):
@@ -148,13 +225,20 @@ class OneCClient:
         if not raw:
             return {}
         try:
-            return json.loads(raw)
+            decoded = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise OneCMalformedResponseError(
                 "1С вернула не-JSON ответ.",
                 method=method,
                 request_id=request_id,
             ) from exc
+        if not isinstance(decoded, dict):
+            raise OneCMalformedResponseError(
+                "1С вернула JSON с некорректным корневым объектом.",
+                method=method,
+                request_id=request_id,
+            )
+        return decoded
 
     def _uses_default_request_raw(self) -> bool:
         return getattr(self._request_raw, "__func__", None) is OneCClient._request_raw
@@ -233,6 +317,8 @@ class OneCClient:
             headers["Content-Type"] = "application/json; charset=utf-8"
 
         request = Request(url=url, data=body, headers=headers, method=normalized_method)
+        request._onec_base_url = self.base_url
+        request._onec_request_id = request_id
         endpoint_path = self._safe_endpoint_path(url)
         max_attempts = self.MAX_GET_ATTEMPTS if normalized_method == "GET" else 1
 
@@ -246,7 +332,22 @@ class OneCClient:
             )
             try:
                 with urlopen(request, timeout=self.SOCKET_TIMEOUT_SECONDS) as response:
-                    raw = response.read().decode("utf-8")
+                    try:
+                        raw = response.read().decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        error = OneCMalformedResponseError(
+                            "1С вернула ответ в некорректной кодировке.",
+                            method=normalized_method,
+                            request_id=request_id,
+                        )
+                        self._log_failure(
+                            normalized_method,
+                            endpoint_path,
+                            attempt,
+                            request_id,
+                            type(error).__name__,
+                        )
+                        raise error from exc
                     logger.info(
                         "1C request method=%s endpoint=%s attempt=%s request_id=%s outcome=success",
                         normalized_method,
@@ -435,31 +536,49 @@ class OneCClient:
             seen_urls.add(url)
             page_count += 1
             payload = self._request("GET", url)
-            all_rows.extend(payload.get("value", []))
-            next_link = payload.get("odata.nextLink") or payload.get("@odata.nextLink")
+            rows, next_link = self._decode_collection_envelope(payload)
+            all_rows.extend(rows)
             if next_link:
                 url = self._validated_next_page_url(url, next_link)
             else:
                 url = ""
         return all_rows
 
+    @staticmethod
+    def _decode_collection_envelope(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
+        if "error" in payload or "value" not in payload:
+            raise OneCMalformedResponseError(
+                "1С вернула некорректный OData collection envelope.",
+                method="GET",
+            )
+        rows = payload["value"]
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise OneCMalformedResponseError(
+                "1С вернула некорректные строки OData collection.",
+                method="GET",
+            )
+        next_link: str | None = None
+        for key in ("odata.nextLink", "@odata.nextLink"):
+            if key not in payload:
+                continue
+            candidate = payload[key]
+            if not isinstance(candidate, str):
+                raise OneCMalformedResponseError(
+                    "1С вернула некорректный OData nextLink.",
+                    method="GET",
+                )
+            if next_link is None:
+                next_link = candidate
+        return rows, next_link
+
     def _validated_next_page_url(self, current_url: str, next_link: str) -> str:
-        next_url = urljoin(current_url, next_link)
-        expected_origin = urlsplit(self.base_url)
-        actual_origin = urlsplit(next_url)
-        expected_base_path = expected_origin.path.rstrip("/")
-        actual_path = actual_origin.path
-        same_origin = (
-            actual_origin.scheme.lower() == expected_origin.scheme.lower()
-            and actual_origin.netloc.lower() == expected_origin.netloc.lower()
-        )
-        within_odata_base_path = actual_path == expected_base_path or actual_path.startswith(f"{expected_base_path}/")
-        if not same_origin or not within_odata_base_path:
+        try:
+            return _trusted_odata_url(self.base_url, current_url, next_link)
+        except (UnicodeDecodeError, ValueError) as exc:
             raise OneCPaginationError(
                 "OData nextLink выходит за пределы доверенного источника.",
                 method="GET",
-            )
-        return next_url
+            ) from exc
 
     def _fetch_first(
         self,
@@ -477,18 +596,26 @@ class OneCClient:
                 top=1,
             ),
         )
-        rows = payload.get("value", [])
+        rows, _ = self._decode_collection_envelope(payload)
         return rows[0] if rows else None
 
     def _metadata_root(self) -> ET.Element:
         self._expire_metadata_cache_if_stale()
         if self._metadata_root_cache is not None:
             return self._metadata_root_cache
-        raw_metadata = self._request_raw("GET", "$metadata", accept="application/xml")
+        if self._uses_default_request_raw():
+            raw_metadata, _, request_id = self._execute_request("GET", "$metadata", accept="application/xml")
+        else:
+            raw_metadata = self._request_raw("GET", "$metadata", accept="application/xml")
+            request_id = None
         try:
             self._metadata_root_cache = ET.fromstring(raw_metadata)
-        except ET.ParseError as exc:
-            raise OneCClientError("1С вернула некорректный OData metadata XML.") from exc
+        except (ET.ParseError, ValueError) as exc:
+            raise OneCMalformedResponseError(
+                "1С вернула некорректный OData metadata XML.",
+                method="GET",
+                request_id=request_id,
+            ) from exc
         self._metadata_cache_created_at = time.monotonic()
         return self._metadata_root_cache
 
@@ -1662,9 +1789,7 @@ class OneCClient:
             f"$filter=substringof('{escaped_marker}',Комментарий)&$top=2&$format=json"
         )
         payload = self._request("GET", endpoint)
-        rows = payload.get("value", [])
-        if not isinstance(rows, list):
-            raise OneCClientError("1С вернула некорректный ответ поиска заказа по marker.")
+        rows, _ = self._decode_collection_envelope(payload)
         if len(rows) > 1:
             raise OneCClientError("В 1С найдено несколько заказов с одним marker; нужна ручная сверка.")
         return dict(rows[0]) if rows else None
@@ -1674,4 +1799,5 @@ class OneCClient:
             "GET",
             self._build_collection_url(entity_name, top=top),
         )
-        return payload.get("value", [])
+        rows, _ = self._decode_collection_envelope(payload)
+        return rows

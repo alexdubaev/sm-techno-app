@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import socket
 import tempfile
+import threading
 import unittest
 from http.client import IncompleteRead
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -163,6 +165,74 @@ class OneCTransportReliabilityTest(unittest.TestCase):
         self.assertFalse(raised.exception.retryable)
         self.assertFalse(raised.exception.outcome_unknown)
 
+    def test_json_response_root_must_be_an_object(self) -> None:
+        """Accepting a scalar, list, or null JSON root breaks every entity consumer."""
+        for body in (b"null", b"[]", b'"scalar"', b"42"):
+            with self.subTest(body=body):
+                with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(body)) as open_mock:
+                    with self.assertRaises(OneCMalformedResponseError) as raised:
+                        self.client._request("GET", "Catalog(guid'key')?$format=json")
+
+                self.assertEqual(1, open_mock.call_count)
+                self.assertEqual("GET", raised.exception.method)
+                self.assertTrue(raised.exception.request_id)
+
+    def test_empty_patch_response_remains_a_valid_no_content_result(self) -> None:
+        """Treating an OData 204-style PATCH response as malformed breaks existing updates."""
+        with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(b"")) as open_mock:
+            result = self.client.update_counterparty("counterparty-ref", {"Description": "Updated"})
+
+        self.assertEqual({}, result)
+        self.assertEqual(1, open_mock.call_count)
+
+    def test_invalid_utf8_is_malformed_and_is_not_retried(self) -> None:
+        """Letting UnicodeDecodeError escape loses the safe transport contract."""
+        with patch(
+            "stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(b'\xffpassword=upstream-secret')
+        ) as open_mock:
+            with self.assertRaises(OneCMalformedResponseError) as raised:
+                self.client._request("GET", "Catalog?$format=json")
+
+        self.assertEqual(1, open_mock.call_count)
+        self.assertEqual("GET", raised.exception.method)
+        self.assertTrue(raised.exception.request_id)
+        self.assertFalse(raised.exception.retryable)
+        self.assertNotIn("upstream-secret", str(raised.exception))
+
+    def test_collection_envelope_requires_object_rows_and_string_next_link(self) -> None:
+        """Permissive collection decoding can silently drop errors or append non-row values."""
+        malformed_payloads = (
+            {},
+            {"error": {"code": "upstream-error"}},
+            {"value": None},
+            {"value": {}},
+            {"value": [None]},
+            {"value": [{"Ref_Key": "first"}], "odata.nextLink": 123},
+            {"value": [], "odata.nextLink": "", "@odata.nextLink": False},
+        )
+        for payload in malformed_payloads:
+            with self.subTest(payload=payload):
+                with patch.object(self.client, "_request", return_value=payload) as request:
+                    with self.assertRaises(OneCMalformedResponseError) as raised:
+                        self.client._collect_all("Catalog?$format=json")
+
+                self.assertEqual("GET", raised.exception.method)
+                self.assertEqual(1, request.call_count)
+
+    def test_etag_entity_rejects_null_or_list_json_root(self) -> None:
+        """An ETag entity read must not expose null/list roots as dictionary results."""
+        for body in (b"null", b"[]"):
+            with self.subTest(body=body):
+                with patch(
+                    "stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(body, etag='W/"v1"')
+                ) as open_mock:
+                    with self.assertRaises(OneCMalformedResponseError) as raised:
+                        self.client.get_counterparty_with_etag("counterparty-ref")
+
+                self.assertEqual(1, open_mock.call_count)
+                self.assertEqual("GET", raised.exception.method)
+                self.assertTrue(raised.exception.request_id)
+
     def test_etag_read_malformed_json_is_typed_without_response_body(self) -> None:
         """Restoring raw JSON in the ETag-read error or a generic error must fail this test."""
         with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(b'{"secret":"upstream-secret"')) as open_mock:
@@ -310,6 +380,250 @@ class OneCTransportReliabilityTest(unittest.TestCase):
 
         self.assertEqual(1, request.call_count)
 
+    def test_next_link_rejects_raw_encoded_and_double_encoded_traversal(self) -> None:
+        """Comparing encoded path prefixes alone permits traversal after a downstream normalization."""
+        current_url = "http://onec.example/odata/standard.odata/Catalog?$format=json"
+        unsafe_links = (
+            "Folder/../Catalog?$format=json",
+            "/odata/standard.odata/../../private",
+            "/odata/standard.odata/%2e%2e/%2e%2e/private",
+            "/odata/standard.odata/%252e%252e/%252e%252e/private",
+            "/odata/standard.odata/%2e%2e%2f%2e%2e%2fprivate",
+            "/odata/standard.odata/%252e%252e%252f%252e%252e%252fprivate",
+            "/odata/standard.odata/%2e%2e%5c%2e%2e%5cprivate",
+            "/odata/standard.odata/%252e%252e%255c%252e%252e%255cprivate",
+            "/odata/standard.odata/..\\..\\private",
+        )
+        for next_link in unsafe_links:
+            with self.subTest(next_link=next_link), self.assertRaises(OneCPaginationError):
+                self.client._validated_next_page_url(current_url, next_link)
+
+    def test_get_redirect_to_another_origin_is_blocked_before_destination_request(self) -> None:
+        """A cross-origin redirect must never receive a request carrying 1C credentials."""
+        destination_requests: list[str | None] = []
+
+        class DestinationHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                destination_requests.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        destination = ThreadingHTTPServer(("127.0.0.1", 0), DestinationHandler)
+        destination_thread = threading.Thread(target=destination.serve_forever, daemon=True)
+        destination_thread.start()
+
+        class SourceHandler(BaseHTTPRequestHandler):
+            requests = 0
+
+            def do_GET(self) -> None:
+                type(self).requests += 1
+                self.send_response(302)
+                self.send_header(
+                    "Location",
+                    f"http://127.0.0.1:{destination.server_port}/odata/standard.odata/Catalog",
+                )
+                self.end_headers()
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        source = ThreadingHTTPServer(("127.0.0.1", 0), SourceHandler)
+        source_thread = threading.Thread(target=source.serve_forever, daemon=True)
+        source_thread.start()
+        try:
+            client = OneCClient(
+                f"http://127.0.0.1:{source.server_port}/odata/standard.odata",
+                "user",
+                "password",
+            )
+            with self.assertRaises(OneCPaginationError):
+                client._request("GET", "Catalog?$format=json")
+        finally:
+            source.shutdown()
+            source.server_close()
+            destination.shutdown()
+            destination.server_close()
+            source_thread.join()
+            destination_thread.join()
+
+        self.assertEqual(1, SourceHandler.requests)
+        self.assertEqual([], destination_requests)
+
+    def test_write_redirect_is_not_followed_or_resent(self) -> None:
+        """A write redirect must not turn one POST into another request controlled by urllib."""
+        redirected_requests: list[tuple[str, str | None]] = []
+
+        class RedirectingHandler(BaseHTTPRequestHandler):
+            source_requests = 0
+
+            def do_POST(self) -> None:
+                if self.path.startswith("/odata/standard.odata/source"):
+                    type(self).source_requests += 1
+                    self.send_response(302)
+                    self.send_header("Location", "/odata/standard.odata/redirected")
+                    self.end_headers()
+                    return
+                redirected_requests.append(("POST", self.headers.get("Authorization")))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def do_GET(self) -> None:
+                redirected_requests.append(("GET", self.headers.get("Authorization")))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectingHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            client = OneCClient(
+                f"http://127.0.0.1:{server.server_port}/odata/standard.odata",
+                "user",
+                "password",
+            )
+            with self.assertRaises(OneCUnknownWriteOutcomeError) as raised:
+                client._request("POST", "source?$format=json", {"Description": "Order"})
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join()
+
+        self.assertEqual(1, RedirectingHandler.source_requests)
+        self.assertEqual([], redirected_requests)
+        self.assertTrue(raised.exception.outcome_unknown)
+
+    def test_get_redirect_outside_odata_base_is_blocked_before_destination_request(self) -> None:
+        """A same-origin redirect outside the OData base must receive neither request nor credentials."""
+        destination_requests: list[str | None] = []
+
+        class RedirectingHandler(BaseHTTPRequestHandler):
+            source_requests = 0
+
+            def do_GET(self) -> None:
+                if self.path.startswith("/odata/standard.odata/source"):
+                    type(self).source_requests += 1
+                    self.send_response(302)
+                    self.send_header("Location", "/private/Catalog")
+                    self.end_headers()
+                    return
+                destination_requests.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectingHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            client = OneCClient(
+                f"http://127.0.0.1:{server.server_port}/odata/standard.odata",
+                "user",
+                "password",
+            )
+            with self.assertRaises(OneCPaginationError):
+                client._request("GET", "source?$format=json")
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join()
+
+        self.assertEqual(1, RedirectingHandler.source_requests)
+        self.assertEqual([], destination_requests)
+
+    def test_get_redirect_inside_odata_base_is_followed_once(self) -> None:
+        """Blocking unsafe redirects must not disable a trusted redirected GET."""
+        seen_paths: list[str] = []
+
+        class RedirectingHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                seen_paths.append(self.path)
+                if self.path.startswith("/odata/standard.odata/source"):
+                    self.send_response(302)
+                    self.send_header("Location", "/odata/standard.odata/target?$format=json")
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"value": []}')
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), RedirectingHandler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        try:
+            client = OneCClient(
+                f"http://127.0.0.1:{server.server_port}/odata/standard.odata",
+                "user",
+                "password",
+            )
+            result = client._request("GET", "source?$format=json")
+        finally:
+            server.shutdown()
+            server.server_close()
+            server_thread.join()
+
+        self.assertEqual({"value": []}, result)
+        self.assertEqual(2, len(seen_paths))
+
+    def test_malformed_metadata_xml_is_typed_with_default_request_context(self) -> None:
+        """Parsing metadata outside the executor must still preserve safe request attributes."""
+        with patch("stock_sync_desktop.onec_api.urlopen", return_value=FakeResponse(b"<broken")) as open_mock:
+            with self.assertRaises(OneCMalformedResponseError) as raised:
+                self.client._metadata_root()
+
+        self.assertEqual(1, open_mock.call_count)
+        self.assertEqual("GET", raised.exception.method)
+        self.assertTrue(raised.exception.request_id)
+        self.assertNotIn("broken", str(raised.exception))
+
+    def test_malformed_metadata_xml_keeps_legacy_request_raw_override_compatible(self) -> None:
+        """Requiring new return metadata from legacy _request_raw overrides would break existing clients."""
+
+        class LegacyClient(OneCClient):
+            def __init__(self) -> None:
+                super().__init__("http://onec.example", "user", "password")
+                self.raw_calls = 0
+
+            def _request_raw(self, method, endpoint_or_url, payload=None, *, accept="application/json"):
+                self.raw_calls += 1
+                return "<broken"
+
+        client = LegacyClient()
+        with self.assertRaises(OneCMalformedResponseError) as raised:
+            client._metadata_root()
+
+        self.assertEqual(1, client.raw_calls)
+        self.assertEqual("GET", raised.exception.method)
+        self.assertIsNone(raised.exception.request_id)
+
+    def test_metadata_xml_value_error_is_typed_for_legacy_unicode_payload(self) -> None:
+        """ElementTree raises ValueError, not ParseError, for a Unicode encoding declaration."""
+
+        client = OneCClient("http://onec.example", "user", "password")
+        with (
+            patch.object(client, "_request_raw", return_value='<?xml version="1.0" encoding="utf-8"?><root/>'),
+            patch("stock_sync_desktop.onec_api.ET.fromstring", side_effect=ValueError("encoding declaration")),
+        ):
+            with self.assertRaises(OneCMalformedResponseError) as raised:
+                client._metadata_root()
+
+        self.assertEqual("GET", raised.exception.method)
+        self.assertIsNone(raised.exception.request_id)
+
     def test_metadata_and_schema_caches_refresh_after_ttl(self) -> None:
         """Keeping derived schema cache after metadata expires must return stale fields."""
         first_metadata = b'''<?xml version="1.0"?>
@@ -355,10 +669,10 @@ class OneCApiTransportMappingTest(unittest.TestCase):
             ("auth", OneCAuthError("auth", method="GET", status_code=401), 502),
             ("validation", OneCValidationError("validation", method="GET", status_code=400), 502),
             ("malformed", OneCMalformedResponseError("malformed", method="GET"), 502),
-            ("upstream-502", OneCTransientError("502", method="GET", status_code=502), 502),
+            ("upstream-502", OneCTransientError("502", method="GET", status_code=502), 503),
             ("upstream-503", OneCTransientError("503", method="GET", status_code=503), 503),
-            ("upstream-504", OneCTransientError("504", method="GET", status_code=504), 504),
-            ("upstream-other", OneCTransientError("500", method="GET", status_code=500), 502),
+            ("upstream-504", OneCTransientError("504", method="GET", status_code=504), 503),
+            ("upstream-other", OneCTransientError("500", method="GET", status_code=500), 503),
             ("network", OneCNetworkError("network", method="GET"), 503),
             ("timeout", OneCTimeoutError("timeout", method="GET"), 504),
             (

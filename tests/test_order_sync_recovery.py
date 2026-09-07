@@ -4,15 +4,32 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from stock_sync_desktop.onec_api import (
     OneCClient,
     OneCClientError,
+    OneCMalformedResponseError,
     OneCTransientError,
     OneCUnknownWriteOutcomeError,
 )
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.service import WebStockSyncService
+
+
+class FakeResponse:
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+        self.headers: dict[str, str] = {}
+
+    def read(self) -> bytes:
+        return self.body
+
+    def __enter__(self) -> "FakeResponse":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
 
 
 class FakeOneCClient:
@@ -255,6 +272,34 @@ class OrderSyncRecoveryTest(unittest.TestCase):
 
             self.assertEqual(self._only_order()["status"], "remote_state_unknown")
             self.assertEqual(client.create_calls, 1)
+
+    def test_malformed_post_response_is_remote_unknown_and_recovery_remains_available(self) -> None:
+        """A null/list POST response must fail inside the client without enabling a second POST."""
+        for body in (b"null", b"[]"):
+            with self.subTest(body=body):
+                client = OneCClient("http://onec.example", "user", "password")
+                with patch(
+                    "stock_sync_desktop.onec_api.urlopen",
+                    return_value=FakeResponse(body),
+                ) as open_mock:
+                    with self.assertRaises(OneCMalformedResponseError):
+                        self._send(client)  # type: ignore[arg-type]
+
+                order = self._only_order()
+                self.assertEqual(1, open_mock.call_count)
+                self.assertEqual("remote_state_unknown", order["status"])
+
+                recovery_client = FakeOneCClient(
+                    found_by_marker={"Ref_Key": "ref-recovered", "Number": "0002", "Date": "2026-09-07"}
+                )
+                self.service.build_user_client = lambda **_: recovery_client  # type: ignore[method-assign]
+                recovered = self.service.recover_order_sync_for_admin(
+                    order_id=int(order["id"]),
+                    actor_user_id=1,
+                )
+
+                self.assertEqual("posted_to_1c", recovered["order"]["status"])
+                self.assertEqual(0, recovery_client.create_calls)
 
     def test_recovery_finds_remote_order_and_finalizes_once(self) -> None:
         order_id = self._create_reserved_order([self._line(2)], "attempt-a")
