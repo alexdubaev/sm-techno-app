@@ -31,6 +31,7 @@ function operator(): AppUser {
     fullName: "Operator",
     onecUsername: "",
     hasOnecPassword: false,
+    hasRecoverableAppPassword: false,
     isActive: true,
     createdAt: "",
     updatedAt: "",

@@ -17,6 +17,7 @@ const owner: AppUser = {
   fullName: 'Менеджер',
   onecUsername: '',
   hasOnecPassword: false,
+  hasRecoverableAppPassword: false,
   isActive: true,
   createdAt: '',
   updatedAt: '',
