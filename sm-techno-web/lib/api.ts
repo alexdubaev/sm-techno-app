@@ -1499,7 +1499,21 @@ export async function recoverOrderOnec(orderId: number): Promise<OrderDetails> {
   );
 }
 
-export async function importPriceFile(file: File): Promise<{
+export type PriceImportPreview = {
+  planHash: string;
+  created: number;
+  updated: number;
+  unchanged: number;
+  locationUpdated: number;
+  errors: string[];
+};
+
+export async function previewPriceImport(file: File): Promise<PriceImportPreview> {
+  const body = new FormData(); body.append("file", file);
+  return parseJsonResponse<PriceImportPreview>(await fetch(buildApiUrl("/api/price/import/preview"), { method: "POST", body, headers: createHeaders() }), "Не удалось проверить прайс.");
+}
+
+export async function importPriceFile(file: File, planHash: string): Promise<{
   created: number;
   updated: number;
   locationUpdated: number;
@@ -1507,6 +1521,7 @@ export async function importPriceFile(file: File): Promise<{
 }> {
   const body = new FormData();
   body.append("file", file);
+  body.append("planHash", planHash);
 
   const response = await fetch(buildApiUrl("/api/price/import"), {
     method: "POST",
