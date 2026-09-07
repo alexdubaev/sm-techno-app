@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import math
 import os
 import secrets
 import sqlite3
@@ -538,9 +539,10 @@ class Database:
             if not isinstance(raw_row, dict):
                 continue
 
-            quantity = float(raw_row.get("quantity") or 0)
-            if quantity < 0:
-                raise ValueError("Остаток по складу не может быть отрицательным.")
+            quantity = self._require_finite_nonnegative(
+                raw_row.get("quantity") or 0,
+                label="Остаток по складу",
+            )
 
             raw_warehouse_id = raw_row.get("warehouse_id", raw_row.get("warehouseId"))
             warehouse_id: int | None = None
@@ -673,9 +675,10 @@ class Database:
         ]
 
     def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=5)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 5000")
         return conn
 
     @contextmanager
@@ -695,6 +698,22 @@ class Database:
     @staticmethod
     def _rows_to_dicts(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
+
+    @staticmethod
+    def _require_finite_nonnegative(value: float, *, label: str) -> float:
+        normalized = float(value)
+        if not math.isfinite(normalized):
+            raise ValueError(f"{label} должно быть конечным числом.")
+        if normalized < 0:
+            raise ValueError(f"{label} не может быть отрицательным.")
+        return normalized
+
+    @classmethod
+    def _require_finite_positive(cls, value: float, *, label: str) -> float:
+        normalized = cls._require_finite_nonnegative(value, label=label)
+        if normalized <= 0:
+            raise ValueError(f"{label} должно быть больше нуля.")
+        return normalized
 
     @staticmethod
     def _normalize_guid(value: str | None) -> str | None:
@@ -1467,6 +1486,7 @@ class Database:
         normalized_print_name = print_name.strip() or normalized_name
         normalized_category_name = category_name.strip()
         normalized_group_name = group_name.strip()
+        normalized_price = self._require_finite_nonnegative(price, label="Цена")
         now = utc_now()
 
         with self.transaction() as conn:
@@ -1498,7 +1518,7 @@ class Database:
                         normalized_print_name,
                         normalized_category_name or None,
                         normalized_group_name or None,
-                        price,
+                        normalized_price,
                         now,
                         item_id,
                     ),
@@ -1517,7 +1537,7 @@ class Database:
                         normalized_print_name,
                         normalized_category_name or None,
                         normalized_group_name or None,
-                        price,
+                        normalized_price,
                         now,
                         now,
                     ),
@@ -1557,6 +1577,7 @@ class Database:
         normalized_print_name = print_name.strip() or normalized_name
         normalized_category_name = category_name.strip()
         normalized_group_name = group_name.strip()
+        normalized_price = self._require_finite_nonnegative(price, label="Цена")
         now = utc_now()
 
         with self.transaction() as conn:
@@ -1579,7 +1600,7 @@ class Database:
                     normalized_print_name,
                     normalized_category_name or None,
                     normalized_group_name or None,
-                    price,
+                    normalized_price,
                     now,
                     item_id,
                 ),
@@ -1647,7 +1668,8 @@ class Database:
         return item
 
     def set_stock_quantity(self, item_id: int, quantity: float) -> None:
-        with self.transaction() as conn:
+        normalized_quantity = self._require_finite_nonnegative(quantity, label="Остаток")
+        with self.transaction(immediate=True) as conn:
             default_warehouse_id = self._ensure_default_warehouse(conn)
             conn.execute(
                 """
@@ -1657,7 +1679,7 @@ class Database:
                     quantity = excluded.quantity,
                     updated_at = excluded.updated_at
                 """,
-                (item_id, default_warehouse_id, quantity, utc_now()),
+                (item_id, default_warehouse_id, normalized_quantity, utc_now()),
             )
 
     def add_item_stock(

@@ -139,9 +139,9 @@ def _parse_local_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Цена и остаток должны быть числами.")
 
-    if price < 0:
+    if not math.isfinite(price) or price < 0:
         raise HTTPException(status_code=400, detail="Цена не может быть отрицательной.")
-    if quantity < 0:
+    if not math.isfinite(quantity) or quantity < 0:
         raise HTTPException(status_code=400, detail="Остаток не может быть отрицательным.")
 
     warehouses_raw = payload.get("warehouses")
@@ -165,7 +165,7 @@ def _parse_local_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 warehouse_quantity = float(raw_item.get("quantity", 0) or 0)
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail="Остаток по складу должен быть числом.")
-            if warehouse_quantity < 0:
+            if not math.isfinite(warehouse_quantity) or warehouse_quantity < 0:
                 raise HTTPException(status_code=400, detail="Остаток по складу не может быть отрицательным.")
             warehouses.append(
                 {
