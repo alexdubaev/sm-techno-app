@@ -350,6 +350,23 @@ def read_stock_import_bundle(path: str | Path) -> dict[str, list[dict[str, Any]]
             location_rows = _read_storage_location_layout(file_path)
             if location_rows:
                 return {"stock_rows": [], "location_rows": location_rows}
+        formula_book = load_workbook(file_path, read_only=True, data_only=False)
+        try:
+            formula_sheet = (
+                formula_book.worksheets[sheet_name]
+                if isinstance(sheet_name, int)
+                else formula_book[sheet_name]
+            )
+            if any(
+                cell.data_type == "f"
+                for row in formula_sheet.iter_rows()
+                for cell in row
+            ):
+                raise ValueError(
+                    "Таблица импорта содержит формулы. Сохраните вычисленные значения перед импортом."
+                )
+        finally:
+            formula_book.close()
         frame = pd.read_excel(file_path, sheet_name=sheet_name, keep_default_na=False)
 
     normalized_map: dict[str, str] = {}

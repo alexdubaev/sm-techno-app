@@ -38,6 +38,12 @@ class ExcelImportSafetyTest(unittest.TestCase):
                 )
             )
 
+    def test_rejects_excel_formula_without_a_cached_value(self) -> None:
+        with self.assertRaisesRegex(ValueError, "формул"):
+            read_stock_import_bundle(
+                self._write_workbook([["SKU-F", "Болт", "Склад A", "=1+1", 5]])
+            )
+
     def test_preview_is_read_only_and_commit_requires_its_hash(self) -> None:
         db = WebDatabase(self.temp_path / "stock.db")
         service = WebStockSyncService(db=db)
