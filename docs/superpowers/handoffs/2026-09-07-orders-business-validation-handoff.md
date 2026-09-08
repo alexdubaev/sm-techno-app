@@ -51,6 +51,9 @@
 - **ТЗ 10:** migration переводит legacy naïve Moscow `crm_reminders.due_at` и history `old_due_at`/`new_due_at` в canonical UTC; API продолжает отклонять naïve input. `tests.test_crm_reminders_api` — 8/8.
 - **ТЗ 11/12:** workspace authorization и CRM persistence подтверждены дробными запусками `tests.test_crm_persistence` — 31/31; старый тест переведён на timezone-aware input, не ослабляя UTC contract.
 - **ТЗ 13:** полный `tests.test_crm_import` выполнен дробными запусками с явным итогом — 37/37; unmatched KPP остаётся identity conflict без duplicate creation.
+- **ТЗ 09:** CRM pull теперь выполняется batch-transaction без N+1 через SQLite lease, общей для `/api/references/sync` и `/api/crm/sync`. Fencing-проверка токена/срока аренды внутри reconciliation transaction не даёт устаревшему медленному ответу 1С перезаписать свежий. Local-only и globally archived cards не меняются; snapshot-less `pending`/`blocked_capability` и legacy duplicate links сохраняют прежнюю безопасную семантику. Коммиты: `8fe4b7f`, `732ff46`; независимое повторное ревью — без замечаний. `tests/test_crm_sync_execution.py` — 14/14; дополнительные целевые: `tests/test_clients_onec_sync.py -k reference_sync` — 2/2, `tests/test_crm_persistence.py -k "oneC_pull or three_way_merge or confirmed_sync"` — 5/5.
+- **ТЗ 15/16:** атомарное staging/cleanup файлов КП и documents/specifications, path guard, ownership/client consistency и policy missing requisites реализованы ранее в этой сессии. Коммиты: `f461065`, `6061566`, `291e3a5`, `af73c92`, `69b0c74`; проверки: commercial offers — 16/16, documents + commercial offers — 42/42.
+- **ТЗ 17:** bearer tokens хешируются; legacy plaintext sessions удаляются при migration; idle lifetime — **180 дней**, absolute lifetime — **1 год**. Logout, смена пароля, отключение и удаление пользователя отзывают сессии немедленно. Коммиты: `49261d5`, `00b1ad7`; `tests.test_auth_session_persistence` — 6/6, `tests/auth/test_auth_api.py` — 41/41; независимое ревью account-disable revocation — без замечаний.
 
 ### Полный чек-лист незакрытой работы
 
@@ -58,7 +61,7 @@
 
 - **ТЗ 06 (Excel stock import):** проверить formula cells, единый API error contract, атомарность каждого вида import и отсутствие частичного состояния при identity conflict; после `a9c5552` отдельно убедиться, что legacy SKU collision не приводит к неоднозначному последующему import.
 - **ТЗ 07 (identity SKU):** преобразовать все релевантные SQLite unique errors в domain errors и завершить migration audit, включая collision report из `app_settings`.
-- **ТЗ 09 (CRM pull-sync):** устранить N+1; зафиксировать ownership/conflict policy; сделать batch + transaction + cross-process lease; сохранить local-only и globally archived cards. Нельзя менять legacy CRM→1С flow без отдельного review.
+- **ТЗ 09 (CRM pull-sync):** закрыто коммитами `8fe4b7f`, `732ff46`; не менять legacy CRM→1С flow без отдельного review.
 - **ТЗ 10 (timezone):** migration legacy naïve Moscow timestamps в UTC и regression строгого rejection naïve API input; исправить старый persistence fixture и закрыть Windows SQLite handles.
 - **ТЗ 11 (workspace authorization):** повторить foreign-workspace, row preference и archive-route integration suite. `tests.test_foreign_workspace_write_guard` ранее 4/4; широкий `tests.test_crm_api` требует повторного запуска с явным summary/exit code.
 - **ТЗ 12 (CRM preference):** подтвердить optimistic versioning и primary-order suite, включая сохранение `position` при update existing preference.
