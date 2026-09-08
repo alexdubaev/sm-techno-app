@@ -992,7 +992,7 @@ class CrmApiTest(unittest.TestCase):
 
         changed = self.client.patch(
             f"/api/crm/clients/{client_id}",
-            json={"email": "local@example.test", "expectedVersion": 1},
+            json={"contactPerson": "Анна Петрова", "email": "local@example.test", "expectedVersion": 1},
         )
         with self.service.db.connect() as conn:
             jobs = conn.execute(
@@ -1004,6 +1004,7 @@ class CrmApiTest(unittest.TestCase):
             ).fetchone()
 
         self.assertEqual(200, changed.status_code, changed.text)
+        self.assertEqual("Анна Петрова", changed.json()["client"]["contactPerson"])
         self.assertEqual("local@example.test", changed.json()["client"]["email"])
         self.assertEqual(2, changed.json()["client"]["version"])
         self.assertEqual("synced", changed.json()["client"]["syncStatus"])

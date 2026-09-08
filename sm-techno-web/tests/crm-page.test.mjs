@@ -885,7 +885,7 @@ test("CRM tab management and company requisites edits stay owner-scoped and vers
       { tab: { id: 9, name: "Перезвонить", systemKind: "custom", sortOrder: 2 } },
       { tab: { id: 9, name: "На согласовании", systemKind: "custom", sortOrder: 2 } },
       { ok: true },
-      { client: { id: 42, version: 5, documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", email: "office@example.test", phone: "+74950000000" } },
+      { client: { id: 42, version: 5, documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", contactPerson: "Анна Петрова", email: "office@example.test", phone: "+74950000000" } },
     ];
     return new Response(JSON.stringify(payloads[requests.length - 1]), { status: 200 });
   };
@@ -902,6 +902,7 @@ test("CRM tab management and company requisites edits stay owner-scoped and vers
       inn: "7701000000",
       kpp: "770101001",
       city: "Москва",
+      contactPerson: "Анна Петрова",
       email: "office@example.test",
       phone: "+74950000000",
       expectedVersion: 4,
@@ -918,9 +919,22 @@ test("CRM tab management and company requisites edits stay owner-scoped and vers
     {
       url: "/api/crm/clients/42?ownerId=7",
       method: "PATCH",
-      body: JSON.stringify({ documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", email: "office@example.test", phone: "+74950000000", expectedVersion: 4 }),
+      body: JSON.stringify({ documentName: "ООО Тест", fullName: "Тестовое общество", inn: "7701000000", kpp: "770101001", city: "Москва", contactPerson: "Анна Петрова", email: "office@example.test", phone: "+74950000000", expectedVersion: 4 }),
     },
   ]);
+});
+
+test("CRM card saves the contact person shown in the main CRM list", async () => {
+  const [workspace, controller, mobileSheets] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
+    readFile(mobileSheetsUrl, "utf8"),
+  ]);
+
+  assert.match(controller, /function companyRequisitesForm\(client: CrmWorkspaceClient\)[\s\S]*contactPerson: client\.contactPerson/);
+  assert.match(workspace, /Field label="Контактное лицо" value=\{requisitesForm\.contactPerson\}/);
+  assert.match(controller, /contactPerson: requisitesForm\.contactPerson\.trim\(\)/);
+  assert.match(mobileSheets, /\['contactPerson', 'Контактное лицо'\]/);
 });
 
 test("CRM workspace manages only custom personal tabs and edits company requisites separately from contacts", async () => {

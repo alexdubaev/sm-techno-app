@@ -313,6 +313,7 @@ export function MobileRequisitesSheet({
     ['inn', 'ИНН'],
     ['kpp', 'КПП'],
     ['city', 'Город'],
+    ['contactPerson', 'Контактное лицо'],
     ['phone', 'Телефон компании'],
     ['email', 'Email компании'],
     ['telegram', 'Telegram (username, ссылка или номер)'],

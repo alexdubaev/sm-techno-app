@@ -1168,6 +1168,7 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
                 <Field label="Полное наименование" value={requisitesForm.fullName} onChange={(fullName) => setRequisitesForm((form) => ({ ...form, fullName }))} />
                 <div className="grid grid-cols-2 gap-2"><Field label="ИНН" value={requisitesForm.inn} onChange={(inn) => setRequisitesForm((form) => ({ ...form, inn }))} /><Field label="КПП" value={requisitesForm.kpp} onChange={(kpp) => setRequisitesForm((form) => ({ ...form, kpp }))} /></div>
                 <Field label="Город" value={requisitesForm.city} onChange={(city) => setRequisitesForm((form) => ({ ...form, city }))} />
+                <Field label="Контактное лицо" value={requisitesForm.contactPerson} onChange={(contactPerson) => setRequisitesForm((form) => ({ ...form, contactPerson }))} />
                 <Field label="Общий телефон компании" value={requisitesForm.phone} onChange={(phone) => setRequisitesForm((form) => ({ ...form, phone }))} type="tel" />
                 <Field label="Общая почта компании" value={requisitesForm.email} onChange={(email) => setRequisitesForm((form) => ({ ...form, email }))} type="email" />
                 <Field label="Telegram (username, ссылка или номер)" value={requisitesForm.telegram || ""} onChange={(telegram) => setRequisitesForm((form) => ({ ...form, telegram }))} />

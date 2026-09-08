@@ -29,7 +29,7 @@ import { moscowInputToUtc } from "@/components/crm/mobile/mobile-crm-utils";
 
 type ActiveTab = "primary" | number;
 type SavingAction = "contact" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "resolve";
-type CompanyRequisitesForm = Pick<CrmWorkspaceClient, "documentName" | "fullName" | "inn" | "kpp" | "city" | "email" | "phone"> & { telegram: string; maxLink: string };
+type CompanyRequisitesForm = Pick<CrmWorkspaceClient, "documentName" | "fullName" | "inn" | "kpp" | "city" | "contactPerson" | "email" | "phone"> & { telegram: string; maxLink: string };
 type ContactForm = Pick<CrmContact, "name" | "phone" | "email" | "isPrimary">;
 type EventForm = Pick<CrmEvent, "kind" | "body">;
 type SyncConflictResolution = { conflict: CrmSyncConflict; choice: "local" | "remote" };
@@ -111,6 +111,7 @@ function companyRequisitesForm(client: CrmWorkspaceClient): CompanyRequisitesFor
     inn: client.inn,
     kpp: client.kpp,
     city: client.city,
+    contactPerson: client.contactPerson,
     email: client.email,
     phone: client.phone,
     telegram: client.telegram || "",
@@ -407,6 +408,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
         inn: requisitesForm.inn.trim(),
         kpp: requisitesForm.kpp.trim(),
         city: requisitesForm.city.trim(),
+        contactPerson: requisitesForm.contactPerson.trim(),
         email: requisitesForm.email.trim(),
         phone: requisitesForm.phone.trim(),
         telegram: requisitesForm.telegram.trim(),
