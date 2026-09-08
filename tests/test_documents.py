@@ -506,6 +506,31 @@ class DocumentApiTest(unittest.TestCase):
         self.assertEqual(self.db.list_documents(include_all=True), [])
         self.assertEqual(list(self.service.document_exports_dir.glob("*.docx")), [])
 
+    def test_contract_discards_an_irrelevant_commercial_offer_id(self) -> None:
+        crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+        offer_id = self.db.create_commercial_offer(
+            number="KP-contract",
+            client_source="local",
+            counterparty_id=None,
+            crm_client_id=int(crm_client["id"]),
+            client_name=crm_client["document_name"],
+            offer_date="2026-07-14",
+            source_filename=None,
+            source_path=None,
+            output_path="storage/commercial_offers/contract.xlsx",
+            notes="",
+            lines=[{"row_no": 1, "article": "A", "name": "Позиция", "brand": "", "qty": 1, "price_vat": 1, "amount_vat": 1, "delivery_time": "", "note": "", "warehouse_id": None, "warehouse_name": ""}],
+            created_by_user_id=1,
+        )
+
+        response = self.client.post(
+            "/api/documents",
+            json={"documentType": "contract", "number": "D-no-offer", "documentDate": "2026-07-14", "clientSource": "local", "clientId": int(crm_client["id"]), "commercialOfferId": offer_id},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(response.json()["document"]["commercialOfferId"])
+
     def test_delete_document_removes_it_from_journal_and_downloads(self) -> None:
         crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
 

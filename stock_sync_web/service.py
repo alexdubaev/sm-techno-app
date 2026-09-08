@@ -1426,10 +1426,11 @@ class WebStockSyncService:
         if signer_position:
             client_data["signer_position"] = signer_position
         lines: list[DocumentLineInput] = []
-        linked_offer_id = commercial_offer_id
+        linked_offer_id: int | None = None
         if normalized_type == "specification":
             if not commercial_offer_id:
                 raise ValueError("Для спецификации выберите КП.")
+            linked_offer_id = int(commercial_offer_id)
             offer_bundle = self.get_commercial_offer_for_user(
                 offer_id=int(commercial_offer_id),
                 user_id=created_by_user_id,
