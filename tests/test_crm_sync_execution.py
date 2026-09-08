@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import threading
 import time
@@ -21,8 +22,10 @@ from stock_sync_web.service import WebStockSyncService
 class RecordingOneC:
     def __init__(self) -> None:
         self.user_ids: list[int | None] = []
+        self.list_counterparties_calls = 0
 
     def list_counterparties(self) -> list[dict[str, str]]:
+        self.list_counterparties_calls += 1
         return []
 
 
@@ -79,6 +82,29 @@ class BlockingCreateOneC(CreatingOneC):
         if not self.release.wait(timeout=2):
             raise RuntimeError("test create was not released")
         return super().create_counterparty(card)
+
+
+class CounterpartyRowsOneC(RecordingOneC):
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        super().__init__()
+        self.rows = rows
+
+    def list_counterparties(self) -> list[dict[str, object]]:
+        return self.rows
+
+
+class BlockingPullReconciliationDatabase(WebDatabase):
+    def __init__(self, db_path: Path) -> None:
+        super().__init__(db_path)
+        self.reconciliation_started = threading.Event()
+        self.release_reconciliation = threading.Event()
+
+    def reconcile_crm_counterparty_pull(self, records: list[dict[str, object]]) -> int:
+        result = super().reconcile_crm_counterparty_pull(records)
+        self.reconciliation_started.set()
+        if not self.release_reconciliation.wait(timeout=2):
+            raise RuntimeError("test reconciliation was not released")
+        return result
 
 
 class CrmSyncExecutionTest(unittest.TestCase):
@@ -158,6 +184,110 @@ class CrmSyncExecutionTest(unittest.TestCase):
             {"status": "synced", "counterparties": 0},
             self.service.sync_crm_counterparties_for_user(self.owner_id),
         )
+
+    def test_two_service_instances_coalesce_when_one_holds_the_sqlite_pull_lease(self) -> None:
+        database_path = Path(self.temp_dir.name) / "shared-crm-sync.db"
+        first_db = BlockingPullReconciliationDatabase(database_path)
+        second_db = WebDatabase(database_path)
+        first_service = WebStockSyncService(db=first_db)
+        second_service = WebStockSyncService(db=second_db)
+        first_service.bootstrap()
+        owner_id = first_db.create_user(username="shared-owner", password="password", role="user")
+        first_onec = RecordingOneC()
+        second_onec = RecordingOneC()
+        first_service.build_user_client = lambda **_: first_onec  # type: ignore[method-assign]
+        second_service.build_user_client = lambda **_: second_onec  # type: ignore[method-assign]
+        first_result: dict[str, object] = {}
+
+        thread = threading.Thread(
+            target=lambda: first_result.update(first_service.sync_crm_counterparties_for_user(owner_id))
+        )
+        thread.start()
+        self.assertTrue(first_db.reconciliation_started.wait(timeout=1))
+
+        second_result = second_service.sync_crm_counterparties_for_user(owner_id)
+        first_db.release_reconciliation.set()
+        thread.join(timeout=2)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual({"status": "synced", "counterparties": 0}, first_result)
+        self.assertEqual({"status": "coalesced", "counterparties": 0}, second_result)
+        self.assertEqual(1, first_onec.list_counterparties_calls + second_onec.list_counterparties_calls)
+
+    def test_batch_pull_avoids_row_lookups_and_preserves_local_archive_and_conflict_state(self) -> None:
+        rows: list[dict[str, object]] = [
+            {
+                "onec_key": "linked-conflict",
+                "name": "1С конфликт",
+                "document_name": "1С конфликт",
+                "full_name": "1С конфликт",
+                "inn": "7701000001",
+                "email": "remote@example.test",
+            },
+            {
+                "onec_key": "archived-linked",
+                "name": "1С архив",
+                "document_name": "1С архив",
+                "full_name": "1С архив",
+                "inn": "7701000002",
+            },
+            {
+                "onec_key": "new-shared",
+                "name": "Новый из 1С",
+                "document_name": "Новый из 1С",
+                "full_name": "Новый из 1С",
+                "inn": "7701000003",
+            },
+        ]
+        self.service.db.upsert_counterparties(rows)
+        linked_counterparty = self.service.db.get_counterparty_by_onec_key("linked-conflict")
+        archived_counterparty = self.service.db.get_counterparty_by_onec_key("archived-linked")
+        self.assertIsNotNone(linked_counterparty)
+        self.assertIsNotNone(archived_counterparty)
+
+        local_card = self.service.db.create_crm_client_card({"document_name": "Только локально", "email": "local@example.test"})
+        linked_card = self.service.db.create_crm_client_card({"document_name": "Локальное имя", "email": "base@example.test"})
+        archived_card = self.service.db.create_crm_client_card({"document_name": "Локальный архив"})
+        with self.service.db.transaction() as conn:
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = ?, sync_status = 'synced' WHERE id = ?",
+                (int(linked_counterparty["id"]), int(linked_card["id"])),
+            )
+            conn.execute(
+                "INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at) VALUES (?, 1, ?, ?)",
+                (
+                    int(linked_card["id"]),
+                    json.dumps({"document_name": "Базовое имя", "email": "base@example.test", "phone": "", "legal_address": ""}, ensure_ascii=False),
+                    "2026-09-08T00:00:00+00:00",
+                ),
+            )
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = ?, crm_archived_at = ?, sync_status = 'synced' WHERE id = ?",
+                (int(archived_counterparty["id"]), "2026-09-08T00:00:00+00:00", int(archived_card["id"])),
+            )
+
+        self.service.build_user_client = lambda **_: CounterpartyRowsOneC(rows)  # type: ignore[method-assign]
+
+        def forbidden_row_lookup(*_: object, **__: object) -> None:
+            raise AssertionError("batch reconciliation must not call public per-row lookup methods")
+
+        self.service.db.get_counterparty_by_onec_key = forbidden_row_lookup  # type: ignore[method-assign]
+        self.service.db.get_crm_client_by_counterparty_id = forbidden_row_lookup  # type: ignore[method-assign]
+
+        self.assertEqual(3, self.service.sync_counterparties(user_id=self.owner_id))
+        refreshed_local = self.service.db.get_crm_client(int(local_card["id"]))
+        refreshed_linked = self.service.db.get_crm_client(int(linked_card["id"]))
+        refreshed_archived = self.service.db.get_crm_client(int(archived_card["id"]))
+        conflicts = self.service.db.list_crm_sync_conflicts(int(linked_card["id"]))
+
+        self.assertEqual("Только локально", refreshed_local["document_name"])
+        self.assertIsNone(refreshed_local["linked_counterparty_id"])
+        self.assertEqual("Локальный архив", refreshed_archived["document_name"])
+        self.assertEqual("2026-09-08T00:00:00+00:00", refreshed_archived["crm_archived_at"])
+        self.assertEqual("Локальное имя", refreshed_linked["document_name"])
+        self.assertEqual("remote@example.test", refreshed_linked["email"])
+        self.assertEqual("conflict", refreshed_linked["sync_status"])
+        self.assertEqual(["document_name"], [conflict["field_name"] for conflict in conflicts])
 
     def test_successful_crm_sync_persists_last_success_status(self) -> None:
         self.service.build_user_client = lambda **_: RecordingOneC()  # type: ignore[method-assign]

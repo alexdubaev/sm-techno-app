@@ -343,6 +343,13 @@ CREATE TABLE IF NOT EXISTS crm_sync_conflicts (
     FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
     FOREIGN KEY(resolved_by_user_id) REFERENCES users(id)
 );
+
+CREATE TABLE IF NOT EXISTS crm_pull_leases (
+    lease_name TEXT PRIMARY KEY,
+    owner_token TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -1478,6 +1485,215 @@ class WebDatabase(Database):
             ).fetchone()
         return dict(row) if row else None
 
+    def acquire_crm_pull_lease(self, owner_token: str, *, lease_seconds: int = 120) -> bool:
+        """Atomically claim the shared CRM pull writer lease when it is free."""
+        token = owner_token.strip()
+        if not token:
+            raise ValueError("Для аренды CRM-синхронизации требуется токен владельца.")
+        now = datetime.utcnow()
+        now_text = now.isoformat(timespec="seconds")
+        expires_at = (now + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
+        with self.transaction(immediate=True) as conn:
+            current = conn.execute(
+                "SELECT owner_token, expires_at FROM crm_pull_leases WHERE lease_name = 'crm_counterparty_pull'"
+            ).fetchone()
+            if current and str(current["expires_at"] or "") > now_text and str(current["owner_token"] or "") != token:
+                return False
+            conn.execute(
+                """
+                INSERT INTO crm_pull_leases(lease_name, owner_token, expires_at, updated_at)
+                VALUES ('crm_counterparty_pull', ?, ?, ?)
+                ON CONFLICT(lease_name) DO UPDATE SET
+                    owner_token = excluded.owner_token,
+                    expires_at = excluded.expires_at,
+                    updated_at = excluded.updated_at
+                """,
+                (token, expires_at, now_text),
+            )
+        return True
+
+    def release_crm_pull_lease(self, owner_token: str) -> None:
+        with self.transaction(immediate=True) as conn:
+            conn.execute(
+                "DELETE FROM crm_pull_leases WHERE lease_name = 'crm_counterparty_pull' AND owner_token = ?",
+                (owner_token,),
+            )
+
+    @staticmethod
+    def _crm_counterparty_values(record: dict[str, Any], counterparty_id: int, now: str) -> tuple[Any, ...]:
+        document_name = str(record.get("document_name") or record.get("full_name") or record.get("name") or "").strip()
+        full_name = str(record.get("full_name") or document_name).strip()
+        legal_type = _infer_crm_legal_type(record, document_name, full_name)
+        bank_name_or_bik = str(record.get("bank_name_or_bik") or "").strip()
+        bank_name = str(record.get("bank_name") or "").strip()
+        bank_text = bank_name or bank_name_or_bik
+        bank_bik = str(record.get("bank_bik") or "").strip() or _extract_bik_from_bank_text(
+            " ".join([bank_name_or_bik, bank_name])
+        )
+        if bank_bik:
+            bank_name_or_bik = bank_bik
+            bank_name = _clean_bank_name(bank_text, bank_bik)
+        signer_position = str(record.get("signer_position") or "").strip()
+        signer_name = str(record.get("signer_name") or "").strip()
+        signer_basis = str(record.get("signer_basis") or "").strip()
+        if legal_type == "individual_entrepreneur":
+            if not signer_position:
+                signer_position = "Индивидуальный предприниматель"
+            if not signer_name:
+                signer_name = document_name.removeprefix("ИП ").strip() or full_name.removeprefix("ИП ").strip()
+        return (
+            document_name,
+            legal_type,
+            document_name,
+            full_name,
+            record.get("inn") or None,
+            record.get("kpp") if record.get("kpp") is not None else None,
+            1 if record.get("is_buyer", True) else 0,
+            1 if record.get("is_supplier") else 0,
+            1 if record.get("is_inactive") else 0,
+            bank_name_or_bik or None,
+            bank_name or None,
+            bank_bik or None,
+            record.get("bank_account") or None,
+            record.get("correspondent_account") or None,
+            record.get("contact_person") or None,
+            record.get("email") or None,
+            record.get("email_note") or None,
+            record.get("phone") or None,
+            record.get("phone_note") or None,
+            record.get("legal_address") or None,
+            record.get("actual_address") or None,
+            record.get("ogrn") or None,
+            signer_position or None,
+            signer_name or None,
+            signer_basis or None,
+            record.get("notes") or None,
+            counterparty_id,
+            "synced",
+            None,
+            now,
+            now,
+        )
+
+    @staticmethod
+    def _save_crm_sync_snapshot(conn: sqlite3.Connection, client_id: int, now: str) -> None:
+        row = conn.execute(
+            "SELECT document_name, email, phone, legal_address FROM crm_clients WHERE id = ?", (client_id,)
+        ).fetchone()
+        snapshot = json.dumps(
+            {
+                "document_name": row["document_name"] or "",
+                "email": row["email"] or "",
+                "phone": row["phone"] or "",
+                "legal_address": row["legal_address"] or "",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        conn.execute(
+            """INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at)
+               VALUES (?, 1, ?, ?)
+               ON CONFLICT(crm_client_id) DO UPDATE SET last_synced_snapshot = excluded.last_synced_snapshot, updated_at = excluded.updated_at""",
+            (client_id, snapshot, now),
+        )
+
+    def _insert_crm_client_from_counterparty(
+        self, conn: sqlite3.Connection, values: tuple[Any, ...]
+    ) -> int:
+        cursor = conn.execute(
+            """
+            INSERT INTO crm_clients(
+                name, legal_type, document_name, full_name, inn, kpp, is_buyer, is_supplier,
+                is_inactive, bank_name_or_bik, bank_name, bank_bik, bank_account,
+                correspondent_account, contact_person, email, email_note, phone, phone_note,
+                legal_address, actual_address, ogrn, signer_position, signer_name, signer_basis,
+                notes, linked_counterparty_id, sync_status, sync_error, onec_synced_at,
+                created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (*values, values[-1]),
+        )
+        return int(cursor.lastrowid)
+
+    @staticmethod
+    def _replace_crm_client_from_counterparty(
+        conn: sqlite3.Connection, client_id: int, values: tuple[Any, ...]
+    ) -> None:
+        conn.execute(
+            """
+            UPDATE crm_clients
+            SET name = ?, legal_type = ?, document_name = ?, full_name = ?, inn = ?, kpp = ?,
+                is_buyer = ?, is_supplier = ?, is_inactive = ?, bank_name_or_bik = ?, bank_name = ?,
+                bank_bik = ?, bank_account = ?, correspondent_account = ?, contact_person = ?,
+                email = ?, email_note = ?, phone = ?, phone_note = ?, legal_address = ?,
+                actual_address = ?, ogrn = ?, signer_position = ?, signer_name = ?, signer_basis = ?,
+                notes = ?, linked_counterparty_id = ?, sync_status = ?, sync_error = ?,
+                onec_synced_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (*values, client_id),
+        )
+
+    def reconcile_crm_counterparty_pull(self, records: list[dict[str, Any]]) -> int:
+        """Apply one 1C counterparty snapshot as a single, batched SQLite write."""
+        now = utc_now()
+        keys = [str(record.get("onec_key") or "").strip() for record in records]
+        active_keys = sorted({key for key in keys if key})
+        with self.transaction(immediate=True) as conn:
+            for record in records:
+                conn.execute(
+                    """
+                    INSERT INTO counterparties(onec_key, name, full_name, inn, kpp, updated_at)
+                    VALUES(?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(onec_key) DO UPDATE SET
+                        name = excluded.name, full_name = excluded.full_name, inn = excluded.inn,
+                        kpp = excluded.kpp, updated_at = excluded.updated_at
+                    """,
+                    (
+                        record["onec_key"], record["name"], record.get("full_name"), record.get("inn"),
+                        record.get("kpp"), now,
+                    ),
+                )
+            if not active_keys:
+                return len(records)
+            placeholders = ", ".join("?" for _ in active_keys)
+            counterparties = conn.execute(
+                f"SELECT id, onec_key FROM counterparties WHERE onec_key IN ({placeholders})", active_keys
+            ).fetchall()
+            counterparties_by_key = {str(row["onec_key"]): int(row["id"]) for row in counterparties}
+            counterparty_ids = sorted(counterparties_by_key.values())
+            id_placeholders = ", ".join("?" for _ in counterparty_ids)
+            cards = conn.execute(
+                f"""
+                SELECT c.id, c.linked_counterparty_id, c.crm_archived_at, c.document_name, c.email,
+                       c.phone, c.legal_address, s.version, s.last_synced_snapshot
+                FROM crm_clients c
+                LEFT JOIN crm_sync_state s ON s.crm_client_id = c.id
+                WHERE c.linked_counterparty_id IN ({id_placeholders})
+                """,
+                counterparty_ids,
+            ).fetchall()
+            cards_by_counterparty = {int(card["linked_counterparty_id"]): card for card in cards}
+            for record, key in zip(records, keys):
+                counterparty_id = counterparties_by_key.get(key)
+                if counterparty_id is None:
+                    continue
+                values = self._crm_counterparty_values(record, counterparty_id, now)
+                if not str(values[0] or "").strip():
+                    continue
+                card = cards_by_counterparty.get(counterparty_id)
+                if card is None:
+                    client_id = self._insert_crm_client_from_counterparty(conn, values)
+                    self._save_crm_sync_snapshot(conn, client_id, now)
+                elif card["crm_archived_at"] is None:
+                    client_id = int(card["id"])
+                    if card["version"] is None:
+                        self._replace_crm_client_from_counterparty(conn, client_id, values)
+                        self._save_crm_sync_snapshot(conn, client_id, now)
+                    else:
+                        self._merge_crm_client_fields_from_counterparty(conn, card, record, now)
+        return len(records)
+
     def create_crm_client_card(self, values: dict[str, Any], *, owner_user_id: int | None = None) -> dict[str, Any]:
         document_name = str(values.get("document_name") or "").strip()
         if not document_name:
@@ -1730,43 +1946,57 @@ class WebDatabase(Database):
                 synced_count += 1
         return synced_count
 
-    def merge_crm_client_fields_from_counterparty(self, client_id: int, remote: dict[str, Any]) -> None:
+    @staticmethod
+    def _merge_crm_client_fields_from_counterparty(
+        conn: sqlite3.Connection,
+        card: sqlite3.Row,
+        remote: dict[str, Any],
+        now: str,
+    ) -> None:
         tracked = ("document_name", "email", "phone", "legal_address")
-        now = utc_now()
+        client_id = int(card["id"])
+        try:
+            base = json.loads(str(card["last_synced_snapshot"] or "{}"))
+        except json.JSONDecodeError:
+            base = {}
+        snapshot = dict(base)
+        updates: dict[str, str] = {}
+        has_conflict = False
+        for field in tracked:
+            local = str(card[field] or "")
+            remote_value = str(remote.get(field) or "")
+            base_value = str(base.get(field) or "")
+            if local == base_value and remote_value != base_value:
+                updates[field] = remote_value
+                snapshot[field] = remote_value
+            elif local != remote_value and remote_value != base_value:
+                has_conflict = True
+                conn.execute(
+                    """INSERT INTO crm_sync_conflicts(crm_client_id, field_name, base_value_json, local_value_json, remote_value_json, source_version, status, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)
+                       ON CONFLICT(crm_client_id, field_name) WHERE status = 'open' DO UPDATE SET local_value_json = excluded.local_value_json, remote_value_json = excluded.remote_value_json, updated_at = excluded.updated_at""",
+                    (client_id, field, json.dumps(base_value, ensure_ascii=False), json.dumps(local, ensure_ascii=False), json.dumps(remote_value, ensure_ascii=False), int(card["version"]), now, now),
+                )
+        assignments = [f"{field} = ?" for field in updates]
+        values = list(updates.values())
+        if has_conflict:
+            assignments.append("sync_status = 'conflict'")
+        if assignments:
+            conn.execute(f"UPDATE crm_clients SET {', '.join(assignments)}, updated_at = ? WHERE id = ?", (*values, now, client_id))
+        conn.execute("UPDATE crm_sync_state SET last_synced_snapshot = ?, updated_at = ? WHERE crm_client_id = ?", (json.dumps(snapshot, ensure_ascii=False, sort_keys=True), now, client_id))
+
+    def merge_crm_client_fields_from_counterparty(self, client_id: int, remote: dict[str, Any]) -> None:
         with self.transaction() as conn:
-            card = conn.execute("SELECT document_name, email, phone, legal_address FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
-            state = conn.execute("SELECT version, last_synced_snapshot FROM crm_sync_state WHERE crm_client_id = ?", (client_id,)).fetchone()
-            if card is None or state is None:
+            card = conn.execute(
+                """SELECT c.id, c.document_name, c.email, c.phone, c.legal_address,
+                          s.version, s.last_synced_snapshot
+                   FROM crm_clients c JOIN crm_sync_state s ON s.crm_client_id = c.id
+                   WHERE c.id = ?""",
+                (client_id,),
+            ).fetchone()
+            if card is None:
                 raise ValueError("Для объединения требуется синхронизированная CRM-карточка.")
-            try:
-                base = json.loads(str(state["last_synced_snapshot"] or "{}"))
-            except json.JSONDecodeError:
-                base = {}
-            snapshot = dict(base)
-            updates: dict[str, str] = {}
-            has_conflict = False
-            for field in tracked:
-                local = str(card[field] or "")
-                remote_value = str(remote.get(field) or "")
-                base_value = str(base.get(field) or "")
-                if local == base_value and remote_value != base_value:
-                    updates[field] = remote_value
-                    snapshot[field] = remote_value
-                elif local != remote_value and remote_value != base_value:
-                    has_conflict = True
-                    conn.execute(
-                        """INSERT INTO crm_sync_conflicts(crm_client_id, field_name, base_value_json, local_value_json, remote_value_json, source_version, status, created_at, updated_at)
-                           VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)
-                           ON CONFLICT(crm_client_id, field_name) WHERE status = 'open' DO UPDATE SET local_value_json = excluded.local_value_json, remote_value_json = excluded.remote_value_json, updated_at = excluded.updated_at""",
-                        (client_id, field, json.dumps(base_value, ensure_ascii=False), json.dumps(local, ensure_ascii=False), json.dumps(remote_value, ensure_ascii=False), int(state["version"]), now, now),
-                    )
-            assignments = [f"{field} = ?" for field in updates]
-            values = list(updates.values())
-            if has_conflict:
-                assignments.append("sync_status = 'conflict'")
-            if assignments:
-                conn.execute(f"UPDATE crm_clients SET {', '.join(assignments)}, updated_at = ? WHERE id = ?", (*values, now, client_id))
-            conn.execute("UPDATE crm_sync_state SET last_synced_snapshot = ?, updated_at = ? WHERE crm_client_id = ?", (json.dumps(snapshot, ensure_ascii=False, sort_keys=True), now, client_id))
+            self._merge_crm_client_fields_from_counterparty(conn, card, remote, utc_now())
 
     def list_crm_sync_conflicts(self, client_id: int) -> list[dict[str, Any]]:
         with self.connect() as conn:
