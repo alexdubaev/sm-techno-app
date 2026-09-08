@@ -1151,6 +1151,16 @@ def _serialize_crm_event(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _serialize_crm_client_note(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(row["id"]),
+        "body": row.get("body") or "",
+        "updatedByUserId": row.get("updated_by_user_id"),
+        "createdAt": row.get("created_at") or "",
+        "updatedAt": row.get("updated_at") or "",
+    }
+
+
 def _serialize_crm_reminder(row: dict[str, Any]) -> dict[str, Any]:
     reminder = {
         "id": int(row["id"]),
@@ -1728,11 +1738,31 @@ def delete_crm_contact(client_id: int, contact_id: int, owner_id: int | None = Q
         _crm_error(exc)
 
 
+@app.get("/api/crm/clients/{client_id}/note")
+def get_crm_client_note(client_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        note = repo.get_client_note_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)
+        return {"note": _serialize_crm_client_note(note) if note else None}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.put("/api/crm/clients/{client_id}/note")
+def save_crm_client_note(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        note = repo.save_client_note_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, body=str(payload.get("body") or ""))
+        return {"note": _serialize_crm_client_note(note)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
 @app.post("/api/crm/clients/{client_id}/events", status_code=201)
 def add_crm_event(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     try:
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        event = repo.add_event_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, kind=str(payload.get("kind") or "comment"), body=str(payload.get("body") or ""))
+        event = repo.add_event_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, kind=str(payload.get("kind") or "call"), body=str(payload.get("body") or ""))
         return {"event": _serialize_crm_event(event)}
     except Exception as exc:
         _crm_error(exc)

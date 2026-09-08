@@ -15,6 +15,11 @@ import { MobileCrmWorkspace } from '@/components/crm/mobile/mobile-crm-workspace
 import { getReminderPresetValue } from '@/components/crm/mobile/mobile-client-reminders';
 import type { CrmReminder, CrmWorkspaceClient } from '@/lib/types';
 
+const clientNoteApi = vi.hoisted(() => ({
+  fetch: vi.fn(),
+  save: vi.fn(),
+}));
+
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
   fetchCrmContacts: vi.fn(),
@@ -30,6 +35,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   completeCrmReminder: vi.fn(),
   cancelCrmReminder: vi.fn(),
   updateCrmClient: vi.fn(),
+  fetchCrmClientNote: clientNoteApi.fetch,
+  saveCrmClientNote: clientNoteApi.save,
 }));
 
 const client: CrmWorkspaceClient = {
@@ -130,10 +137,26 @@ beforeEach(() => {
     ...payload,
     version: 8,
   }));
+  clientNoteApi.fetch.mockResolvedValue({
+    id: 12,
+    body: 'Покупает под проекты; согласовывать сроки заранее.',
+    updatedByUserId: 7,
+    createdAt: '2026-09-08T09:00:00Z',
+    updatedAt: '2026-09-08T09:00:00Z',
+  });
+  clientNoteApi.save.mockImplementation(async (_id: number, body: string) => ({
+    id: 12,
+    body,
+    updatedByUserId: 7,
+    createdAt: '2026-09-08T09:00:00Z',
+    updatedAt: '2026-09-08T10:00:00Z',
+  }));
 });
 
 async function openDetail(extra = {}) {
-  const view = render(<MobileClientDetail {...props} {...extra} />);
+  const view = render(
+    <MobileClientDetail {...props} initialSection="overview" {...extra} />,
+  );
   await waitFor(() =>
     expect(screen.queryByText('Загрузка карточки…')).not.toBeInTheDocument(),
   );
@@ -270,6 +293,48 @@ describe('mobile detail daily actions', () => {
 
     expect(api.fetchCrmLinkCandidates).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('opens the dedicated client-note tab first so the handoff context is immediately visible', async () => {
+    await openDetail({ initialSection: undefined });
+
+    expect(screen.getByRole('tab', { name: 'О клиенте' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('keeps the global client note in one dedicated mobile section and saves its edited text', async () => {
+    await openDetail({ initialSection: 'note' });
+
+    expect(
+      screen.getByText('Покупает под проекты; согласовывать сроки заранее.'),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Редактировать заметку' }));
+    fireEvent.change(screen.getByLabelText('Заметка о клиенте'), {
+      target: { value: 'Закупка под проекты; сроки согласовывать заранее.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить заметку' }));
+
+    await waitFor(() =>
+      expect(clientNoteApi.save).toHaveBeenCalledWith(
+        42,
+        'Закупка под проекты; сроки согласовывать заранее.',
+        7,
+      ),
+    );
+    expect(
+      screen.getByText('Закупка под проекты; сроки согласовывать заранее.'),
+    ).toBeInTheDocument();
+  });
+
+  it('opens the call-result form when the user returns from a phone call', async () => {
+    await openDetail();
+
+    fireEvent.click(screen.getAllByRole('link', { name: /Позвонить/ })[0]);
+    fireEvent(document, new Event('visibilitychange'));
+
+    expect(screen.getByRole('dialog', { name: 'Результат звонка' })).toBeInTheDocument();
   });
 
   it('adds a primary contact, keeps clickable channels, and refreshes the owner workspace', async () => {
@@ -523,7 +588,7 @@ describe('mobile detail daily actions', () => {
     ).toHaveAttribute('href', 'tel:+79991234567');
   });
 
-  it('submits the selected event kind and non-empty body, showing newest events first', async () => {
+  it('records a call result with a required description, showing newest calls first', async () => {
     vi.mocked(api.fetchCrmEvents).mockResolvedValue([
       {
         id: 1,
@@ -533,44 +598,32 @@ describe('mobile detail daily actions', () => {
         createdAt: '2026-09-01T10:00:00Z',
         updatedAt: '',
       },
-      {
-        id: 2,
-        kind: 'email',
-        body: 'Новое письмо',
-        authorUserId: 7,
-        createdAt: '2026-09-05T10:00:00Z',
-        updatedAt: '',
-      },
     ]);
     await openDetail({ initialSection: 'history' });
     const items = screen.getAllByRole('listitem');
-    expect(items[0]).toHaveTextContent('Новое письмо');
-    expect(items[1]).toHaveTextContent('Старый звонок');
-    fireEvent.click(screen.getByRole('button', { name: '+ Добавить событие' }));
-    const sheet = screen.getByRole('dialog', { name: 'Добавить событие' });
+    expect(items[0]).toHaveTextContent('Старый звонок');
+    fireEvent.click(screen.getByRole('button', { name: '+ Результат звонка' }));
+    const sheet = screen.getByRole('dialog', { name: 'Результат звонка' });
     expect(
-      within(sheet).getByRole('button', { name: 'Сохранить событие' }),
+      within(sheet).getByRole('button', { name: 'Сохранить результат' }),
     ).toBeDisabled();
-    fireEvent.change(within(sheet).getByLabelText('Тип события'), {
-      target: { value: 'meeting' },
-    });
     fireEvent.change(within(sheet).getByLabelText('Описание'), {
-      target: { value: '  Встреча назначена  ' },
+      target: { value: '  Согласовали сроки поставки  ' },
     });
     fireEvent.click(
-      within(sheet).getByRole('button', { name: 'Сохранить событие' }),
+      within(sheet).getByRole('button', { name: 'Сохранить результат' }),
     );
     await waitFor(() =>
       expect(
-        screen.queryByRole('dialog', { name: 'Добавить событие' }),
+        screen.queryByRole('dialog', { name: 'Результат звонка' }),
       ).not.toBeInTheDocument(),
     );
     expect(screen.getAllByRole('listitem')[0]).toHaveTextContent(
-      'Встреча назначена',
+      'Согласовали сроки поставки',
     );
     expect(api.createCrmEvent).toHaveBeenCalledWith(
       42,
-      { kind: 'meeting', body: 'Встреча назначена' },
+      { kind: 'call', body: 'Согласовали сроки поставки' },
       7,
     );
     expect(props.onDetailChanged).toHaveBeenCalledWith(7, 3);
@@ -790,11 +843,11 @@ describe('mobile detail daily actions', () => {
   it.each([
     {
       section: 'history',
-      open: '+ Добавить событие',
-      title: 'Добавить событие',
+      open: '+ Результат звонка',
+      title: 'Результат звонка',
       label: 'Описание',
       value: 'Повторить звонок',
-      save: 'Сохранить событие',
+      save: 'Сохранить результат',
       request: api.createCrmEvent,
     },
     {

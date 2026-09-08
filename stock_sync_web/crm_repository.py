@@ -256,7 +256,7 @@ class CrmRepository:
             if initial_contact.get("name", "").strip():
                 conn.execute("INSERT INTO crm_contacts(owner_user_id, crm_client_id, name, email, phone, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)", (owner_id, client_id, initial_contact["name"].strip(), initial_contact.get("email", "").strip() or None, initial_contact.get("phone", "").strip() or None, now, now))
             if initial_comment.strip():
-                conn.execute("INSERT INTO crm_events(owner_user_id, crm_client_id, author_user_id, kind, body, created_at, updated_at) VALUES (?, ?, ?, 'comment', ?, ?, ?)", (owner_id, client_id, actor_id, initial_comment.strip(), now, now))
+                conn.execute("INSERT INTO crm_client_notes(owner_user_id, crm_client_id, body, updated_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (owner_id, client_id, initial_comment.strip(), actor_id, now, now))
             card = conn.execute(self.db._crm_client_select() + " WHERE id = ?", (client_id,)).fetchone()
             assignment = conn.execute("SELECT * FROM crm_assignments WHERE id = ?", (assignment_cursor.lastrowid,)).fetchone()
         return dict(card), dict(assignment), dict(work)
@@ -928,6 +928,8 @@ class CrmRepository:
         return grouped
 
     def _add_event(self, owner_id: int, client_id: int, *, kind: str, body: str, author_user_id: int | None = None) -> dict[str, Any]:
+        if kind != "call":
+            raise ValueError("В истории можно сохранить только результат звонка.")
         if not body.strip():
             raise ValueError("Событие не может быть пустым.")
         now = utc_now()
@@ -944,13 +946,45 @@ class CrmRepository:
 
     def _list_events(self, owner_id: int, client_id: int) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
-            rows = conn.execute("SELECT * FROM crm_events WHERE owner_user_id = ? AND crm_client_id = ? ORDER BY created_at, id", (owner_id, client_id)).fetchall()
+            rows = conn.execute("SELECT * FROM crm_events WHERE owner_user_id = ? AND crm_client_id = ? AND kind = 'call' ORDER BY created_at, id", (owner_id, client_id)).fetchall()
         return [dict(row) for row in rows]
 
     def list_events_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self._list_events(owner_id, client_id)
+
+    def get_client_note_for_actor(self, *, actor_id: int, owner_id: int, client_id: int) -> dict[str, Any] | None:
+        with self.db.connect() as conn:
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            row = conn.execute(
+                "SELECT * FROM crm_client_notes WHERE owner_user_id = ? AND crm_client_id = ?",
+                (owner_id, client_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_client_note_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, body: str) -> dict[str, Any]:
+        cleaned_body = body.strip()
+        if not cleaned_body:
+            raise ValueError("Заметка о клиенте не может быть пустой.")
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_workspace_write(actor_id, owner_id)
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            conn.execute(
+                """INSERT INTO crm_client_notes(owner_user_id, crm_client_id, body, updated_by_user_id, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(owner_user_id, crm_client_id) DO UPDATE SET
+                     body = excluded.body,
+                     updated_by_user_id = excluded.updated_by_user_id,
+                     updated_at = excluded.updated_at""",
+                (owner_id, client_id, cleaned_body, actor_id, now, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM crm_client_notes WHERE owner_user_id = ? AND crm_client_id = ?",
+                (owner_id, client_id),
+            ).fetchone()
+        return dict(row)
 
     def _add_reminder(self, owner_id: int, client_id: int, *, due_at: str) -> dict[str, Any]:
         now = utc_now()
