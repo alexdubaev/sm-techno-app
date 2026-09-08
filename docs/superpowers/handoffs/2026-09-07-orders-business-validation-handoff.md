@@ -1,6 +1,6 @@
 # Заказы → 1С и склад: аудит бизнес-валидации — полный handoff
 
-Дата исходной задачи: 2026-09-07. Последнее обновление: 2026-09-08.
+Дата исходной задачи: 2026-09-07. Последнее обновление: 2026-09-08 (продолжение после `52c3eced`).
 
 ## Состояние
 
@@ -16,9 +16,34 @@
 - ТЗ 04: `f1781d3`…`4e3b247`; design/plan: `6f49eb2`, `e4ab0e1`.
 - ТЗ 03: `5cf0639`, `084ec74`, `c38ae25`, `215d2f4`, `a46c526`, `9964f73`; design/plan: `8725982`.
 
-Текущий проверенный HEAD перед этим обновлением handoff: `9964f73`. Слияние или push в `codex/vps-self-hosting` не выполнялись.
+Текущий HEAD: `ce4ee87`. Слияние или push в `codex/vps-self-hosting` не выполнялись.
 
 Не использовать `git reset --hard`, `git clean` или массовое восстановление в других worktree: там есть сторонние изменения.
+
+## Новое продолжение: 2026-09-08
+
+После исходного handoff добавлены независимые исправления. Все ниже перечисленные коммиты находятся в `codex/orders-business-validation`; их нужно вливать только общей веткой.
+
+| Коммит | Содержание | Проверка |
+| --- | --- | --- |
+| `a9c5552` | Legacy-коллизии normalized SKU больше не ломают startup: сохраняется диагностический JSON в `app_settings`, один минимальный `id` остаётся каноническим, у остальных collision rows `sku_normalized` очищен перед созданием unique index. | `tests.test_stock_item_identity` — 5/5. |
+| `684436a` | CRM Excel import возвращает `inn_kpp_conflict` для того же ИНН и другого КПП; финальный import не создаёт дубликат. | Узкие pytest-проверки зелёные; полный `tests/test_crm_import.py` вывел 28 зелёных точек, но Windows runner не напечатал итоговую сводку — не заявлять полный suite как подтверждённый до повторного запуска. |
+| `1d9bdfe` | Ручной клиент КП — только snapshot (`client_source=manual`, без CRM id); существующие local/1С клиенты сохраняют связь. | Три API-теста КП — 3/3. |
+| `884025f` | Дата документа строго `YYYY-MM-DD`; ошибка отклоняется до генерации DOCX и записи в SQLite. | Два API-теста документов — 2/2. |
+| `393877b` | `commercial_offer_id` сохраняется только у specification; у contract игнорируется даже из устаревшего payload. | Contract/specification — 2/2. |
+| `ce4ee87` | Excel-строки КП требуют finite positive quantity и finite non-negative price; `amount_vat` всегда пересчитывается как quantity × price. | Два unit-теста reader — 2/2. |
+
+### Незакоммиченное состояние
+
+- Единственное незакоммиченное изменение — намеренный RED-тест ТЗ 17 `tests/test_auth_session_persistence.py`. Не удалять, не добавлять в чужой commit и не откатывать.
+- Уже проверенный RED: `app_sessions.token` хранит raw bearer token; тест ожидает, что сохранённое значение отличается от token, возвращённого `create_session()`.
+
+### Следующая очередь
+
+1. **ТЗ 15:** обеспечить staging/cleanup для source/output КП при ошибке DB или generation; добавить validation для draft-line finite values и ownership regression.
+2. **ТЗ 16:** проверить соответствие client КП для specification, policy missing requisites, staging/cleanup и path guard документов.
+3. **ТЗ 17:** продолжить только RED→GREEN. Перед реализацией зафиксировать idle и absolute session lifetime: старый handoff значений не содержит, поэтому выбрать из действующей product policy либо явно запросить решение; не выбирать молча.
+4. Повторить integration regression ТЗ 10–12; persistence-тест с naïve timestamp сейчас конфликтует со строгим UTC-контрактом и после ожидаемого падения оставляет Windows SQLite file handle. Исправить fixture/cleanup отдельно, не ослабляя UTC validation.
 
 ## Продолжение после исходного handoff: фактическая история коммитов
 
