@@ -1303,6 +1303,8 @@ class WebDatabase(Database):
                 email_note,
                 phone,
                 phone_note,
+                telegram,
+                max_link,
                 legal_address,
                 actual_address,
                 ogrn,
