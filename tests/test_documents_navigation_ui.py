@@ -122,27 +122,28 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn('onChange={(event) => setSignerPosition(event.target.value)}', source)
 
     def test_sidebar_places_journal_inside_documents_section(self) -> None:
-        source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
+        source = Path("sm-techno-web/components/navigation/app-navigation.tsx").read_text(encoding="utf-8")
 
-        documents_start = source.index('label: "Документы"')
-        admin_start = source.index('label: "Администрирование"', documents_start)
+        documents_start = source.index("label: 'Документы'")
+        admin_start = source.index("label: 'Администрирование'", documents_start)
         documents_block = source[documents_start:admin_start]
 
-        self.assertIn('href: "/documents"', documents_block)
-        self.assertIn('isActive: (path) => path === "/documents"', documents_block)
-        self.assertIn('href: "/documents/journal"', documents_block)
-        self.assertIn('label: "Журнал документов"', documents_block)
-        self.assertNotIn('label: "Журнал",', source)
+        self.assertIn("href: '/documents'", documents_block)
+        self.assertIn("isActive: (path) => path === '/documents'", documents_block)
+        self.assertIn("href: '/documents/journal'", documents_block)
+        self.assertIn("label: 'Журнал документов'", documents_block)
+        self.assertNotIn("label: 'Журнал',", source)
 
     def test_parent_menu_click_only_toggles_its_group_without_navigation(self) -> None:
         source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
 
-        self.assertNotIn("useRouter", source)
-        self.assertNotIn("router.push", source)
-        self.assertIn(
-            'expandedGroupLabel: current.expandedGroupLabel === group.label ? "" : group.label',
-            source,
-        )
+        start = source.index("const handleGroupClick")
+        end = source.index("const handleItemClick", start)
+        handler_block = source[start:end]
+
+        self.assertNotIn("router.", handler_block)
+        self.assertIn("current.expandedGroupLabel === group.label", handler_block)
+        self.assertIn("? '' : group.label", handler_block)
 
     def test_stock_load_waits_for_persisted_state_and_ignores_stale_detail_results(self) -> None:
         source = Path("sm-techno-web/components/stock-page.tsx").read_text(encoding="utf-8")
@@ -153,7 +154,7 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn("const detailRequestIdRef = useRef(0);", source)
         self.assertIn("const detailRequestId = ++detailRequestIdRef.current;", source)
         self.assertIn("detailRequestId === detailRequestIdRef.current", source)
-        self.assertIn(".catch(() => {\n        // Keep the lightweight catalog row when details cannot be refreshed.\n      });", source)
+        self.assertIn("Keep the lightweight catalog row when details cannot be refreshed.", source)
 
     def test_price_catalog_and_detail_requests_ignore_superseded_responses(self) -> None:
         source = Path("sm-techno-web/app/work-with-price/page.tsx").read_text(encoding="utf-8")

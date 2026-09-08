@@ -24,9 +24,9 @@ class InvoiceDraftHandoffUiTest(unittest.TestCase):
         self.assertIn("saveDraftLinesToStorage(draftLines)", handler_block)
         self.assertIn("clearStockDraftLinesFromStorage()", handler_block)
         self.assertIn("setDraftLines([])", handler_block)
-        self.assertIn('router.push("/work-with-invoice")', handler_block)
+        self.assertIn("router.push('/work-with-invoice')", handler_block)
         self.assertIn("onClick={handleOpenInvoice}", source)
-        self.assertNotIn('onClick={() => router.push("/work-with-invoice")}', source)
+        self.assertNotIn("onClick={() => router.push('/work-with-invoice')}", source)
 
     def test_storage_exposes_stock_draft_helpers(self) -> None:
         source = Path("sm-techno-web/lib/storage.ts").read_text(encoding="utf-8")
