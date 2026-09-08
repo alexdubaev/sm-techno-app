@@ -759,6 +759,14 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/readiness")
+def readiness():
+    try:
+        return SERVICE.runtime_readiness()
+    except RuntimeError as error:
+        return JSONResponse(status_code=503, content={"detail": str(error)})
+
+
 @app.post("/api/auth/login")
 def login(payload: dict[str, Any]) -> dict[str, Any]:
     username = str(payload.get("username") or "").strip()

@@ -78,6 +78,28 @@ class WebStockSyncService:
     def bootstrap(self) -> bool:
         return self.db.ensure_default_admin()
 
+    def runtime_readiness(self) -> dict[str, str]:
+        """Check only local startup dependencies; 1C availability is not readiness."""
+        template_paths = [self.commercial_offer_template_path, *self.document_template_paths.values()]
+        missing = [str(path) for path in template_paths if not path.is_file()]
+        if missing:
+            raise RuntimeError(f"Required document template is missing: {missing[0]}")
+        for directory in (self.commercial_offer_storage_dir, self.document_storage_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=directory, prefix=".readiness-", delete=True):
+                pass
+        conn = self.db.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.rollback()
+        except Exception as error:
+            raise RuntimeError(f"SQLite database is not writable: {error}") from error
+        finally:
+            conn.close()
+        if self.db.user_count() == 0 and len(os.environ.get("SM_TECHNO_INITIAL_ADMIN_PASSWORD", "")) < 8:
+            raise RuntimeError("Initial administrator credentials are not configured.")
+        return {"status": "ready"}
+
     def get_system_settings(self) -> dict[str, str]:
         current = DEFAULT_SETTINGS.copy()
         current.update(self.db.get_settings())
