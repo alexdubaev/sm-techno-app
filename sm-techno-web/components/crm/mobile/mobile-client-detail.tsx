@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowLeft,
   BellPlus,
@@ -21,6 +21,7 @@ import {
   type DetailController,
 } from '@/components/crm/use-crm-client-detail';
 import { MobileClientOverview } from '@/components/crm/mobile/mobile-client-overview';
+import { MobileClientNote } from '@/components/crm/mobile/mobile-client-note';
 import {
   MobileClientHistory,
   MobileEventSheet,
@@ -59,6 +60,7 @@ type ActiveSheet =
   | { kind: 'reminder'; reminder?: CrmReminder }
   | null;
 const sections: [MobileDetailSection, string][] = [
+  ['note', 'О клиенте'],
   ['overview', 'Обзор'],
   ['history', 'История'],
   ['reminders', 'Напоминания'],
@@ -191,9 +193,6 @@ export function MobilePrimaryArchiveDetail({
                   'Не указано'
                 }
               />
-              {client.notes ? (
-                <ArchiveDetailRow label="Комментарий" value={client.notes} />
-              ) : null}
             </dl>
           </section>
 
@@ -291,7 +290,7 @@ function formatArchiveDetailDate(value: string) {
 function ignoreDetailChange() {}
 
 function MobileClientDetailContent({
-  initialSection = 'overview',
+  initialSection = 'note',
   onClose,
   onDetailChanged,
   renderMore,
@@ -312,6 +311,7 @@ function MobileClientDetailContent({
   } = controller;
   const [section, setSection] = useState<MobileDetailSection>(initialSection);
   const [sheet, setSheet] = useState<ActiveSheet>(null);
+  const callResultAfterReturn = useRef(false);
   const closeSheet = () => setSheet(null);
   const primaryContact = controller.contacts.find(
     (contact) => contact.isPrimary,
@@ -320,9 +320,23 @@ function MobileClientDetailContent({
   const email = primaryContact?.email || client.email;
   const mailtoHref = getSafeMailtoHref(email);
   const busy = isLoading || isSaving !== null;
-  const openEvent = () => setSheet({ kind: 'event' });
+  const openEvent = () => {
+    callResultAfterReturn.current = false;
+    setSheet({ kind: 'event' });
+  };
   const openReminder = () => setSheet({ kind: 'reminder' });
   const title = client.documentName || client.fullName || client.name;
+
+  useEffect(() => {
+    const openResultAfterCall = () => {
+      if (callResultAfterReturn.current && document.visibilityState === 'visible') {
+        callResultAfterReturn.current = false;
+        setSheet({ kind: 'event' });
+      }
+    };
+    document.addEventListener('visibilitychange', openResultAfterCall);
+    return () => document.removeEventListener('visibilitychange', openResultAfterCall);
+  }, []);
 
   return (
     <Sheet
@@ -378,6 +392,7 @@ function MobileClientDetailContent({
             {phone ? (
               <a
                 href={`tel:${phone}`}
+                onClick={() => { callResultAfterReturn.current = true; }}
                 className={`${mobileButton} flex items-center justify-center gap-2`}
               >
                 <Phone aria-hidden="true" className="size-4 shrink-0" />
@@ -409,7 +424,7 @@ function MobileClientDetailContent({
                   aria-hidden="true"
                   className="size-4 shrink-0"
                 />
-                Событие
+                Результат звонка
               </button>
             ) : null}
             {canEditWorkspace && canManageReminders ? (
@@ -494,6 +509,7 @@ function MobileClientDetailContent({
             aria-labelledby={`mobile-detail-tab-${section}`}
             tabIndex={0}
           >
+            {section === 'note' ? <MobileClientNote controller={controller} /> : null}
             {section === 'overview' ? (
               <MobileClientOverview
                 controller={controller}

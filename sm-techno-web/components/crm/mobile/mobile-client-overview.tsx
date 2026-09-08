@@ -173,14 +173,6 @@ export function MobileClientOverview({
           </p>
         )}
       </section>
-      {client.notes ? (
-        <section className={mobilePanel}>
-          <h2 className="text-base font-bold">Комментарий</h2>
-          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">
-            {client.notes}
-          </p>
-        </section>
-      ) : null}
     </div>
   );
 }

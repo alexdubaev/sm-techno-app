@@ -92,6 +92,40 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual("Импорт API", card["documentName"])
         self.assertEqual("Импорт API", card["name"])
 
+    def test_client_note_api_replaces_one_workspace_note_and_history_accepts_only_calls(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Клиент с заметкой"}).json()
+        client_id = created["client"]["id"]
+
+        empty_note = self.client.get(f"/api/crm/clients/{client_id}/note")
+        first_note = self.client.put(
+            f"/api/crm/clients/{client_id}/note",
+            json={"body": "Покупает под проекты; заранее согласовывать сроки."},
+        )
+        updated_note = self.client.put(
+            f"/api/crm/clients/{client_id}/note",
+            json={"body": "Покупает под проекты; согласовывать сроки заранее."},
+        )
+        rejected_event = self.client.post(
+            f"/api/crm/clients/{client_id}/events",
+            json={"kind": "meeting", "body": "Встреча состоялась"},
+        )
+        call = self.client.post(
+            f"/api/crm/clients/{client_id}/events",
+            json={"kind": "call", "body": "Согласовали сроки поставки."},
+        )
+
+        self.assertEqual(200, empty_note.status_code)
+        self.assertIsNone(empty_note.json()["note"])
+        self.assertEqual(200, first_note.status_code, first_note.text)
+        self.assertEqual(first_note.json()["note"]["id"], updated_note.json()["note"]["id"])
+        self.assertEqual(
+            "Покупает под проекты; согласовывать сроки заранее.",
+            updated_note.json()["note"]["body"],
+        )
+        self.assertEqual(400, rejected_event.status_code)
+        self.assertEqual(201, call.status_code)
+        self.assertEqual("call", call.json()["event"]["kind"])
+
     def test_excel_import_permissions_targets_and_invalid_file(self) -> None:
         files = {"file": ("crm.xlsx", self.import_workbook())}
         for path in ("/api/crm/import/preview", "/api/crm/import"):
@@ -1368,7 +1402,7 @@ class CrmApiTest(unittest.TestCase):
         self.assertEqual(200, restored.status_code, restored.text)
         self.assertEqual((["Экспортный архив"], ["Ирина"]), after_restore)
 
-    def test_new_lead_stores_initial_contact_and_comment_in_the_owner_crm(self) -> None:
+    def test_new_lead_stores_initial_contact_and_client_note_in_the_owner_crm(self) -> None:
         created = self.client.post(
             "/api/crm/clients",
             json={
@@ -1385,6 +1419,7 @@ class CrmApiTest(unittest.TestCase):
 
         contacts = self.client.get(f"/api/crm/clients/{client_id}/contacts")
         events = self.client.get(f"/api/crm/clients/{client_id}/events")
+        note = self.client.get(f"/api/crm/clients/{client_id}/note")
         with self.service.db.connect() as conn:
             card = conn.execute("SELECT contact_person, email, phone, notes, telegram, max_link FROM crm_clients WHERE id = ?", (client_id,)).fetchone()
 
@@ -1397,15 +1432,16 @@ class CrmApiTest(unittest.TestCase):
             {key: contact[key] for key in ("name", "email", "phone", "isPrimary")}
             for contact in contacts.json()["items"]
         ])
-        self.assertEqual(["Перезвонить после выставки"], [event["body"] for event in events.json()["items"]])
+        self.assertEqual([], events.json()["items"])
+        self.assertEqual("Перезвонить после выставки", note.json()["note"]["body"])
         self.assertEqual((None, None, None, None, "@anna_company", "https://max.ru/anna_company"), tuple(card))
 
-    def test_create_lead_rolls_back_all_rows_when_initial_comment_insert_fails(self) -> None:
+    def test_create_lead_rolls_back_all_rows_when_initial_client_note_insert_fails(self) -> None:
         with self.service.db.transaction() as conn:
             conn.execute("""
-                CREATE TRIGGER fail_initial_crm_comment
-                BEFORE INSERT ON crm_events WHEN NEW.kind = 'comment'
-                BEGIN SELECT RAISE(ABORT, 'injected initial comment failure'); END
+                CREATE TRIGGER fail_initial_crm_client_note
+                BEFORE INSERT ON crm_client_notes
+                BEGIN SELECT RAISE(ABORT, 'injected initial client note failure'); END
             """)
 
         response = self.client.post(
@@ -1413,10 +1449,10 @@ class CrmApiTest(unittest.TestCase):
             json={"documentName": "Атомарный лид", "contactPerson": "Ирина", "email": "irina@example.test", "phone": "+79990000000", "notes": "Первый комментарий"},
         )
         with self.service.db.connect() as conn:
-            counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("crm_clients", "crm_assignments", "crm_contacts", "crm_events")}
+            counts = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ("crm_clients", "crm_assignments", "crm_contacts", "crm_client_notes")}
 
         self.assertEqual(400, response.status_code)
-        self.assertEqual({"crm_clients": 0, "crm_assignments": 0, "crm_contacts": 0, "crm_events": 0}, counts)
+        self.assertEqual({"crm_clients": 0, "crm_assignments": 0, "crm_contacts": 0, "crm_client_notes": 0}, counts)
 
     @unittest.skip("Retired CRM outbound 1C workflow")
     def test_explicit_onec_create_persists_a_job_without_calling_onec(self) -> None:

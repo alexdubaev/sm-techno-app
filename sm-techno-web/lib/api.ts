@@ -9,6 +9,7 @@
   CrmAssignment,
   CrmAuditAction,
   CrmContact,
+  CrmClientNote,
   CrmEvent,
   CrmImportPreview,
   CrmImportResult,
@@ -977,6 +978,26 @@ export async function fetchCrmEvents(clientId: number, ownerId?: number): Promis
     `/api/crm/clients/${clientId}/events${buildCrmQuery({ ownerId })}`,
   );
   return result.items;
+}
+
+export async function fetchCrmClientNote(clientId: number, ownerId?: number): Promise<CrmClientNote | null> {
+  const result = await requestJson<{ note: CrmClientNote | null }>(
+    `/api/crm/clients/${clientId}/note${buildCrmQuery({ ownerId })}`,
+  );
+  return result.note;
+}
+
+export async function saveCrmClientNote(clientId: number, body: string, ownerId?: number): Promise<CrmClientNote> {
+  const result = await requestJsonWithInit<{ note: CrmClientNote }>(
+    `/api/crm/clients/${clientId}/note${buildCrmQuery({ ownerId })}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    },
+    "Не удалось сохранить заметку о клиенте.",
+  );
+  return result.note;
 }
 
 export async function fetchCrmAudit(clientId: number, ownerId?: number): Promise<CrmAuditAction[]> {

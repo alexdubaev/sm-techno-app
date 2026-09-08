@@ -205,7 +205,7 @@ export function MobileNewClientSheet({
           onChange={(event) => update('maxLink', event.target.value)}
         />
         <label className="grid gap-1.5 text-sm font-medium">
-          <span>Комментарий</span>
+          <span>Заметка о клиенте</span>
           <textarea
             value={form.notes}
             onChange={(event) => update('notes', event.target.value)}

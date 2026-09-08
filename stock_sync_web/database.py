@@ -247,6 +247,20 @@ CREATE TABLE IF NOT EXISTS crm_events (
     FOREIGN KEY(author_user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS crm_client_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_user_id INTEGER NOT NULL,
+    crm_client_id INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    updated_by_user_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(owner_user_id) REFERENCES users(id),
+    FOREIGN KEY(crm_client_id) REFERENCES crm_clients(id),
+    FOREIGN KEY(updated_by_user_id) REFERENCES users(id),
+    UNIQUE(owner_user_id, crm_client_id)
+);
+
 CREATE TABLE IF NOT EXISTS crm_reminders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_user_id INTEGER NOT NULL,
@@ -486,6 +500,7 @@ class WebDatabase(Database):
         ("2026-09-08-web-schema-v1", "_apply_web_schema_v1"),
         ("2026-09-08-crm-contact-position-v1", "_add_crm_contact_position"),
         ("2026-09-08-retire-crm-outbox-v1", "_retire_crm_outbox"),
+        ("2026-09-08-call-history-and-client-note-v1", "_migrate_call_history_and_client_note"),
     )
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
@@ -541,6 +556,14 @@ class WebDatabase(Database):
             return "position" in columns
         if version == "2026-09-08-retire-crm-outbox-v1":
             return conn.execute("SELECT 1 FROM crm_sync_jobs WHERE status IN ('pending', 'running') LIMIT 1").fetchone() is None
+        if version == "2026-09-08-call-history-and-client-note-v1":
+            has_note_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'crm_client_notes'"
+            ).fetchone() is not None
+            has_legacy_event = conn.execute(
+                "SELECT 1 FROM crm_events WHERE kind IN ('email', 'meeting', 'comment') LIMIT 1"
+            ).fetchone() is not None
+            return has_note_table and not has_legacy_event
         if version != "2026-09-08-web-schema-v1":
             return False
         columns = {
@@ -597,6 +620,10 @@ class WebDatabase(Database):
             "UPDATE crm_clients SET sync_status = 'blocked_capability', sync_error = ?, updated_at = ? WHERE sync_status IN ('pending', 'blocked_capability')",
             (message, utc_now()),
         )
+
+    @staticmethod
+    def _migrate_call_history_and_client_note(conn: sqlite3.Connection) -> None:
+        conn.execute("DELETE FROM crm_events WHERE kind IN ('email', 'meeting', 'comment')")
 
     @staticmethod
     def _verify_web_database_integrity(conn: sqlite3.Connection) -> None:
@@ -797,6 +824,7 @@ class WebDatabase(Database):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_assignments_owner_tab ON crm_assignments(owner_user_id, tab_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_contacts_owner_client ON crm_contacts(owner_user_id, crm_client_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_events_owner_client ON crm_events(owner_user_id, crm_client_id, created_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_client_notes_owner_client ON crm_client_notes(owner_user_id, crm_client_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_reminders_owner_status_due ON crm_reminders(owner_user_id, status, due_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_reminder_history_reminder ON crm_reminder_history(crm_reminder_id, id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_crm_sync_jobs_status_available ON crm_sync_jobs(status, available_at)")

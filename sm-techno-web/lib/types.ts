@@ -308,6 +308,14 @@ export type CrmEvent = {
   updatedAt: string;
 };
 
+export type CrmClientNote = {
+  id: number;
+  body: string;
+  updatedByUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type CrmAuditAction = {
   id: number;
   actorUserId: number;

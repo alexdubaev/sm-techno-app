@@ -190,7 +190,7 @@ class CrmPersistenceTest(unittest.TestCase):
         work = self.repo.ensure_work_tab(self.owner_id)
         self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
         self.repo.add_contact_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], name="Ирина", email="i@example.test", is_primary=True)
-        self.repo.add_event_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], kind="comment", body="Перезвонить")
+        self.repo.add_event_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], kind="call", body="Перезвонить")
         reminder = self.repo.add_reminder_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], due_at="2026-09-04T10:00:00+03:00")
         self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key="blue", position=10)
 
@@ -201,6 +201,108 @@ class CrmPersistenceTest(unittest.TestCase):
         self.assertEqual("Перезвонить", self.repo.list_events_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])[0]["body"])
         self.assertEqual(reminder["id"], self.repo.list_reminders_for_actor(actor_id=self.owner_id, owner_id=self.owner_id)[0]["id"])
         self.assertEqual("blue", self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"])["color_key"])
+
+    def test_client_note_is_one_shared_editable_record_per_workspace_client(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        self.repo.assign_client_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            tab_id=work["id"],
+        )
+
+        created = self.repo.save_client_note_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            body="Покупает только под проект; согласовывать сроки заранее.",
+        )
+        updated = self.repo.save_client_note_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            body="Покупает под проект; согласовывать сроки заранее.",
+        )
+
+        self.assertEqual(created["id"], updated["id"])
+        self.assertEqual(
+            "Покупает под проект; согласовывать сроки заранее.",
+            self.repo.get_client_note_for_actor(
+                actor_id=self.owner_id,
+                owner_id=self.owner_id,
+                client_id=self.client["id"],
+            )["body"],
+        )
+        with self.db.connect() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM crm_client_notes WHERE owner_user_id = ? AND crm_client_id = ?",
+                (self.owner_id, self.client["id"]),
+            ).fetchone()[0]
+        self.assertEqual(1, count)
+
+    def test_only_call_events_can_be_added_to_client_history(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        self.repo.assign_client_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            tab_id=work["id"],
+        )
+
+        with self.assertRaisesRegex(ValueError, "звон"):
+            self.repo.add_event_for_actor(
+                actor_id=self.owner_id,
+                owner_id=self.owner_id,
+                client_id=self.client["id"],
+                kind="email",
+                body="Отправили письмо",
+            )
+
+        event = self.repo.add_event_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            kind="call",
+            body="Согласовали сроки поставки.",
+        )
+        self.assertEqual("call", event["kind"])
+
+    def test_initialize_removes_legacy_event_types_but_keeps_call_history(self) -> None:
+        work = self.repo.ensure_work_tab(self.owner_id)
+        self.repo.assign_client_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            tab_id=work["id"],
+        )
+        self.repo.add_event_for_actor(
+            actor_id=self.owner_id,
+            owner_id=self.owner_id,
+            client_id=self.client["id"],
+            kind="call",
+            body="Договорились прислать спецификацию.",
+        )
+        with self.db.transaction() as conn:
+            for kind in ("comment", "email", "meeting", "move"):
+                conn.execute(
+                    """INSERT INTO crm_events(owner_user_id, crm_client_id, author_user_id, kind, body, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (self.owner_id, self.client["id"], self.owner_id, kind, "Устаревшая запись", "2026-09-08T00:00:00+00:00", "2026-09-08T00:00:00+00:00"),
+                )
+
+        self.db.initialize()
+
+        self.assertEqual(
+            [("call", "Договорились прислать спецификацию.")],
+            [
+                (event["kind"], event["body"])
+                for event in self.repo.list_events_for_actor(
+                    actor_id=self.owner_id,
+                    owner_id=self.owner_id,
+                    client_id=self.client["id"],
+                )
+            ],
+        )
 
     def test_archive_is_reversible_and_audited_without_touching_client(self) -> None:
         work = self.repo.ensure_work_tab(self.owner_id)
@@ -295,7 +397,7 @@ class CrmPersistenceTest(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.repo.add_contact_for_actor(actor_id=other, owner_id=self.owner_id, client_id=client["id"], name="X")
         with self.assertRaises(PermissionError):
-            self.repo.add_event_for_actor(actor_id=other, owner_id=self.owner_id, client_id=client["id"], kind="comment", body="X")
+            self.repo.add_event_for_actor(actor_id=other, owner_id=self.owner_id, client_id=client["id"], kind="call", body="X")
         with self.assertRaises(PermissionError):
             self.repo.add_reminder_for_actor(actor_id=other, owner_id=self.owner_id, client_id=client["id"], due_at="2026-10-01")
         with self.assertRaises(PermissionError):
@@ -338,8 +440,12 @@ class CrmPersistenceTest(unittest.TestCase):
 
         preference = self.repo.get_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=target["id"], client_id=self.client["id"])
         self.assertEqual(("blue", 2000), (preference["color_key"], preference["position"]))
-        event = self.repo.list_events_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"])[0]
-        self.assertEqual("move", event["kind"])
+        with self.db.connect() as conn:
+            event = conn.execute(
+                "SELECT * FROM crm_events WHERE owner_user_id = ? AND crm_client_id = ? AND kind = 'move'",
+                (self.owner_id, self.client["id"]),
+            ).fetchone()
+        self.assertIsNotNone(event)
         self.assertEqual(self.owner_id, event["author_user_id"])
         self.assertIn("В работе", event["body"])
         self.assertIn("Перезвонить", event["body"])
@@ -433,7 +539,7 @@ class CrmPersistenceTest(unittest.TestCase):
             actor_id=self.owner_id,
             owner_id=self.owner_id,
             client_id=self.client["id"],
-            kind="comment",
+            kind="call",
             body="Сохранить историю",
         )
         self.repo.add_reminder_for_actor(
@@ -684,7 +790,7 @@ class CrmPersistenceTest(unittest.TestCase):
             actor_id=self.owner_id,
             owner_id=self.owner_id,
             client_id=candidate["id"],
-            kind="comment",
+            kind="call",
             body="Личная история остаётся в CRM",
         )
         with self.db.transaction() as conn:

@@ -1,1 +1,1 @@
-export type MobileDetailSection = "overview" | "history" | "reminders" | "more";
+export type MobileDetailSection = "note" | "overview" | "history" | "reminders" | "more";

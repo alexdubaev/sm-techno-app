@@ -12,9 +12,6 @@ import {
 
 const eventLabels: Record<string, string> = {
   call: 'Звонок',
-  email: 'Письмо',
-  meeting: 'Встреча',
-  comment: 'Комментарий',
 };
 const dateFormat = new Intl.DateTimeFormat('ru-RU', {
   timeZone: 'Europe/Moscow',
@@ -37,7 +34,7 @@ export function MobileClientHistory({
   );
   return (
     <section className={mobilePanel}>
-      <h2 className="text-base font-bold">История общения</h2>
+      <h2 className="text-base font-bold">История звонков</h2>
       {canEditWorkspace ? (
         <button
           type="button"
@@ -45,7 +42,7 @@ export function MobileClientHistory({
           disabled={isLoading || isSaving !== null}
           className={`${mobileButton} mt-3 w-full`}
         >
-          + Добавить событие
+          + Результат звонка
         </button>
       ) : null}
       {sorted.length ? (
@@ -75,8 +72,7 @@ export function MobileClientHistory({
         </ol>
       ) : (
         <p className="mt-4 text-sm text-[var(--text-secondary)]">
-          История пока пуста. Здесь появятся звонки, письма, встречи и
-          комментарии.
+          История пока пуста. Здесь появятся сохранённые результаты звонков.
         </p>
       )}
     </section>
@@ -96,29 +92,13 @@ export function MobileEventSheet({
   };
   return (
     <MobileSheet
-      title="Добавить событие"
-      description="Сохраните результат общения с клиентом."
+      title="Результат звонка"
+      description="Зафиксируйте итог разговора после звонка."
       error={error}
       busy={isSaving !== null}
       onClose={onClose}
     >
       <form onSubmit={submit} className="grid gap-4">
-        <label className="grid gap-1.5 text-sm font-medium">
-          <span>Тип события</span>
-          <select
-            value={eventForm.kind}
-            onChange={(event) =>
-              setEventForm((form) => ({ ...form, kind: event.target.value }))
-            }
-            className={mobileInput}
-          >
-            {Object.entries(eventLabels).map(([kind, label]) => (
-              <option key={kind} value={kind}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className="grid gap-1.5 text-sm font-medium">
           <span>Описание</span>
           <textarea
@@ -135,7 +115,7 @@ export function MobileEventSheet({
           busy={isSaving !== null}
           disabled={!eventForm.body.trim()}
         >
-          Сохранить событие
+          Сохранить результат
         </MobileSubmit>
       </form>
     </MobileSheet>

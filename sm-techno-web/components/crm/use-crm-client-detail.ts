@@ -12,6 +12,7 @@ import {
   createCrmEvent,
   createCrmReminder,
   fetchCrmAudit,
+  fetchCrmClientNote,
   fetchCrmContacts,
   fetchCrmEvents,
   fetchCrmLinkCandidates,
@@ -19,6 +20,7 @@ import {
   fetchCrmSyncConflicts,
   removeCrmAssignment,
   rescheduleCrmReminder as requestCrmReminderReschedule,
+  saveCrmClientNote,
   resolveCrmSyncConflict,
   restoreLocalCrmClient,
   restorePrimaryCrmClient,
@@ -26,11 +28,11 @@ import {
   updateCrmClient,
   updateCrmContact,
 } from "@/lib/api";
-import type { CrmAuditAction, CrmContact, CrmEvent, CrmLinkCandidate, CrmReminder, CrmSyncConflict, CrmWorkspaceClient } from "@/lib/types";
+import type { CrmAuditAction, CrmClientNote, CrmContact, CrmEvent, CrmLinkCandidate, CrmReminder, CrmSyncConflict, CrmWorkspaceClient } from "@/lib/types";
 import { moscowInputToUtc } from "@/components/crm/mobile/mobile-crm-utils";
 
 type ActiveTab = "primary" | number;
-type SavingAction = "contact" | "contact-delete" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "resolve";
+type SavingAction = "contact" | "contact-delete" | "event" | "note" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "resolve";
 type CompanyRequisitesForm = Pick<CrmWorkspaceClient, "documentName" | "fullName" | "inn" | "kpp" | "city" | "contactPerson" | "email" | "phone"> & { telegram: string; maxLink: string };
 type ContactForm = Pick<CrmContact, "name" | "position" | "phone" | "email" | "isPrimary">;
 type EventForm = Pick<CrmEvent, "kind" | "body">;
@@ -54,6 +56,7 @@ export type DetailController = {
   currentClient: CrmWorkspaceClient;
   contacts: CrmContact[];
   events: CrmEvent[];
+  clientNote: CrmClientNote | null;
   reminders: CrmReminder[];
   audit: CrmAuditAction[];
   syncConflicts: CrmSyncConflict[];
@@ -99,6 +102,7 @@ export type DetailController = {
   editContact: (contact: CrmContact) => void;
   deleteContact: () => Promise<void>;
   saveEvent: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
+  saveClientNote: (body: string) => Promise<boolean | void>;
   saveReminder: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
   transitionReminder: (reminder: CrmReminder, action: "complete" | "cancel") => Promise<void>;
   rescheduleReminder: (reminder: CrmReminder, dueAtLocal: string) => Promise<boolean | void>;
@@ -160,6 +164,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
   const [currentClient, setCurrentClient] = useState(client);
   const [contacts, setContacts] = useState<CrmContact[]>([]);
   const [events, setEvents] = useState<CrmEvent[]>([]);
+  const [clientNote, setClientNote] = useState<CrmClientNote | null>(null);
   const [reminders, setReminders] = useState<CrmReminder[]>([]);
   const [audit, setAudit] = useState<CrmAuditAction[]>([]);
   const [syncConflicts, setSyncConflicts] = useState<CrmSyncConflict[]>([]);
@@ -173,7 +178,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
   const [contactForm, setContactForm] = useState<ContactForm>({ name: "", position: "", phone: "", email: "", isPrimary: false });
   const [contactEditor, setContactEditor] = useState<CrmContact | null>(null);
   const [contactPendingDelete, setContactPendingDelete] = useState<CrmContact | null>(null);
-  const [eventForm, setEventForm] = useState<EventForm>({ kind: "comment", body: "" });
+  const [eventForm, setEventForm] = useState<EventForm>({ kind: "call", body: "" });
   const [reminderDueAt, setReminderDueAt] = useState("");
   const [archiveReason, setArchiveReason] = useState("");
   const [isArchiveConfirmationOpen, setIsArchiveConfirmationOpen] = useState(false);
@@ -221,6 +226,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     void Promise.all([
       fetchCrmContacts(currentClient.id, ownerId),
       fetchCrmEvents(currentClient.id, ownerId),
+      fetchCrmClientNote(currentClient.id, ownerId),
       fetchCrmReminders(ownerId),
       fetchCrmAudit(currentClient.id, ownerId),
       currentClient.linkedCounterpartyId === null
@@ -228,10 +234,11 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
         : Promise.resolve<CrmLinkCandidate[]>([]),
       fetchCrmSyncConflicts(currentClient.id, ownerId),
     ])
-      .then(([nextContacts, nextEvents, nextReminders, nextAudit, nextCandidates, nextConflicts]) => {
+      .then(([nextContacts, nextEvents, nextNote, nextReminders, nextAudit, nextCandidates, nextConflicts]) => {
         if (!active) return;
         setContacts(nextContacts);
         setEvents(nextEvents);
+        setClientNote(nextNote);
         setReminders(nextReminders.filter((reminder) => reminder.clientId === currentClient.id && reminder.status === "active"));
         setAudit(nextAudit);
         setLinkCandidates(nextCandidates);
@@ -351,12 +358,33 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     try {
       const saved = await createCrmEvent(currentClient.id, { kind: temporary.kind, body: temporary.body }, ownerId);
       setEvents((current) => current.map((item) => item.id === temporary.id ? saved : item));
-      setEventForm({ kind: "comment", body: "" });
+      setEventForm({ kind: "call", body: "" });
       notifyChanged();
       return true;
     } catch (cause) {
       setEvents((current) => current.filter((item) => item.id !== temporary.id));
       setError(errorMessage(cause, "Не удалось добавить событие. Изменение отменено."));
+    } finally {
+      setIsSaving(null);
+    }
+  };
+
+  const saveClientNote = async (body: string) => {
+    if (!canEditWorkspace) return;
+    const cleanedBody = body.trim();
+    if (!cleanedBody) {
+      setError("Введите заметку о клиенте.");
+      return;
+    }
+    setIsSaving("note");
+    setError(null);
+    try {
+      const saved = await saveCrmClientNote(currentClient.id, cleanedBody, ownerId);
+      setClientNote(saved);
+      notifyChanged();
+      return true;
+    } catch (cause) {
+      setError(errorMessage(cause, "Не удалось сохранить заметку о клиенте."));
     } finally {
       setIsSaving(null);
     }
@@ -615,6 +643,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     currentClient,
     contacts,
     events,
+    clientNote,
     reminders,
     audit,
     syncConflicts,
@@ -660,6 +689,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     editContact,
     deleteContact,
     saveEvent,
+    saveClientNote,
     saveReminder,
     transitionReminder,
     rescheduleReminder,
