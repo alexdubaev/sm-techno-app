@@ -956,6 +956,21 @@ test("CRM card can edit and delete local contacts without deleting them in 1C", 
   assert.match(workspace, /Очистить контактное лицо в CRM/);
 });
 
+test("mobile CRM card lets users edit and remove local contacts without changing 1C", async () => {
+  const [overview, detail] = await Promise.all([
+    readFile(mobileOverviewUrl, "utf8"),
+    readFile(mobileDetailUrl, "utf8"),
+  ]);
+
+  assert.match(overview, /Редактировать контакт/);
+  assert.match(overview, /Удалить контакт/);
+  assert.match(overview, /В 1С этот\s+контакт\s+не изменится/);
+  assert.match(detail, /onEditContact/);
+  assert.match(overview, /deleteContact/);
+  assert.match(detail, /setContactEditor\(null\)/);
+  assert.match(detail, /setContactForm\(\{\s+name: '',\s+position: '',\s+phone: '',\s+email: '',\s+isPrimary: false,\s+\}\)/);
+});
+
 test("CRM workspace manages only custom personal tabs and edits company requisites separately from contacts", async () => {
   const [workspace, controller, api, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),

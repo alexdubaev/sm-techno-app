@@ -227,14 +227,20 @@ export function MobileContactSheet({
   controller: DetailController;
   onClose: () => void;
 }) {
-  const { contactForm, setContactForm, isSaving, error, saveContact } =
-    controller;
+  const {
+    contactForm,
+    setContactForm,
+    contactEditor,
+    isSaving,
+    error,
+    saveContact,
+  } = controller;
   const submit = async (event: SubmitEvent<HTMLFormElement>) => {
     if (await saveContact(event)) onClose();
   };
   return (
     <MobileSheet
-      title="Новый контакт"
+      title={contactEditor ? 'Редактировать контакт' : 'Новый контакт'}
       description="Контактное лицо компании и способы связи."
       error={error}
       busy={isSaving !== null}
@@ -297,7 +303,7 @@ export function MobileContactSheet({
           busy={isSaving !== null}
           disabled={!contactForm.name.trim()}
         >
-          Сохранить контакт
+          {contactEditor ? 'Сохранить изменения' : 'Сохранить контакт'}
         </MobileSubmit>
       </form>
     </MobileSheet>
