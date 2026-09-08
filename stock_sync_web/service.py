@@ -713,7 +713,7 @@ class WebStockSyncService:
             "categories": catalog["categories"],
             "groups": catalog["groups"],
             "summary": {
-                "catalog_count": len(self.db.list_items(split_by_warehouse=True)),
+                "catalog_count": self.db.count_catalog_rows(),
                 "filtered_count": catalog["total"],
                 "filtered_quantity": round(catalog["filtered_quantity"], 2),
             },
