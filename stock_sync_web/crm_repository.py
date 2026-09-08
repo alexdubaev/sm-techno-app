@@ -858,36 +858,37 @@ class CrmRepository:
             row = conn.execute("SELECT * FROM crm_assignments WHERE owner_user_id = ? AND crm_client_id = ? AND archived_at IS NULL", (owner_id, client_id)).fetchone()
         return dict(row) if row else None
 
-    def _add_contact(self, owner_id: int, client_id: int, *, name: str, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
+    def _add_contact(self, owner_id: int, client_id: int, *, name: str, position: str = "", email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
         if not name.strip():
             raise ValueError("Укажите имя контактного лица.")
         now = utc_now()
         with self.db.transaction() as conn:
             if is_primary:
                 conn.execute("UPDATE crm_contacts SET is_primary = 0, updated_at = ? WHERE owner_user_id = ? AND crm_client_id = ?", (now, owner_id, client_id))
-            cursor = conn.execute("INSERT INTO crm_contacts(owner_user_id, crm_client_id, name, email, phone, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (owner_id, client_id, name.strip(), email.strip() or None, phone.strip() or None, 1 if is_primary else 0, now, now))
+            cursor = conn.execute("INSERT INTO crm_contacts(owner_user_id, crm_client_id, name, position, email, phone, is_primary, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (owner_id, client_id, name.strip(), position.strip() or None, email.strip() or None, phone.strip() or None, 1 if is_primary else 0, now, now))
             row = conn.execute("SELECT * FROM crm_contacts WHERE id = ?", (cursor.lastrowid,)).fetchone()
         return dict(row)
 
-    def add_contact_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, name: str, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
+    def add_contact_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, name: str, position: str = "", email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
         self._require_workspace_write(actor_id, owner_id)
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
-        return self._add_contact(owner_id, client_id, name=name, email=email, phone=phone, is_primary=is_primary)
+        return self._add_contact(owner_id, client_id, name=name, position=position, email=email, phone=phone, is_primary=is_primary)
 
-    def update_contact_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, contact_id: int, name: str, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
+    def update_contact_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, contact_id: int, name: str, position: str | None = None, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
         if not name.strip():
             raise ValueError("Укажите имя контактного лица.")
         now = utc_now()
         with self.db.transaction() as conn:
             self._require_workspace_write(actor_id, owner_id)
             self._require_personal_access(conn, actor_id, owner_id, client_id)
-            contact = conn.execute("SELECT id FROM crm_contacts WHERE id = ? AND owner_user_id = ? AND crm_client_id = ?", (contact_id, owner_id, client_id)).fetchone()
+            contact = conn.execute("SELECT id, position FROM crm_contacts WHERE id = ? AND owner_user_id = ? AND crm_client_id = ?", (contact_id, owner_id, client_id)).fetchone()
             if contact is None:
                 raise ValueError("Контакт не найден.")
+            stored_position = contact["position"] if position is None else position.strip() or None
             if is_primary:
                 conn.execute("UPDATE crm_contacts SET is_primary = 0, updated_at = ? WHERE owner_user_id = ? AND crm_client_id = ? AND id != ?", (now, owner_id, client_id, contact_id))
-            conn.execute("UPDATE crm_contacts SET name = ?, email = ?, phone = ?, is_primary = ?, updated_at = ? WHERE id = ?", (name.strip(), email.strip() or None, phone.strip() or None, 1 if is_primary else 0, now, contact_id))
+            conn.execute("UPDATE crm_contacts SET name = ?, position = ?, email = ?, phone = ?, is_primary = ?, updated_at = ? WHERE id = ?", (name.strip(), stored_position, email.strip() or None, phone.strip() or None, 1 if is_primary else 0, now, contact_id))
             row = conn.execute("SELECT * FROM crm_contacts WHERE id = ?", (contact_id,)).fetchone()
         return dict(row)
 
@@ -908,6 +909,23 @@ class CrmRepository:
         with self.db.connect() as conn:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self._list_contacts(owner_id, client_id)
+
+    def list_contacts_for_client_ids_for_actor(self, *, actor_id: int, owner_id: int, client_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
+        """Load the selected owner's contacts for workspace rows in one query."""
+        self._require_owner_access(actor_id, owner_id)
+        normalized_ids = list(dict.fromkeys(int(client_id) for client_id in client_ids))
+        if not normalized_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in normalized_ids)
+        with self.db.connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM crm_contacts WHERE owner_user_id = ? AND crm_client_id IN ({placeholders}) ORDER BY crm_client_id, is_primary DESC, id",
+                (owner_id, *normalized_ids),
+            ).fetchall()
+        grouped: dict[int, list[dict[str, Any]]] = {client_id: [] for client_id in normalized_ids}
+        for row in rows:
+            grouped[int(row["crm_client_id"])].append(dict(row))
+        return grouped
 
     def _add_event(self, owner_id: int, client_id: int, *, kind: str, body: str, author_user_id: int | None = None) -> dict[str, Any]:
         if not body.strip():

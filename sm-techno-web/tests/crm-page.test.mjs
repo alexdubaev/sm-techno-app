@@ -461,7 +461,7 @@ test("CRM desktop detail consumes the shared owner-scoped controller", async () 
   assert.match(controller, /updateCrmClient\(currentClient\.id,/);
 });
 
-test("CRM keeps browser-style tabs, a compact contact column, and decisive status colors", async () => {
+test("CRM keeps browser-style tabs, selectable contacts with positions, and decisive status colors", async () => {
   const [workspace, stock, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),
     readFile(new URL("../components/stock-page.tsx", import.meta.url), "utf8"),
@@ -470,10 +470,12 @@ test("CRM keeps browser-style tabs, a compact contact column, and decisive statu
 
   assert.match(workspace, /crm-tab-strip/);
   assert.match(workspace, /Контактное лицо/);
-  assert.match(workspace, /client\.contactPerson/);
+  assert.match(workspace, /getCrmDisplayContacts\(client\)/);
+  assert.match(workspace, /Должность/);
   assert.match(workspace, /bg-red-600/);
   assert.match(workspace, /bg-emerald-600/);
   assert.match(types, /contactPerson: string;/);
+  assert.match(types, /position: string;/);
   assert.match(stock, /bg-\[#FAFBFD\] text-left text-\[10px\]/);
   assert.match(stock, /border-t border-\[var\(--border-color\)\] px-3 py-1\.5 align-middle text-\[10px\]/);
   assert.match(workspace, /bg-\[#FAFBFD\] text-left text-\[10px\]/);

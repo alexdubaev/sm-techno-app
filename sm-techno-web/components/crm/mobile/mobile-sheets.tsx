@@ -251,6 +251,17 @@ export function MobileContactSheet({
           }
         />
         <MobileField
+          label="Должность"
+          autoComplete="organization-title"
+          value={contactForm.position}
+          onChange={(event) =>
+            setContactForm((form) => ({
+              ...form,
+              position: event.target.value,
+            }))
+          }
+        />
+        <MobileField
           label="Телефон"
           type="tel"
           autoComplete="tel"

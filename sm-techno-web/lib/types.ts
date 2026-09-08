@@ -204,6 +204,7 @@ export type CrmWorkspaceClient = {
   updatedAt: string;
   assignment: CrmAssignment | null;
   workOwners: CrmWorkOwner[];
+  contacts?: CrmContact[];
   rowPreference?: CrmRowPreference | null;
   primaryRowPreference?: CrmPrimaryRowPreference | null;
 };
@@ -290,6 +291,7 @@ export type CrmImportResult = CrmImportPreview & {
 export type CrmContact = {
   id: number;
   name: string;
+  position: string;
   email: string;
   phone: string;
   isPrimary: boolean;

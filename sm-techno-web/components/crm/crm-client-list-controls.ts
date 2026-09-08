@@ -28,6 +28,12 @@ function matchesPresenceFilter(value: string, filter: PresenceFilter) {
   return filter === 'present' ? hasValue(value) : !hasValue(value);
 }
 
+function contactValues(client: CrmWorkspaceClient, key: 'phone' | 'email') {
+  return [client[key], ...(client.contacts ?? []).map((contact) => contact[key])]
+    .filter(hasValue)
+    .join(' ');
+}
+
 function displayName(client: CrmWorkspaceClient) {
   return client.documentName || client.name;
 }
@@ -50,8 +56,8 @@ export function filterAndSortCrmClients(
   const needle = search.trim().toLocaleLowerCase('ru-RU');
   const filtered = clients.filter((client) => {
     if (syncFilter !== 'all' && client.syncStatus !== syncFilter) return false;
-    if (!matchesPresenceFilter(client.phone, phoneFilter)) return false;
-    if (!matchesPresenceFilter(client.email, emailFilter)) return false;
+    if (!matchesPresenceFilter(contactValues(client, 'phone'), phoneFilter)) return false;
+    if (!matchesPresenceFilter(contactValues(client, 'email'), emailFilter)) return false;
     if (!needle) return true;
     return [
       client.name,
@@ -61,6 +67,12 @@ export function filterAndSortCrmClients(
       client.inn,
       client.email,
       client.phone,
+      ...(client.contacts ?? []).flatMap((contact) => [
+        contact.name,
+        contact.position,
+        contact.email,
+        contact.phone,
+      ]),
     ]
       .join(' ')
       .toLocaleLowerCase('ru-RU')

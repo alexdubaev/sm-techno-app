@@ -935,7 +935,7 @@ export async function fetchCrmContacts(clientId: number, ownerId?: number): Prom
 
 export async function createCrmContact(
   clientId: number,
-  payload: { name: string; email: string; phone: string; isPrimary: boolean },
+  payload: { name: string; position: string; email: string; phone: string; isPrimary: boolean },
   ownerId?: number,
 ): Promise<CrmContact> {
   const result = await requestJsonWithInit<{ contact: CrmContact }>(
@@ -953,7 +953,7 @@ export async function createCrmContact(
 export async function updateCrmContact(
   clientId: number,
   contactId: number,
-  payload: { name: string; email: string; phone: string; isPrimary: boolean },
+  payload: { name: string; position: string; email: string; phone: string; isPrimary: boolean },
   ownerId?: number,
 ): Promise<CrmContact> {
   const result = await requestJsonWithInit<{ contact: CrmContact }>(

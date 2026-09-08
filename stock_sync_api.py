@@ -563,6 +563,7 @@ def _serialize_crm_client(
     row_preference: dict[str, Any] | None = None,
     primary_row_preference: dict[str, Any] | None = None,
     work_owners: list[dict[str, Any]] | None = None,
+    contacts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
@@ -589,6 +590,7 @@ def _serialize_crm_client(
         "rowPreference": _serialize_crm_row_preference(row_preference) if row_preference else None,
         "primaryRowPreference": _serialize_crm_primary_row_preference(primary_row_preference) if primary_row_preference else None,
         "workOwners": work_owners or [],
+        "contacts": [_serialize_crm_contact(contact) for contact in contacts or []],
     }
 
 
@@ -1091,6 +1093,7 @@ def _serialize_crm_contact(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
         "name": row.get("name") or "",
+        "position": row.get("position") or "",
         "email": row.get("email") or "",
         "phone": row.get("phone") or "",
         "isPrimary": bool(row.get("is_primary")),
@@ -1297,6 +1300,11 @@ def list_crm_clients(
         work_owners_by_client_id = (
             repo.list_active_work_owners_for_client_ids([int(card["id"]) for card in cards]) if primary_only else {}
         )
+        contacts_by_client_id = repo.list_contacts_for_client_ids_for_actor(
+            actor_id=actor_id,
+            owner_id=resolved_owner_id,
+            client_ids=[int(card["id"]) for card in cards],
+        )
         items = []
         primary_order_version = 0
         for card in cards:
@@ -1315,6 +1323,7 @@ def list_crm_clients(
                 row_preference=preference,
                 primary_row_preference=primary_preference,
                 work_owners=work_owners_by_client_id.get(int(card["id"])),
+                contacts=contacts_by_client_id.get(int(card["id"]), []),
             ))
         result: dict[str, Any] = {"ownerId": resolved_owner_id, "items": items}
         if primary_only:
@@ -1646,7 +1655,7 @@ def export_crm_clients(
 def add_crm_contact(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     try:
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        contact = repo.add_contact_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, name=str(payload.get("name") or ""), email=str(payload.get("email") or ""), phone=str(payload.get("phone") or ""), is_primary=bool(payload.get("isPrimary", False)))
+        contact = repo.add_contact_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, name=str(payload.get("name") or ""), position=str(payload.get("position") or ""), email=str(payload.get("email") or ""), phone=str(payload.get("phone") or ""), is_primary=bool(payload.get("isPrimary", False)))
         return {"contact": _serialize_crm_contact(contact)}
     except Exception as exc:
         _crm_error(exc)
@@ -1665,7 +1674,7 @@ def list_crm_contacts(client_id: int, owner_id: int | None = Query(None, alias="
 def update_crm_contact(client_id: int, contact_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     try:
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
-        contact = repo.update_contact_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, contact_id=contact_id, name=str(payload.get("name") or ""), email=str(payload.get("email") or ""), phone=str(payload.get("phone") or ""), is_primary=bool(payload.get("isPrimary", False)))
+        contact = repo.update_contact_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, contact_id=contact_id, name=str(payload.get("name") or ""), position=str(payload.get("position") or "") if "position" in payload else None, email=str(payload.get("email") or ""), phone=str(payload.get("phone") or ""), is_primary=bool(payload.get("isPrimary", False)))
         return {"contact": _serialize_crm_contact(contact)}
     except Exception as exc:
         _crm_error(exc)

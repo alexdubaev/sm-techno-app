@@ -85,4 +85,34 @@ describe('desktop CRM list controls', () => {
     await waitFor(() => expect(visibleCompanies()[0]).toContain('Вега'));
     expect(screen.getByLabelText('Сортировка')).toHaveValue('manual');
   });
+
+  test('shows a position column and temporarily switches the selected contact details', async () => {
+    const user = userEvent.setup();
+    const contactClient = client(21, 'ООО Ромашка');
+    contactClient.contactPerson = '';
+    contactClient.phone = '';
+    contactClient.email = '';
+    contactClient.contacts = [
+      { id: 51, name: 'Анна Петрова', position: 'Менеджер по закупкам', phone: '+71111111111', email: 'anna@example.test', isPrimary: false, createdAt: '', updatedAt: '' },
+      { id: 52, name: 'Ирина Соколова', position: 'Коммерческий директор', phone: '+72222222222', email: 'irina@example.test', isPrimary: true, createdAt: '', updatedAt: '' },
+    ];
+    vi.mocked(api.fetchPrimaryCrmClients).mockResolvedValue({ ownerId: 7, items: [contactClient], orderVersion: 0 });
+    vi.mocked(api.fetchCrmClients).mockResolvedValue([contactClient]);
+
+    render(<CrmWorkspace />);
+
+    const table = await screen.findByRole('table');
+    expect(within(table).getByRole('columnheader', { name: 'Должность' })).toBeVisible();
+    const selector = within(table).getByRole('combobox', { name: 'Контактное лицо ООО Ромашка' });
+    expect(selector).toHaveValue('contact:52');
+    expect(within(table).getByText('Коммерческий директор')).toBeVisible();
+    expect(within(table).getByRole('link', { name: 'Позвонить: +72222222222' })).toHaveAttribute('href', 'tel:+72222222222');
+    expect(within(table).getByRole('link', { name: 'Написать: irina@example.test' })).toHaveAttribute('href', 'mailto:irina@example.test');
+
+    await user.selectOptions(selector, 'contact:51');
+
+    expect(within(table).getByText('Менеджер по закупкам')).toBeVisible();
+    expect(within(table).getByRole('link', { name: 'Позвонить: +71111111111' })).toHaveAttribute('href', 'tel:+71111111111');
+    expect(within(table).getByRole('link', { name: 'Написать: anna@example.test' })).toHaveAttribute('href', 'mailto:anna@example.test');
+  });
 });

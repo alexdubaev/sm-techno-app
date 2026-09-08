@@ -170,6 +170,39 @@ describe('filterAndSortCrmClients', () => {
     ).toEqual([3, 1]);
   });
 
+  test('finds and filters clients by every personal contact, including position', () => {
+    const clients = [
+      client(1, {
+        contacts: [
+          {
+            id: 11,
+            name: 'Ирина Петрова',
+            position: 'Руководитель отдела закупок',
+            phone: '+7 999 111-22-33',
+            email: 'irina@example.test',
+            isPrimary: true,
+            createdAt: '',
+            updatedAt: '',
+          },
+        ],
+      }),
+      client(2),
+    ];
+
+    expect(
+      ids(filterAndSortCrmClients(clients, { search: 'руководитель' })),
+    ).toEqual([1]);
+    expect(
+      ids(filterAndSortCrmClients(clients, { search: 'ирина' })),
+    ).toEqual([1]);
+    expect(
+      ids(filterAndSortCrmClients(clients, { phoneFilter: 'present' })),
+    ).toEqual([1]);
+    expect(
+      ids(filterAndSortCrmClients(clients, { emailFilter: 'present' })),
+    ).toEqual([1]);
+  });
+
   test('keeps equal display-name ordering stable and restores it after an automatic sort', () => {
     const clients = [
       client(12, { documentName: 'Одинаково' }),
