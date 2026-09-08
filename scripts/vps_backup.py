@@ -10,30 +10,15 @@ import sqlite3
 import stat
 import tarfile
 import tempfile
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+from stock_sync_web.vps_integrity import storage_operation_lock, validate_database_storage_pair
 
 
 MANIFEST_NAME = "manifest.json"
 DATABASE_NAME = "stock_sync.db"
 MANIFEST_VERSION = 1
-
-
-@contextmanager
-def root_operation_lock(root: Path):
-    """Prevent cooperative backup/restore operations from sharing one root."""
-    lock_path = root / ".sm-techno-backup-restore.lock"
-    try:
-        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError as exc:
-        raise RuntimeError(f"Another backup or restore is already using {root}.") from exc
-    try:
-        os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
-        yield
-    finally:
-        os.close(descriptor)
-        lock_path.unlink(missing_ok=True)
 
 
 def _sha256(path: Path) -> str:
@@ -108,12 +93,13 @@ def create_backup(root: Path, backups_dir: Path) -> Path:
     archive = backups_dir / name
     temporary_archive: Path | None = None
     try:
-        with root_operation_lock(root), tempfile.TemporaryDirectory(prefix="sm-techno-backup-") as temp_dir:
+        with storage_operation_lock(root), tempfile.TemporaryDirectory(prefix="sm-techno-backup-") as temp_dir:
             snapshot_root = Path(temp_dir)
             snapshot_db = snapshot_root / DATABASE_NAME
             snapshot_storage = snapshot_root / "storage"
             _snapshot_database(source_db, snapshot_db)
             _copy_storage_snapshot(source_storage, snapshot_storage)
+            validate_database_storage_pair(snapshot_db, snapshot_storage)
             files = _archive_files(snapshot_root)
             manifest = {
                 "schema_version": MANIFEST_VERSION,

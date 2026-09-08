@@ -5,12 +5,19 @@ import io
 import json
 import sqlite3
 import tarfile
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
+from scripts import vps_backup
 from scripts.vps_backup import create_backup
 from scripts.vps_restore import restore_backup
+import stock_sync_web.service as service_module
+from stock_sync_web.database import WebDatabase
+from stock_sync_web.service import WebStockSyncService
+from stock_sync_web.vps_integrity import storage_operation_lock
 
 
 def _make_root(tmp_path: Path, *, include_references: bool = True) -> Path:
@@ -82,6 +89,20 @@ def _append_symlink_member(archive: Path) -> None:
     replacement.replace(archive)
 
 
+def _append_windows_path_member(archive: Path, member_name: str) -> None:
+    replacement = archive.with_suffix(".windows-path.tar.gz")
+    with tarfile.open(archive, "r:gz") as source, tarfile.open(replacement, "w:gz") as destination:
+        for member in source.getmembers():
+            if member.isfile():
+                destination.addfile(member, source.extractfile(member))
+            else:
+                destination.addfile(member)
+        unsafe = tarfile.TarInfo(member_name)
+        unsafe.size = 4
+        destination.addfile(unsafe, io.BytesIO(b"evil"))
+    replacement.replace(archive)
+
+
 def _replace_database_and_update_manifest(archive: Path) -> None:
     replacement = archive.with_suffix(".bad-db.tar.gz")
     with tarfile.open(archive, "r:gz") as source:
@@ -96,6 +117,31 @@ def _replace_database_and_update_manifest(archive: Path) -> None:
         payloads["manifest.json"] = json.dumps(manifest, sort_keys=True).encode("utf-8")
         with tarfile.open(replacement, "w:gz") as destination:
             for member in source.getmembers():
+                if member.isfile():
+                    content = payloads[member.name]
+                    member.size = len(content)
+                    destination.addfile(member, io.BytesIO(content))
+                else:
+                    destination.addfile(member)
+    replacement.replace(archive)
+
+
+def _remove_archive_member_and_update_manifest(archive: Path, removed_name: str) -> None:
+    replacement = archive.with_suffix(".missing-file.tar.gz")
+    with tarfile.open(archive, "r:gz") as source:
+        payloads = {
+            member.name: source.extractfile(member).read()
+            for member in source.getmembers()
+            if member.isfile()
+        }
+        manifest = json.loads(payloads["manifest.json"])
+        del payloads[removed_name]
+        del manifest["files"][removed_name]
+        payloads["manifest.json"] = json.dumps(manifest, sort_keys=True).encode("utf-8")
+        with tarfile.open(replacement, "w:gz") as destination:
+            for member in source.getmembers():
+                if member.name == removed_name:
+                    continue
                 if member.isfile():
                     content = payloads[member.name]
                     member.size = len(content)
@@ -158,6 +204,84 @@ def test_verify_only_rejects_tar_symlinks_without_creating_target(tmp_path: Path
     assert not target.exists()
 
 
+@pytest.mark.parametrize("member_name", ["storage/C:/evil.txt", "storage//server/share/evil.txt"])
+def test_verify_only_rejects_windows_qualified_tar_paths(tmp_path: Path, member_name: str) -> None:
+    """Drive/UNC-looking members must not become Windows extraction paths."""
+    archive = create_backup(_make_root(tmp_path), tmp_path / "backups")
+    _append_windows_path_member(archive, member_name)
+
+    with pytest.raises(RuntimeError, match="unsafe"):
+        restore_backup(archive, tmp_path / "restore", verify_only=True)
+
+
+def test_backup_waits_for_reference_publication_then_archives_a_verifiable_pair(tmp_path: Path, monkeypatch) -> None:
+    """Without the shared lock, backup can snapshot a new row before its file is published."""
+    root = tmp_path / "source"
+    (root / "data").mkdir(parents=True)
+    (root / "storage" / "documents").mkdir(parents=True)
+    monkeypatch.setattr(service_module, "ROOT_DIR", root)
+    database = WebDatabase(db_path=root / "data" / "stock_sync.db")
+    service = WebStockSyncService(
+        db=database,
+        commercial_offer_storage_dir=root / "storage" / "commercial_offers",
+        document_storage_dir=root / "storage" / "documents",
+    )
+    database_row_written = threading.Event()
+    publish_file = threading.Event()
+    backup_requested_lock = threading.Event()
+    archive_holder: list[Path] = []
+    errors: list[BaseException] = []
+
+    @contextmanager
+    def observed_backup_lock(lock_root: Path):
+        backup_requested_lock.set()
+        with storage_operation_lock(lock_root):
+            yield
+
+    monkeypatch.setattr(vps_backup, "storage_operation_lock", observed_backup_lock)
+
+    original_create = database.create_commercial_offer
+
+    def pause_after_database_commit(**kwargs) -> int:
+        offer_id = original_create(**kwargs)
+        database_row_written.set()
+        assert publish_file.wait(timeout=5)
+        return offer_id
+
+    monkeypatch.setattr(database, "create_commercial_offer", pause_after_database_commit)
+
+    def writer() -> None:
+        try:
+            service.create_commercial_offer_from_draft(
+                client_source="manual",
+                client_id=None,
+                client_name="Race client",
+                notes="",
+                lines=[{"article": "RACE-1", "name": "Race item", "qty": 1, "priceVat": 1}],
+                created_by_user_id=None,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    def backup() -> None:
+        archive_holder.append(create_backup(root, tmp_path / "backups"))
+
+    writer_thread = threading.Thread(target=writer)
+    writer_thread.start()
+    assert database_row_written.wait(timeout=5)
+    backup_thread = threading.Thread(target=backup)
+    backup_thread.start()
+    assert backup_requested_lock.wait(timeout=5)
+    publish_file.set()
+    writer_thread.join(timeout=5)
+    backup_thread.join(timeout=5)
+    assert not errors
+    assert not writer_thread.is_alive()
+    assert not backup_thread.is_alive()
+
+    restore_backup(archive_holder[0], tmp_path / "restore", verify_only=True)
+
+
 def test_verify_only_rejects_sqlite_corruption_even_with_matching_checksum(tmp_path: Path) -> None:
     """A re-hashed invalid database still must fail SQLite integrity validation."""
     archive = create_backup(_make_root(tmp_path), tmp_path / "backups")
@@ -173,8 +297,8 @@ def test_verify_only_rejects_sqlite_corruption_even_with_matching_checksum(tmp_p
 def test_restore_rejects_missing_document_reference_and_preserves_target(tmp_path: Path) -> None:
     """A restore must not replace an existing root with a database pointing at a missing file."""
     root = _make_root(tmp_path)
-    (root / "storage" / "documents" / "contract.docx").unlink()
     archive = create_backup(root, tmp_path / "backups")
+    _remove_archive_member_and_update_manifest(archive, "storage/documents/contract.docx")
     target = tmp_path / "restore"
     target.mkdir()
     sentinel = target / "keep.txt"
@@ -187,19 +311,16 @@ def test_restore_rejects_missing_document_reference_and_preserves_target(tmp_pat
     assert not (target / "data").exists()
 
 
-def test_verify_only_rejects_foreign_key_violations_without_target_write(tmp_path: Path) -> None:
-    """Foreign key corruption must be caught even when SQLite's page integrity is sound."""
+def test_backup_refuses_foreign_key_violations_before_publishing_archive(tmp_path: Path) -> None:
+    """A backup with broken relational integrity must never be published."""
     root = _make_root(tmp_path)
     with sqlite3.connect(root / "data" / "stock_sync.db") as conn:
         conn.execute("PRAGMA foreign_keys = OFF")
         conn.execute("UPDATE child SET parent_id = 404 WHERE id = 1")
-    archive = create_backup(root, tmp_path / "backups")
-    target = tmp_path / "restore"
-
     with pytest.raises(RuntimeError, match="foreign_key_check"):
-        restore_backup(archive, target, verify_only=True)
+        create_backup(root, tmp_path / "backups")
 
-    assert not target.exists()
+    assert list((tmp_path / "backups").glob("*.tar.gz")) == []
 
 
 def test_restore_stages_verified_pair_into_empty_target(tmp_path: Path) -> None:

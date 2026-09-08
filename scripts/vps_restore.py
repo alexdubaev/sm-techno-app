@@ -5,11 +5,12 @@ import hashlib
 import json
 import os
 import shutil
-import sqlite3
 import tarfile
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath, PureWindowsPath
+
+from stock_sync_web.vps_integrity import validate_database_storage_pair
 
 
 DATABASE_NAME = "stock_sync.db"
@@ -42,7 +43,23 @@ def _sha256(path: Path) -> str:
 
 def _safe_member_name(name: str) -> bool:
     path = PurePosixPath(name)
-    return bool(name) and "\\" not in name and not path.is_absolute() and all(part not in {"", ".", ".."} for part in path.parts)
+    return (
+        bool(name)
+        and "\\" not in name
+        and "//" not in name
+        and not path.is_absolute()
+        and not PureWindowsPath(name).is_absolute()
+        and all(part not in {"", ".", ".."} and not PureWindowsPath(part).drive for part in path.parts)
+    )
+
+
+def _safe_extraction_path(destination: Path, name: str) -> Path:
+    output = destination.joinpath(*PurePosixPath(name).parts)
+    try:
+        output.resolve().relative_to(destination.resolve())
+    except ValueError as exc:
+        raise RuntimeError("Archive contains an unsafe extraction path.") from exc
+    return output
 
 
 def _validate_members(tar: tarfile.TarFile) -> dict[str, tarfile.TarInfo]:
@@ -97,7 +114,7 @@ def _extract_verified(archive: Path, destination: Path) -> None:
         members = _validate_members(tar)
         manifest = _load_manifest(tar, members)
         for name, member in members.items():
-            output = destination.joinpath(*PurePosixPath(name).parts)
+            output = _safe_extraction_path(destination, name)
             if member.isdir():
                 output.mkdir(parents=True, exist_ok=False)
                 continue
@@ -108,45 +125,8 @@ def _extract_verified(archive: Path, destination: Path) -> None:
             with source, output.open("xb") as target:
                 shutil.copyfileobj(source, target)
         for name, expected_digest in manifest["files"].items():
-            if _sha256(destination.joinpath(*PurePosixPath(name).parts)) != expected_digest:
+            if _sha256(_safe_extraction_path(destination, name)) != expected_digest:
                 raise RuntimeError(f"Archive checksum mismatch for {name}.")
-
-
-def _validate_database(db_path: Path, storage_root: Path) -> None:
-    connection: sqlite3.Connection | None = None
-    try:
-        connection = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)
-        integrity = connection.execute("PRAGMA integrity_check").fetchone()
-        if integrity is None or str(integrity[0]).lower() != "ok":
-            raise RuntimeError(f"SQLite integrity_check failed: {integrity!r}")
-        foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
-        if foreign_keys:
-            raise RuntimeError("SQLite foreign_key_check failed.")
-        for table, columns in (("commercial_offers", ("source_path", "output_path")), ("documents", ("output_path",))):
-            available = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
-            for column in columns:
-                if column not in available:
-                    continue
-                for (value,) in connection.execute(f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL AND trim({column}) != ''"):
-                    stored = str(value)
-                    relative = PurePosixPath(stored.replace("\\", "/"))
-                    if Path(stored).is_absolute() or PureWindowsPath(stored).is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
-                        raise RuntimeError(f"{table}.{column} contains an unsafe storage path.")
-                    relative_parts = relative.parts[1:] if relative.parts[:1] == ("storage",) else relative.parts
-                    if not relative_parts:
-                        raise RuntimeError(f"{table}.{column} contains an unsafe storage path.")
-                    candidate = storage_root.joinpath(*relative_parts)
-                    try:
-                        candidate.resolve().relative_to(storage_root.resolve())
-                    except ValueError as exc:
-                        raise RuntimeError(f"{table}.{column} escapes storage.") from exc
-                    if not candidate.is_file() or candidate.is_symlink():
-                        raise RuntimeError(f"{table}.{column} references a missing storage file.")
-    except sqlite3.DatabaseError as exc:
-        raise RuntimeError(f"SQLite validation failed: {exc}") from exc
-    finally:
-        if connection is not None:
-            connection.close()
 
 
 def _target_is_empty(target_root: Path) -> bool:
@@ -162,7 +142,7 @@ def restore_backup(archive: Path, target_root: Path, *, verify_only: bool = Fals
     with tempfile.TemporaryDirectory(prefix="sm-techno-restore-verify-") as verification_dir:
         extracted = Path(verification_dir)
         _extract_verified(archive, extracted)
-        _validate_database(extracted / DATABASE_NAME, extracted / "storage")
+        validate_database_storage_pair(extracted / DATABASE_NAME, extracted / "storage")
         if verify_only:
             return
         target_root.parent.mkdir(parents=True, exist_ok=True)
@@ -174,7 +154,7 @@ def restore_backup(archive: Path, target_root: Path, *, verify_only: bool = Fals
                 (staging / "data").mkdir()
                 shutil.copyfile(extracted / DATABASE_NAME, staging / "data" / DATABASE_NAME)
                 shutil.copytree(extracted / "storage", staging / "storage")
-                _validate_database(staging / "data" / DATABASE_NAME, staging / "storage")
+                validate_database_storage_pair(staging / "data" / DATABASE_NAME, staging / "storage")
                 if target_root.exists():
                     target_root.rmdir()
                 staging.replace(target_root)

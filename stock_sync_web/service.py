@@ -17,6 +17,7 @@ from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounter
 from stock_sync_desktop.database import resolve_db_path
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.settings import DEFAULT_SETTINGS
+from stock_sync_web.vps_integrity import storage_operation_lock
 
 CLIENT_PRICE_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templates" / "client_price_template.xlsx"
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -69,6 +70,11 @@ class WebStockSyncService:
         self.document_exports_dir = self.document_storage_dir / "exports"
         self.document_exports_dir.mkdir(parents=True, exist_ok=True)
         self._crm_refresh_lock = Lock()
+
+    def _storage_operation_root(self) -> Path:
+        """Return the deployed root shared by the database and storage archive."""
+        database_parent = self.db.db_path.resolve().parent
+        return database_parent.parent if database_parent.name == "data" else database_parent
 
     def bootstrap(self) -> bool:
         return self.db.ensure_default_admin()
@@ -1283,30 +1289,32 @@ class WebStockSyncService:
                 client_name=client["client_name"],
                 offer_date=offer_date,
             )
-            offer_id = self.db.create_commercial_offer(
-                number=offer_number,
-                client_source=client["client_source"],
-                counterparty_id=client["counterparty_id"],
-                crm_client_id=client["crm_client_id"],
-                client_name=client["client_name"],
-                offer_date=offer_date.isoformat(),
-                source_filename=original_filename,
-                source_path=self._store_path(stored_source),
-                output_path=self._store_path(output_path),
-                notes=notes,
-                lines=[self._line_to_db(line) for line in lines],
-                created_by_user_id=created_by_user_id,
-            )
-            staged_source.replace(stored_source)
-            staged_output.replace(output_path)
-            return self.db.get_commercial_offer_bundle(offer_id)
+            with storage_operation_lock(self._storage_operation_root()):
+                offer_id = self.db.create_commercial_offer(
+                    number=offer_number,
+                    client_source=client["client_source"],
+                    counterparty_id=client["counterparty_id"],
+                    crm_client_id=client["crm_client_id"],
+                    client_name=client["client_name"],
+                    offer_date=offer_date.isoformat(),
+                    source_filename=original_filename,
+                    source_path=self._store_path(stored_source),
+                    output_path=self._store_path(output_path),
+                    notes=notes,
+                    lines=[self._line_to_db(line) for line in lines],
+                    created_by_user_id=created_by_user_id,
+                )
+                staged_source.replace(stored_source)
+                staged_output.replace(output_path)
+                return self.db.get_commercial_offer_bundle(offer_id)
         except Exception as exc:
-            if offer_id is not None:
-                try:
-                    self.db.delete_commercial_offer(offer_id)
-                except Exception:
-                    pass
-            cleanup_failures = self._cleanup_commercial_offer_paths(staged_source, staged_output, stored_source, output_path)
+            with storage_operation_lock(self._storage_operation_root()):
+                if offer_id is not None:
+                    try:
+                        self.db.delete_commercial_offer(offer_id)
+                    except Exception:
+                        pass
+                cleanup_failures = self._cleanup_commercial_offer_paths(staged_source, staged_output, stored_source, output_path)
             if cleanup_failures:
                 raise exc from CommercialOfferCleanupError(cleanup_failures)
             raise
@@ -1346,29 +1354,31 @@ class WebStockSyncService:
                 client_name=client["client_name"],
                 offer_date=offer_date,
             )
-            offer_id = self.db.create_commercial_offer(
-                number=offer_number,
-                client_source=client["client_source"],
-                counterparty_id=client["counterparty_id"],
-                crm_client_id=client["crm_client_id"],
-                client_name=client["client_name"],
-                offer_date=offer_date.isoformat(),
-                source_filename=None,
-                source_path=None,
-                output_path=self._store_path(output_path),
-                notes=notes,
-                lines=[self._line_to_db(line) for line in parsed_lines],
-                created_by_user_id=created_by_user_id,
-            )
-            staged_output.replace(output_path)
-            return self.db.get_commercial_offer_bundle(offer_id)
+            with storage_operation_lock(self._storage_operation_root()):
+                offer_id = self.db.create_commercial_offer(
+                    number=offer_number,
+                    client_source=client["client_source"],
+                    counterparty_id=client["counterparty_id"],
+                    crm_client_id=client["crm_client_id"],
+                    client_name=client["client_name"],
+                    offer_date=offer_date.isoformat(),
+                    source_filename=None,
+                    source_path=None,
+                    output_path=self._store_path(output_path),
+                    notes=notes,
+                    lines=[self._line_to_db(line) for line in parsed_lines],
+                    created_by_user_id=created_by_user_id,
+                )
+                staged_output.replace(output_path)
+                return self.db.get_commercial_offer_bundle(offer_id)
         except Exception as exc:
-            if offer_id is not None:
-                try:
-                    self.db.delete_commercial_offer(offer_id)
-                except Exception:
-                    pass
-            cleanup_failures = self._cleanup_commercial_offer_paths(staged_output, output_path)
+            with storage_operation_lock(self._storage_operation_root()):
+                if offer_id is not None:
+                    try:
+                        self.db.delete_commercial_offer(offer_id)
+                    except Exception:
+                        pass
+                cleanup_failures = self._cleanup_commercial_offer_paths(staged_output, output_path)
             if cleanup_failures:
                 raise exc from CommercialOfferCleanupError(cleanup_failures)
             raise
@@ -1397,9 +1407,10 @@ class WebStockSyncService:
         return self.db.get_commercial_offer_bundle(offer_id)
 
     def delete_commercial_offer_for_admin(self, *, offer_id: int) -> None:
-        offer = self.db.delete_commercial_offer(offer_id)
-        self._delete_stored_offer_file(offer.get("source_path"))
-        self._delete_stored_offer_file(offer.get("output_path"))
+        with storage_operation_lock(self._storage_operation_root()):
+            offer = self.db.delete_commercial_offer(offer_id)
+            self._delete_stored_offer_file(offer.get("source_path"))
+            self._delete_stored_offer_file(offer.get("output_path"))
 
     def resolve_commercial_offer_file_for_user(
         self,
@@ -1439,8 +1450,9 @@ class WebStockSyncService:
     def delete_document_for_user(self, *, document_id: int, user_id: int, is_admin: bool) -> None:
         document = self.get_document_for_user(document_id=document_id, user_id=user_id, is_admin=is_admin)
         output_path = self._resolve_document_stored_path(str(document.get("output_path") or ""))
-        self.db.delete_document(document_id)
-        self._delete_stored_document_file(output_path)
+        with storage_operation_lock(self._storage_operation_root()):
+            self.db.delete_document(document_id)
+            self._delete_stored_document_file(output_path)
 
     def create_document(
         self,
@@ -1548,33 +1560,35 @@ class WebStockSyncService:
                 output_path=staged_output,
                 context=context,
             )
-            document_id = self.db.create_document(
-                document_type=normalized_type,
-                number=document_number,
-                client_source=client["client_source"],
-                counterparty_id=client["counterparty_id"],
-                crm_client_id=client["crm_client_id"],
-                commercial_offer_id=linked_offer_id,
-                client_name=context["client"]["document_name"],
-                document_date=normalized_date,
-                output_path=self._store_path(output_path),
-                notes=notes,
-                missing_fields=json.dumps(missing_fields, ensure_ascii=False),
-                created_by_user_id=created_by_user_id,
-            )
-            staged_output.replace(output_path)
-            return self.db.get_document(document_id)
+            with storage_operation_lock(self._storage_operation_root()):
+                document_id = self.db.create_document(
+                    document_type=normalized_type,
+                    number=document_number,
+                    client_source=client["client_source"],
+                    counterparty_id=client["counterparty_id"],
+                    crm_client_id=client["crm_client_id"],
+                    commercial_offer_id=linked_offer_id,
+                    client_name=context["client"]["document_name"],
+                    document_date=normalized_date,
+                    output_path=self._store_path(output_path),
+                    notes=notes,
+                    missing_fields=json.dumps(missing_fields, ensure_ascii=False),
+                    created_by_user_id=created_by_user_id,
+                )
+                staged_output.replace(output_path)
+                return self.db.get_document(document_id)
         except Exception as exc:
             cleanup_failures: list[tuple[str, Exception]] = []
-            if document_id is not None:
-                try:
-                    self.db.delete_document(document_id)
-                except Exception as cleanup_exc:
-                    cleanup_failures.append((f"запись документа {document_id}", cleanup_exc))
-            cleanup_failures.extend(
-                (str(path), cleanup_exc)
-                for path, cleanup_exc in self._cleanup_document_paths(staged_output, output_path)
-            )
+            with storage_operation_lock(self._storage_operation_root()):
+                if document_id is not None:
+                    try:
+                        self.db.delete_document(document_id)
+                    except Exception as cleanup_exc:
+                        cleanup_failures.append((f"запись документа {document_id}", cleanup_exc))
+                cleanup_failures.extend(
+                    (str(path), cleanup_exc)
+                    for path, cleanup_exc in self._cleanup_document_paths(staged_output, output_path)
+                )
             if cleanup_failures:
                 raise exc from DocumentCleanupError(cleanup_failures)
             raise
