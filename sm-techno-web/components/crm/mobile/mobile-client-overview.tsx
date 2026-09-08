@@ -1,6 +1,7 @@
 'use client';
 
 import type { DetailController } from '@/components/crm/use-crm-client-detail';
+import type { CrmContact } from '@/lib/types';
 import { getSafeMailtoHref } from '@/components/crm/mobile/mobile-crm-utils';
 import {
   mobileButton,
@@ -11,10 +12,12 @@ export function MobileClientOverview({
   controller,
   onEdit,
   onAddContact,
+  onEditContact,
 }: {
   controller: DetailController;
   onEdit: () => void;
   onAddContact: () => void;
+  onEditContact: (contact: CrmContact) => void;
 }) {
   const {
     currentClient: client,
@@ -22,6 +25,9 @@ export function MobileClientOverview({
     canEditWorkspace,
     isLoading,
     isSaving,
+    contactPendingDelete,
+    setContactPendingDelete,
+    deleteContact,
   } = controller;
   const requisites = [
     [
@@ -106,6 +112,56 @@ export function MobileClientOverview({
                   phone={contact.phone}
                   email={contact.email}
                 />
+                {canEditWorkspace ? (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onEditContact(contact)}
+                      disabled={isLoading || isSaving !== null}
+                      className={mobileButton}
+                    >
+                      Редактировать контакт
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setContactPendingDelete(contact)}
+                      disabled={isLoading || isSaving !== null}
+                      className={`${mobileButton} border-[#F9D4D4] bg-[#FEF2F2] text-[#B91C1C]`}
+                    >
+                      Удалить контакт
+                    </button>
+                  </div>
+                ) : null}
+                {contactPendingDelete?.id === contact.id ? (
+                  <div
+                    role="alertdialog"
+                    aria-label="Подтверждение удаления контакта"
+                    className="mt-3 rounded-xl border border-[#F9D4D4] bg-[#FEF2F2] p-3"
+                  >
+                    <p className="text-sm">
+                      Удалить «{contact.name}» только из CRM? В 1С этот контакт
+                      не изменится.
+                    </p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setContactPendingDelete(null)}
+                        disabled={isSaving !== null}
+                        className={mobileButton}
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteContact()}
+                        disabled={isSaving !== null}
+                        className={`${mobileButton} border-transparent bg-[#B91C1C] text-white`}
+                      >
+                        {isSaving === 'contact-delete' ? 'Удаляем…' : 'Удалить'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>

@@ -175,7 +175,10 @@ export function MobilePrimaryArchiveDetail({
               />
               <ArchiveDetailRow
                 label="ИНН / КПП"
-                value={[client.inn, client.kpp].filter(Boolean).join(' / ') || 'Не указано'}
+                value={
+                  [client.inn, client.kpp].filter(Boolean).join(' / ') ||
+                  'Не указано'
+                }
               />
               <ArchiveDetailRow
                 label="Город"
@@ -183,7 +186,10 @@ export function MobilePrimaryArchiveDetail({
               />
               <ArchiveDetailRow
                 label="Телефон / почта"
-                value={[client.phone, client.email].filter(Boolean).join(' / ') || 'Не указано'}
+                value={
+                  [client.phone, client.email].filter(Boolean).join(' / ') ||
+                  'Не указано'
+                }
               />
               {client.notes ? (
                 <ArchiveDetailRow label="Комментарий" value={client.notes} />
@@ -387,7 +393,11 @@ function MobileClientDetailContent({
                 Написать
               </a>
             ) : null}
-            <MessengerLinks telegram={client.telegram} maxLink={client.maxLink} className="col-span-2 justify-center" />
+            <MessengerLinks
+              telegram={client.telegram}
+              maxLink={client.maxLink}
+              className="col-span-2 justify-center"
+            />
             {canEditWorkspace ? (
               <button
                 type="button"
@@ -488,7 +498,21 @@ function MobileClientDetailContent({
               <MobileClientOverview
                 controller={controller}
                 onEdit={() => setSheet({ kind: 'requisites' })}
-                onAddContact={() => setSheet({ kind: 'contact' })}
+                onAddContact={() => {
+                  controller.setContactEditor(null);
+                  controller.setContactForm({
+                    name: '',
+                    position: '',
+                    phone: '',
+                    email: '',
+                    isPrimary: false,
+                  });
+                  setSheet({ kind: 'contact' });
+                }}
+                onEditContact={(contact) => {
+                  controller.editContact(contact);
+                  setSheet({ kind: 'contact' });
+                }}
               />
             ) : null}
             {section === 'history' ? (
