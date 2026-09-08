@@ -447,17 +447,85 @@ def _clean_bank_name(value: Any, bik: str = "") -> str:
 
 
 class WebDatabase(Database):
+    WEB_MIGRATIONS = (
+        ("2026-09-08-web-schema-v1", "_apply_web_schema_v1"),
+    )
+
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
         super().__init__(db_path=db_path)
 
     def initialize(self) -> None:
         super().initialize()
-        with self.connect() as conn:
+        conn = self.connect()
+        try:
             conn.executescript(WEB_SCHEMA)
-            self._run_web_migrations(conn)
-            conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._run_web_migrations(conn)
+                self._verify_web_database_integrity(conn)
+            except Exception:
+                conn.rollback()
+                raise
+            else:
+                conn.commit()
+        finally:
+            conn.close()
 
     def _run_web_migrations(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_schema_migrations (
+                version TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            )
+            """
+        )
+        completed = {
+            str(row["version"])
+            for row in conn.execute("SELECT version FROM web_schema_migrations").fetchall()
+        }
+        for version, method_name in self.WEB_MIGRATIONS:
+            method = getattr(self, method_name)
+            if version in completed and self._migration_target_is_present(conn, version):
+                continue
+            method(conn)
+            conn.execute(
+                "INSERT OR IGNORE INTO web_schema_migrations(version, applied_at) VALUES (?, ?)",
+                (version, utc_now()),
+            )
+
+    @staticmethod
+    def _migration_target_is_present(conn: sqlite3.Connection, version: str) -> bool:
+        if version != "2026-09-08-web-schema-v1":
+            return False
+        columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(app_sessions)").fetchall()
+        }
+        if "token" in columns or not {"token_hash", "absolute_expires_at"}.issubset(columns):
+            return False
+        for row in conn.execute("SELECT due_at FROM crm_reminders").fetchall():
+            if _migrate_legacy_moscow_timestamp(row["due_at"]):
+                return False
+        for row in conn.execute("SELECT old_due_at, new_due_at FROM crm_reminder_history").fetchall():
+            if (
+                _migrate_legacy_moscow_timestamp(row["old_due_at"])
+                or _migrate_legacy_moscow_timestamp(row["new_due_at"])
+            ):
+                return False
+        return True
+
+    @staticmethod
+    def _verify_web_database_integrity(conn: sqlite3.Connection) -> None:
+        foreign_key_errors = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if foreign_key_errors:
+            raise RuntimeError("SQLite foreign_key_check failed during web database initialization.")
+        integrity_rows = conn.execute("PRAGMA integrity_check").fetchall()
+        integrity_values = [str(row[0]) for row in integrity_rows]
+        if integrity_values != ["ok"]:
+            raise RuntimeError("SQLite integrity_check failed during web database initialization.")
+
+    def _apply_web_schema_v1(self, conn: sqlite3.Connection) -> None:
         self._migrate_legacy_reminder_timestamps(conn)
         order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
         if "created_by_user_id" not in order_columns:
