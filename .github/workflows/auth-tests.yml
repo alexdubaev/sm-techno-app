@@ -11,7 +11,34 @@ concurrency:
   group: auth-tests-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  SM_TECHNO_INITIAL_ADMIN_PASSWORD: ci-initial-admin-password
+
 jobs:
+  critical-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install backend test dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Critical SQLite and 1C reliability smoke tests
+        run: >-
+          python -m pytest -q
+          tests/test_web_migration_registry.py
+          tests/test_auth_session_persistence.py
+          tests/test_stock_excel_import_safety.py
+          tests/test_stock_item_identity.py
+          tests/test_onec_transport_reliability.py
+
   auth:
     runs-on: ubuntu-latest
     timeout-minutes: 25

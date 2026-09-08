@@ -7,12 +7,13 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { useAuth } from "@/components/auth-provider";
 import {
   ResizableTableHeader,
   useResizableColumns,
   type ResizableColumnConfig,
 } from "@/components/resizable-table";
-import { fetchOrderDetails, writeoffOrder } from "@/lib/api";
+import { fetchOrderDetails, recoverOrderOnec, writeoffOrder } from "@/lib/api";
 import type { OrderDetails } from "@/lib/types";
 
 type PrintOrientation = "portrait" | "landscape";
@@ -29,12 +30,14 @@ const ORDER_DETAILS_TABLE_COLUMNS: ResizableColumnConfig[] = [
 ];
 
 export default function OrderDetailsPage() {
+  const { isAdmin } = useAuth();
   const params = useParams<{ id: string }>();
   const orderId = Number(params?.id);
 
   const [details, setDetails] = useState<OrderDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingWriteoff, setIsSubmittingWriteoff] = useState(false);
+  const [isRecoveringOnec, setIsRecoveringOnec] = useState(false);
   const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("landscape");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -87,8 +90,10 @@ export default function OrderDetailsPage() {
     !!order &&
     order.status !== "posted_to_1c" &&
     order.status !== "written_off_locally" &&
+    !["sending_to_1c", "remote_created_pending_finalize", "remote_state_unknown"].includes(order.status) &&
     !isLoading &&
     !isSubmittingWriteoff;
+  const needsOnecRecovery = !!order && ["remote_created_pending_finalize", "remote_state_unknown"].includes(order.status);
 
   const handleWriteoff = useCallback(async () => {
     if (!order || isSubmittingWriteoff) {
@@ -120,6 +125,21 @@ export default function OrderDetailsPage() {
       setIsSubmittingWriteoff(false);
     }
   }, [isSubmittingWriteoff, order]);
+
+  const handleRecoverOnec = useCallback(async () => {
+    if (!order || isRecoveringOnec) return;
+    setIsRecoveringOnec(true);
+    setError(null);
+    setNotice(null);
+    try {
+      setDetails(await recoverOrderOnec(order.id));
+      setNotice("Состояние заказа сверено с 1С.");
+    } catch (requestError: unknown) {
+      setError(requestError instanceof Error && requestError.message.trim() ? requestError.message.trim() : "Не удалось сверить заказ с 1С.");
+    } finally {
+      setIsRecoveringOnec(false);
+    }
+  }, [isRecoveringOnec, order]);
 
   const handlePrint = useCallback(() => {
     if (!order) {
@@ -210,6 +230,11 @@ export default function OrderDetailsPage() {
                   {isSubmittingWriteoff ? "Списание..." : "Списать со склада"}
                 </button>
               ) : null}
+              {isAdmin && needsOnecRecovery ? (
+                <button type="button" onClick={() => void handleRecoverOnec()} disabled={isRecoveringOnec} className="app-action-button app-action-button--xs">
+                  {isRecoveringOnec ? "Сверка..." : "Проверить состояние в 1С"}
+                </button>
+              ) : null}
               <Link
                 href="/orders"
                 className="app-action-button app-action-button--xs"
@@ -233,6 +258,9 @@ export default function OrderDetailsPage() {
               <InlineNotice label="Ошибка" tone="error">
                 {sanitizeMetaValue(order.errorMessage)}
               </InlineNotice>
+            ) : null}
+            {needsOnecRecovery ? (
+              <InlineNotice label="Сверка с 1С" tone="error">Сначала нужно сверить состояние 1С; повторная отправка запрещена.</InlineNotice>
             ) : null}
           </div>
 

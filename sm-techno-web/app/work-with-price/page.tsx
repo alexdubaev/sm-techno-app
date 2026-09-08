@@ -25,6 +25,7 @@ import {
   fetchStockItem,
   fetchWarehouses,
   importPriceFile,
+  previewPriceImport,
   moveItemStock,
   updateLocalItem,
   writeoffItemStock,
@@ -132,6 +133,7 @@ function WorkWithPriceAdminPage() {
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<{ planHash: string; created: number; updated: number; unchanged: number; errors: string[] } | null>(null);
   const [createForm, setCreateForm] = useState<ItemFormState>(EMPTY_FORM);
   const [editForm, setEditForm] = useState<ItemFormState>(EMPTY_FORM);
   const [message, setMessage] = useState<string | null>(null);
@@ -161,6 +163,8 @@ function WorkWithPriceAdminPage() {
   // loadCatalog и не перезагружал каталог целиком.
   const selectedIdRef = useRef<number | null>(null);
   const selectedRowKeyRef = useRef<string | null>(null);
+  const catalogRequestIdRef = useRef(0);
+  const detailRequestIdRef = useRef(0);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -231,6 +235,7 @@ function WorkWithPriceAdminPage() {
   }, [activeRowMenu, items]);
 
   const loadCatalog = useCallback(async () => {
+    const catalogRequestId = ++catalogRequestIdRef.current;
     setIsLoading(true);
     setError(null);
 
@@ -242,6 +247,10 @@ function WorkWithPriceAdminPage() {
       page: onlyUnlinked ? 1 : page,
       pageSize: onlyUnlinked ? 500 : pageSize,
     });
+
+    if (catalogRequestId !== catalogRequestIdRef.current) {
+      return;
+    }
 
     const filtered = onlyUnlinked
       ? response.items.filter((item) => !item.isLinkedToOneC)
@@ -255,7 +264,9 @@ function WorkWithPriceAdminPage() {
     if (filtered.length === 0) {
       if (selectedIdRef.current !== null) {
         const persisted = await fetchStockItem(selectedIdRef.current);
-        setSelectedItem(persisted);
+        if (catalogRequestId === catalogRequestIdRef.current) {
+          setSelectedItem(persisted);
+        }
       } else {
         setSelectedItem(null);
       }
@@ -291,7 +302,9 @@ function WorkWithPriceAdminPage() {
     }
 
     const persisted = await fetchStockItem(selectedIdRef.current);
-    setSelectedItem(persisted);
+    if (catalogRequestId === catalogRequestIdRef.current) {
+      setSelectedItem(persisted);
+    }
   }, [
     activeWarehouseId,
     search,
@@ -373,9 +386,10 @@ function WorkWithPriceAdminPage() {
         cancelled = true;
       };
     }
+    const detailRequestId = ++detailRequestIdRef.current;
     void fetchStockItem(selectedId)
       .then((item) => {
-        if (!cancelled && item) {
+        if (!cancelled && detailRequestId === detailRequestIdRef.current && item) {
           setSelectedItem(item);
         }
       })
@@ -678,8 +692,15 @@ function WorkWithPriceAdminPage() {
     setMessage(null);
 
     try {
-      const result = await importPriceFile(importFile);
+      if (!importPreview) {
+        const preview = await previewPriceImport(importFile);
+        setImportPreview(preview);
+        setMessage(`Проверка: будет создано ${preview.created}, обновлено ${preview.updated}.`);
+        return;
+      }
+      const result = await importPriceFile(importFile, importPreview.planHash);
       setImportFile(null);
+      setImportPreview(null);
       setMessage(
         `Импорт завершен. Создано: ${result.created}, обновлено: ${result.updated}, адресов: ${result.locationUpdated}, пропущено адресов: ${result.locationSkipped}.`,
       );
@@ -941,7 +962,7 @@ function WorkWithPriceAdminPage() {
                     type="file"
                     className="hidden"
                     accept=".xlsx,.xls,.csv"
-                    onChange={(event) => setImportFile(event.target.files?.[0] ?? null)}
+                    onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); }}
                   />
                   <span className="truncate">{importFile ? importFile.name : "Выбрать файл прайса"}</span>
                 </label>
@@ -952,7 +973,7 @@ function WorkWithPriceAdminPage() {
                   className="app-action-button app-action-button--md"
                 >
                   <SparkBoxIcon className="h-3.5 w-3.5 stroke-[2]" />
-                  Импортировать остатки
+                  {importPreview ? "Подтвердить импорт" : "Проверить импорт"}
                 </button>
               </>
             ) : (

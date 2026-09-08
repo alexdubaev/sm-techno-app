@@ -315,7 +315,7 @@ class CrmApiTest(unittest.TestCase):
         tab_id = created["assignment"]["tabId"]
         contact = self.client.post(f"/api/crm/clients/{client_id}/contacts", json={"name": "Ирина", "isPrimary": True})
         event = self.client.post(f"/api/crm/clients/{client_id}/events", json={"kind": "call", "body": "Позвонили"})
-        reminder = self.client.post(f"/api/crm/clients/{client_id}/reminders", json={"dueAt": "2026-09-05T10:00:00"})
+        reminder = self.client.post(f"/api/crm/clients/{client_id}/reminders", json={"dueAt": "2026-09-05T10:00:00Z"})
         denied = self.client.post(f"/api/crm/clients/{client_id}/archive", json={"reason": "Нет"})
 
         self.assertEqual(201, contact.status_code)

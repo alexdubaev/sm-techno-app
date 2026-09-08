@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import tempfile
 from contextlib import asynccontextmanager
@@ -13,9 +14,18 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from stock_sync_desktop.onec_api import (
+    OneCClientError,
+    OneCNetworkError,
+    OneCTimeoutError,
+    OneCTransportError,
+    OneCTransientError,
+    OneCUnknownWriteOutcomeError,
+)
 from stock_sync_web.service import CRM_LOCAL_ONLY_POLICY_MESSAGE, WebStockSyncService, create_default_service
 from stock_sync_web.crm_export import build_crm_export_xlsx
 from stock_sync_web.crm_import import ImportValidationError
@@ -43,29 +53,8 @@ SERVICE.bootstrap()
 
 @asynccontextmanager
 async def _app_lifespan(_: FastAPI):
-    """Advance the durable CRM outbox without blocking the ASGI event loop."""
-    stop = asyncio.Event()
-
-    async def advance_crm_jobs() -> None:
-        while not stop.is_set():
-            try:
-                await asyncio.to_thread(SERVICE.run_due_crm_sync_jobs, limit=20)
-            except Exception:
-                LOGGER.exception("CRM sync worker iteration failed")
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=CRM_SYNC_WORKER_POLL_SECONDS)
-            except asyncio.TimeoutError:
-                pass
-
-    task = asyncio.create_task(advance_crm_jobs())
-    try:
-        yield
-    finally:
-        stop.set()
-        # Do not cancel an asyncio.to_thread wrapper: cancellation does not
-        # stop its already-running 1C call.  Draining this task keeps a
-        # shutdown from overlapping that call with a subsequent app start.
-        await task
+    """The API has no background 1C worker; readiness is strictly local."""
+    yield
 
 ALLOWED_ORIGINS = [
     origin.strip()
@@ -74,6 +63,25 @@ ALLOWED_ORIGINS = [
 ]
 
 app = FastAPI(title=APP_TITLE, version="0.1.0", lifespan=_app_lifespan)
+
+
+def _error_code(status_code: int) -> str:
+    return {
+        400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found",
+        409: "conflict", 413: "payload_too_large", 422: "validation_error",
+        502: "upstream_error", 503: "service_unavailable", 504: "upstream_timeout",
+    }.get(status_code, "internal_error")
+
+
+@app.exception_handler(HTTPException)
+async def http_error_contract(_: Any, error: HTTPException) -> JSONResponse:
+    return JSONResponse(status_code=error.status_code, headers=error.headers,
+                        content={"detail": error.detail, "code": _error_code(error.status_code)})
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_contract(_: Any, error: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": error.errors(), "code": "validation_error"})
 
 app.add_middleware(
     CORSMiddleware,
@@ -138,9 +146,9 @@ def _parse_local_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Цена и остаток должны быть числами.")
 
-    if price < 0:
+    if not math.isfinite(price) or price < 0:
         raise HTTPException(status_code=400, detail="Цена не может быть отрицательной.")
-    if quantity < 0:
+    if not math.isfinite(quantity) or quantity < 0:
         raise HTTPException(status_code=400, detail="Остаток не может быть отрицательным.")
 
     warehouses_raw = payload.get("warehouses")
@@ -164,7 +172,7 @@ def _parse_local_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 warehouse_quantity = float(raw_item.get("quantity", 0) or 0)
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail="Остаток по складу должен быть числом.")
-            if warehouse_quantity < 0:
+            if not math.isfinite(warehouse_quantity) or warehouse_quantity < 0:
                 raise HTTPException(status_code=400, detail="Остаток по складу не может быть отрицательным.")
             warehouses.append(
                 {
@@ -538,6 +546,21 @@ def _crm_error(exc: Exception) -> None:
     raise HTTPException(status_code=400, detail=message) from exc
 
 
+def _onec_http_exception(exc: OneCClientError) -> HTTPException:
+    if isinstance(exc, OneCUnknownWriteOutcomeError):
+        status_code = 504 if exc.timed_out else 503
+    elif isinstance(exc, OneCTimeoutError):
+        status_code = 504
+    elif isinstance(exc, OneCNetworkError):
+        status_code = 503
+    elif isinstance(exc, OneCTransientError):
+        status_code = 503
+    else:
+        status_code = 502
+    detail = str(exc) if isinstance(exc, OneCTransportError) else "Ошибка обмена с 1С."
+    return HTTPException(status_code=status_code, detail=detail)
+
+
 def _crm_owner(repo: CrmRepository, current_user: dict[str, Any], requested_owner_id: int | None) -> int:
     actor_id = int(current_user["id"])
     is_admin = str(current_user.get("role") or "") == "admin"
@@ -651,9 +674,10 @@ def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
     order_date = str(payload.get("orderDate") or "").strip()
     if not order_date:
         raise HTTPException(status_code=400, detail="Укажите дату заказа.")
-
-    onec_username = str(payload.get("onecUsername") or "").strip()
-    onec_password = str(payload.get("onecPassword") or "")
+    try:
+        datetime.fromisoformat(order_date.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Дата заказа должна быть ISO date или datetime.") from exc
 
     raw_lines = payload.get("draftLines")
     if not isinstance(raw_lines, list) or not raw_lines:
@@ -678,9 +702,9 @@ def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail="В строке счета указан некорректный склад.")
 
-        if quantity <= 0:
+        if not math.isfinite(quantity) or quantity <= 0:
             raise HTTPException(status_code=400, detail="Количество в строках счета должно быть больше нуля.")
-        if price < 0:
+        if not math.isfinite(price) or price < 0:
             raise HTTPException(status_code=400, detail="Цена в строках счета не может быть отрицательной.")
 
         draft_lines.append(
@@ -702,8 +726,8 @@ def _parse_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "organization_key": organization_key,
         "order_date": order_date,
         "comment": str(payload.get("comment") or "").strip(),
-        "onec_username": onec_username,
-        "onec_password": onec_password,
+        "onec_username": "",
+        "onec_password": "",
         "draft_lines": draft_lines,
     }
 
@@ -735,12 +759,20 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/readiness")
+def readiness():
+    try:
+        return SERVICE.runtime_readiness()
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/api/auth/login")
 def login(payload: dict[str, Any]) -> dict[str, Any]:
     username = str(payload.get("username") or "").strip()
     password = str(payload.get("password") or "")
     if not username or not password:
-        raise HTTPException(status_code=400, detail="Р’РІРµРґРёС‚Рµ Р»РѕРіРёРЅ Рё РїР°СЂРѕР»СЊ.")
+        raise HTTPException(status_code=400, detail="Введите логин и пароль.")
     try:
         result = SERVICE.login_app_user(username, password)
     except Exception as exc:
@@ -952,6 +984,8 @@ def test_onec_access(
             onec_username=onec_username,
             onec_password=onec_password,
         )
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -979,6 +1013,8 @@ def sync_references(
             onec_username=onec_username,
             onec_password=onec_password,
         )
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -996,6 +1032,8 @@ def sync_crm_counterparties(
     """Refresh CRM companies with the authenticated user's 1C credentials."""
     try:
         return SERVICE.sync_crm_counterparties_for_user(int(current_user["id"]))
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1825,12 +1863,13 @@ def move_crm_client(client_id: int, payload: dict[str, Any], owner_id: int | Non
 @app.put("/api/crm/clients/{client_id}/row-preference")
 def save_crm_row_preference(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo._require_workspace_write(actor_id, resolved_owner_id)
         tab_id = int(payload.get("tabId"))
         expected_order_version = int(payload.get("expectedOrderVersion"))
         color_key = payload.get("colorKey")
         if color_key is not None:
             color_key = str(color_key)
-        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
         preference = repo.set_row_preference_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, tab_id=tab_id, client_id=client_id, color_key=color_key, expected_order_version=expected_order_version)
         return {"preference": _serialize_crm_row_preference(preference or {})}
     except Exception as exc:
@@ -2381,20 +2420,41 @@ def price_client_export(
     )
 
 
-@app.post("/api/price/import")
-async def price_import(
-    file: UploadFile = File(...),
-    current_user: dict[str, Any] = Depends(_get_admin_user),
-) -> dict[str, int]:
+async def _save_price_import_upload(file: UploadFile) -> Path:
     suffix = Path(file.filename or "stock_import.xlsx").suffix or ".xlsx"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         temp_path = Path(tmp.name)
         tmp.write(await _read_upload_with_limit(file))
+    return temp_path
+
+
+@app.post("/api/price/import/preview")
+async def preview_price_import(
+    file: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> dict[str, Any]:
+    temp_path = await _save_price_import_upload(file)
+    try:
+        return SERVICE.preview_stock_excel(temp_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+@app.post("/api/price/import")
+async def price_import(
+    file: UploadFile = File(...),
+    plan_hash: str = Form(alias="planHash"),
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> dict[str, int]:
+    temp_path = await _save_price_import_upload(file)
     try:
         try:
-            result = SERVICE.import_stock_excel(temp_path)
+            result = SERVICE.commit_stock_excel(temp_path, plan_hash)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            status_code = 409 if "изменился" in str(exc) else 400
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     finally:
         temp_path.unlink(missing_ok=True)
     return result
@@ -2413,7 +2473,16 @@ def update_stock_quantity(
         quantity = float(payload.get("quantity"))
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Некорректное количество.")
-    SERVICE.set_stock_quantity(item_id, quantity)
+    if not math.isfinite(quantity) or quantity < 0:
+        raise HTTPException(status_code=400, detail="Количество должно быть конечным неотрицательным числом.")
+    try:
+        SERVICE.set_stock_quantity(
+            item_id,
+            quantity,
+            comment=str(payload.get("comment") or "").strip(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     updated_item = SERVICE.get_item(item_id)
     return {"item": _serialize_item(updated_item or item)}
 
@@ -2424,7 +2493,10 @@ def create_stock_item(
     current_user: dict[str, Any] = Depends(_get_admin_user),
 ) -> dict[str, Any]:
     values = _parse_local_item_payload(payload)
-    item = SERVICE.create_local_item(**values)
+    try:
+        item = SERVICE.create_local_item(**values)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"item": _serialize_item(item)}
 
 
@@ -2439,7 +2511,10 @@ def update_stock_item(
         raise HTTPException(status_code=404, detail="РўРѕРІР°СЂ РЅРµ РЅР°Р№РґРµРЅ.")
 
     values = _parse_local_item_payload(payload)
-    updated_item = SERVICE.update_local_item(item_id, **values)
+    try:
+        updated_item = SERVICE.update_local_item(item_id, **values)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if updated_item is None:
         raise HTTPException(status_code=404, detail="РўРѕРІР°СЂ РЅРµ РЅР°Р№РґРµРЅ РїРѕСЃР»Рµ РѕР±РЅРѕРІР»РµРЅРёСЏ.")
     return {"item": _serialize_item(updated_item)}
@@ -2509,6 +2584,25 @@ def writeoff_order(
     return _serialize_order_details(bundle)
 
 
+@app.post("/api/orders/{order_id}/recover-onec")
+def recover_order_onec(
+    order_id: int,
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> dict[str, Any]:
+    try:
+        bundle = SERVICE.recover_order_sync_for_admin(
+            order_id=order_id,
+            actor_user_id=int(current_user["id"]),
+        )
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if "not found" in message.lower() or "не найден" in message.lower() else 400
+        raise HTTPException(status_code=status_code, detail=message) from exc
+    return _serialize_order_details(bundle)
+
+
 @app.post("/api/orders/send")
 def create_and_send_order(
     payload: dict[str, Any],
@@ -2527,6 +2621,8 @@ def create_and_send_order(
             comment=values["comment"],
             draft_lines=values["draft_lines"],
         )
+    except OneCClientError as exc:
+        raise _onec_http_exception(exc) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

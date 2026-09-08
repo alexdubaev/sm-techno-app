@@ -2,17 +2,174 @@
 
 import base64
 import json
+import logging
+import posixpath
+import random
 import re
+import socket
+import time
+import uuid
 import xml.etree.ElementTree as ET
+from http.client import IncompleteRead
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urljoin, urlsplit, urlunsplit
-from urllib.request import Request, urlopen
+from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from xml.sax.saxutils import quoteattr
+
+
+logger = logging.getLogger(__name__)
 
 
 class OneCClientError(RuntimeError):
     """Raised when 1C OData returns an error."""
+
+
+class OneCTransportError(OneCClientError):
+    """A safely-described 1C transport failure, without request secrets."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        method: str,
+        status_code: int | None = None,
+        request_id: str | None = None,
+        retryable: bool = False,
+        outcome_unknown: bool = False,
+        timed_out: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.method = method.upper()
+        self.status_code = status_code
+        self.request_id = request_id
+        self.retryable = retryable
+        self.outcome_unknown = outcome_unknown
+        self.timed_out = timed_out
+
+
+class OneCAuthError(OneCTransportError):
+    """1C rejected credentials or permissions (HTTP 401/403)."""
+
+
+class OneCValidationError(OneCTransportError):
+    """1C rejected a request as invalid (other HTTP 4xx)."""
+
+
+class OneCTransientError(OneCTransportError):
+    """1C returned a server-side failure (HTTP 5xx)."""
+
+
+class OneCNetworkError(OneCTransportError):
+    """A safe read failed because the network was unavailable."""
+
+
+class OneCTimeoutError(OneCTransportError):
+    """A safe read exceeded the common socket timeout."""
+
+
+class OneCMalformedResponseError(OneCTransportError):
+    """1C returned a response that cannot be parsed as the expected format."""
+
+
+class OneCUnknownWriteOutcomeError(OneCTransportError):
+    """A write may have reached 1C before its network failure."""
+
+
+class OneCPaginationError(OneCTransportError):
+    """Pagination safety guard failed."""
+
+
+def _decode_path_layers(path: str) -> str:
+    """Decode all percent-encoding layers so validation sees the eventual path."""
+    decoded = path
+    for _ in range(len(path) + 1):
+        if "\\" in decoded or re.search(r"%(?:2f|5c)", decoded, flags=re.IGNORECASE):
+            raise ValueError("encoded path separator")
+        next_decoded = unquote(decoded, encoding="utf-8", errors="strict")
+        if next_decoded == decoded:
+            return decoded
+        decoded = next_decoded
+    raise ValueError("excessive path encoding")
+
+
+def _trusted_odata_url(base_url: str, current_url: str, target: str) -> str:
+    if not isinstance(target, str) or not target:
+        raise ValueError("redirect target must be a non-empty string")
+    target_path = _decode_path_layers(urlsplit(target).path)
+    if any(segment in {".", ".."} for segment in target_path.split("/")):
+        raise ValueError("target contains dot traversal")
+    resolved_url = urljoin(current_url, target)
+    expected = urlsplit(base_url)
+    actual = urlsplit(resolved_url)
+    if (
+        actual.scheme.lower() != expected.scheme.lower()
+        or actual.netloc.lower() != expected.netloc.lower()
+    ):
+        raise ValueError("target origin is not trusted")
+
+    decoded_base_path = _decode_path_layers(expected.path)
+    decoded_actual_path = _decode_path_layers(actual.path)
+    if any(segment in {".", ".."} for segment in decoded_actual_path.split("/")):
+        raise ValueError("path contains dot traversal")
+
+    canonical_base_path = posixpath.normpath(decoded_base_path).rstrip("/")
+    canonical_actual_path = posixpath.normpath(decoded_actual_path)
+    if canonical_actual_path != canonical_base_path and not canonical_actual_path.startswith(
+        f"{canonical_base_path}/"
+    ):
+        raise ValueError("target path is outside OData base")
+    return resolved_url
+
+
+class _OneCSafeRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        method = req.get_method().upper()
+        request_id = getattr(req, "_onec_request_id", None)
+        if method != "GET":
+            raise OneCUnknownWriteOutcomeError(
+                "Неизвестен результат записи в 1С после перенаправления ответа.",
+                method=method,
+                status_code=code,
+                request_id=request_id,
+                outcome_unknown=True,
+            )
+        base_url = getattr(req, "_onec_base_url", "")
+        try:
+            trusted_url = _trusted_odata_url(base_url, req.full_url, newurl)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise OneCPaginationError(
+                "Перенаправление 1С выходит за пределы доверенного OData источника.",
+                method=method,
+                status_code=code,
+                request_id=request_id,
+            ) from exc
+        if code == 308:
+            content_headers = {"content-length", "content-type"}
+            redirected_headers = {
+                key: value for key, value in req.headers.items() if key.lower() not in content_headers
+            }
+            redirected = Request(
+                trusted_url,
+                headers=redirected_headers,
+                origin_req_host=req.origin_req_host,
+                unverifiable=True,
+                method=method,
+            )
+        else:
+            redirected = super().redirect_request(req, fp, code, msg, headers, trusted_url)
+        if redirected is not None:
+            redirected._onec_base_url = base_url
+            redirected._onec_request_id = request_id
+        return redirected
+
+    def http_error_308(self, req, fp, code, msg, headers):  # type: ignore[no-untyped-def]
+        return self.http_error_302(req, fp, code, msg, headers)
+
+
+def urlopen(request: Request, *, timeout: float):  # type: ignore[no-untyped-def]
+    """Patchable transport entry point with a fresh redirect-safe opener."""
+    return build_opener(_OneCSafeRedirectHandler()).open(request, timeout=timeout)
 
 
 class OneCCounterpartySyncError(OneCClientError):
@@ -22,6 +179,12 @@ class OneCCounterpartySyncError(OneCClientError):
 
 
 class OneCClient:
+    SOCKET_TIMEOUT_SECONDS = 60
+    MAX_GET_ATTEMPTS = 3
+    MAX_PAGES = 1000
+    METADATA_CACHE_TTL_SECONDS = 5 * 60
+    RETRYABLE_GET_STATUS_CODES = {502, 503, 504}
+
     def __init__(self, base_url: str, username: str, password: str) -> None:
         self.base_url = self._normalize_base_url(base_url)
         self.username = username.strip()
@@ -32,6 +195,7 @@ class OneCClient:
         self._units_cache: list[dict[str, Any]] | None = None
         self._vat_rates_cache: list[dict[str, Any]] | None = None
         self._metadata_root_cache: ET.Element | None = None
+        self._metadata_cache_created_at: float | None = None
         self._entity_type_cache: dict[str, str] = {}
         self._entity_properties_cache: dict[str, set[str]] = {}
         self._entity_property_types_cache: dict[str, dict[str, str]] = {}
@@ -61,38 +225,45 @@ class OneCClient:
         *,
         accept: str = "application/json",
     ) -> str:
-        url = endpoint_or_url
-        if not endpoint_or_url.lower().startswith("http"):
-            url = f"{self.base_url}/{endpoint_or_url.lstrip('/')}"
-        url = self._encode_url(url)
-
-        body = None
-        headers = {
-            "Authorization": self._authorization_header(),
-            "Accept": accept,
-        }
-        if payload is not None:
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            headers["Content-Type"] = "application/json; charset=utf-8"
-
-        request = Request(url=url, data=body, headers=headers, method=method.upper())
-        try:
-            with urlopen(request, timeout=60) as response:
-                return response.read().decode("utf-8")
-        except HTTPError as exc:
-            message = exc.read().decode("utf-8", errors="replace")
-            raise OneCClientError(f"1С вернула HTTP {exc.code}: {message}") from exc
-        except URLError as exc:
-            raise OneCClientError(f"Не удалось подключиться к 1С: {exc}") from exc
+        raw, _, _ = self._execute_request(method, endpoint_or_url, payload, accept=accept)
+        return raw
 
     def _request(self, method: str, endpoint_or_url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        raw = self._request_raw(method, endpoint_or_url, payload)
+        if self._uses_default_request_raw():
+            raw, _, request_id = self._execute_request(method, endpoint_or_url, payload)
+        else:
+            raw = self._request_raw(method, endpoint_or_url, payload)
+            request_id = None
+        return self._decode_json_response(raw, method=method, request_id=request_id)
+
+    @staticmethod
+    def _decode_json_response(raw: str, *, method: str, request_id: str | None) -> dict[str, Any]:
         if not raw:
             return {}
         try:
-            return json.loads(raw)
+            decoded = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise OneCClientError(f"1С вернула не-JSON ответ: {raw[:500]}") from exc
+            raise OneCMalformedResponseError(
+                "1С вернула не-JSON ответ.",
+                method=method,
+                request_id=request_id,
+            ) from exc
+        if not isinstance(decoded, dict):
+            raise OneCMalformedResponseError(
+                "1С вернула JSON с некорректным корневым объектом.",
+                method=method,
+                request_id=request_id,
+            )
+        if "error" in decoded:
+            raise OneCMalformedResponseError(
+                "1С вернула OData error envelope вместо ожидаемого результата.",
+                method=method,
+                request_id=request_id,
+            )
+        return decoded
+
+    def _uses_default_request_raw(self) -> bool:
+        return getattr(self._request_raw, "__func__", None) is OneCClient._request_raw
 
     def _request_with_response_headers(
         self,
@@ -103,15 +274,63 @@ class OneCClient:
         extra_headers: dict[str, str] | None = None,
     ) -> tuple[str, str | None]:
         """Issue an isolated conditional request without changing legacy transport hooks."""
+        raw, etag, _ = self._execute_request(
+            method,
+            endpoint_or_url,
+            payload,
+            extra_headers=extra_headers,
+        )
+        return raw, etag
+
+    def _request_with_response_headers_and_request_id(
+        self,
+        method: str,
+        endpoint_or_url: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[str, str | None, str | None]:
+        if getattr(self._request_with_response_headers, "__func__", None) is not OneCClient._request_with_response_headers:
+            raw, etag = self._request_with_response_headers(
+                method,
+                endpoint_or_url,
+                payload,
+                extra_headers=extra_headers,
+            )
+            return raw, etag, None
+        return self._execute_request(
+            method,
+            endpoint_or_url,
+            payload,
+            extra_headers=extra_headers,
+        )
+
+    def _execute_request(
+        self,
+        method: str,
+        endpoint_or_url: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        accept: str = "application/json",
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[str, str | None, str]:
+        """Perform one request policy for both legacy transport entry points.
+
+        urllib's ``urlopen`` only exposes one socket timeout rather than separate
+        connect/read limits, so the configured 60-second timeout applies to both.
+        """
         url = endpoint_or_url
         if not endpoint_or_url.lower().startswith("http"):
             url = f"{self.base_url}/{endpoint_or_url.lstrip('/')}"
         url = self._encode_url(url)
 
+        normalized_method = method.upper()
+        request_id = uuid.uuid4().hex
         body = None
         headers = {
             "Authorization": self._authorization_header(),
-            "Accept": "application/json",
+            "Accept": accept,
+            "X-Request-ID": request_id,
         }
         if extra_headers:
             headers.update(extra_headers)
@@ -119,15 +338,157 @@ class OneCClient:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
 
-        request = Request(url=url, data=body, headers=headers, method=method.upper())
-        try:
-            with urlopen(request, timeout=60) as response:
-                return response.read().decode("utf-8"), response.headers.get("ETag")
-        except HTTPError as exc:
-            message = exc.read().decode("utf-8", errors="replace")
-            raise OneCClientError(f"1С вернула HTTP {exc.code}: {message}") from exc
-        except URLError as exc:
-            raise OneCClientError(f"Не удалось подключиться к 1С: {exc}") from exc
+        request = Request(url=url, data=body, headers=headers, method=normalized_method)
+        request._onec_base_url = self.base_url
+        request._onec_request_id = request_id
+        endpoint_path = self._safe_endpoint_path(url)
+        max_attempts = self.MAX_GET_ATTEMPTS if normalized_method == "GET" else 1
+
+        for attempt in range(1, max_attempts + 1):
+            logger.info(
+                "1C request method=%s endpoint=%s attempt=%s request_id=%s outcome=started",
+                normalized_method,
+                endpoint_path,
+                attempt,
+                request_id,
+            )
+            try:
+                with urlopen(request, timeout=self.SOCKET_TIMEOUT_SECONDS) as response:
+                    try:
+                        raw = response.read().decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        error = OneCMalformedResponseError(
+                            "1С вернула ответ в некорректной кодировке.",
+                            method=normalized_method,
+                            request_id=request_id,
+                        )
+                        self._log_failure(
+                            normalized_method,
+                            endpoint_path,
+                            attempt,
+                            request_id,
+                            type(error).__name__,
+                        )
+                        raise error from exc
+                    logger.info(
+                        "1C request method=%s endpoint=%s attempt=%s request_id=%s outcome=success",
+                        normalized_method,
+                        endpoint_path,
+                        attempt,
+                        request_id,
+                    )
+                    return raw, response.headers.get("ETag"), request_id
+            except HTTPError as exc:
+                retryable = normalized_method == "GET" and exc.code in self.RETRYABLE_GET_STATUS_CODES
+                if retryable and attempt < max_attempts:
+                    self._log_retry(normalized_method, endpoint_path, attempt, request_id, f"http_{exc.code}")
+                    self._sleep_before_retry(attempt)
+                    continue
+                error = self._http_error(normalized_method, exc.code, request_id, retryable)
+                self._log_failure(normalized_method, endpoint_path, attempt, request_id, type(error).__name__)
+                raise error from exc
+            except (URLError, OSError, IncompleteRead) as exc:
+                timeout = self._is_timeout_error(exc)
+                retryable = normalized_method == "GET"
+                if retryable and attempt < max_attempts:
+                    classification = "timeout" if timeout else "network"
+                    self._log_retry(normalized_method, endpoint_path, attempt, request_id, classification)
+                    self._sleep_before_retry(attempt)
+                    continue
+                error = self._network_error(normalized_method, request_id, timeout, retryable)
+                self._log_failure(normalized_method, endpoint_path, attempt, request_id, type(error).__name__)
+                raise error from exc
+
+        raise AssertionError("1C request executor exhausted without a result")
+
+    @staticmethod
+    def _safe_endpoint_path(url: str) -> str:
+        return urlsplit(url).path or "/"
+
+    @staticmethod
+    def _is_timeout_error(exc: URLError | OSError | IncompleteRead) -> bool:
+        reason = exc.reason if isinstance(exc, URLError) else exc
+        return isinstance(reason, (socket.timeout, TimeoutError))
+
+    @classmethod
+    def _http_error(
+        cls,
+        method: str,
+        status_code: int,
+        request_id: str,
+        retryable: bool,
+    ) -> OneCTransportError:
+        if status_code in {401, 403}:
+            return OneCAuthError(
+                f"1С вернула HTTP {status_code}.",
+                method=method,
+                status_code=status_code,
+                request_id=request_id,
+            )
+        if 400 <= status_code < 500:
+            return OneCValidationError(
+                f"1С вернула HTTP {status_code}.",
+                method=method,
+                status_code=status_code,
+                request_id=request_id,
+            )
+        return OneCTransientError(
+            f"1С вернула HTTP {status_code}.",
+            method=method,
+            status_code=status_code,
+            request_id=request_id,
+            retryable=retryable,
+        )
+
+    @staticmethod
+    def _network_error(
+        method: str,
+        request_id: str,
+        timeout: bool,
+        retryable: bool,
+    ) -> OneCTransportError:
+        if method in {"POST", "PATCH", "DELETE"}:
+            return OneCUnknownWriteOutcomeError(
+                "Неизвестен результат записи в 1С из-за сбоя соединения.",
+                method=method,
+                request_id=request_id,
+                outcome_unknown=True,
+                timed_out=timeout,
+            )
+        error_class = OneCTimeoutError if timeout else OneCNetworkError
+        message = "Превышено время ожидания ответа 1С." if timeout else "Не удалось подключиться к 1С."
+        return error_class(
+            message,
+            method=method,
+            request_id=request_id,
+            retryable=retryable,
+        )
+
+    @staticmethod
+    def _sleep_before_retry(attempt: int) -> None:
+        time.sleep((0.25 * (2 ** (attempt - 1))) + random.uniform(0, 0.25))
+
+    @staticmethod
+    def _log_retry(method: str, endpoint_path: str, attempt: int, request_id: str, classification: str) -> None:
+        logger.info(
+            "1C request method=%s endpoint=%s attempt=%s request_id=%s outcome=retry_%s",
+            method,
+            endpoint_path,
+            attempt,
+            request_id,
+            classification,
+        )
+
+    @staticmethod
+    def _log_failure(method: str, endpoint_path: str, attempt: int, request_id: str, classification: str) -> None:
+        logger.info(
+            "1C request method=%s endpoint=%s attempt=%s request_id=%s outcome=%s",
+            method,
+            endpoint_path,
+            attempt,
+            request_id,
+            classification,
+        )
 
     @staticmethod
     def _encode_url(url: str) -> str:
@@ -181,15 +542,65 @@ class OneCClient:
             url = f"{url}{separator}$format=json"
 
         all_rows: list[dict[str, Any]] = []
+        seen_urls: set[str] = set()
+        page_count = 0
         while url:
+            if page_count >= self.MAX_PAGES:
+                raise OneCPaginationError(
+                    "Превышен допустимый лимит страниц OData.",
+                    method="GET",
+                )
+            if url in seen_urls:
+                raise OneCPaginationError(
+                    "Обнаружен цикл в OData pagination.",
+                    method="GET",
+                )
+            seen_urls.add(url)
+            page_count += 1
             payload = self._request("GET", url)
-            all_rows.extend(payload.get("value", []))
-            next_link = payload.get("odata.nextLink") or payload.get("@odata.nextLink")
+            rows, next_link = self._decode_collection_envelope(payload)
+            all_rows.extend(rows)
             if next_link:
-                url = next_link if next_link.lower().startswith("http") else urljoin(f"{self.base_url}/", next_link)
+                url = self._validated_next_page_url(url, next_link)
             else:
                 url = ""
         return all_rows
+
+    @staticmethod
+    def _decode_collection_envelope(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
+        if "error" in payload or "value" not in payload:
+            raise OneCMalformedResponseError(
+                "1С вернула некорректный OData collection envelope.",
+                method="GET",
+            )
+        rows = payload["value"]
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise OneCMalformedResponseError(
+                "1С вернула некорректные строки OData collection.",
+                method="GET",
+            )
+        next_link: str | None = None
+        for key in ("odata.nextLink", "@odata.nextLink"):
+            if key not in payload:
+                continue
+            candidate = payload[key]
+            if not isinstance(candidate, str):
+                raise OneCMalformedResponseError(
+                    "1С вернула некорректный OData nextLink.",
+                    method="GET",
+                )
+            if next_link is None:
+                next_link = candidate
+        return rows, next_link
+
+    def _validated_next_page_url(self, current_url: str, next_link: str) -> str:
+        try:
+            return _trusted_odata_url(self.base_url, current_url, next_link)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise OneCPaginationError(
+                "OData nextLink выходит за пределы доверенного источника.",
+                method="GET",
+            ) from exc
 
     def _fetch_first(
         self,
@@ -207,20 +618,46 @@ class OneCClient:
                 top=1,
             ),
         )
-        rows = payload.get("value", [])
+        rows, _ = self._decode_collection_envelope(payload)
         return rows[0] if rows else None
 
     def _metadata_root(self) -> ET.Element:
+        self._expire_metadata_cache_if_stale()
         if self._metadata_root_cache is not None:
             return self._metadata_root_cache
-        raw_metadata = self._request_raw("GET", "$metadata", accept="application/xml")
+        if self._uses_default_request_raw():
+            raw_metadata, _, request_id = self._execute_request("GET", "$metadata", accept="application/xml")
+        else:
+            raw_metadata = self._request_raw("GET", "$metadata", accept="application/xml")
+            request_id = None
         try:
             self._metadata_root_cache = ET.fromstring(raw_metadata)
-        except ET.ParseError as exc:
-            raise OneCClientError("1С вернула некорректный OData metadata XML.") from exc
+        except (ET.ParseError, ValueError) as exc:
+            raise OneCMalformedResponseError(
+                "1С вернула некорректный OData metadata XML.",
+                method="GET",
+                request_id=request_id,
+            ) from exc
+        self._metadata_cache_created_at = time.monotonic()
         return self._metadata_root_cache
 
+    def _expire_metadata_cache_if_stale(self) -> None:
+        if (
+            self._metadata_root_cache is not None
+            and self._metadata_cache_created_at is not None
+            and time.monotonic() - self._metadata_cache_created_at >= self.METADATA_CACHE_TTL_SECONDS
+        ):
+            self._clear_metadata_cache()
+
+    def _clear_metadata_cache(self) -> None:
+        self._metadata_root_cache = None
+        self._metadata_cache_created_at = None
+        self._entity_type_cache.clear()
+        self._entity_properties_cache.clear()
+        self._entity_property_types_cache.clear()
+
     def _entity_type_name(self, entity_set_name: str) -> str:
+        self._expire_metadata_cache_if_stale()
         cached = self._entity_type_cache.get(entity_set_name)
         if cached is not None:
             return cached
@@ -240,6 +677,7 @@ class OneCClient:
         return entity_type_name
 
     def _list_entity_property_types(self, entity_set_name: str) -> dict[str, str]:
+        self._expire_metadata_cache_if_stale()
         cached = self._entity_property_types_cache.get(entity_set_name)
         if cached is not None:
             return cached
@@ -263,6 +701,7 @@ class OneCClient:
         return property_types
 
     def _list_entity_properties(self, entity_set_name: str) -> set[str]:
+        self._expire_metadata_cache_if_stale()
         cached = self._entity_properties_cache.get(entity_set_name)
         if cached is not None:
             return cached
@@ -1033,13 +1472,8 @@ class OneCClient:
     def get_counterparty_with_etag(self, ref_key: str) -> tuple[dict[str, Any], str | None]:
         """Read a counterparty and its response ETag for an explicit future probe."""
         endpoint = f"Catalog_Контрагенты(guid'{ref_key}')?$format=json"
-        raw, etag = self._request_with_response_headers("GET", endpoint)
-        if not raw:
-            return {}, etag
-        try:
-            return json.loads(raw), etag
-        except json.JSONDecodeError as exc:
-            raise OneCClientError(f"1С вернула не-JSON ответ: {raw[:500]}") from exc
+        raw, etag, request_id = self._request_with_response_headers_and_request_id("GET", endpoint)
+        return self._decode_json_response(raw, method="GET", request_id=request_id), etag
 
     def update_counterparty_if_match(
         self,
@@ -1049,15 +1483,10 @@ class OneCClient:
     ) -> dict[str, Any]:
         """PATCH a counterparty only with the caller-supplied If-Match token."""
         endpoint = f"Catalog_Контрагенты(guid'{ref_key}')?$format=json"
-        raw, _ = self._request_with_response_headers(
+        raw, _, request_id = self._request_with_response_headers_and_request_id(
             "PATCH", endpoint, payload, extra_headers={"If-Match": etag}
         )
-        if not raw:
-            return {}
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise OneCClientError(f"1С вернула не-JSON ответ: {raw[:500]}") from exc
+        return self._decode_json_response(raw, method="PATCH", request_id=request_id)
 
     def create_counterparty(self, card: dict[str, Any]) -> dict[str, Any]:
         core_payload = self._build_counterparty_payload(card, include_extra_fields=False)
@@ -1372,9 +1801,25 @@ class OneCClient:
         endpoint = f"Document_ЗаказПокупателя(guid'{ref_key}')?$format=json"
         return self._request("GET", endpoint)
 
+    def find_sales_order_by_comment_marker(self, marker: str) -> dict[str, Any] | None:
+        normalized_marker = str(marker or "").strip()
+        if not normalized_marker:
+            raise OneCClientError("Не задан marker для поиска заказа в 1С.")
+        escaped_marker = self._escape_odata_string(normalized_marker)
+        endpoint = (
+            "Document_ЗаказПокупателя?"
+            f"$filter=substringof('{escaped_marker}',Комментарий)&$top=2&$format=json"
+        )
+        payload = self._request("GET", endpoint)
+        rows, _ = self._decode_collection_envelope(payload)
+        if len(rows) > 1:
+            raise OneCClientError("В 1С найдено несколько заказов с одним marker; нужна ручная сверка.")
+        return dict(rows[0]) if rows else None
+
     def fetch_entity(self, entity_name: str, top: int = 1) -> list[dict[str, Any]]:
         payload = self._request(
             "GET",
             self._build_collection_url(entity_name, top=top),
         )
-        return payload.get("value", [])
+        rows, _ = self._decode_collection_envelope(payload)
+        return rows

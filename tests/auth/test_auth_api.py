@@ -128,11 +128,12 @@ def test_exact_expiration_boundary_rejects_and_deletes_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     token = auth_api.login("admin", INITIAL_ADMIN_PASSWORD)
+    token_hash = auth_api.service.db._hash_session_token(token)
     boundary = "2030-01-02T03:04:05"
     with auth_api.service.db.transaction() as conn:
         conn.execute(
-            "UPDATE app_sessions SET expires_at = ? WHERE token = ?",
-            (boundary, token),
+            "UPDATE app_sessions SET expires_at = ? WHERE token_hash = ?",
+            (boundary, token_hash),
         )
     monkeypatch.setattr(database_module, "utc_now", lambda: boundary)
 
@@ -141,7 +142,7 @@ def test_exact_expiration_boundary_rejects_and_deletes_session(
     assert response.status_code == 401
     with auth_api.service.db.connect() as conn:
         assert conn.execute(
-            "SELECT 1 FROM app_sessions WHERE token = ?", (token,)
+            "SELECT 1 FROM app_sessions WHERE token_hash = ?", (token_hash,)
         ).fetchone() is None
 
 
@@ -150,12 +151,19 @@ def test_valid_session_slides_expiry_and_survives_service_recreation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     token = auth_api.login("admin", INITIAL_ADMIN_PASSWORD)
+    token_hash = auth_api.service.db._hash_session_token(token)
     initial_time = datetime(2030, 1, 2, 3, 4, 5)
     previous_expiry = (initial_time + timedelta(hours=1)).isoformat(timespec="seconds")
+    absolute_expiry = (initial_time + timedelta(days=365)).isoformat(timespec="seconds")
     with auth_api.service.db.transaction() as conn:
         conn.execute(
-            "UPDATE app_sessions SET last_seen_at = ?, expires_at = ? WHERE token = ?",
-            ((initial_time - timedelta(days=1)).isoformat(timespec="seconds"), previous_expiry, token),
+            "UPDATE app_sessions SET last_seen_at = ?, expires_at = ?, absolute_expires_at = ? WHERE token_hash = ?",
+            (
+                (initial_time - timedelta(days=1)).isoformat(timespec="seconds"),
+                previous_expiry,
+                absolute_expiry,
+                token_hash,
+            ),
         )
     monkeypatch.setattr(database_module, "utc_now", lambda: initial_time.isoformat(timespec="seconds"))
     recreated = WebStockSyncService(
@@ -170,11 +178,12 @@ def test_valid_session_slides_expiry_and_survives_service_recreation(
     assert response.status_code == 200
     with recreated.db.connect() as conn:
         row = conn.execute(
-            "SELECT last_seen_at, expires_at FROM app_sessions WHERE token = ?",
-            (token,),
+            "SELECT last_seen_at, expires_at, absolute_expires_at FROM app_sessions WHERE token_hash = ?",
+            (token_hash,),
         ).fetchone()
     assert row["last_seen_at"] == initial_time.isoformat(timespec="seconds")
-    assert row["expires_at"] == (initial_time + timedelta(days=7)).isoformat(timespec="seconds")
+    assert row["expires_at"] == (initial_time + timedelta(days=180)).isoformat(timespec="seconds")
+    assert row["absolute_expires_at"] == absolute_expiry
 
 
 ADMIN_REQUESTS: list[tuple[str, str, dict[str, Any]]] = [

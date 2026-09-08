@@ -186,7 +186,7 @@ class CrmPersistenceTest(unittest.TestCase):
         self.repo.assign_client_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], tab_id=work["id"])
         self.repo.add_contact_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], name="Ирина", email="i@example.test", is_primary=True)
         self.repo.add_event_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], kind="comment", body="Перезвонить")
-        reminder = self.repo.add_reminder_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], due_at="2026-09-04T10:00:00")
+        reminder = self.repo.add_reminder_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=self.client["id"], due_at="2026-09-04T10:00:00+03:00")
         self.repo.set_row_preference_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, tab_id=work["id"], client_id=self.client["id"], color_key="blue", position=10)
 
         with self.assertRaisesRegex(PermissionError, "чуж"):
@@ -628,7 +628,7 @@ class CrmPersistenceTest(unittest.TestCase):
         )
 
         card = self.db.get_crm_client(self.client["id"])
-        self.assertEqual("Имя обновлено из 1С", card["document_name"])
+        self.assertEqual(self.client["document_name"], card["document_name"])
         self.assertEqual("2026-09-07T10:00:00", card["crm_archived_at"])
         self.assertEqual(self.admin_id, card["crm_archived_by_user_id"])
         self.assertEqual("Неактуальный", card["crm_archive_reason"])

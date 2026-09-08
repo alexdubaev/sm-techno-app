@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -215,6 +216,63 @@ class OrderManualWriteoffTest(unittest.TestCase):
                 user_id=self.other_user_id,
                 is_admin=False,
             )
+
+    def test_concurrent_local_order_writeoffs_cannot_oversell_last_item(self) -> None:
+        warehouse = self.db.create_warehouse(name="Конкурентный склад")
+        item = self.db.create_local_item(
+            sku="CONCURRENT-ORDER-001",
+            name="Последний товар",
+            print_name="Последний товар",
+            category_name="Тест",
+            group_name="Тест",
+            price=100,
+            warehouses=[{"warehouse_id": warehouse["id"], "quantity": 1}],
+        )
+        order_ids = [
+            self.db.create_order(
+                counterparty_id=self.counterparty_id,
+                contract_id=None,
+                organization_key=None,
+                order_date="2026-09-07",
+                comment=f"Конкурентное списание {index}",
+                lines=[
+                    {
+                        "item_id": int(item["id"]),
+                        "warehouse_id": int(warehouse["id"]),
+                        "quantity": 1,
+                        "price": 100,
+                        "amount": 100,
+                    }
+                ],
+                created_by_user_id=self.owner_user_id,
+            )
+            for index in range(2)
+        ]
+        barrier = threading.Barrier(2)
+        results: list[str] = []
+
+        def writeoff(order_id: int) -> None:
+            barrier.wait()
+            try:
+                self.db.writeoff_order_locally(order_id)
+                results.append("success")
+            except ValueError:
+                results.append("rejected")
+
+        threads = [threading.Thread(target=writeoff, args=(order_id,)) for order_id in order_ids]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertCountEqual(results, ["success", "rejected"])
+        self.assertEqual(self._get_warehouse_quantity(int(item["id"]), int(warehouse["id"])), 0.0)
+        with self.db.connect() as conn:
+            movement_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM stock_movements WHERE item_id = ? AND movement_type = 'writeoff'",
+                (int(item["id"]),),
+            ).fetchone()["count"]
+        self.assertEqual(int(movement_count), 1)
 
     def _create_counterparty(self) -> int:
         self.db.upsert_counterparties(

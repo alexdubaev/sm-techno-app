@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import math
 from math import ceil
 from copy import copy
 from dataclasses import dataclass
@@ -136,9 +137,11 @@ def read_source_offer_lines(source_path: Path | str) -> list[CommercialOfferLine
 
         qty = normalize_number(raw.get("qty"))
         price_vat = normalize_number(raw.get("price_vat"))
-        amount_vat = normalize_number(raw.get("amount_vat"))
-        if amount_vat is None and qty is not None and price_vat is not None:
-            amount_vat = qty * price_vat
+        if qty is None or not math.isfinite(qty) or qty <= 0:
+            raise ValueError(f"Строка {excel_row}: количество должно быть конечным положительным числом.")
+        if price_vat is None or not math.isfinite(price_vat) or price_vat < 0:
+            raise ValueError(f"Строка {excel_row}: цена должна быть конечным неотрицательным числом.")
+        amount_vat = qty * price_vat
 
         lines.append(
             CommercialOfferLineInput(

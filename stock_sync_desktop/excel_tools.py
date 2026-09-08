@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
+import math
 import re
+import unicodedata
 from copy import copy
 from pathlib import Path
 from typing import Any
@@ -316,13 +318,26 @@ def _normalize_header(value: Any) -> str:
     return str(value or "").strip().lower().replace(" ", "").replace("-", "").replace(".", "")
 
 
+def normalize_stock_sku(value: Any) -> str:
+    return unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+
+
+def _require_import_number(value: Any, *, label: str, source_row: int) -> float:
+    number = _to_float(value)
+    if not math.isfinite(number) or number < 0:
+        raise ValueError(
+            f"Строка {source_row}: {label} должно быть конечным неотрицательным числом."
+        )
+    return number
+
+
 def read_stock_import_bundle(path: str | Path) -> dict[str, list[dict[str, Any]]]:
     file_path = Path(path)
     if file_path.suffix.lower() == ".csv":
         read_error: UnicodeDecodeError | None = None
         for encoding in ("utf-8", "utf-8-sig", "cp1251"):
             try:
-                frame = pd.read_csv(file_path, encoding=encoding)
+                frame = pd.read_csv(file_path, encoding=encoding, keep_default_na=False)
                 break
             except UnicodeDecodeError as exc:
                 read_error = exc
@@ -335,7 +350,24 @@ def read_stock_import_bundle(path: str | Path) -> dict[str, list[dict[str, Any]]
             location_rows = _read_storage_location_layout(file_path)
             if location_rows:
                 return {"stock_rows": [], "location_rows": location_rows}
-        frame = pd.read_excel(file_path, sheet_name=sheet_name)
+        formula_book = load_workbook(file_path, read_only=True, data_only=False)
+        try:
+            formula_sheet = (
+                formula_book.worksheets[sheet_name]
+                if isinstance(sheet_name, int)
+                else formula_book[sheet_name]
+            )
+            if any(
+                cell.data_type == "f"
+                for row in formula_sheet.iter_rows()
+                for cell in row
+            ):
+                raise ValueError(
+                    "Таблица импорта содержит формулы. Сохраните вычисленные значения перед импортом."
+                )
+        finally:
+            formula_book.close()
+        frame = pd.read_excel(file_path, sheet_name=sheet_name, keep_default_na=False)
 
     normalized_map: dict[str, str] = {}
     for original in frame.columns:
@@ -365,23 +397,42 @@ def read_stock_import_bundle(path: str | Path) -> dict[str, list[dict[str, Any]]
     has_rack_column = "rack" in frame.columns
     has_cell_column = "cell" in frame.columns
     cleaned_rows: list[dict[str, Any]] = []
-    for _, row in frame.iterrows():
+    seen_stock_rows: set[tuple[str, str]] = set()
+    for source_index, row in frame.iterrows():
+        source_row = int(source_index) + 2
         name = str(row.get("name") or "").strip()
         if not name:
             continue
 
+        sku = _clean_string(row.get("sku"))
+        normalized_sku = normalize_stock_sku(sku)
+        if not normalized_sku:
+            raise ValueError(f"Строка {source_row}: артикул не может быть пустым.")
+        warehouse_name = _clean_string(row.get("warehouse_name")) or "Основной склад"
+        duplicate_key = (normalized_sku, normalize_stock_sku(warehouse_name))
+        if duplicate_key in seen_stock_rows:
+            raise ValueError(
+                f"Строка {source_row}: дубликат артикула на одном складе в импортируемой таблице."
+            )
+        seen_stock_rows.add(duplicate_key)
+
         cleaned_row = {
-            "sku": _clean_string(row.get("sku")),
+            "sku": sku,
             "name": name,
             "print_name": _clean_string(row.get("print_name")) or name,
             "category_name": _clean_string(row.get("category_name")),
             "group_name": _clean_string(row.get("group_name")),
-            "price": _to_float(row.get("price")),
-            "warehouse_name": _clean_string(row.get("warehouse_name")) or "Основной склад",
-            "quantity": _to_float(row.get("quantity")),
+            "price": _require_import_number(
+                row.get("price"), label="Цена", source_row=source_row
+            ),
+            "warehouse_name": warehouse_name,
+            "quantity": _require_import_number(
+                row.get("quantity"), label="Остаток", source_row=source_row
+            ),
             "onec_key": _clean_string(row.get("onec_key")),
             "unit_key": _clean_string(row.get("unit_key")),
             "unit_name": _clean_string(row.get("unit_name")),
+            "source_row": source_row,
         }
         if has_rack_column:
             cleaned_row["rack"] = _clean_string(row.get("rack"))

@@ -1166,7 +1166,11 @@ class CrmRepository:
                    )""",
                 (next_version, utc_now(), owner_id, tab_id),
             )
-            conn.execute("UPDATE crm_row_preferences SET color_key = ?, order_version = ?, updated_at = ? WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (color_key, next_version, utc_now(), owner_id, tab_id, client_id))
+            conn.execute(
+                "UPDATE crm_row_preferences SET color_key = ?, position = COALESCE(?, position), "
+                "order_version = ?, updated_at = ? WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?",
+                (color_key, position, next_version, utc_now(), owner_id, tab_id, client_id),
+            )
             row = conn.execute("SELECT * FROM crm_row_preferences WHERE owner_user_id = ? AND tab_id = ? AND crm_client_id = ?", (owner_id, tab_id, client_id)).fetchone()
         return dict(row)
 

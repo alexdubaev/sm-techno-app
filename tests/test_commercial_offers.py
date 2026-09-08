@@ -5,6 +5,7 @@ from io import BytesIO
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from openpyxl.cell.rich_text import CellRichText
@@ -51,6 +52,18 @@ class CommercialOfferExcelTest(unittest.TestCase):
         self.assertEqual(lines[0].price_vat, 12500.50)
         self.assertEqual(lines[0].amount_vat, 25001.0)
         self.assertEqual(lines[1].article, "JCB-002")
+
+    def test_source_reader_calculates_amount_and_rejects_non_finite_lines(self) -> None:
+        source_path = self.temp_path / "validated.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Артикул", "Наименование", "Количество", "Цена с НДС", "Сумма с НДС"])
+        sheet.append(["A-1", "Фильтр", 2, 100, 1])
+        workbook.save(source_path)
+
+        lines = read_source_offer_lines(source_path)
+
+        self.assertEqual(lines[0].amount_vat, 200)
 
     def test_generator_writes_offer_rows_and_total_formula_without_extra_sheets(self) -> None:
         template_path = self.temp_path / "template.xlsx"
@@ -349,6 +362,22 @@ class CommercialOfferApiTest(unittest.TestCase):
         generated = load_workbook(BytesIO(download_response.content), data_only=False, rich_text=True)
         self.assertEqual(str(generated["КП"]["A9"].value), 'Покупатель: ООО "АГРОЗУМ"')
 
+    def test_manual_offer_client_is_a_snapshot_without_a_crm_card(self) -> None:
+        response = self.client.post(
+            "/api/commercial-offers/from-draft",
+            json={
+                "clientSource": "manual",
+                "clientName": "Ручной клиент",
+                "lines": [{"article": "MAN-1", "name": "Позиция", "qty": 1, "priceVat": 100}],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        offer = response.json()["offer"]
+        self.assertEqual((offer["clientSource"], offer["crmClientId"], offer["clientName"]), ("manual", None, "Ручной клиент"))
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM crm_clients").fetchone()[0], 0)
+
     def test_create_from_draft_uses_onec_full_name_for_offer(self) -> None:
         item = self.db.create_local_item(
             sku="SKU-ONEC",
@@ -466,6 +495,95 @@ class CommercialOfferApiTest(unittest.TestCase):
 
         details_response = self.client.get(f"/api/commercial-offers/{offer_id}")
         self.assertEqual(details_response.status_code, 404)
+
+    def test_draft_lines_reject_non_finite_quantity_and_price(self) -> None:
+        # Without finite validation, NaN passes comparison checks and is persisted.
+        valid_line = {"article": "FINITE-1", "name": "Позиция", "qty": 1, "priceVat": 100}
+        for field, invalid_value in (("qty", "nan"), ("priceVat", "inf")):
+            with self.subTest(field=field):
+                payload_line = dict(valid_line)
+                payload_line[field] = invalid_value
+
+                with self.assertRaises(ValueError):
+                    self.service._parse_draft_offer_lines([payload_line])
+
+    def test_excel_creation_failure_after_generation_leaves_no_offer_files(self) -> None:
+        # A failed persistence must not leave an upload or generated export behind.
+        source_path = Path(self._temp_dir.name) / "source.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Артикул", "Наименование", "Количество", "Цена с НДС"])
+        sheet.append(["ATOMIC-1", "Позиция", 1, 100])
+        workbook.save(source_path)
+
+        with patch.object(self.db, "create_commercial_offer", side_effect=RuntimeError("database unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "database unavailable"):
+                self.service.create_commercial_offer_from_excel(
+                    source_path=source_path,
+                    original_filename="КП-Атомарность.xlsx",
+                    client_source="manual",
+                    client_id=None,
+                    client_name="Клиент",
+                    notes="",
+                    created_by_user_id=1,
+                )
+
+        self.assertEqual(list(self.service.commercial_offer_uploads_dir.iterdir()), [])
+        self.assertEqual(list(self.service.commercial_offer_exports_dir.iterdir()), [])
+        self.assertEqual(self.db.list_commercial_offers(include_all=True), [])
+
+    def test_excel_creation_reports_all_cleanup_failures_without_hiding_persistence_failure(self) -> None:
+        # A cleanup error must expose every failed removal while preserving the operation that failed first.
+        source_path = Path(self._temp_dir.name) / "cleanup-failure-source.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Артикул", "Наименование", "Количество", "Цена с НДС"])
+        sheet.append(["CLEANUP-1", "Позиция", 1, 100])
+        workbook.save(source_path)
+
+        with patch.object(self.db, "create_commercial_offer", side_effect=RuntimeError("database unavailable")):
+            with patch.object(Path, "unlink", side_effect=OSError("unlink denied")):
+                with self.assertRaisesRegex(RuntimeError, "database unavailable") as raised:
+                    self.service.create_commercial_offer_from_excel(
+                        source_path=source_path,
+                        original_filename="КП-Очистка.xlsx",
+                        client_source="manual",
+                        client_id=None,
+                        client_name="Клиент",
+                        notes="",
+                        created_by_user_id=1,
+                    )
+
+        cleanup_error = raised.exception.__cause__
+        cleanup_errors = getattr(cleanup_error, "errors", ())
+        self.assertEqual(len(cleanup_errors), 4)
+        self.assertTrue(all("unlink denied" in str(error) for error in cleanup_errors))
+
+    def test_persisted_path_outside_offer_storage_cannot_be_downloaded_or_deleted(self) -> None:
+        # Stored paths must not read from or unlink files outside offer storage.
+        external_file = Path(self._temp_dir.name) / "outside-storage.xlsx"
+        external_file.write_bytes(b"private")
+        offer_id = self.db.create_commercial_offer(
+            number="КП-TRAVERSAL",
+            client_source="manual",
+            counterparty_id=None,
+            crm_client_id=None,
+            client_name="Клиент",
+            offer_date="2026-09-08",
+            source_filename=None,
+            source_path=None,
+            output_path=str(external_file),
+            notes="",
+            lines=[{"row_no": 1, "qty": 1, "price_vat": 100, "amount_vat": 100}],
+            created_by_user_id=1,
+        )
+
+        download_response = self.client.get(f"/api/commercial-offers/{offer_id}/download/output")
+        self.assertEqual(download_response.status_code, 404)
+
+        delete_response = self.client.delete(f"/api/commercial-offers/{offer_id}")
+        self.assertEqual(delete_response.status_code, 200, delete_response.text)
+        self.assertTrue(external_file.exists())
 
 
 class CommercialOfferUiTest(unittest.TestCase):

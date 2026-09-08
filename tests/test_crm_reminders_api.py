@@ -52,6 +52,23 @@ class CrmRemindersApiTest(unittest.TestCase):
         self.assertEqual(201, aware.status_code, aware.text)
         self.assertEqual("2026-09-10T07:00:00Z", aware.json()["reminder"]["dueAt"])
 
+    def test_initialize_migrates_legacy_naive_moscow_reminder_timestamps_to_utc(self) -> None:
+        _client_id, reminder = self.create_client_and_reminder()
+        with self.service.db.transaction() as conn:
+            conn.execute("UPDATE crm_reminders SET due_at = ? WHERE id = ?", ("2026-09-10T10:00:00", reminder["id"]))
+            conn.execute(
+                "INSERT INTO crm_reminder_history(crm_reminder_id, actor_user_id, old_due_at, new_due_at, created_at) VALUES (?, ?, ?, ?, ?)",
+                (reminder["id"], self.owner_id, "2026-09-09T10:00:00", "2026-09-10T10:00:00", "2026-09-08T10:00:00Z"),
+            )
+
+        self.service.db.initialize()
+
+        with self.service.db.connect() as conn:
+            reminder_row = conn.execute("SELECT due_at FROM crm_reminders WHERE id = ?", (reminder["id"],)).fetchone()
+            history_row = conn.execute("SELECT old_due_at, new_due_at FROM crm_reminder_history WHERE crm_reminder_id = ?", (reminder["id"],)).fetchone()
+        self.assertEqual("2026-09-10T07:00:00Z", reminder_row["due_at"])
+        self.assertEqual(("2026-09-09T07:00:00Z", "2026-09-10T07:00:00Z"), (history_row["old_due_at"], history_row["new_due_at"]))
+
     def test_owner_reschedules_active_reminder_and_receives_immutable_history(self) -> None:
         _client_id, reminder = self.create_client_and_reminder()
 

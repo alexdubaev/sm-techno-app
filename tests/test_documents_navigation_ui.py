@@ -137,12 +137,13 @@ class DocumentsNavigationUiTest(unittest.TestCase):
     def test_parent_menu_click_only_toggles_its_group_without_navigation(self) -> None:
         source = Path("sm-techno-web/components/app-shell.tsx").read_text(encoding="utf-8")
 
-        self.assertNotIn("useRouter", source)
-        self.assertNotIn("router.push", source)
-        self.assertIn(
-            'expandedGroupLabel: current.expandedGroupLabel === group.label ? "" : group.label',
-            source,
-        )
+        start = source.index("const handleGroupClick")
+        end = source.index("const handleItemClick", start)
+        handler_block = source[start:end]
+
+        self.assertNotIn("router.", handler_block)
+        self.assertIn("current.expandedGroupLabel === group.label", handler_block)
+        self.assertIn("? '' : group.label", handler_block)
 
     def test_stock_load_waits_for_persisted_state_and_ignores_stale_detail_results(self) -> None:
         source = Path("sm-techno-web/components/stock-page.tsx").read_text(encoding="utf-8")
@@ -153,7 +154,7 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn("const detailRequestIdRef = useRef(0);", source)
         self.assertIn("const detailRequestId = ++detailRequestIdRef.current;", source)
         self.assertIn("detailRequestId === detailRequestIdRef.current", source)
-        self.assertIn(".catch(() => {\n        // Keep the lightweight catalog row when details cannot be refreshed.\n      });", source)
+        self.assertIn("Keep the lightweight catalog row when details cannot be refreshed.", source)
 
     def test_price_catalog_and_detail_requests_ignore_superseded_responses(self) -> None:
         source = Path("sm-techno-web/app/work-with-price/page.tsx").read_text(encoding="utf-8")

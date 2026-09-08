@@ -183,6 +183,8 @@ export function StockPage() {
     DEFAULT_STATE.selectedCatalogRowKey,
   );
   const selectionClearedRef = useRef(DEFAULT_STATE.selectionCleared);
+  const catalogRequestIdRef = useRef(0);
+  const detailRequestIdRef = useRef(0);
   const mobileDetailRequestTrackerRef = useRef(createLatestRequestTracker());
 
   useEffect(() => {
@@ -337,7 +339,12 @@ export function StockPage() {
   }, [activeWarehouseId, warehouses]);
 
   useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
     let cancelled = false;
+    const catalogRequestId = ++catalogRequestIdRef.current;
 
     setIsLoading(true);
     setError(null);
@@ -352,7 +359,7 @@ export function StockPage() {
       sortOrder,
     })
       .then(async (response) => {
-        if (cancelled) {
+        if (cancelled || catalogRequestId !== catalogRequestIdRef.current) {
           return;
         }
 
@@ -368,7 +375,7 @@ export function StockPage() {
         if (response.items.length === 0) {
           if (selectedItemIdRef.current !== null) {
             const persisted = await fetchStockItem(selectedItemIdRef.current);
-            if (!cancelled) {
+            if (!cancelled && catalogRequestId === catalogRequestIdRef.current) {
               setSelectedItem(persisted);
               if (!persisted) {
                 setSelectedItemId(null);
@@ -405,16 +412,25 @@ export function StockPage() {
           setSelectedItemId(matched.id);
           setSelectedCatalogRowKey(getCatalogRowKey(matched));
           setSelectedItem(matched);
-          void fetchStockItem(matched.id).then((detailedItem) => {
-            if (!cancelled && detailedItem) {
-              setSelectedItem(detailedItem);
-            }
-          });
+          const detailRequestId = ++detailRequestIdRef.current;
+          void fetchStockItem(matched.id)
+            .then((detailedItem) => {
+              if (
+                !cancelled &&
+                detailRequestId === detailRequestIdRef.current &&
+                detailedItem
+              ) {
+                setSelectedItem(detailedItem);
+              }
+            })
+            .catch(() => {
+              // Keep the lightweight catalog row when details cannot be refreshed.
+            });
           return;
         }
 
         const persisted = await fetchStockItem(selectedItemIdRef.current);
-        if (!cancelled) {
+        if (!cancelled && catalogRequestId === catalogRequestIdRef.current) {
           setSelectedItem(persisted);
           if (!persisted) {
             setSelectedItemId(null);
@@ -439,6 +455,7 @@ export function StockPage() {
   }, [
     activeWarehouseId,
     category,
+    isHydrated,
     onlyInStock,
     page,
     pageSize,

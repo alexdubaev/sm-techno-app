@@ -1,7 +1,11 @@
 ﻿from __future__ import annotations
 
+import math
+import json
 import os
+import secrets
 import sqlite3
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -60,6 +64,7 @@ CREATE TABLE IF NOT EXISTS items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     onec_key TEXT UNIQUE,
     sku TEXT,
+    sku_normalized TEXT,
     name TEXT NOT NULL,
     print_name TEXT,
     category_name TEXT,
@@ -117,6 +122,9 @@ CREATE TABLE IF NOT EXISTS orders (
     onec_ref_key TEXT,
     onec_number TEXT,
     onec_date TEXT,
+    sync_attempt_key TEXT,
+    remote_attempted_at TEXT,
+    remote_created_at TEXT,
     total_amount REAL NOT NULL DEFAULT 0,
     error_message TEXT,
     created_at TEXT NOT NULL,
@@ -152,6 +160,26 @@ CREATE TABLE IF NOT EXISTS stock_movements (
     FOREIGN KEY(item_id) REFERENCES items(id),
     FOREIGN KEY(order_id) REFERENCES orders(id)
 );
+
+CREATE TABLE IF NOT EXISTS order_reservations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    warehouse_id INTEGER NOT NULL,
+    quantity REAL NOT NULL CHECK(quantity > 0),
+    created_at TEXT NOT NULL,
+    UNIQUE(order_id, item_id, warehouse_id),
+    FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY(item_id) REFERENCES items(id),
+    FOREIGN KEY(warehouse_id) REFERENCES warehouses(id)
+);
+
+CREATE TABLE IF NOT EXISTS order_sync_finalizations (
+    order_id INTEGER PRIMARY KEY,
+    finalized_at TEXT NOT NULL,
+    FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE
+);
+
 """
 
 
@@ -203,6 +231,94 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN unit_name TEXT")
         if "created_at" not in item_columns:
             conn.execute("ALTER TABLE items ADD COLUMN created_at TEXT")
+        if "sku_normalized" not in item_columns:
+            conn.execute("ALTER TABLE items ADD COLUMN sku_normalized TEXT")
+        rows = conn.execute("SELECT id, sku FROM items WHERE COALESCE(sku_normalized, '') = ''").fetchall()
+        for row in rows:
+            conn.execute(
+                "UPDATE items SET sku_normalized = ? WHERE id = ?",
+                (self._normalize_stock_sku(row["sku"]), row["id"]),
+            )
+        sku_collisions = conn.execute(
+            """
+            SELECT sku_normalized, GROUP_CONCAT(id) AS item_ids
+            FROM items
+            WHERE sku_normalized IS NOT NULL AND sku_normalized <> ''
+            GROUP BY sku_normalized
+            HAVING COUNT(*) > 1
+            """
+        ).fetchall()
+        if sku_collisions:
+            collision_report: list[dict[str, Any]] = []
+            for collision in sku_collisions:
+                item_ids = [int(value) for value in str(collision["item_ids"]).split(",")]
+                keeper_id = min(item_ids)
+                duplicate_ids = [item_id for item_id in item_ids if item_id != keeper_id]
+                placeholders = ", ".join("?" for _ in duplicate_ids)
+                conn.execute(
+                    f"UPDATE items SET sku_normalized = NULL WHERE id IN ({placeholders})",
+                    duplicate_ids,
+                )
+                collision_report.append(
+                    {
+                        "sku": collision["sku_normalized"],
+                        "canonicalItemId": keeper_id,
+                        "duplicateItemIds": duplicate_ids,
+                    }
+                )
+            conn.execute(
+                """
+                INSERT INTO app_settings(key, value) VALUES('stock_sku_normalization_collisions', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (json.dumps(collision_report, ensure_ascii=False, sort_keys=True),),
+            )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_items_sku_normalized_not_empty "
+            "ON items(sku_normalized) WHERE sku_normalized IS NOT NULL AND sku_normalized <> ''"
+        )
+
+        order_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(orders)").fetchall()
+        }
+        order_migrations = {
+            "sync_attempt_key": "ALTER TABLE orders ADD COLUMN sync_attempt_key TEXT",
+            "remote_attempted_at": "ALTER TABLE orders ADD COLUMN remote_attempted_at TEXT",
+            "remote_created_at": "ALTER TABLE orders ADD COLUMN remote_created_at TEXT",
+        }
+        for column, statement in order_migrations.items():
+            if column not in order_columns:
+                conn.execute(statement)
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_sync_attempt_key
+            ON orders(sync_attempt_key)
+            WHERE sync_attempt_key IS NOT NULL AND sync_attempt_key <> ''
+            """
+        )
+        conn.execute(
+            """
+            UPDATE orders
+            SET status = 'remote_state_unknown',
+                error_message = COALESCE(NULLIF(error_message, ''), 'Статус старой отправки в 1С требует сверки.'),
+                updated_at = ?
+            WHERE status = 'posting_to_1c'
+            """,
+            (utc_now(),),
+        )
+        conn.execute(
+            """
+            UPDATE orders
+            SET status = CASE
+                    WHEN COALESCE(onec_ref_key, '') <> '' THEN 'remote_created_pending_finalize'
+                    ELSE 'error_before_remote_write'
+                END,
+                updated_at = ?
+            WHERE status = 'error'
+            """,
+            (utc_now(),),
+        )
 
         created_at_backfill_key = "migration.items_created_at_backfilled"
         if not migration_completed(created_at_backfill_key):
@@ -472,9 +588,10 @@ class Database:
             if not isinstance(raw_row, dict):
                 continue
 
-            quantity = float(raw_row.get("quantity") or 0)
-            if quantity < 0:
-                raise ValueError("Остаток по складу не может быть отрицательным.")
+            quantity = self._require_finite_nonnegative(
+                raw_row.get("quantity") or 0,
+                label="Остаток по складу",
+            )
 
             raw_warehouse_id = raw_row.get("warehouse_id", raw_row.get("warehouseId"))
             warehouse_id: int | None = None
@@ -508,7 +625,10 @@ class Database:
                     raise ValueError(
                         "Один артикул на одном складе не может иметь разные места хранения."
                     )
-                existing["quantity"] += quantity
+                existing["quantity"] = self._require_finite_nonnegative(
+                    existing["quantity"] + quantity,
+                    label="Остаток по складу",
+                )
                 if rack_provided:
                     existing["rack"] = rack
                     existing["rack_provided"] = True
@@ -607,15 +727,19 @@ class Database:
         ]
 
     def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=5)
         conn.row_factory = sqlite3.Row
+        conn.create_function("casefold", 1, lambda value: str(value or "").casefold(), deterministic=True)
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA busy_timeout = 5000")
         return conn
 
     @contextmanager
-    def transaction(self) -> Iterable[sqlite3.Connection]:
+    def transaction(self, *, immediate: bool = False) -> Iterable[sqlite3.Connection]:
         conn = self.connect()
         try:
+            if immediate:
+                conn.execute("BEGIN IMMEDIATE")
             yield conn
             conn.commit()
         except Exception:
@@ -624,9 +748,35 @@ class Database:
         finally:
             conn.close()
 
+    @contextmanager
+    def _stock_transaction(self) -> Iterable[sqlite3.Connection]:
+        try:
+            with self.transaction(immediate=True) as conn:
+                yield conn
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                raise ValueError("Склад временно занят. Повторите операцию.") from exc
+            raise
+
     @staticmethod
     def _rows_to_dicts(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
+
+    @staticmethod
+    def _require_finite_nonnegative(value: float, *, label: str) -> float:
+        normalized = float(value)
+        if not math.isfinite(normalized):
+            raise ValueError(f"{label} должно быть конечным числом.")
+        if normalized < 0:
+            raise ValueError(f"{label} не может быть отрицательным.")
+        return normalized
+
+    @classmethod
+    def _require_finite_positive(cls, value: float, *, label: str) -> float:
+        normalized = cls._require_finite_nonnegative(value, label=label)
+        if normalized <= 0:
+            raise ValueError(f"{label} должно быть больше нуля.")
+        return normalized
 
     @staticmethod
     def _normalize_guid(value: str | None) -> str | None:
@@ -824,8 +974,8 @@ class Database:
                 return row
         if sku:
             row = conn.execute(
-                f"SELECT * FROM items WHERE sku = ?{local_clause}",
-                (sku,),
+                f"SELECT * FROM items WHERE sku_normalized = ?{local_clause}",
+                (self._normalize_stock_sku(sku),),
             ).fetchone()
             if row:
                 return row
@@ -836,22 +986,50 @@ class Database:
             ).fetchone()
         return None
 
+    @staticmethod
+    def _normalize_stock_sku(value: Any) -> str:
+        return unicodedata.normalize("NFKC", str(value or "")).strip().casefold()
+
     def import_stock_rows(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
-        self._validate_unique_storage_locations(rows)
+        validated_rows: list[dict[str, Any]] = []
+        for raw_row in rows:
+            row = dict(raw_row)
+            row["price"] = self._require_finite_nonnegative(row["price"], label="Цена")
+            row["quantity"] = self._require_finite_nonnegative(
+                row["quantity"],
+                label="Остаток по складу",
+            )
+            validated_rows.append(row)
+
+        self._validate_unique_storage_locations(validated_rows)
         created = 0
         updated = 0
         now = utc_now()
-        with self.transaction() as conn:
-            for row in rows:
+        with self._stock_transaction() as conn:
+            for row in validated_rows:
                 onec_key = self._normalize_guid(row.get("onec_key"))
                 unit_key = self._normalize_guid(row.get("unit_key"))
-                existing = self._find_existing_item(
+                existing_by_onec = self._find_existing_item(
                     conn,
                     onec_key=onec_key,
+                    sku=None,
+                    name=None,
+                    match_by_name=False,
+                )
+                existing_by_sku = self._find_existing_item(
+                    conn,
+                    onec_key=None,
                     sku=row.get("sku"),
                     name=row.get("name"),
                     match_by_name=False,
                 )
+                if (
+                    existing_by_onec is not None
+                    and existing_by_sku is not None
+                    and existing_by_onec["id"] != existing_by_sku["id"]
+                ):
+                    raise ValueError("1С-ключ и артикул указывают на разные товары.")
+                existing = existing_by_onec or existing_by_sku
                 if existing:
                     item_id = existing["id"]
                     conn.execute(
@@ -859,6 +1037,7 @@ class Database:
                         UPDATE items
                         SET onec_key = COALESCE(?, onec_key),
                             sku = COALESCE(NULLIF(?, ''), sku),
+                            sku_normalized = COALESCE(NULLIF(?, ''), sku_normalized),
                             name = ?,
                             print_name = COALESCE(NULLIF(?, ''), ?),
                             category_name = COALESCE(NULLIF(?, ''), category_name),
@@ -873,6 +1052,7 @@ class Database:
                         (
                             onec_key,
                             row.get("sku"),
+                            self._normalize_stock_sku(row.get("sku")),
                             row["name"],
                             row.get("print_name"),
                             row["name"],
@@ -890,14 +1070,15 @@ class Database:
                     cursor = conn.execute(
                         """
                         INSERT INTO items(
-                            onec_key, sku, name, print_name, category_name, group_name,
+                            onec_key, sku, sku_normalized, name, print_name, category_name, group_name,
                             unit_key, unit_name, price, is_local, created_at, updated_at
                         )
-                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             onec_key,
                             row.get("sku"),
+                            self._normalize_stock_sku(row.get("sku")),
                             row["name"],
                             row.get("print_name") or row["name"],
                             row.get("category_name"),
@@ -942,6 +1123,24 @@ class Database:
                         1 if cell_provided else 0,
                     ),
                 )
+        return created, updated
+
+    def preview_stock_import_rows(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
+        created = 0
+        updated = 0
+        with self.connect() as conn:
+            for row in rows:
+                existing = self._find_existing_item(
+                    conn,
+                    onec_key=self._normalize_guid(row.get("onec_key")),
+                    sku=row.get("sku"),
+                    name=None,
+                    match_by_name=False,
+                )
+                if existing is None:
+                    created += 1
+                else:
+                    updated += 1
         return created, updated
 
     def import_storage_location_rows(self, rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -1229,6 +1428,51 @@ class Database:
             ).fetchall()
         return self._rows_to_dicts(rows)
 
+    def query_stock_catalog(self, *, search: str = "", category: str = "", warehouse_id: int | None = None,
+                            only_in_stock: bool = False, page: int = 1, page_size: int = 20,
+                            sort_order: str = "newest") -> dict[str, Any]:
+        page = max(1, int(page))
+        page_size = max(1, min(int(page_size), 100))
+        row_filter, item_filter, params = "", "", []
+        if warehouse_id is not None:
+            row_filter, item_filter = " AND iwb.warehouse_id = ?", " AND row_balances.item_id IS NOT NULL"
+            params.append(int(warehouse_id))
+        where = ["i.is_local = 1" + item_filter]
+        if search.strip():
+            where.append("casefold(COALESCE(i.sku, '') || ' ' || i.name || ' ' || COALESCE(i.print_name, '') || ' ' || COALESCE(i.category_name, '') || ' ' || COALESCE(i.group_name, '')) LIKE ?")
+            params.append(f"%{search.strip().casefold()}%")
+        if category.strip():
+            where.append("COALESCE(i.category_name, '') = ?")
+            params.append(category.strip())
+        if only_in_stock:
+            where.append("COALESCE(row_balances.row_quantity, 0) > 0")
+        order = "created_at ASC, id ASC" if sort_order == "oldest" else "created_at DESC, id DESC"
+        cte = f"""
+            WITH row_balances AS (
+                SELECT iwb.item_id, iwb.warehouse_id, w.name AS row_warehouse_name, iwb.quantity AS row_quantity, iwb.rack AS row_rack, iwb.cell AS row_cell
+                FROM item_warehouse_balances iwb JOIN warehouses w ON w.id = iwb.warehouse_id
+                WHERE w.is_active = 1 AND iwb.quantity > 0 {row_filter}
+            ), agg AS (
+                SELECT iwb.item_id, SUM(iwb.quantity) AS quantity, COUNT(*) AS warehouse_count,
+                       GROUP_CONCAT(w.name, ', ') AS warehouse_summary
+                FROM item_warehouse_balances iwb JOIN warehouses w ON w.id = iwb.warehouse_id
+                WHERE w.is_active = 1 AND iwb.quantity > 0 GROUP BY iwb.item_id
+            ), catalog AS (
+                SELECT i.id, i.onec_key, i.sku, i.name, i.print_name, i.category_name, i.group_name, i.unit_key, i.unit_name, i.price, i.created_at,
+                       COALESCE(agg.quantity, 0) AS quantity, COALESCE(agg.warehouse_count, 0) AS warehouse_count,
+                       COALESCE(agg.warehouse_summary, '') AS warehouse_summary, row_balances.warehouse_id AS row_warehouse_id,
+                       COALESCE(row_balances.row_warehouse_name, '') AS row_warehouse_name, COALESCE(row_balances.row_quantity, 0) AS row_quantity,
+                       row_balances.row_rack, row_balances.row_cell
+                FROM items i LEFT JOIN row_balances ON row_balances.item_id = i.id LEFT JOIN agg ON agg.item_id = i.id
+                WHERE {' AND '.join(where)}
+            )
+        """
+        with self.connect() as conn:
+            total_row = conn.execute(cte + "SELECT COUNT(*) AS total, COALESCE(SUM(row_quantity), 0) AS quantity FROM catalog", params).fetchone()
+            rows = conn.execute(cte + f"SELECT * FROM catalog ORDER BY {order}, row_warehouse_name COLLATE NOCASE LIMIT ? OFFSET ?", [*params, page_size, (page - 1) * page_size]).fetchall()
+            facets = conn.execute(cte + "SELECT DISTINCT category_name, group_name FROM catalog", params).fetchall()
+        return {"items": [self._attach_location_label(row, rack_key="row_rack", cell_key="row_cell", label_key="row_location_label") for row in self._rows_to_dicts(rows)], "total": int(total_row["total"]), "filtered_quantity": float(total_row["quantity"]), "categories": sorted({str(row["category_name"] or "").strip() for row in facets if str(row["category_name"] or "").strip()}, key=str.lower), "groups": sorted({str(row["group_name"] or "").strip() for row in facets if str(row["group_name"] or "").strip()}, key=str.lower)}
+
     def list_warehouses(self, *, active_only: bool = True) -> list[dict[str, Any]]:
         with self.connect() as conn:
             query = """
@@ -1399,14 +1643,16 @@ class Database:
         normalized_print_name = print_name.strip() or normalized_name
         normalized_category_name = category_name.strip()
         normalized_group_name = group_name.strip()
+        normalized_price = self._require_finite_nonnegative(price, label="Цена")
         now = utc_now()
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             existing = self._find_existing_item(
                 conn,
                 onec_key=None,
                 sku=normalized_sku or None,
                 name=normalized_name,
+                match_by_name=False,
             )
 
             if existing:
@@ -1415,6 +1661,7 @@ class Database:
                     """
                     UPDATE items
                     SET sku = ?,
+                        sku_normalized = ?,
                         name = ?,
                         print_name = ?,
                         category_name = ?,
@@ -1426,11 +1673,12 @@ class Database:
                     """,
                     (
                         normalized_sku or None,
+                        self._normalize_stock_sku(normalized_sku) or None,
                         normalized_name,
                         normalized_print_name,
                         normalized_category_name or None,
                         normalized_group_name or None,
-                        price,
+                        normalized_price,
                         now,
                         item_id,
                     ),
@@ -1439,17 +1687,18 @@ class Database:
                 cursor = conn.execute(
                     """
                     INSERT INTO items(
-                        sku, name, print_name, category_name, group_name, price, is_local, created_at, updated_at
+                        sku, sku_normalized, name, print_name, category_name, group_name, price, is_local, created_at, updated_at
                     )
-                    VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
                     """,
                     (
                         normalized_sku or None,
+                        self._normalize_stock_sku(normalized_sku) or None,
                         normalized_name,
                         normalized_print_name,
                         normalized_category_name or None,
                         normalized_group_name or None,
-                        price,
+                        normalized_price,
                         now,
                         now,
                     ),
@@ -1489,13 +1738,15 @@ class Database:
         normalized_print_name = print_name.strip() or normalized_name
         normalized_category_name = category_name.strip()
         normalized_group_name = group_name.strip()
+        normalized_price = self._require_finite_nonnegative(price, label="Цена")
         now = utc_now()
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             conn.execute(
                 """
                 UPDATE items
                 SET sku = ?,
+                    sku_normalized = ?,
                     name = ?,
                     print_name = ?,
                     category_name = ?,
@@ -1507,11 +1758,12 @@ class Database:
                 """,
                 (
                     normalized_sku or None,
+                    self._normalize_stock_sku(normalized_sku) or None,
                     normalized_name,
                     normalized_print_name,
                     normalized_category_name or None,
                     normalized_group_name or None,
-                    price,
+                    normalized_price,
                     now,
                     item_id,
                 ),
@@ -1578,19 +1830,34 @@ class Database:
             item["warehouses"] = self._load_item_warehouses(conn, item_id=item_id, active_only=True)
         return item
 
-    def set_stock_quantity(self, item_id: int, quantity: float) -> None:
-        with self.transaction() as conn:
+    def set_stock_quantity(self, item_id: int, quantity: float, comment: str = "") -> None:
+        normalized_quantity = self._require_finite_nonnegative(quantity, label="Остаток")
+        with self._stock_transaction() as conn:
             default_warehouse_id = self._ensure_default_warehouse(conn)
-            conn.execute(
-                """
-                INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, updated_at)
-                VALUES(?, ?, ?, ?)
-                ON CONFLICT(item_id, warehouse_id) DO UPDATE SET
-                    quantity = excluded.quantity,
-                    updated_at = excluded.updated_at
-                """,
-                (item_id, default_warehouse_id, quantity, utc_now()),
+            current_quantity = self._get_warehouse_quantity(
+                conn,
+                item_id=item_id,
+                warehouse_id=default_warehouse_id,
             )
+            delta = normalized_quantity - current_quantity
+            if delta:
+                self._apply_stock_delta(
+                    conn,
+                    item_id=item_id,
+                    warehouse_id=default_warehouse_id,
+                    delta=delta,
+                    movement_type="adjustment",
+                    comment=comment.strip() or "Ручная корректировка остатка.",
+                    keep_zero=True,
+                )
+            else:
+                self._set_warehouse_quantity(
+                    conn,
+                    item_id=item_id,
+                    warehouse_id=default_warehouse_id,
+                    quantity=normalized_quantity,
+                    keep_zero=True,
+                )
 
     def add_item_stock(
         self,
@@ -1600,10 +1867,9 @@ class Database:
         quantity: int,
         comment: str = "",
     ) -> dict[str, Any]:
-        if quantity <= 0:
-            raise ValueError("Укажите количество больше нуля.")
+        amount = self._require_finite_positive(quantity, label="Количество")
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             item = conn.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
             if item is None:
                 raise ValueError("Товар не найден.")
@@ -1612,23 +1878,12 @@ class Database:
                 conn,
                 warehouse_id=warehouse_id,
             )
-            current_quantity = self._get_warehouse_quantity(
+            self._apply_stock_delta(
                 conn,
                 item_id=item_id,
                 warehouse_id=resolved_warehouse_id,
-            )
-            self._set_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=resolved_warehouse_id,
-                quantity=current_quantity + quantity,
-            )
-            self._record_stock_movement(
-                conn,
-                item_id=item_id,
-                warehouse_id=resolved_warehouse_id,
+                delta=amount,
                 movement_type="manual_add",
-                quantity=quantity,
                 comment=comment or f"Добавление остатка на склад '{warehouse_name}'.",
             )
 
@@ -1646,12 +1901,11 @@ class Database:
         quantity: int,
         comment: str = "",
     ) -> dict[str, Any]:
-        if quantity <= 0:
-            raise ValueError("Укажите количество больше нуля.")
+        amount = self._require_finite_positive(quantity, label="Количество")
         if from_warehouse_id == to_warehouse_id:
             raise ValueError("Склады отправления и получения должны отличаться.")
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             item = conn.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
             if item is None:
                 raise ValueError("Товар не найден.")
@@ -1665,52 +1919,23 @@ class Database:
                 warehouse_id=to_warehouse_id,
             )
 
-            available_quantity = self._get_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=source_warehouse_id,
-            )
-            if available_quantity < quantity:
-                raise ValueError(
-                    f"На складе '{source_warehouse_name}' доступно только {int(available_quantity)} шт."
-                )
-
-            self._set_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=source_warehouse_id,
-                quantity=available_quantity - quantity,
-            )
-
-            target_quantity = self._get_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=target_warehouse_id,
-            )
-            self._set_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=target_warehouse_id,
-                quantity=target_quantity + quantity,
-            )
-
             shared_comment = comment or (
                 f"Перемещение между складами: {source_warehouse_name} → {target_warehouse_name}."
             )
-            self._record_stock_movement(
+            self._apply_stock_delta(
                 conn,
                 item_id=item_id,
                 warehouse_id=source_warehouse_id,
+                delta=-amount,
                 movement_type="transfer_out",
-                quantity=quantity,
                 comment=shared_comment,
             )
-            self._record_stock_movement(
+            self._apply_stock_delta(
                 conn,
                 item_id=item_id,
                 warehouse_id=target_warehouse_id,
+                delta=amount,
                 movement_type="transfer_in",
-                quantity=quantity,
                 comment=shared_comment,
             )
 
@@ -1727,10 +1952,9 @@ class Database:
         quantity: int,
         comment: str = "",
     ) -> dict[str, Any]:
-        if quantity <= 0:
-            raise ValueError("Укажите количество больше нуля.")
+        amount = self._require_finite_positive(quantity, label="Количество")
 
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             item = conn.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
             if item is None:
                 raise ValueError("Товар не найден.")
@@ -1739,28 +1963,12 @@ class Database:
                 conn,
                 warehouse_id=warehouse_id,
             )
-            available_quantity = self._get_warehouse_quantity(
+            self._apply_stock_delta(
                 conn,
                 item_id=item_id,
                 warehouse_id=resolved_warehouse_id,
-            )
-            if available_quantity < quantity:
-                raise ValueError(
-                    f"На складе '{warehouse_name}' доступно только {int(available_quantity)} шт."
-                )
-
-            self._set_warehouse_quantity(
-                conn,
-                item_id=item_id,
-                warehouse_id=resolved_warehouse_id,
-                quantity=available_quantity - quantity,
-            )
-            self._record_stock_movement(
-                conn,
-                item_id=item_id,
-                warehouse_id=resolved_warehouse_id,
+                delta=-amount,
                 movement_type="writeoff",
-                quantity=quantity,
                 comment=comment or f"Списание со склада '{warehouse_name}'.",
             )
 
@@ -1793,10 +2001,11 @@ class Database:
         item_id: int,
         warehouse_id: int,
         quantity: float,
+        keep_zero: bool = False,
     ) -> None:
         now = utc_now()
-        normalized_quantity = max(0.0, float(quantity))
-        if normalized_quantity <= 0:
+        normalized_quantity = self._require_finite_nonnegative(quantity, label="Остаток")
+        if normalized_quantity <= 0 and not keep_zero:
             conn.execute(
                 """
                 DELETE FROM item_warehouse_balances
@@ -1817,6 +2026,81 @@ class Database:
             (item_id, warehouse_id, normalized_quantity, now),
         )
 
+    def _apply_stock_delta(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        item_id: int,
+        warehouse_id: int,
+        delta: float,
+        movement_type: str,
+        comment: str,
+        insufficient_message: str | None = None,
+        keep_zero: bool = False,
+    ) -> None:
+        amount = self._require_finite_positive(abs(float(delta)), label="Количество движения")
+        current_quantity = self._get_warehouse_quantity(
+            conn,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+        )
+        reservation_row = conn.execute(
+            """
+            SELECT COALESCE(SUM(r.quantity), 0) AS quantity
+            FROM order_reservations r
+            JOIN orders o ON o.id = r.order_id
+            WHERE r.item_id = ?
+              AND r.warehouse_id = ?
+              AND o.status IN ('reserved', 'sending_to_1c', 'remote_created_pending_finalize', 'remote_state_unknown')
+            """,
+            (item_id, warehouse_id),
+        ).fetchone()
+        reserved_quantity = float(reservation_row["quantity"])
+        available_quantity = current_quantity - reserved_quantity
+        if delta < 0:
+            cursor = conn.execute(
+                """
+                UPDATE item_warehouse_balances
+                SET quantity = quantity - ?, updated_at = ?
+                WHERE item_id = ?
+                  AND warehouse_id = ?
+                  AND quantity >= ?
+                """,
+                (amount, utc_now(), item_id, warehouse_id, amount + reserved_quantity),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError(
+                    insufficient_message
+                    or f"Недостаточно доступного остатка на складе: доступно {available_quantity}."
+                )
+            if not keep_zero:
+                conn.execute(
+                    """
+                    DELETE FROM item_warehouse_balances
+                    WHERE item_id = ? AND warehouse_id = ? AND quantity <= 0
+                    """,
+                    (item_id, warehouse_id),
+                )
+        else:
+            next_quantity = self._require_finite_nonnegative(
+                current_quantity + amount,
+                label="Остаток",
+            )
+            self._set_warehouse_quantity(
+                conn,
+                item_id=item_id,
+                warehouse_id=warehouse_id,
+                quantity=next_quantity,
+            )
+        self._record_stock_movement(
+            conn,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            movement_type=movement_type,
+            quantity=amount,
+            comment=comment,
+        )
+
     def _record_stock_movement(
         self,
         conn: sqlite3.Connection,
@@ -1827,6 +2111,7 @@ class Database:
         quantity: float,
         comment: str,
     ) -> None:
+        normalized_quantity = self._require_finite_positive(quantity, label="Количество движения")
         conn.execute(
             """
             INSERT INTO stock_movements(
@@ -1834,7 +2119,7 @@ class Database:
             )
             VALUES(?, NULL, ?, ?, ?, ?, ?)
             """,
-            (item_id, warehouse_id, movement_type, quantity, comment.strip(), utc_now()),
+            (item_id, warehouse_id, movement_type, normalized_quantity, comment.strip(), utc_now()),
         )
 
     def list_counterparties(self) -> list[dict[str, Any]]:
@@ -1975,6 +2260,110 @@ class Database:
                 )
         return order_id
 
+    def create_reserved_order(
+        self,
+        *,
+        counterparty_id: int,
+        contract_id: int | None,
+        organization_key: str | None,
+        order_date: str,
+        comment: str,
+        lines: list[dict[str, Any]],
+        attempt_key: str,
+        created_by_user_id: int | None = None,
+    ) -> int:
+        if not lines:
+            raise ValueError("Добавь хотя бы одну строку в заказ.")
+        now = utc_now()
+        total_amount = round(sum(float(line["amount"]) for line in lines), 2)
+        local_number = f"LOC-{datetime.utcnow():%Y%m%d-%H%M%S}-{secrets.token_hex(2).upper()}"
+        reserved_lines: dict[tuple[int, int], float] = {}
+        with self.transaction(immediate=True) as conn:
+            default_warehouse_id = self._ensure_default_warehouse(conn)
+            for line in lines:
+                item_id = int(line["item_id"])
+                warehouse_id = int(line.get("warehouse_id") or default_warehouse_id)
+                quantity = float(line["quantity"])
+                if quantity <= 0:
+                    raise ValueError("Количество в заказе должно быть больше нуля.")
+                key = (item_id, warehouse_id)
+                reserved_lines[key] = reserved_lines.get(key, 0.0) + quantity
+
+            for (item_id, warehouse_id), quantity in reserved_lines.items():
+                balance = conn.execute(
+                    "SELECT COALESCE(quantity, 0) AS quantity FROM item_warehouse_balances WHERE item_id = ? AND warehouse_id = ?",
+                    (item_id, warehouse_id),
+                ).fetchone()
+                reservations = conn.execute(
+                    "SELECT COALESCE(SUM(quantity), 0) AS quantity FROM order_reservations WHERE item_id = ? AND warehouse_id = ?",
+                    (item_id, warehouse_id),
+                ).fetchone()
+                available = float(balance["quantity"] if balance else 0) - float(reservations["quantity"])
+                if available < quantity:
+                    raise ValueError(
+                        "Недостаточно доступного остатка для резервирования заказа. "
+                        f"Item ID: {item_id}, склад ID: {warehouse_id}, доступно {available}, требуется {quantity}."
+                    )
+
+            cursor = conn.execute(
+                """
+                INSERT INTO orders(
+                    local_number, counterparty_id, contract_id, organization_key,
+                    order_date, comment, status, sync_attempt_key, total_amount,
+                    created_at, updated_at, created_by_user_id
+                ) VALUES(?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?, ?, ?)
+                """,
+                (
+                    local_number, counterparty_id, contract_id, organization_key,
+                    order_date, comment, attempt_key, total_amount, now, now, created_by_user_id,
+                ),
+            )
+            order_id = int(cursor.lastrowid)
+            for line in lines:
+                warehouse_id = int(line.get("warehouse_id") or default_warehouse_id)
+                warehouse = conn.execute("SELECT name FROM warehouses WHERE id = ?", (warehouse_id,)).fetchone()
+                location = conn.execute(
+                    "SELECT rack, cell FROM item_warehouse_balances WHERE item_id = ? AND warehouse_id = ?",
+                    (line["item_id"], warehouse_id),
+                ).fetchone()
+                conn.execute(
+                    """
+                    INSERT INTO order_lines(
+                        order_id, item_id, warehouse_id, warehouse_name_snapshot,
+                        rack_snapshot, cell_snapshot, quantity, price, amount
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        order_id, line["item_id"], warehouse_id,
+                        str(line.get("warehouse_name_snapshot") or line.get("warehouse_name") or (warehouse["name"] if warehouse else DEFAULT_WAREHOUSE_NAME)),
+                        self._clean_optional_text(location["rack"]) if location else None,
+                        self._clean_optional_text(location["cell"]) if location else None,
+                        line["quantity"], line["price"], line["amount"],
+                    ),
+                )
+            for (item_id, warehouse_id), quantity in reserved_lines.items():
+                conn.execute(
+                    "INSERT INTO order_reservations(order_id, item_id, warehouse_id, quantity, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (order_id, item_id, warehouse_id, quantity, now),
+                )
+        return order_id
+
+    def release_order_reservations(
+        self,
+        order_id: int,
+        *,
+        status: str,
+        error_message: str,
+    ) -> None:
+        if status != "error_before_remote_write":
+            raise ValueError("Резерв можно освободить только до отправки в 1С.")
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM order_reservations WHERE order_id = ?", (order_id,))
+            conn.execute(
+                "UPDATE orders SET status = ?, error_message = ?, updated_at = ? WHERE id = ?",
+                (status, error_message[:4000], utc_now(), order_id),
+            )
+
     def get_order_bundle(self, order_id: int) -> dict[str, Any]:
         with self.connect() as conn:
             order = conn.execute(
@@ -2049,17 +2438,41 @@ class Database:
         onec_date: str,
     ) -> None:
         now = utc_now()
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
+            order = conn.execute(
+                "SELECT status FROM orders WHERE id = ?",
+                (order_id,),
+            ).fetchone()
+            if order is None:
+                raise ValueError(f"Order {order_id} not found")
+            if str(order["status"] or "") == "posted_to_1c":
+                return
+            if str(order["status"] or "") != "remote_created_pending_finalize":
+                raise ValueError("Заказ нельзя финализировать в текущем статусе.")
+            already_finalized = conn.execute(
+                "SELECT 1 FROM order_sync_finalizations WHERE order_id = ?",
+                (order_id,),
+            ).fetchone()
+            if already_finalized is not None:
+                conn.execute(
+                    """
+                    UPDATE orders
+                    SET status = 'posted_to_1c', error_message = NULL, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (now, order_id),
+                )
+                return
             lines = conn.execute(
                 """
                 SELECT
-                    item_id,
-                    warehouse_id,
-                    COALESCE(warehouse_name_snapshot, ?) AS warehouse_name_snapshot,
-                    SUM(quantity) AS quantity
-                FROM order_lines
-                WHERE order_id = ?
-                GROUP BY item_id, warehouse_id, warehouse_name_snapshot
+                    r.item_id,
+                    r.warehouse_id,
+                    COALESCE(w.name, ?) AS warehouse_name_snapshot,
+                    r.quantity
+                FROM order_reservations r
+                LEFT JOIN warehouses w ON w.id = r.warehouse_id
+                WHERE r.order_id = ?
                 """,
                 (DEFAULT_WAREHOUSE_NAME, order_id),
             ).fetchall()
@@ -2082,6 +2495,10 @@ class Database:
                         f"доступно {current_qty}, требуется {line['quantity']}."
                     )
 
+            conn.execute(
+                "INSERT INTO order_sync_finalizations(order_id, finalized_at) VALUES (?, ?)",
+                (order_id, now),
+            )
             for line in lines:
                 conn.execute(
                     """
@@ -2122,10 +2539,65 @@ class Database:
                 """,
                 (onec_ref_key, onec_number, onec_date, now, order_id),
             )
+            conn.execute("DELETE FROM order_reservations WHERE order_id = ?", (order_id,))
+
+    def record_remote_order(self, order_id: int, *, onec_ref_key: str) -> None:
+        if not str(onec_ref_key or "").strip():
+            raise ValueError("1С не вернула Ref_Key созданного заказа.")
+        with self.transaction() as conn:
+            order = conn.execute("SELECT status FROM orders WHERE id = ?", (order_id,)).fetchone()
+            if order is None:
+                raise ValueError(f"Order {order_id} not found")
+            if str(order["status"] or "") == "posted_to_1c":
+                return
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'remote_created_pending_finalize',
+                    onec_ref_key = ?, remote_created_at = ?, error_message = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (onec_ref_key, utc_now(), utc_now(), order_id),
+            )
+
+    def mark_order_sending_to_onec(self, order_id: int) -> None:
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE orders
+                SET status = 'sending_to_1c', remote_attempted_at = ?, error_message = NULL, updated_at = ?
+                WHERE id = ? AND status = 'reserved'
+                """,
+                (utc_now(), utc_now(), order_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Заказ нельзя отправить в 1С в текущем статусе.")
+
+    def mark_order_remote_unknown(self, order_id: int, error_message: str) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'remote_state_unknown', error_message = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (error_message[:4000], utc_now(), order_id),
+            )
+
+    def mark_order_pending_finalize_error(self, order_id: int, error_message: str) -> None:
+        with self.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'remote_created_pending_finalize', error_message = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (error_message[:4000], utc_now(), order_id),
+            )
 
     def writeoff_order_locally(self, order_id: int) -> None:
         now = utc_now()
-        with self.transaction() as conn:
+        with self._stock_transaction() as conn:
             order = conn.execute(
                 """
                 SELECT id, local_number, status
@@ -2142,6 +2614,12 @@ class Database:
                 raise ValueError("Заказ уже списан локально.")
             if status == "posted_to_1c":
                 raise ValueError("Заказ уже отправлен в 1С и повторно списывать его нельзя.")
+            if status in {
+                "sending_to_1c",
+                "remote_created_pending_finalize",
+                "remote_state_unknown",
+            }:
+                raise ValueError("Сначала нужно сверить состояние 1С; ручное списание запрещено.")
             if status not in {"posting_to_1c", "error"}:
                 raise ValueError("Заказ нельзя списать в текущем статусе.")
 

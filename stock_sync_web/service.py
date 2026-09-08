@@ -1,6 +1,8 @@
 ﻿from __future__ import annotations
 
 import json
+import hashlib
+import math
 import os
 import tempfile
 import re
@@ -15,6 +17,7 @@ from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounter
 from stock_sync_desktop.database import resolve_db_path
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.settings import DEFAULT_SETTINGS
+from stock_sync_web.vps_integrity import STORAGE_STAGING_DIR_NAME, storage_operation_lock
 
 CLIENT_PRICE_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templates" / "client_price_template.xlsx"
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -26,6 +29,22 @@ DOCUMENT_TEMPLATE_PATHS = {
 }
 DOCUMENT_STORAGE_DIR = ROOT_DIR / "storage" / "documents"
 CRM_LOCAL_ONLY_POLICY_MESSAGE = "CRM не отправляет клиентов или изменения в 1С; создание выполняется в разделе «Клиенты»."
+
+
+class CommercialOfferCleanupError(OSError):
+    def __init__(self, failures: list[tuple[Path, OSError]]) -> None:
+        self.failures = tuple(failures)
+        self.errors = tuple(error for _, error in failures)
+        details = "; ".join(f"{path}: {error}" for path, error in failures)
+        super().__init__(f"Не удалось очистить файлы КП: {details}")
+
+
+class DocumentCleanupError(OSError):
+    def __init__(self, failures: list[tuple[str, Exception]]) -> None:
+        self.failures = tuple(failures)
+        self.errors = tuple(error for _, error in failures)
+        details = "; ".join(f"{resource}: {error}" for resource, error in failures)
+        super().__init__(f"Не удалось завершить очистку документа: {details}")
 
 
 class WebStockSyncService:
@@ -52,8 +71,34 @@ class WebStockSyncService:
         self.document_exports_dir.mkdir(parents=True, exist_ok=True)
         self._crm_refresh_lock = Lock()
 
+    def _storage_operation_root(self) -> Path:
+        """Use the storage bind mount so host backups share this process lock."""
+        return self.commercial_offer_storage_dir.resolve().parent
+
     def bootstrap(self) -> bool:
         return self.db.ensure_default_admin()
+
+    def runtime_readiness(self) -> dict[str, str]:
+        """Check only local startup dependencies; 1C availability is not readiness."""
+        template_paths = [self.commercial_offer_template_path, *self.document_template_paths.values()]
+        missing = [str(path) for path in template_paths if not path.is_file()]
+        if missing:
+            raise RuntimeError(f"Required document template is missing: {missing[0]}")
+        for directory in (self.commercial_offer_storage_dir, self.document_storage_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=directory, prefix=".readiness-", delete=True):
+                pass
+        conn = self.db.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.rollback()
+        except Exception as error:
+            raise RuntimeError(f"SQLite database is not writable: {error}") from error
+        finally:
+            conn.close()
+        if self.db.user_count() == 0 and len(os.environ.get("SM_TECHNO_INITIAL_ADMIN_PASSWORD", "")) < 8:
+            raise RuntimeError("Initial administrator credentials are not configured.")
+        return {"status": "ready"}
 
     def get_system_settings(self) -> dict[str, str]:
         current = DEFAULT_SETTINGS.copy()
@@ -252,33 +297,56 @@ class WebStockSyncService:
         onec_username: str = "",
         onec_password: str = "",
     ) -> int:
+        _completed, count = self._sync_counterparty_pull(
+            user_id=user_id,
+            onec_username=onec_username,
+            onec_password=onec_password,
+        )
+        return count
+
+    def _sync_counterparty_pull(
+        self,
+        *,
+        user_id: int | None,
+        onec_username: str,
+        onec_password: str,
+    ) -> tuple[bool, int]:
+        """Fetch and reconcile one CRM pull under local and SQLite leases."""
+        if not self._crm_refresh_lock.acquire(blocking=False):
+            return False, 0
+        lease_token = uuid.uuid4().hex
+        lease_acquired = False
+        try:
+            if not self.db.acquire_crm_pull_lease(lease_token):
+                return False, 0
+            lease_acquired = True
+            rows = self._fetch_counterparty_rows(
+                user_id=user_id,
+                onec_username=onec_username,
+                onec_password=onec_password,
+            )
+            count = self.db.reconcile_crm_counterparty_pull(rows, owner_token=lease_token)
+            if count is None:
+                return False, 0
+            return True, count
+        finally:
+            if lease_acquired:
+                self.db.release_crm_pull_lease(lease_token)
+            self._crm_refresh_lock.release()
+
+    def _fetch_counterparty_rows(
+        self,
+        *,
+        user_id: int | None,
+        onec_username: str,
+        onec_password: str,
+    ) -> list[dict[str, Any]]:
         client = self.build_user_client(
             user_id=user_id,
             onec_username=onec_username,
             onec_password=onec_password,
         )
-        rows = client.list_counterparties()
-        count = self.db.upsert_counterparties(rows)
-        legacy_rows: list[dict[str, Any]] = []
-        for row in rows:
-            onec_key = str(row.get("onec_key") or "").strip()
-            counterparty = self.db.get_counterparty_by_onec_key(onec_key) if onec_key else None
-            card = self.db.get_crm_client_by_counterparty_id(int(counterparty["id"])) if counterparty else None
-            if not card:
-                legacy_rows.append(row)
-                continue
-            try:
-                self.db.merge_crm_client_fields_from_counterparty(int(card["id"]), row)
-            except ValueError:
-                legacy_rows.append(row)
-        if legacy_rows:
-            self.db.upsert_crm_clients_from_counterparties(legacy_rows)
-            for row in legacy_rows:
-                counterparty = self.db.get_counterparty_by_onec_key(str(row.get("onec_key") or ""))
-                card = self.db.get_crm_client_by_counterparty_id(int(counterparty["id"])) if counterparty else None
-                if card:
-                    self.db.update_crm_client_sync_state(int(card["id"]), sync_status="synced", synced=True)
-        return count
+        return client.list_counterparties()
 
     def get_crm_sync_status(self) -> dict[str, str]:
         values = self.db.get_settings()
@@ -298,10 +366,12 @@ class WebStockSyncService:
         A coalesced caller returns immediately and reloads the local CRM data
         being refreshed by the request that owns the lock.
         """
-        if not self._crm_refresh_lock.acquire(blocking=False):
-            return {"status": "coalesced", "counterparties": 0}
         try:
-            result = self.sync_counterparties(user_id=int(user_id))
+            completed, result = self._sync_counterparty_pull(
+                user_id=int(user_id), onec_username="", onec_password=""
+            )
+            if not completed:
+                return {"status": "coalesced", "counterparties": 0}
             self._save_crm_sync_status(
                 status="synced",
                 last_sync_at=datetime.now(timezone.utc).isoformat(),
@@ -310,8 +380,6 @@ class WebStockSyncService:
         except Exception:
             self._save_crm_sync_status(status="error")
             raise
-        finally:
-            self._crm_refresh_lock.release()
 
     def run_due_crm_sync_jobs(self, *, limit: int = 20) -> dict[str, int]:
         """Block legacy CRM outbox jobs without constructing a 1C client."""
@@ -497,6 +565,35 @@ class WebStockSyncService:
             "locationSkipped": location_result["skipped"],
         }
 
+    def preview_stock_excel(self, path: str | Path) -> dict[str, Any]:
+        from stock_sync_desktop.excel_tools import read_stock_import_bundle
+
+        import_bundle = read_stock_import_bundle(path)
+        stock_rows = import_bundle["stock_rows"]
+        created, updated = self.db.preview_stock_import_rows(stock_rows)
+        plan_hash = self._stock_import_plan_hash(import_bundle)
+        return {
+            "planHash": plan_hash,
+            "created": created,
+            "updated": updated,
+            "unchanged": 0,
+            "locationUpdated": len(import_bundle["location_rows"]),
+            "errors": [],
+        }
+
+    def commit_stock_excel(self, path: str | Path, expected_plan_hash: str) -> dict[str, int]:
+        from stock_sync_desktop.excel_tools import read_stock_import_bundle
+
+        import_bundle = read_stock_import_bundle(path)
+        if self._stock_import_plan_hash(import_bundle) != expected_plan_hash:
+            raise ValueError("Импортируемый файл изменился после проверки. Проверьте его заново.")
+        return self.import_stock_excel(path)
+
+    @staticmethod
+    def _stock_import_plan_hash(import_bundle: dict[str, list[dict[str, Any]]]) -> str:
+        payload = json.dumps(import_bundle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
     def create_template_bytes(self) -> bytes:
         from stock_sync_desktop.excel_tools import create_import_template
 
@@ -611,36 +708,24 @@ class WebStockSyncService:
         page_size: int = 20,
         sort_order: str = "newest",
     ) -> dict[str, Any]:
-        rows, categories, groups = self._filter_catalog_rows(
-            search=search,
-            category=category,
-            warehouse_id=warehouse_id,
-            only_in_stock=only_in_stock,
-            split_by_warehouse=True,
-            sort_order=sort_order,
-        )
-        total = len(rows)
-        total_quantity = round(
-            sum(float(row.get("row_quantity", row.get("quantity") or 0) or 0) for row in rows),
-            2,
-        )
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
-        start = (page - 1) * page_size
-        end = start + page_size
-        page_rows = rows[start:end]
+        catalog = self.db.query_stock_catalog(
+            search=search, category=category, warehouse_id=warehouse_id,
+            only_in_stock=only_in_stock, page=page, page_size=page_size, sort_order=sort_order,
+        )
 
         return {
-            "items": page_rows,
-            "total": total,
+            "items": catalog["items"],
+            "total": catalog["total"],
             "page": page,
             "page_size": page_size,
-            "categories": categories,
-            "groups": groups,
+            "categories": catalog["categories"],
+            "groups": catalog["groups"],
             "summary": {
-                "catalog_count": len(self.db.list_items(split_by_warehouse=True)),
-                "filtered_count": total,
-                "filtered_quantity": total_quantity,
+                "catalog_count": self.db.count_catalog_rows(),
+                "filtered_count": catalog["total"],
+                "filtered_quantity": round(catalog["filtered_quantity"], 2),
             },
         }
 
@@ -1217,32 +1302,49 @@ class WebStockSyncService:
         safe_source_name = self._safe_filename(original_filename)
         stored_source = self.commercial_offer_uploads_dir / f"{file_id}_{safe_source_name}"
         output_path = self.commercial_offer_exports_dir / f"{file_id}_{self._safe_filename('КП_' + offer_number + '.xlsx')}"
-        shutil.copyfile(source_path, stored_source)
-
+        staged_source = self._commercial_offer_staging_path(stored_source)
+        staged_output = self._commercial_offer_staging_path(output_path)
         offer_date = date.today()
-        generate_commercial_offer_workbook(
-            template_path=self.commercial_offer_template_path,
-            output_path=output_path,
-            lines=lines,
-            offer_number=offer_number,
-            client_name=client["client_name"],
-            offer_date=offer_date,
-        )
-        offer_id = self.db.create_commercial_offer(
-            number=offer_number,
-            client_source=client["client_source"],
-            counterparty_id=client["counterparty_id"],
-            crm_client_id=client["crm_client_id"],
-            client_name=client["client_name"],
-            offer_date=offer_date.isoformat(),
-            source_filename=original_filename,
-            source_path=self._store_path(stored_source),
-            output_path=self._store_path(output_path),
-            notes=notes,
-            lines=[self._line_to_db(line) for line in lines],
-            created_by_user_id=created_by_user_id,
-        )
-        return self.db.get_commercial_offer_bundle(offer_id)
+        offer_id: int | None = None
+        try:
+            shutil.copyfile(source_path, staged_source)
+            generate_commercial_offer_workbook(
+                template_path=self.commercial_offer_template_path,
+                output_path=staged_output,
+                lines=lines,
+                offer_number=offer_number,
+                client_name=client["client_name"],
+                offer_date=offer_date,
+            )
+            with storage_operation_lock(self._storage_operation_root()):
+                offer_id = self.db.create_commercial_offer(
+                    number=offer_number,
+                    client_source=client["client_source"],
+                    counterparty_id=client["counterparty_id"],
+                    crm_client_id=client["crm_client_id"],
+                    client_name=client["client_name"],
+                    offer_date=offer_date.isoformat(),
+                    source_filename=original_filename,
+                    source_path=self._store_path(stored_source),
+                    output_path=self._store_path(output_path),
+                    notes=notes,
+                    lines=[self._line_to_db(line) for line in lines],
+                    created_by_user_id=created_by_user_id,
+                )
+                staged_source.replace(stored_source)
+                staged_output.replace(output_path)
+                return self.db.get_commercial_offer_bundle(offer_id)
+        except Exception as exc:
+            with storage_operation_lock(self._storage_operation_root()):
+                if offer_id is not None:
+                    try:
+                        self.db.delete_commercial_offer(offer_id)
+                    except Exception:
+                        pass
+                cleanup_failures = self._cleanup_commercial_offer_paths(staged_source, staged_output, stored_source, output_path)
+            if cleanup_failures:
+                raise exc from CommercialOfferCleanupError(cleanup_failures)
+            raise
 
     def create_commercial_offer_from_draft(
         self,
@@ -1267,30 +1369,46 @@ class WebStockSyncService:
         offer_number = f"КП-{now:%Y%m%d-%H%M%S}"
         file_id = uuid.uuid4().hex[:12]
         output_path = self.commercial_offer_exports_dir / f"{file_id}_{self._safe_filename(offer_number + '.xlsx')}"
+        staged_output = self._commercial_offer_staging_path(output_path)
         offer_date = date.today()
-        generate_commercial_offer_workbook(
-            template_path=self.commercial_offer_template_path,
-            output_path=output_path,
-            lines=parsed_lines,
-            offer_number=offer_number,
-            client_name=client["client_name"],
-            offer_date=offer_date,
-        )
-        offer_id = self.db.create_commercial_offer(
-            number=offer_number,
-            client_source=client["client_source"],
-            counterparty_id=client["counterparty_id"],
-            crm_client_id=client["crm_client_id"],
-            client_name=client["client_name"],
-            offer_date=offer_date.isoformat(),
-            source_filename=None,
-            source_path=None,
-            output_path=self._store_path(output_path),
-            notes=notes,
-            lines=[self._line_to_db(line) for line in parsed_lines],
-            created_by_user_id=created_by_user_id,
-        )
-        return self.db.get_commercial_offer_bundle(offer_id)
+        offer_id: int | None = None
+        try:
+            generate_commercial_offer_workbook(
+                template_path=self.commercial_offer_template_path,
+                output_path=staged_output,
+                lines=parsed_lines,
+                offer_number=offer_number,
+                client_name=client["client_name"],
+                offer_date=offer_date,
+            )
+            with storage_operation_lock(self._storage_operation_root()):
+                offer_id = self.db.create_commercial_offer(
+                    number=offer_number,
+                    client_source=client["client_source"],
+                    counterparty_id=client["counterparty_id"],
+                    crm_client_id=client["crm_client_id"],
+                    client_name=client["client_name"],
+                    offer_date=offer_date.isoformat(),
+                    source_filename=None,
+                    source_path=None,
+                    output_path=self._store_path(output_path),
+                    notes=notes,
+                    lines=[self._line_to_db(line) for line in parsed_lines],
+                    created_by_user_id=created_by_user_id,
+                )
+                staged_output.replace(output_path)
+                return self.db.get_commercial_offer_bundle(offer_id)
+        except Exception as exc:
+            with storage_operation_lock(self._storage_operation_root()):
+                if offer_id is not None:
+                    try:
+                        self.db.delete_commercial_offer(offer_id)
+                    except Exception:
+                        pass
+                cleanup_failures = self._cleanup_commercial_offer_paths(staged_output, output_path)
+            if cleanup_failures:
+                raise exc from CommercialOfferCleanupError(cleanup_failures)
+            raise
 
     def list_commercial_offers_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
         return self.db.list_commercial_offers(user_id=user_id, include_all=is_admin)
@@ -1316,9 +1434,10 @@ class WebStockSyncService:
         return self.db.get_commercial_offer_bundle(offer_id)
 
     def delete_commercial_offer_for_admin(self, *, offer_id: int) -> None:
-        offer = self.db.delete_commercial_offer(offer_id)
-        self._delete_stored_offer_file(offer.get("source_path"))
-        self._delete_stored_offer_file(offer.get("output_path"))
+        with storage_operation_lock(self._storage_operation_root()):
+            offer = self.db.delete_commercial_offer(offer_id)
+            self._delete_stored_offer_file(offer.get("source_path"))
+            self._delete_stored_offer_file(offer.get("output_path"))
 
     def resolve_commercial_offer_file_for_user(
         self,
@@ -1331,13 +1450,13 @@ class WebStockSyncService:
         bundle = self.get_commercial_offer_for_user(offer_id=offer_id, user_id=user_id, is_admin=is_admin)
         offer = bundle["offer"]
         if kind == "output":
-            path = self._resolve_stored_path(str(offer.get("output_path") or ""))
+            path = self._resolve_commercial_offer_stored_path(str(offer.get("output_path") or ""))
             filename = f"КП_{offer.get('number') or offer_id}.xlsx"
         elif kind == "source":
             source_path = offer.get("source_path")
             if not source_path:
                 raise ValueError("У этого КП нет исходного Excel-файла.")
-            path = self._resolve_stored_path(str(source_path))
+            path = self._resolve_commercial_offer_stored_path(str(source_path))
             filename = offer.get("source_filename") or "source.xlsx"
         else:
             raise ValueError("Неизвестный тип файла.")
@@ -1357,9 +1476,10 @@ class WebStockSyncService:
 
     def delete_document_for_user(self, *, document_id: int, user_id: int, is_admin: bool) -> None:
         document = self.get_document_for_user(document_id=document_id, user_id=user_id, is_admin=is_admin)
-        output_path = document.get("output_path")
-        self.db.delete_document(document_id)
-        self._delete_stored_document_file(output_path)
+        output_path = self._resolve_document_stored_path(str(document.get("output_path") or ""))
+        with storage_operation_lock(self._storage_operation_root()):
+            self.db.delete_document(document_id)
+            self._delete_stored_document_file(output_path)
 
     def create_document(
         self,
@@ -1391,7 +1511,15 @@ class WebStockSyncService:
             prefix = "ДОГ" if normalized_type == "contract" else "СП"
             document_number = f"{prefix}-{datetime.now():%Y%m%d-%H%M%S}"
 
-        normalized_date = str(document_date or "").strip()[:10] or date.today().isoformat()
+        raw_document_date = str(document_date or "").strip()
+        if raw_document_date:
+            try:
+                normalized_date = date.fromisoformat(raw_document_date)
+            except ValueError as exc:
+                raise ValueError("Дата документа должна быть указана в формате YYYY-MM-DD.") from exc
+            normalized_date = normalized_date.isoformat()
+        else:
+            normalized_date = date.today().isoformat()
         client = self._resolve_document_client(
             client_source=client_source,
             client_id=client_id,
@@ -1405,15 +1533,29 @@ class WebStockSyncService:
         if signer_position:
             client_data["signer_position"] = signer_position
         lines: list[DocumentLineInput] = []
-        linked_offer_id = commercial_offer_id
+        linked_offer_id: int | None = None
         if normalized_type == "specification":
             if not commercial_offer_id:
                 raise ValueError("Для спецификации выберите КП.")
+            linked_offer_id = int(commercial_offer_id)
             offer_bundle = self.get_commercial_offer_for_user(
                 offer_id=int(commercial_offer_id),
                 user_id=created_by_user_id,
                 is_admin=is_admin,
             )
+            offer = offer_bundle["offer"]
+            document_client_identity = (
+                client["client_source"],
+                client["counterparty_id"],
+                client["crm_client_id"],
+            )
+            offer_client_identity = (
+                offer.get("client_source"),
+                offer.get("counterparty_id"),
+                offer.get("crm_client_id"),
+            )
+            if document_client_identity != offer_client_identity:
+                raise ValueError("Клиент спецификации должен совпадать с клиентом КП.")
             lines = self._commercial_offer_lines_to_document_lines(offer_bundle["lines"])
 
         context = build_document_context(
@@ -1437,26 +1579,46 @@ class WebStockSyncService:
             document_number=document_number,
         )
         output_path = self.document_exports_dir / f"{file_id}_{document_filename}"
-        generate_document_docx(
-            template_path=template_path,
-            output_path=output_path,
-            context=context,
-        )
-        document_id = self.db.create_document(
-            document_type=normalized_type,
-            number=document_number,
-            client_source=client["client_source"],
-            counterparty_id=client["counterparty_id"],
-            crm_client_id=client["crm_client_id"],
-            commercial_offer_id=linked_offer_id,
-            client_name=context["client"]["document_name"],
-            document_date=normalized_date,
-            output_path=self._store_path(output_path),
-            notes=notes,
-            missing_fields=json.dumps(missing_fields, ensure_ascii=False),
-            created_by_user_id=created_by_user_id,
-        )
-        return self.db.get_document(document_id)
+        staged_output = self._document_staging_path(output_path)
+        document_id: int | None = None
+        try:
+            generate_document_docx(
+                template_path=template_path,
+                output_path=staged_output,
+                context=context,
+            )
+            with storage_operation_lock(self._storage_operation_root()):
+                document_id = self.db.create_document(
+                    document_type=normalized_type,
+                    number=document_number,
+                    client_source=client["client_source"],
+                    counterparty_id=client["counterparty_id"],
+                    crm_client_id=client["crm_client_id"],
+                    commercial_offer_id=linked_offer_id,
+                    client_name=context["client"]["document_name"],
+                    document_date=normalized_date,
+                    output_path=self._store_path(output_path),
+                    notes=notes,
+                    missing_fields=json.dumps(missing_fields, ensure_ascii=False),
+                    created_by_user_id=created_by_user_id,
+                )
+                staged_output.replace(output_path)
+                return self.db.get_document(document_id)
+        except Exception as exc:
+            cleanup_failures: list[tuple[str, Exception]] = []
+            with storage_operation_lock(self._storage_operation_root()):
+                if document_id is not None:
+                    try:
+                        self.db.delete_document(document_id)
+                    except Exception as cleanup_exc:
+                        cleanup_failures.append((f"запись документа {document_id}", cleanup_exc))
+                cleanup_failures.extend(
+                    (str(path), cleanup_exc)
+                    for path, cleanup_exc in self._cleanup_document_paths(staged_output, output_path)
+                )
+            if cleanup_failures:
+                raise exc from DocumentCleanupError(cleanup_failures)
+            raise
 
     def resolve_document_file_for_user(
         self,
@@ -1466,7 +1628,7 @@ class WebStockSyncService:
         is_admin: bool,
     ) -> tuple[Path, str]:
         document = self.get_document_for_user(document_id=document_id, user_id=user_id, is_admin=is_admin)
-        path = self._resolve_stored_path(str(document.get("output_path") or ""))
+        path = self._resolve_document_stored_path(str(document.get("output_path") or ""))
         if not path.exists():
             raise ValueError("Файл не найден на диске.")
         filename = self._build_document_filename(
@@ -1480,7 +1642,7 @@ class WebStockSyncService:
         if not stored_path:
             return
         try:
-            path = self._resolve_stored_path(str(stored_path))
+            path = stored_path if isinstance(stored_path, Path) else self._resolve_document_stored_path(str(stored_path))
         except ValueError:
             return
         try:
@@ -1516,6 +1678,16 @@ class WebStockSyncService:
         actor_user_id: int | None,
     ) -> dict[str, Any]:
         normalized_source = str(client_source or "").strip().lower()
+        if normalized_source in {"", "manual"}:
+            snapshot_name = client_name.strip()
+            if not snapshot_name:
+                raise ValueError("Укажите клиента.")
+            return {
+                "client_source": "manual",
+                "counterparty_id": None,
+                "crm_client_id": None,
+                "client_name": snapshot_name,
+            }
         if normalized_source == "onec" and client_id:
             target = next(
                 (row for row in self.db.list_counterparties() if int(row["id"]) == int(client_id)),
@@ -1543,14 +1715,7 @@ class WebStockSyncService:
                 "client_name": target.get("document_name") or target.get("full_name") or client_name.strip(),
             }
 
-        target = self.db.get_or_create_crm_client(name=client_name)
-        self._require_legacy_client_active(target)
-        return {
-            "client_source": "local",
-            "counterparty_id": target.get("linked_counterparty_id"),
-            "crm_client_id": int(target["id"]),
-            "client_name": target.get("document_name") or target.get("full_name") or client_name.strip(),
-        }
+        raise ValueError("Выберите существующего клиента или укажите ручного клиента.")
 
     def _resolve_document_client(
         self,
@@ -1644,6 +1809,8 @@ class WebStockSyncService:
                 price = float(raw_line.get("priceVat", raw_line.get("price_vat", raw_line.get("price", 0))) or 0)
             except (TypeError, ValueError) as exc:
                 raise ValueError("Количество и цена в КП должны быть числами.") from exc
+            if not math.isfinite(qty) or not math.isfinite(price):
+                raise ValueError("Количество и цена в КП должны быть конечными числами.")
             if qty <= 0:
                 raise ValueError("Количество в строках КП должно быть больше нуля.")
             if price < 0:
@@ -1726,21 +1893,77 @@ class WebStockSyncService:
             return path
         return ROOT_DIR / path
 
+    def _storage_staging_path(self, final_path: Path) -> Path:
+        """Stage beside the final storage mount in a directory excluded from VPS backups."""
+        resolved_final = final_path.resolve()
+        for storage_dir in (self.commercial_offer_storage_dir, self.document_storage_dir):
+            try:
+                resolved_final.relative_to(storage_dir.resolve())
+            except ValueError:
+                continue
+            staging_dir = storage_dir.resolve().parent / STORAGE_STAGING_DIR_NAME
+            break
+        else:
+            raise ValueError("Staged publication must remain inside a configured storage directory.")
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        return staging_dir / f".{final_path.name}.{uuid.uuid4().hex}.staging"
+
+    def _commercial_offer_staging_path(self, final_path: Path) -> Path:
+        return self._storage_staging_path(final_path)
+
+    def _document_staging_path(self, final_path: Path) -> Path:
+        return self._storage_staging_path(final_path)
+
+    @staticmethod
+    def _cleanup_commercial_offer_paths(*paths: Path) -> list[tuple[Path, OSError]]:
+        failures: list[tuple[Path, OSError]] = []
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                failures.append((path, exc))
+        return failures
+
+    @staticmethod
+    def _cleanup_document_paths(*paths: Path) -> list[tuple[Path, OSError]]:
+        failures: list[tuple[Path, OSError]] = []
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                failures.append((path, exc))
+        return failures
+
+    def _resolve_commercial_offer_stored_path(self, value: str) -> Path:
+        path = self._resolve_stored_path(value).resolve()
+        storage_root = self.commercial_offer_storage_dir.resolve()
+        try:
+            path.relative_to(storage_root)
+        except ValueError as exc:
+            raise ValueError("Файл КП находится вне хранилища.") from exc
+        return path
+
+    def _resolve_document_stored_path(self, value: str) -> Path:
+        path = self._resolve_stored_path(value).resolve()
+        storage_root = self.document_storage_dir.resolve()
+        try:
+            path.relative_to(storage_root)
+        except ValueError as exc:
+            raise ValueError("Файл документа находится вне хранилища.") from exc
+        return path
+
     def _delete_stored_offer_file(self, value: Any) -> None:
         if not value:
             return
 
-        path = self._resolve_stored_path(str(value)).resolve()
-        storage_root = self.commercial_offer_storage_dir.resolve()
         try:
-            path.relative_to(storage_root)
+            path = self._resolve_commercial_offer_stored_path(str(value))
         except ValueError:
             return
-
         path.unlink(missing_ok=True)
 
-    def set_stock_quantity(self, item_id: int, quantity: float) -> None:
-        self.db.set_stock_quantity(item_id, quantity)
+    def set_stock_quantity(self, item_id: int, quantity: float, comment: str = "") -> None:
+        self.db.set_stock_quantity(item_id, quantity, comment=comment)
 
     def create_local_item(
         self,
@@ -1797,6 +2020,13 @@ class WebStockSyncService:
         return self.db.delete_all_local_items()
 
     def create_and_sync_order(self, *, actor_user_id: int | None, onec_username: str, onec_password: str, counterparty_id: int, contract_id: int | None, organization_key: str | None, order_date: str, comment: str, draft_lines: list[Any]) -> tuple[int, dict[str, Any]]:
+        draft_lines = self.validate_order_command(
+            counterparty_id=counterparty_id,
+            contract_id=contract_id,
+            organization_key=organization_key,
+            order_date=order_date,
+            draft_lines=draft_lines,
+        )
         if not draft_lines:
             raise ValueError("Добавь хотя бы одну строку в заказ.")
         bundle_lines = [
@@ -1809,7 +2039,17 @@ class WebStockSyncService:
             }
             for line in draft_lines
         ]
-        order_id = self.db.create_order(counterparty_id=counterparty_id, contract_id=contract_id, organization_key=organization_key, order_date=order_date, comment=comment, lines=bundle_lines, created_by_user_id=actor_user_id)
+        attempt_key = uuid.uuid4().hex
+        order_id = self.db.create_reserved_order(
+            counterparty_id=counterparty_id,
+            contract_id=contract_id,
+            organization_key=organization_key,
+            order_date=order_date,
+            comment=comment,
+            lines=bundle_lines,
+            attempt_key=attempt_key,
+            created_by_user_id=actor_user_id,
+        )
         try:
             bundle = self.db.get_order_bundle(order_id)
             client = self.build_user_client(
@@ -1819,16 +2059,126 @@ class WebStockSyncService:
             )
             self._ensure_order_items_ready(bundle, client)
             payload = self._build_order_payload(bundle, client)
+        except Exception as exc:
+            self.db.release_order_reservations(
+                order_id,
+                status="error_before_remote_write",
+                error_message=str(exc),
+            )
+            raise
+
+        marker = f"[SMT:{attempt_key}]"
+        payload["Комментарий"] = " ".join(
+            part for part in (str(payload.get("Комментарий") or "").strip(), marker) if part
+        )
+        try:
+            self.db.mark_order_sending_to_onec(order_id)
             created_doc = client.create_sales_order(payload)
-            ref_key = created_doc.get("Ref_Key")
-            if not ref_key:
-                raise OneCClientError("1С не вернула Ref_Key созданного заказа. Проверь ответ сервера.")
+        except Exception as exc:
+            self.db.mark_order_remote_unknown(order_id, str(exc))
+            raise
+        ref_key = created_doc.get("Ref_Key")
+        if not ref_key:
+            error = OneCClientError("1С не вернула Ref_Key созданного заказа. Проверь ответ сервера.")
+            self.db.mark_order_remote_unknown(order_id, str(error))
+            raise error
+        self.db.record_remote_order(order_id, onec_ref_key=str(ref_key))
+        try:
             loaded_doc = client.get_sales_order(ref_key)
             self.db.finalize_order_sync(order_id, onec_ref_key=ref_key, onec_number=loaded_doc.get("Number", ""), onec_date=loaded_doc.get("Date", ""))
             return order_id, loaded_doc
         except Exception as exc:
-            self.db.mark_order_error(order_id, str(exc))
+            self.db.mark_order_pending_finalize_error(order_id, str(exc))
             raise
+
+    def validate_order_command(
+        self,
+        *,
+        counterparty_id: int,
+        contract_id: int | None,
+        organization_key: str | None,
+        order_date: str,
+        draft_lines: list[Any],
+    ) -> list[Any]:
+        try:
+            datetime.fromisoformat(str(order_date).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("Дата заказа должна быть ISO date или datetime.") from exc
+
+        counterparties = self.db.list_counterparties()
+        counterparty = next((row for row in counterparties if int(row["id"]) == int(counterparty_id)), None)
+        if not counterparty or not str(counterparty.get("onec_key") or "").strip():
+            raise ValueError("Контрагент не найден или не связан с 1С.")
+
+        if organization_key:
+            organization = next(
+                (row for row in self.db.list_organizations() if str(row.get("onec_key") or "") == organization_key),
+                None,
+            )
+            if organization is None:
+                raise ValueError("Организация не найдена.")
+
+        if contract_id is not None:
+            contract = next((row for row in self.db.list_contracts() if int(row["id"]) == int(contract_id)), None)
+            if contract is None or str(contract.get("counterparty_key") or "") != str(counterparty["onec_key"]):
+                raise ValueError("Договор не принадлежит выбранному контрагенту.")
+            if organization_key and str(contract.get("organization_key") or "") not in {"", organization_key}:
+                raise ValueError("Договор не соответствует выбранной организации.")
+
+        warehouses = {int(row["id"]): row for row in self.db.list_warehouses(active_only=True)}
+        validated: list[Any] = []
+        for line in draft_lines:
+            item_id = int(line.item_id)
+            warehouse_id = int(line.warehouse_id) if line.warehouse_id is not None else None
+            item = self.db.get_item_by_id(item_id)
+            if item is None:
+                raise ValueError("Товар не найден.")
+            if warehouse_id is None or warehouse_id not in warehouses:
+                raise ValueError("Склад не найден или неактивен.")
+            quantity = float(line.quantity)
+            if not math.isfinite(quantity) or quantity <= 0:
+                raise ValueError("Количество заказа должно быть конечным положительным числом.")
+            price = float(item["price"] or 0)
+            if not math.isfinite(price) or price < 0:
+                raise ValueError("В прайсе указана некорректная цена товара.")
+            line.quantity = quantity
+            line.price = price
+            line.amount = round(quantity * price, 2)
+            validated.append(line)
+        return validated
+
+    def recover_order_sync_for_admin(self, *, order_id: int, actor_user_id: int) -> dict[str, Any]:
+        bundle = self.db.get_order_bundle(order_id)
+        order = bundle["order"]
+        status = str(order.get("status") or "")
+        if status not in {"remote_state_unknown", "remote_created_pending_finalize", "posted_to_1c"}:
+            raise ValueError("Заказ не ожидает сверки с 1С.")
+        if status == "posted_to_1c":
+            return bundle
+
+        client = self.build_user_client(user_id=actor_user_id)
+        ref_key = str(order.get("onec_ref_key") or "").strip()
+        if ref_key:
+            remote_document = client.get_sales_order(ref_key)
+        else:
+            attempt_key = str(order.get("sync_attempt_key") or "").strip()
+            if not attempt_key:
+                raise ValueError("У заказа нет marker для безопасной сверки с 1С.")
+            remote_document = client.find_sales_order_by_comment_marker(f"[SMT:{attempt_key}]")
+            if remote_document is None:
+                raise ValueError("Заказ в 1С по marker не найден; повторная отправка запрещена.")
+            ref_key = str(remote_document.get("Ref_Key") or "").strip()
+            if not ref_key:
+                raise OneCClientError("1С не вернула Ref_Key найденного заказа.")
+            self.db.record_remote_order(order_id, onec_ref_key=ref_key)
+
+        self.db.finalize_order_sync(
+            order_id,
+            onec_ref_key=ref_key,
+            onec_number=str(remote_document.get("Number") or ""),
+            onec_date=str(remote_document.get("Date") or ""),
+        )
+        return self.db.get_order_bundle(order_id)
 
     @staticmethod
     def is_guid(value: str | None) -> bool:
