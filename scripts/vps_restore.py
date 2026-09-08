@@ -67,11 +67,12 @@ def _safe_extraction_path(destination: Path, name: str) -> Path:
 
 
 def _is_internal_storage_member(name: str) -> bool:
+    normalized_name = PurePosixPath(name).as_posix().casefold()
     return (
-        name == f"storage/{STORAGE_OPERATION_LOCK_NAME}"
-        or name.startswith(f"storage/{STORAGE_OPERATION_LOCK_NAME}/")
-        or name == f"storage/{STORAGE_STAGING_DIR_NAME}"
-        or name.startswith(f"storage/{STORAGE_STAGING_DIR_NAME}/")
+        normalized_name == f"storage/{STORAGE_OPERATION_LOCK_NAME}".casefold()
+        or normalized_name.startswith(f"storage/{STORAGE_OPERATION_LOCK_NAME}/".casefold())
+        or normalized_name == f"storage/{STORAGE_STAGING_DIR_NAME}".casefold()
+        or normalized_name.startswith(f"storage/{STORAGE_STAGING_DIR_NAME}/".casefold())
     )
 
 

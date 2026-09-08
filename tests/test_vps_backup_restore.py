@@ -257,6 +257,7 @@ def test_verify_only_rejects_tar_symlinks_without_creating_target(tmp_path: Path
     [
         "storage/.sm-techno-storage-operation.lock",
         "storage/.sm-techno-storage-operation.lock/child",
+        "storage/.SM-TECHNO-STORAGE-OPERATION.LOCK/child",
         "storage/.sm-techno-storage-staging/partial.xlsx",
     ],
 )
