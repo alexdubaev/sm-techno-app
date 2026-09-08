@@ -1529,6 +1529,16 @@ class WebStockSyncService:
         actor_user_id: int | None,
     ) -> dict[str, Any]:
         normalized_source = str(client_source or "").strip().lower()
+        if normalized_source in {"", "manual"}:
+            snapshot_name = client_name.strip()
+            if not snapshot_name:
+                raise ValueError("Укажите клиента.")
+            return {
+                "client_source": "manual",
+                "counterparty_id": None,
+                "crm_client_id": None,
+                "client_name": snapshot_name,
+            }
         if normalized_source == "onec" and client_id:
             target = next(
                 (row for row in self.db.list_counterparties() if int(row["id"]) == int(client_id)),
@@ -1555,13 +1565,7 @@ class WebStockSyncService:
                 "client_name": target.get("document_name") or target.get("full_name") or client_name.strip(),
             }
 
-        target = self.db.get_or_create_crm_client(name=client_name)
-        return {
-            "client_source": "local",
-            "counterparty_id": target.get("linked_counterparty_id"),
-            "crm_client_id": int(target["id"]),
-            "client_name": target.get("document_name") or target.get("full_name") or client_name.strip(),
-        }
+        raise ValueError("Выберите существующего клиента или укажите ручного клиента.")
 
     def _resolve_document_client(
         self,

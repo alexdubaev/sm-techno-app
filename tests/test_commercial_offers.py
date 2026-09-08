@@ -349,6 +349,22 @@ class CommercialOfferApiTest(unittest.TestCase):
         generated = load_workbook(BytesIO(download_response.content), data_only=False, rich_text=True)
         self.assertEqual(str(generated["КП"]["A9"].value), 'Покупатель: ООО "АГРОЗУМ"')
 
+    def test_manual_offer_client_is_a_snapshot_without_a_crm_card(self) -> None:
+        response = self.client.post(
+            "/api/commercial-offers/from-draft",
+            json={
+                "clientSource": "manual",
+                "clientName": "Ручной клиент",
+                "lines": [{"article": "MAN-1", "name": "Позиция", "qty": 1, "priceVat": 100}],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        offer = response.json()["offer"]
+        self.assertEqual((offer["clientSource"], offer["crmClientId"], offer["clientName"]), ("manual", None, "Ручной клиент"))
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM crm_clients").fetchone()[0], 0)
+
     def test_create_from_draft_uses_onec_full_name_for_offer(self) -> None:
         item = self.db.create_local_item(
             sku="SKU-ONEC",
