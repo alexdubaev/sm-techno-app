@@ -1864,13 +1864,17 @@ class WebStockSyncService:
             return path
         return ROOT_DIR / path
 
-    @staticmethod
-    def _commercial_offer_staging_path(final_path: Path) -> Path:
-        return final_path.with_name(f".{final_path.name}.{uuid.uuid4().hex}.staging")
+    def _storage_staging_path(self, final_path: Path) -> Path:
+        """Keep incomplete publications outside the storage tree copied by VPS backup."""
+        staging_dir = self._storage_operation_root() / ".sm-techno-storage-staging"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        return staging_dir / f".{final_path.name}.{uuid.uuid4().hex}.staging"
 
-    @staticmethod
-    def _document_staging_path(final_path: Path) -> Path:
-        return final_path.with_name(f".{final_path.name}.{uuid.uuid4().hex}.staging")
+    def _commercial_offer_staging_path(self, final_path: Path) -> Path:
+        return self._storage_staging_path(final_path)
+
+    def _document_staging_path(self, final_path: Path) -> Path:
+        return self._storage_staging_path(final_path)
 
     @staticmethod
     def _cleanup_commercial_offer_paths(*paths: Path) -> list[tuple[Path, OSError]]:

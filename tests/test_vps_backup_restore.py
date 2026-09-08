@@ -15,6 +15,7 @@ from scripts import vps_backup
 from scripts.vps_backup import create_backup
 from scripts.vps_restore import restore_backup
 import stock_sync_web.service as service_module
+import stock_sync_web.commercial_offers as commercial_offers_module
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.service import WebStockSyncService
 from stock_sync_web.vps_integrity import storage_operation_lock
@@ -279,6 +280,98 @@ def test_backup_waits_for_reference_publication_then_archives_a_verifiable_pair(
     assert not writer_thread.is_alive()
     assert not backup_thread.is_alive()
 
+    restore_backup(archive_holder[0], tmp_path / "restore", verify_only=True)
+
+
+def test_backup_excludes_staged_offer_files_during_generation(tmp_path: Path, monkeypatch) -> None:
+    """Staging below storage would let a backup retain unreferenced partial output."""
+    root = tmp_path / "source"
+    (root / "data").mkdir(parents=True)
+    (root / "storage" / "documents").mkdir(parents=True)
+    monkeypatch.setattr(service_module, "ROOT_DIR", root)
+    database = WebDatabase(db_path=root / "data" / "stock_sync.db")
+    service = WebStockSyncService(
+        db=database,
+        commercial_offer_storage_dir=root / "storage" / "commercial_offers",
+        document_storage_dir=root / "storage" / "documents",
+    )
+    generated_stage = threading.Event()
+    release_generation = threading.Event()
+    errors: list[BaseException] = []
+    original_generator = commercial_offers_module.generate_commercial_offer_workbook
+
+    def pause_after_staging_write(**kwargs) -> None:
+        original_generator(**kwargs)
+        generated_stage.set()
+        assert release_generation.wait(timeout=5)
+
+    monkeypatch.setattr(commercial_offers_module, "generate_commercial_offer_workbook", pause_after_staging_write)
+
+    def writer() -> None:
+        try:
+            service.create_commercial_offer_from_draft(
+                client_source="manual",
+                client_id=None,
+                client_name="Staged client",
+                notes="",
+                lines=[{"article": "STAGE-1", "name": "Staged item", "qty": 1, "priceVat": 1}],
+                created_by_user_id=None,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    writer_thread = threading.Thread(target=writer)
+    writer_thread.start()
+    assert generated_stage.wait(timeout=5)
+    archive = create_backup(root, tmp_path / "backups")
+    release_generation.set()
+    writer_thread.join(timeout=5)
+
+    with tarfile.open(archive, "r:gz") as tar:
+        assert not any(".staging" in member.name for member in tar.getmembers())
+    assert not errors
+    assert not writer_thread.is_alive()
+    restore_backup(archive, tmp_path / "restore", verify_only=True)
+
+
+def test_backup_releases_writer_lock_before_hashing_archive(tmp_path: Path, monkeypatch) -> None:
+    """Hashing an isolated snapshot must not stall a new storage publication."""
+    root = _make_root(tmp_path)
+    hash_started = threading.Event()
+    release_hash = threading.Event()
+    writer_acquired = threading.Event()
+    archive_holder: list[Path] = []
+    original_hash = vps_backup._sha256
+
+    def pause_hash(path: Path) -> str:
+        if not hash_started.is_set():
+            hash_started.set()
+            assert release_hash.wait(timeout=5)
+        return original_hash(path)
+
+    monkeypatch.setattr(vps_backup, "_sha256", pause_hash)
+
+    def backup() -> None:
+        archive_holder.append(create_backup(root, tmp_path / "backups"))
+
+    def writer() -> None:
+        with storage_operation_lock(root):
+            writer_acquired.set()
+
+    backup_thread = threading.Thread(target=backup)
+    backup_thread.start()
+    assert hash_started.wait(timeout=5)
+    writer_thread = threading.Thread(target=writer)
+    writer_thread.start()
+    try:
+        assert writer_acquired.wait(timeout=2)
+    finally:
+        release_hash.set()
+    backup_thread.join(timeout=5)
+    writer_thread.join(timeout=5)
+
+    assert not backup_thread.is_alive()
+    assert not writer_thread.is_alive()
     restore_backup(archive_holder[0], tmp_path / "restore", verify_only=True)
 
 

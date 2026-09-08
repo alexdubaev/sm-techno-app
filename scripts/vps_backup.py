@@ -93,13 +93,14 @@ def create_backup(root: Path, backups_dir: Path) -> Path:
     archive = backups_dir / name
     temporary_archive: Path | None = None
     try:
-        with storage_operation_lock(root), tempfile.TemporaryDirectory(prefix="sm-techno-backup-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="sm-techno-backup-") as temp_dir:
             snapshot_root = Path(temp_dir)
             snapshot_db = snapshot_root / DATABASE_NAME
             snapshot_storage = snapshot_root / "storage"
-            _snapshot_database(source_db, snapshot_db)
-            _copy_storage_snapshot(source_storage, snapshot_storage)
-            validate_database_storage_pair(snapshot_db, snapshot_storage)
+            with storage_operation_lock(root):
+                _snapshot_database(source_db, snapshot_db)
+                _copy_storage_snapshot(source_storage, snapshot_storage)
+                validate_database_storage_pair(snapshot_db, snapshot_storage)
             files = _archive_files(snapshot_root)
             manifest = {
                 "schema_version": MANIFEST_VERSION,
