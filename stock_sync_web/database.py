@@ -10,13 +10,30 @@ import re
 import secrets
 import sqlite3
 from ctypes import wintypes
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from cryptography.fernet import Fernet, InvalidToken
 
 from stock_sync_desktop.database import DEFAULT_DB_PATH, Database, utc_now
+
+
+_LEGACY_MOSCOW_TIMEZONE = ZoneInfo("Europe/Moscow")
+
+
+def _migrate_legacy_moscow_timestamp(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+        return None
+    return parsed.replace(tzinfo=_LEGACY_MOSCOW_TIMEZONE).astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 WEB_SCHEMA = """
@@ -434,6 +451,7 @@ class WebDatabase(Database):
             conn.commit()
 
     def _run_web_migrations(self, conn: sqlite3.Connection) -> None:
+        self._migrate_legacy_reminder_timestamps(conn)
         order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
         if "created_by_user_id" not in order_columns:
             conn.execute("ALTER TABLE orders ADD COLUMN created_by_user_id INTEGER")
@@ -650,6 +668,23 @@ class WebDatabase(Database):
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_created ON documents(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_owner ON documents(created_by_user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_client ON documents(client_source, counterparty_id, crm_client_id)")
+
+    @staticmethod
+    def _migrate_legacy_reminder_timestamps(conn: sqlite3.Connection) -> None:
+        reminder_rows = conn.execute("SELECT id, due_at FROM crm_reminders").fetchall()
+        for row in reminder_rows:
+            migrated = _migrate_legacy_moscow_timestamp(row["due_at"])
+            if migrated:
+                conn.execute("UPDATE crm_reminders SET due_at = ? WHERE id = ?", (migrated, row["id"]))
+        history_rows = conn.execute("SELECT id, old_due_at, new_due_at FROM crm_reminder_history").fetchall()
+        for row in history_rows:
+            old_due_at = _migrate_legacy_moscow_timestamp(row["old_due_at"]) or row["old_due_at"]
+            new_due_at = _migrate_legacy_moscow_timestamp(row["new_due_at"]) or row["new_due_at"]
+            if old_due_at != row["old_due_at"] or new_due_at != row["new_due_at"]:
+                conn.execute(
+                    "UPDATE crm_reminder_history SET old_due_at = ?, new_due_at = ? WHERE id = ?",
+                    (old_due_at, new_due_at, row["id"]),
+                )
 
     def _backfill_crm_client_inferred_fields(self, conn: sqlite3.Connection) -> None:
         rows = conn.execute(
