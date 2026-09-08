@@ -52,29 +52,8 @@ SERVICE.bootstrap()
 
 @asynccontextmanager
 async def _app_lifespan(_: FastAPI):
-    """Advance the durable CRM outbox without blocking the ASGI event loop."""
-    stop = asyncio.Event()
-
-    async def advance_crm_jobs() -> None:
-        while not stop.is_set():
-            try:
-                await asyncio.to_thread(SERVICE.run_due_crm_sync_jobs, limit=20)
-            except Exception:
-                LOGGER.exception("CRM sync worker iteration failed")
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=CRM_SYNC_WORKER_POLL_SECONDS)
-            except asyncio.TimeoutError:
-                pass
-
-    task = asyncio.create_task(advance_crm_jobs())
-    try:
-        yield
-    finally:
-        stop.set()
-        # Do not cancel an asyncio.to_thread wrapper: cancellation does not
-        # stop its already-running 1C call.  Draining this task keeps a
-        # shutdown from overlapping that call with a subsequent app start.
-        await task
+    """The API has no background 1C worker; readiness is strictly local."""
+    yield
 
 ALLOWED_ORIGINS = [
     origin.strip()

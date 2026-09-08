@@ -449,6 +449,7 @@ def _clean_bank_name(value: Any, bik: str = "") -> str:
 class WebDatabase(Database):
     WEB_MIGRATIONS = (
         ("2026-09-08-web-schema-v1", "_apply_web_schema_v1"),
+        ("2026-09-08-retire-crm-outbox-v1", "_retire_crm_outbox"),
     )
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
@@ -496,6 +497,8 @@ class WebDatabase(Database):
 
     @staticmethod
     def _migration_target_is_present(conn: sqlite3.Connection, version: str) -> bool:
+        if version == "2026-09-08-retire-crm-outbox-v1":
+            return conn.execute("SELECT 1 FROM crm_sync_jobs WHERE status IN ('pending', 'running') LIMIT 1").fetchone() is None
         if version != "2026-09-08-web-schema-v1":
             return False
         columns = {
@@ -514,6 +517,18 @@ class WebDatabase(Database):
             ):
                 return False
         return True
+
+    @staticmethod
+    def _retire_crm_outbox(conn: sqlite3.Connection) -> None:
+        message = "CRM не отправляет клиентов или изменения в 1С; создание выполняется в разделе «Клиенты»."
+        conn.execute(
+            "UPDATE crm_sync_jobs SET status = 'blocked_capability', claimed_at = NULL, updated_at = ? WHERE status IN ('pending', 'running')",
+            (utc_now(),),
+        )
+        conn.execute(
+            "UPDATE crm_clients SET sync_status = 'blocked_capability', sync_error = ?, updated_at = ? WHERE sync_status IN ('pending', 'blocked_capability')",
+            (message, utc_now()),
+        )
 
     @staticmethod
     def _verify_web_database_integrity(conn: sqlite3.Connection) -> None:
