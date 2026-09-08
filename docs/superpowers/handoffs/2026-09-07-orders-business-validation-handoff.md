@@ -45,6 +45,13 @@
 3. **ТЗ 17:** продолжить только RED→GREEN. Перед реализацией зафиксировать idle и absolute session lifetime: старый handoff значений не содержит, поэтому выбрать из действующей product policy либо явно запросить решение; не выбирать молча.
 4. Повторить integration regression ТЗ 10–12; persistence-тест с naïve timestamp сейчас конфликтует со строгим UTC-контрактом и после ожидаемого падения оставляет Windows SQLite file handle. Исправить fixture/cleanup отдельно, не ослабляя UTC validation.
 
+### Проверки продолжения 2026-09-08
+
+- **ТЗ 06/07:** formula cells в складском Excel больше не интерпретируются как нулевые значения: импорт явно отклоняет workbook с формулами. `tests.test_stock_excel_import_safety`, `tests.test_stock_item_identity`, `tests.test_stock_excel_import_api` — 11/11.
+- **ТЗ 10:** migration переводит legacy naïve Moscow `crm_reminders.due_at` и history `old_due_at`/`new_due_at` в canonical UTC; API продолжает отклонять naïve input. `tests.test_crm_reminders_api` — 8/8.
+- **ТЗ 11/12:** workspace authorization и CRM persistence подтверждены дробными запусками `tests.test_crm_persistence` — 31/31; старый тест переведён на timezone-aware input, не ослабляя UTC contract.
+- **ТЗ 13:** полный `tests.test_crm_import` выполнен дробными запусками с явным итогом — 37/37; unmatched KPP остаётся identity conflict без duplicate creation.
+
 ### Полный чек-лист незакрытой работы
 
 Не считать следующие пункты закрытыми до прямого подтверждения указанными проверками.
