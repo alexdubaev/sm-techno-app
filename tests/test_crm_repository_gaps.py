@@ -90,8 +90,8 @@ class CrmRepositoryGapsTest(unittest.TestCase):
 
     def test_owner_completes_only_own_reminder_with_version_and_audit(self) -> None:
         client = self._linked_primary_client()
-        own = self.repo.add_reminder_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=int(client["id"]), due_at="2026-09-05T10:00:00")
-        other = self.repo.add_reminder_for_actor(actor_id=self.other_id, owner_id=self.other_id, client_id=int(client["id"]), due_at="2026-09-06T10:00:00")
+        own = self.repo.add_reminder_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=int(client["id"]), due_at="2026-09-05T10:00:00Z")
+        other = self.repo.add_reminder_for_actor(actor_id=self.other_id, owner_id=self.other_id, client_id=int(client["id"]), due_at="2026-09-06T10:00:00Z")
 
         completed = self.repo.complete_reminder_for_actor(
             actor_id=self.owner_id,
@@ -114,7 +114,7 @@ class CrmRepositoryGapsTest(unittest.TestCase):
 
     def test_owner_cancels_reminder_and_rejects_stale_version(self) -> None:
         client = self._linked_primary_client()
-        reminder = self.repo.add_reminder_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=int(client["id"]), due_at="2026-09-05T10:00:00")
+        reminder = self.repo.add_reminder_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, client_id=int(client["id"]), due_at="2026-09-05T10:00:00Z")
 
         with self.assertRaisesRegex(ValueError, "Конфликт"):
             self.repo.cancel_reminder_for_actor(actor_id=self.owner_id, owner_id=self.owner_id, reminder_id=int(reminder["id"]), expected_updated_at="stale")
