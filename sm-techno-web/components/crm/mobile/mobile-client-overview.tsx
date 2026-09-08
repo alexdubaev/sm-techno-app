@@ -92,6 +92,11 @@ export function MobileClientOverview({
                 <p className="break-words text-sm font-semibold [overflow-wrap:anywhere]">
                   {contact.name}
                 </p>
+                {contact.position ? (
+                  <p className="mt-1 break-words text-xs text-[var(--text-secondary)] [overflow-wrap:anywhere]">
+                    {contact.position}
+                  </p>
+                ) : null}
                 {contact.isPrimary ? (
                   <span className="mt-1 inline-block rounded-md bg-[#FFF6D5] px-2 py-1 text-xs text-[#735100]">
                     Основной контакт

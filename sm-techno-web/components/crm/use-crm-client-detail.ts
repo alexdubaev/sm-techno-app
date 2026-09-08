@@ -32,7 +32,7 @@ import { moscowInputToUtc } from "@/components/crm/mobile/mobile-crm-utils";
 type ActiveTab = "primary" | number;
 type SavingAction = "contact" | "contact-delete" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "resolve";
 type CompanyRequisitesForm = Pick<CrmWorkspaceClient, "documentName" | "fullName" | "inn" | "kpp" | "city" | "contactPerson" | "email" | "phone"> & { telegram: string; maxLink: string };
-type ContactForm = Pick<CrmContact, "name" | "phone" | "email" | "isPrimary">;
+type ContactForm = Pick<CrmContact, "name" | "position" | "phone" | "email" | "isPrimary">;
 type EventForm = Pick<CrmEvent, "kind" | "body">;
 type SyncConflictResolution = { conflict: CrmSyncConflict; choice: "local" | "remote" };
 
@@ -170,7 +170,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
   const [notice, setNotice] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<SavingAction | null>(null);
   const [requisitesForm, setRequisitesForm] = useState(() => companyRequisitesForm(client));
-  const [contactForm, setContactForm] = useState<ContactForm>({ name: "", phone: "", email: "", isPrimary: false });
+  const [contactForm, setContactForm] = useState<ContactForm>({ name: "", position: "", phone: "", email: "", isPrimary: false });
   const [contactEditor, setContactEditor] = useState<CrmContact | null>(null);
   const [contactPendingDelete, setContactPendingDelete] = useState<CrmContact | null>(null);
   const [eventForm, setEventForm] = useState<EventForm>({ kind: "comment", body: "" });
@@ -259,10 +259,10 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       setIsSaving("contact");
       setError(null);
       try {
-        const saved = await updateCrmContact(currentClient.id, contactEditor.id, { name: contactForm.name.trim(), phone: contactForm.phone.trim(), email: contactForm.email.trim(), isPrimary: contactForm.isPrimary }, ownerId);
+        const saved = await updateCrmContact(currentClient.id, contactEditor.id, { name: contactForm.name.trim(), position: contactForm.position.trim(), phone: contactForm.phone.trim(), email: contactForm.email.trim(), isPrimary: contactForm.isPrimary }, ownerId);
         setContacts((current) => current.map((item) => item.id === saved.id ? saved : saved.isPrimary ? { ...item, isPrimary: false } : item));
         setContactEditor(null);
-        setContactForm({ name: "", phone: "", email: "", isPrimary: false });
+        setContactForm({ name: "", position: "", phone: "", email: "", isPrimary: false });
         notifyChanged();
         return true;
       } catch (cause) {
@@ -275,6 +275,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     const temporary: CrmContact = {
       id: -Date.now(),
       name: contactForm.name.trim(),
+      position: contactForm.position.trim(),
       phone: contactForm.phone.trim(),
       email: contactForm.email.trim(),
       isPrimary: contactForm.isPrimary,
@@ -292,7 +293,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
           return saved.isPrimary ? { ...item, isPrimary: false } : item;
         }),
       );
-      setContactForm({ name: "", phone: "", email: "", isPrimary: false });
+      setContactForm({ name: "", position: "", phone: "", email: "", isPrimary: false });
       notifyChanged();
       return true;
     } catch (cause) {
@@ -305,7 +306,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
 
   const editContact = (contact: CrmContact) => {
     setContactEditor(contact);
-    setContactForm({ name: contact.name, phone: contact.phone, email: contact.email, isPrimary: contact.isPrimary });
+    setContactForm({ name: contact.name, position: contact.position, phone: contact.phone, email: contact.email, isPrimary: contact.isPrimary });
     setError(null);
   };
 
@@ -318,7 +319,7 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       setContacts((current) => current.filter((contact) => contact.id !== contactPendingDelete.id));
       if (contactEditor?.id === contactPendingDelete.id) {
         setContactEditor(null);
-        setContactForm({ name: "", phone: "", email: "", isPrimary: false });
+        setContactForm({ name: "", position: "", phone: "", email: "", isPrimary: false });
       }
       setContactPendingDelete(null);
       notifyChanged();

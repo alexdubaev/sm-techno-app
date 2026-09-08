@@ -282,6 +282,9 @@ describe('mobile detail daily actions', () => {
     fireEvent.change(within(sheet).getByLabelText('Имя контакта'), {
       target: { value: '  Елена  ' },
     });
+    fireEvent.change(within(sheet).getByLabelText('Должность'), {
+      target: { value: '  Менеджер по закупкам  ' },
+    });
     fireEvent.change(within(sheet).getByLabelText('Телефон'), {
       target: { value: '+79991234567' },
     });
@@ -295,10 +298,12 @@ describe('mobile detail daily actions', () => {
       ).not.toBeInTheDocument(),
     );
     expect(screen.getByText('Елена')).toBeInTheDocument();
+    expect(screen.getByText('Менеджер по закупкам')).toBeInTheDocument();
     expect(api.createCrmContact).toHaveBeenCalledWith(
       42,
       expect.objectContaining({
         name: 'Елена',
+        position: 'Менеджер по закупкам',
         phone: '+79991234567',
         isPrimary: true,
       }),
@@ -487,6 +492,7 @@ describe('mobile detail daily actions', () => {
       {
         id: 4,
         name: 'Старый основной',
+        position: 'Руководитель отдела',
         phone: '+79990000000',
         email: 'old@example.test',
         isPrimary: true,

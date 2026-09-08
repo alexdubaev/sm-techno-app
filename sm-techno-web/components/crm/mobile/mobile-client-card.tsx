@@ -1,10 +1,16 @@
 'use client';
 
-import type { KeyboardEvent, PointerEvent } from 'react';
-import { GripVertical, Mail, Phone } from 'lucide-react';
+import { useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { Check, ChevronDown, GripVertical, Mail, Phone } from 'lucide-react';
 
 import { MobileClientActions } from '@/components/crm/mobile/mobile-client-actions';
+import {
+  getCrmContactSelectionRevision,
+  getCrmDisplayContacts,
+  resolveCrmDisplayContact,
+} from '@/components/crm/crm-contact-selection';
 import { getSafeMailtoHref } from '@/components/crm/mobile/mobile-crm-utils';
+import { MobileSheet } from '@/components/crm/mobile/mobile-sheets';
 import { MessengerLinks } from '@/components/crm/messenger-links';
 import { WorkOwnersStatus } from '@/components/crm/work-owners-status';
 import type { CrmReminder, CrmTab, CrmWorkspaceClient } from '@/lib/types';
@@ -75,7 +81,19 @@ export function MobileClientCard({
 }: MobileClientCardProps) {
   const companyName = client.documentName || client.fullName || client.name;
   const colorTheme = color ? cardThemeByColor[color] : undefined;
-  const mailtoHref = getSafeMailtoHref(client.email);
+  const [contactSelection, setContactSelection] = useState<{
+    revision: string;
+    key: string;
+  } | null>(null);
+  const [isContactSheetOpen, setIsContactSheetOpen] = useState(false);
+  const contactOptions = getCrmDisplayContacts(client);
+  const contactRevision = getCrmContactSelectionRevision(contactOptions);
+  const selectedContactKey =
+    contactSelection?.revision === contactRevision ? contactSelection.key : null;
+  const selectedContact = resolveCrmDisplayContact(contactOptions, selectedContactKey);
+  const selectedPhone = selectedContact?.phone ?? '';
+  const selectedEmail = selectedContact?.email ?? '';
+  const mailtoHref = getSafeMailtoHref(selectedEmail);
 
   return (
     <article
@@ -134,42 +152,54 @@ export function MobileClientCard({
               <WorkOwnersStatus owners={client.workOwners} variant="mobile" />
             </div>
           ) : null}
-          <button
-            type="button"
-            aria-label={`Открыть карточку ${companyName}`}
-            onClick={() => onOpen(client)}
-            disabled={dragControls !== undefined}
-            className="w-full min-w-0 rounded-[8px] text-left outline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:cursor-default"
-          >
-            <p className="mt-2 text-[12px] font-semibold text-[var(--text-primary)]">
-              {client.contactPerson || 'Контактное лицо не указано'}
-            </p>
-            <p className="mt-0.5 text-[11px] leading-4 text-[var(--text-secondary)] [overflow-wrap:anywhere]">
-              {[client.phone, client.email].filter(Boolean).join(' · ') ||
-                'Телефон и почта не указаны'}
-            </p>
-            {nearestReminder ? (
-              <p className="mt-2 rounded-[9px] bg-[#FFF9E8] px-2 py-1.5 text-[11px] font-semibold text-[#7A4A00]">
-                Напомнить:{' '}
-                <time dateTime={nearestReminder.dueAt}>
-                  {reminderDate.format(new Date(nearestReminder.dueAt))} МСК
-                </time>
-              </p>
-            ) : null}
-          </button>
+          <div className="mt-2 min-w-0 rounded-[11px] bg-[#F7F9FC] p-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">Контактное лицо</p>
+            {contactOptions.length > 1 ? (
+              <button
+                type="button"
+                aria-label="Выбрать контактное лицо"
+                aria-haspopup="dialog"
+                aria-expanded={isContactSheetOpen}
+                onClick={() => setIsContactSheetOpen(true)}
+                disabled={dragControls !== undefined}
+                className="mt-1 flex min-h-11 w-full min-w-0 items-center justify-between gap-2 rounded-[9px] text-left outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:cursor-default"
+              >
+                <span className="min-w-0 break-words text-[13px] font-bold text-[var(--text-primary)] [overflow-wrap:anywhere]">{selectedContact?.name || 'Контактное лицо не указано'}</span>
+                <ChevronDown aria-hidden="true" className="size-5 shrink-0 text-[var(--text-secondary)]" />
+              </button>
+            ) : (
+              <p className="mt-1 break-words text-[13px] font-bold text-[var(--text-primary)] [overflow-wrap:anywhere]">{selectedContact?.name || 'Контактное лицо не указано'}</p>
+            )}
+            {selectedContact?.position ? <p className="mt-0.5 break-words text-[12px] leading-4 text-[var(--text-secondary)] [overflow-wrap:anywhere]">{selectedContact.position}</p> : null}
+            {selectedPhone ? <p className="mt-2 break-all text-[12px] text-[var(--text-primary)]">{selectedPhone}</p> : null}
+            {selectedEmail ? <p className="mt-1 break-all text-[12px] text-[var(--text-primary)]">{selectedEmail}</p> : null}
+            {!selectedPhone && !selectedEmail ? <p className="mt-1 text-[11px] text-[var(--text-secondary)]">Телефон и почта не указаны</p> : null}
+          </div>
+          {nearestReminder ? (
+            <button
+              type="button"
+              onClick={() => onOpen(client)}
+              disabled={dragControls !== undefined}
+              className="mt-2 w-full rounded-[9px] bg-[#FFF9E8] px-2 py-1.5 text-left text-[11px] font-semibold text-[#7A4A00] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
+            >
+              Напомнить: <time dateTime={nearestReminder.dueAt}>{reminderDate.format(new Date(nearestReminder.dueAt))} МСК</time>
+            </button>
+          ) : null}
         </div>
       </div>
 
       {dragControls ||
-      (!client.phone &&
+      (!selectedPhone &&
         !mailtoHref &&
         !client.telegram &&
         !client.maxLink &&
         !canEditWorkspace) ? null : (
         <div className="mt-3 flex items-center gap-2 border-t border-[var(--border-color)] pt-3">
-          {client.phone ? (
+          {selectedPhone ? (
             <a
-              href={`tel:${client.phone}`}
+              href={`tel:${selectedPhone}`}
+              aria-label="Позвонить"
+              title={selectedPhone}
               onClick={(event) => event.stopPropagation()}
               style={{ color: '#FFFFFF', backgroundColor: '#16A34A' }}
               className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-[11px] px-3 text-[12px] font-bold text-white outline-offset-2 hover:bg-[#15803D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
@@ -181,6 +211,8 @@ export function MobileClientCard({
           {mailtoHref ? (
             <a
               href={mailtoHref}
+              aria-label="Написать"
+              title={selectedEmail}
               onClick={(event) => event.stopPropagation()}
               className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-[11px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-bold text-[var(--brand-dark)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
             >
@@ -204,6 +236,67 @@ export function MobileClientCard({
           ) : null}
         </div>
       )}
+      {isContactSheetOpen ? (
+        <MobileSheet
+          title={`Контактные лица ${companyName}`}
+          description="Выбор действует только на этой странице."
+          onClose={() => setIsContactSheetOpen(false)}
+        >
+          <ul className="divide-y divide-[var(--border-color)]">
+            {contactOptions.map((contact) => {
+              const isSelected = contact.key === selectedContact?.key;
+              const accessibleName = [
+                contact.name,
+                contact.position,
+                contact.isPrimary ? 'основной контакт' : '',
+              ]
+                .filter(Boolean)
+                .join(', ');
+              return (
+                <li key={contact.key}>
+                  <button
+                    type="button"
+                    aria-label={accessibleName}
+                    aria-pressed={isSelected}
+                    onClick={() => {
+                      setContactSelection({
+                        revision: contactRevision,
+                        key: contact.key,
+                      });
+                      setIsContactSheetOpen(false);
+                    }}
+                    className="flex min-h-14 w-full items-center gap-3 py-3 text-left outline-offset-[-2px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="break-words text-[14px] font-semibold text-[var(--text-primary)] [overflow-wrap:anywhere]">
+                          {contact.name}
+                        </span>
+                        {contact.isPrimary ? (
+                          <span className="rounded-[6px] bg-[#FFF6D5] px-2 py-1 text-[10px] font-semibold text-[#735100]">
+                            Основной
+                          </span>
+                        ) : null}
+                      </span>
+                      {contact.position ? (
+                        <span className="mt-1 block break-words text-[12px] text-[var(--text-secondary)] [overflow-wrap:anywhere]">
+                          {contact.position}
+                        </span>
+                      ) : null}
+                    </span>
+                    {isSelected ? (
+                      <Check
+                        aria-hidden="true"
+                        className="size-5 shrink-0 text-[#067647]"
+                      />
+                    ) : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </MobileSheet>
+      ) : null}
     </article>
   );
 }

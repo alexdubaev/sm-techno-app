@@ -47,9 +47,14 @@ class CrmPersistenceTest(unittest.TestCase):
         with self.db.connect() as conn:
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(crm_clients)").fetchall()}
             tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+            contact_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(crm_contacts)").fetchall()
+            }
 
         self.assertTrue({"city", "website"}.issubset(columns))
         self.assertTrue({"crm_tabs", "crm_assignments", "crm_contacts", "crm_events", "crm_reminders", "crm_row_preferences", "crm_audit_actions", "crm_sync_state", "crm_sync_jobs", "crm_sync_conflicts"}.issubset(tables))
+        self.assertIn("position", contact_columns)
         self.assertEqual("Потенциальный клиент", self.db.get_crm_client(self.client["id"])["document_name"])
 
     def test_confirmed_sync_records_a_base_snapshot_for_future_conflict_merge(self) -> None:

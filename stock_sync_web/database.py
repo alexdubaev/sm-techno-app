@@ -223,6 +223,7 @@ CREATE TABLE IF NOT EXISTS crm_contacts (
     owner_user_id INTEGER NOT NULL,
     crm_client_id INTEGER NOT NULL,
     name TEXT NOT NULL,
+    position TEXT,
     email TEXT,
     phone TEXT,
     is_primary INTEGER NOT NULL DEFAULT 0,
@@ -750,6 +751,10 @@ class WebDatabase(Database):
         if "idempotency_key" not in job_columns:
             conn.execute("ALTER TABLE crm_sync_jobs ADD COLUMN idempotency_key TEXT")
         conn.execute("UPDATE crm_sync_jobs SET idempotency_key = 'crm-sync-' || id WHERE idempotency_key IS NULL")
+
+        contact_columns = {row["name"] for row in conn.execute("PRAGMA table_info(crm_contacts)").fetchall()}
+        if "position" not in contact_columns:
+            conn.execute("ALTER TABLE crm_contacts ADD COLUMN position TEXT")
 
         # Existing accounts get their immutable personal workspace during the
         # idempotent migration; new accounts are handled by create_user().

@@ -1033,10 +1033,16 @@ class CrmApiTest(unittest.TestCase):
         client_id = created["client"]["id"]
         contact = self.client.post(
             f"/api/crm/clients/{client_id}/contacts",
-            json={"name": "Анна", "email": "anna@example.test", "phone": "+79990000000", "isPrimary": True},
+            json={"name": "Анна", "position": "Менеджер по закупкам", "email": "anna@example.test", "phone": "+79990000000", "isPrimary": True},
         ).json()["contact"]
 
+        workspace = self.client.get("/api/crm/clients")
+
         updated = self.client.patch(
+            f"/api/crm/clients/{client_id}/contacts/{contact['id']}",
+            json={"name": "Анна Петрова", "position": "Коммерческий директор", "email": "petrova@example.test", "phone": "+79991111111", "isPrimary": False},
+        )
+        legacy_updated = self.client.patch(
             f"/api/crm/clients/{client_id}/contacts/{contact['id']}",
             json={"name": "Анна Петрова", "email": "petrova@example.test", "phone": "+79991111111", "isPrimary": False},
         )
@@ -1046,7 +1052,17 @@ class CrmApiTest(unittest.TestCase):
             jobs = conn.execute("SELECT id FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchall()
 
         self.assertEqual(200, updated.status_code, updated.text)
-        self.assertEqual({"name": "Анна Петрова", "email": "petrova@example.test", "phone": "+79991111111", "isPrimary": False}, {key: updated.json()["contact"][key] for key in ("name", "email", "phone", "isPrimary")})
+        self.assertEqual(200, workspace.status_code, workspace.text)
+        self.assertEqual(
+            [{"id": contact["id"], "name": "Анна", "position": "Менеджер по закупкам", "email": "anna@example.test", "phone": "+79990000000", "isPrimary": True}],
+            [
+                {key: item[key] for key in ("id", "name", "position", "email", "phone", "isPrimary")}
+                for item in workspace.json()["items"][0]["contacts"]
+            ],
+        )
+        self.assertEqual({"name": "Анна Петрова", "position": "Коммерческий директор", "email": "petrova@example.test", "phone": "+79991111111", "isPrimary": False}, {key: updated.json()["contact"][key] for key in ("name", "position", "email", "phone", "isPrimary")})
+        self.assertEqual(200, legacy_updated.status_code, legacy_updated.text)
+        self.assertEqual("Коммерческий директор", legacy_updated.json()["contact"]["position"])
         self.assertEqual(200, deleted.status_code, deleted.text)
         self.assertEqual([], listed.json()["items"])
         self.assertEqual([], jobs)
