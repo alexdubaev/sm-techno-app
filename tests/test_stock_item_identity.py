@@ -86,6 +86,35 @@ class StockItemIdentityTest(unittest.TestCase):
         self.assertIsNotNone(duplicates)
         self.assertIn("ab-1", duplicates["value"])
 
+    def test_partially_normalized_sku_collision_does_not_violate_existing_index(self) -> None:
+        legacy_path = Path(self._temp_dir.name) / "partial-normalization.db"
+        with sqlite3.connect(legacy_path) as conn:
+            conn.executescript(
+                """
+                CREATE TABLE items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    onec_key TEXT UNIQUE,
+                    sku TEXT,
+                    sku_normalized TEXT,
+                    name TEXT NOT NULL,
+                    price REAL NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX idx_items_sku_normalized_not_empty
+                    ON items(sku_normalized)
+                    WHERE sku_normalized IS NOT NULL AND sku_normalized <> '';
+                INSERT INTO items(sku, sku_normalized, name, updated_at) VALUES
+                    ('AB-1', 'ab-1', 'Первый', '2026-09-08T00:00:00'),
+                    (' ab-1 ', NULL, 'Второй', '2026-09-08T00:00:00');
+                """
+            )
+
+        db = WebDatabase(legacy_path)
+
+        with db.connect() as conn:
+            rows = conn.execute("SELECT id, sku_normalized FROM items ORDER BY id").fetchall()
+        self.assertEqual([(1, "ab-1"), (2, None)], [(row["id"], row["sku_normalized"]) for row in rows])
+
     @staticmethod
     def _import_row(sku: str, name: str) -> dict[str, object]:
         return {

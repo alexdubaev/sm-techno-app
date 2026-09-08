@@ -233,11 +233,22 @@ class Database:
             conn.execute("ALTER TABLE items ADD COLUMN created_at TEXT")
         if "sku_normalized" not in item_columns:
             conn.execute("ALTER TABLE items ADD COLUMN sku_normalized TEXT")
+        deferred_collisions: dict[str, set[int]] = {}
         rows = conn.execute("SELECT id, sku FROM items WHERE COALESCE(sku_normalized, '') = ''").fetchall()
         for row in rows:
+            normalized_sku = self._normalize_stock_sku(row["sku"])
+            existing = conn.execute(
+                "SELECT id FROM items WHERE sku_normalized = ? ORDER BY id",
+                (normalized_sku,),
+            ).fetchall() if normalized_sku else []
+            if existing:
+                deferred_collisions.setdefault(normalized_sku, set()).update(
+                    [int(existing_row["id"]) for existing_row in existing] + [int(row["id"])]
+                )
+                continue
             conn.execute(
                 "UPDATE items SET sku_normalized = ? WHERE id = ?",
-                (self._normalize_stock_sku(row["sku"]), row["id"]),
+                (normalized_sku, row["id"]),
             )
         sku_collisions = conn.execute(
             """
@@ -248,7 +259,7 @@ class Database:
             HAVING COUNT(*) > 1
             """
         ).fetchall()
-        if sku_collisions:
+        if sku_collisions or deferred_collisions:
             collision_report: list[dict[str, Any]] = []
             for collision in sku_collisions:
                 item_ids = [int(value) for value in str(collision["item_ids"]).split(",")]
@@ -265,6 +276,12 @@ class Database:
                         "canonicalItemId": keeper_id,
                         "duplicateItemIds": duplicate_ids,
                     }
+                )
+            for sku, item_ids in deferred_collisions.items():
+                keeper_id = min(item_ids)
+                collision_report.append(
+                    {"sku": sku, "canonicalItemId": keeper_id,
+                     "duplicateItemIds": sorted(item_id for item_id in item_ids if item_id != keeper_id)}
                 )
             conn.execute(
                 """
