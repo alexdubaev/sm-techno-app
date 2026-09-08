@@ -117,7 +117,7 @@ class LegacyClientPrivacyTest(unittest.TestCase):
         self.assertEqual(400, response.status_code, response.text)
         self.assertIn("архиве", response.json()["detail"])
 
-    def test_commercial_offer_rejects_archived_client_name(self) -> None:
+    def test_commercial_offer_with_archived_client_name_is_manual_snapshot(self) -> None:
         self._archive_shared_client()
         item = self.service.db.create_local_item(
             sku="SKU-ARCHIVE",
@@ -149,8 +149,9 @@ class LegacyClientPrivacyTest(unittest.TestCase):
             },
         )
 
-        self.assertEqual(400, response.status_code, response.text)
-        self.assertIn("архиве", response.json()["detail"])
+        self.assertEqual(200, response.status_code, response.text)
+        offer = response.json()["offer"]
+        self.assertEqual((offer["clientSource"], offer["crmClientId"], offer["clientName"]), ("manual", None, "Общий клиент"))
 
     def test_legacy_send_denies_private_lead_before_building_onec_client(self) -> None:
         fake = RecordingOneC()

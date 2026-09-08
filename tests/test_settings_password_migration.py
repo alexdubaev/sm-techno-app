@@ -36,12 +36,16 @@ def test_upgrade_preserves_hash_sessions_and_never_recovers_legacy_plaintext(tmp
             );
             CREATE TABLE app_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
-                token TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
-                last_seen_at TEXT NOT NULL, expires_at TEXT NOT NULL
+                token_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+                absolute_expires_at TEXT NOT NULL
             );
-        """)
+            """)
         conn.execute("INSERT INTO users VALUES (7, 'legacy', ?, 'discard-this-plaintext', 'user', 'Legacy', '', NULL, 1, '2026-01-01', '2026-01-01')", (password_hash,))
-        conn.execute("INSERT INTO app_sessions VALUES (1, 7, 'existing-session', '2026-01-01', '2026-01-01', '2099-01-01')")
+        conn.execute(
+            "INSERT INTO app_sessions VALUES (1, 7, ?, '2026-01-01', '2026-01-01', '2099-01-01', '2099-01-01')",
+            (WebDatabase._hash_session_token("existing-session"),),
+        )
     db = WebDatabase(path)
     db.initialize()  # The additive migration must remain safe on repeat startup.
     with db.connect() as conn:
