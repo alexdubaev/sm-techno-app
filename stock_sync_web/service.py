@@ -260,12 +260,42 @@ class WebStockSyncService:
         onec_username: str = "",
         onec_password: str = "",
     ) -> int:
-        rows = self._fetch_counterparty_rows(
+        _completed, count = self._sync_counterparty_pull(
             user_id=user_id,
             onec_username=onec_username,
             onec_password=onec_password,
         )
-        return self.db.reconcile_crm_counterparty_pull(rows)
+        return count
+
+    def _sync_counterparty_pull(
+        self,
+        *,
+        user_id: int | None,
+        onec_username: str,
+        onec_password: str,
+    ) -> tuple[bool, int]:
+        """Fetch and reconcile one CRM pull under local and SQLite leases."""
+        if not self._crm_refresh_lock.acquire(blocking=False):
+            return False, 0
+        lease_token = uuid.uuid4().hex
+        lease_acquired = False
+        try:
+            if not self.db.acquire_crm_pull_lease(lease_token):
+                return False, 0
+            lease_acquired = True
+            rows = self._fetch_counterparty_rows(
+                user_id=user_id,
+                onec_username=onec_username,
+                onec_password=onec_password,
+            )
+            count = self.db.reconcile_crm_counterparty_pull(rows, owner_token=lease_token)
+            if count is None:
+                return False, 0
+            return True, count
+        finally:
+            if lease_acquired:
+                self.db.release_crm_pull_lease(lease_token)
+            self._crm_refresh_lock.release()
 
     def _fetch_counterparty_rows(
         self,
@@ -299,18 +329,12 @@ class WebStockSyncService:
         A coalesced caller returns immediately and reloads the local CRM data
         being refreshed by the request that owns the lock.
         """
-        if not self._crm_refresh_lock.acquire(blocking=False):
-            return {"status": "coalesced", "counterparties": 0}
-        lease_token = uuid.uuid4().hex
-        lease_acquired = False
         try:
-            if not self.db.acquire_crm_pull_lease(lease_token):
-                return {"status": "coalesced", "counterparties": 0}
-            lease_acquired = True
-            rows = self._fetch_counterparty_rows(
+            completed, result = self._sync_counterparty_pull(
                 user_id=int(user_id), onec_username="", onec_password=""
             )
-            result = self.db.reconcile_crm_counterparty_pull(rows)
+            if not completed:
+                return {"status": "coalesced", "counterparties": 0}
             self._save_crm_sync_status(
                 status="synced",
                 last_sync_at=datetime.now(timezone.utc).isoformat(),
@@ -319,10 +343,6 @@ class WebStockSyncService:
         except Exception:
             self._save_crm_sync_status(status="error")
             raise
-        finally:
-            if lease_acquired:
-                self.db.release_crm_pull_lease(lease_token)
-            self._crm_refresh_lock.release()
 
     def run_due_crm_sync_jobs(self, *, limit: int = 20) -> dict[str, int]:
         """Block legacy CRM outbox jobs without constructing a 1C client."""

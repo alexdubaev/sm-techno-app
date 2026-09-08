@@ -99,12 +99,28 @@ class BlockingPullReconciliationDatabase(WebDatabase):
         self.reconciliation_started = threading.Event()
         self.release_reconciliation = threading.Event()
 
-    def reconcile_crm_counterparty_pull(self, records: list[dict[str, object]]) -> int:
-        result = super().reconcile_crm_counterparty_pull(records)
+    def reconcile_crm_counterparty_pull(
+        self, records: list[dict[str, object]], *, owner_token: str | None = None
+    ) -> int | None:
+        result = super().reconcile_crm_counterparty_pull(records, owner_token=owner_token)
         self.reconciliation_started.set()
         if not self.release_reconciliation.wait(timeout=2):
             raise RuntimeError("test reconciliation was not released")
         return result
+
+
+class BlockingRowsOneC(CounterpartyRowsOneC):
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        super().__init__(rows)
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def list_counterparties(self) -> list[dict[str, object]]:
+        self.list_counterparties_calls += 1
+        self.entered.set()
+        if not self.release.wait(timeout=2):
+            raise RuntimeError("test 1C pull was not released")
+        return self.rows
 
 
 class CrmSyncExecutionTest(unittest.TestCase):
@@ -214,6 +230,67 @@ class CrmSyncExecutionTest(unittest.TestCase):
         self.assertEqual({"status": "coalesced", "counterparties": 0}, second_result)
         self.assertEqual(1, first_onec.list_counterparties_calls + second_onec.list_counterparties_calls)
 
+    def test_reference_sync_uses_the_same_cross_process_pull_lease(self) -> None:
+        database_path = Path(self.temp_dir.name) / "shared-reference-sync.db"
+        first_db = BlockingPullReconciliationDatabase(database_path)
+        second_db = WebDatabase(database_path)
+        first_service = WebStockSyncService(db=first_db)
+        second_service = WebStockSyncService(db=second_db)
+        first_service.bootstrap()
+        owner_id = first_db.create_user(username="reference-owner", password="password", role="user")
+        first_onec = RecordingOneC()
+        second_onec = RecordingOneC()
+        first_service.build_user_client = lambda **_: first_onec  # type: ignore[method-assign]
+        second_service.build_user_client = lambda **_: second_onec  # type: ignore[method-assign]
+        first_result: list[int] = []
+
+        thread = threading.Thread(target=lambda: first_result.append(first_service.sync_counterparties(user_id=owner_id)))
+        thread.start()
+        self.assertTrue(first_db.reconciliation_started.wait(timeout=1))
+
+        second_result = second_service.sync_crm_counterparties_for_user(owner_id)
+        first_db.release_reconciliation.set()
+        thread.join(timeout=2)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual([0], first_result)
+        self.assertEqual({"status": "coalesced", "counterparties": 0}, second_result)
+        self.assertEqual(1, first_onec.list_counterparties_calls + second_onec.list_counterparties_calls)
+
+    def test_expired_slow_pull_cannot_apply_after_a_newer_lease_owner(self) -> None:
+        database_path = Path(self.temp_dir.name) / "expired-pull-sync.db"
+        first_db = WebDatabase(database_path)
+        second_db = WebDatabase(database_path)
+        first_service = WebStockSyncService(db=first_db)
+        second_service = WebStockSyncService(db=second_db)
+        first_service.bootstrap()
+        owner_id = first_db.create_user(username="expired-owner", password="password", role="user")
+        slow_onec = BlockingRowsOneC([
+            {"onec_key": "race-key", "name": "stale remote", "document_name": "stale remote"}
+        ])
+        fresh_onec = CounterpartyRowsOneC([
+            {"onec_key": "race-key", "name": "fresh remote", "document_name": "fresh remote"}
+        ])
+        first_service.build_user_client = lambda **_: slow_onec  # type: ignore[method-assign]
+        second_service.build_user_client = lambda **_: fresh_onec  # type: ignore[method-assign]
+        first_result: dict[str, object] = {}
+        thread = threading.Thread(
+            target=lambda: first_result.update(first_service.sync_crm_counterparties_for_user(owner_id))
+        )
+        thread.start()
+        self.assertTrue(slow_onec.entered.wait(timeout=1))
+        with second_db.transaction() as conn:
+            conn.execute("UPDATE crm_pull_leases SET expires_at = '2000-01-01T00:00:00'")
+
+        second_result = second_service.sync_crm_counterparties_for_user(owner_id)
+        slow_onec.release.set()
+        thread.join(timeout=2)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual({"status": "synced", "counterparties": 1}, second_result)
+        self.assertEqual({"status": "coalesced", "counterparties": 0}, first_result)
+        self.assertEqual("fresh remote", first_db.get_counterparty_by_onec_key("race-key")["name"])
+
     def test_batch_pull_avoids_row_lookups_and_preserves_local_archive_and_conflict_state(self) -> None:
         rows: list[dict[str, object]] = [
             {
@@ -288,6 +365,54 @@ class CrmSyncExecutionTest(unittest.TestCase):
         self.assertEqual("remote@example.test", refreshed_linked["email"])
         self.assertEqual("conflict", refreshed_linked["sync_status"])
         self.assertEqual(["document_name"], [conflict["field_name"] for conflict in conflicts])
+
+    def test_batch_pull_preserves_pending_or_blocked_linked_card_without_a_sync_snapshot(self) -> None:
+        row: dict[str, object] = {
+            "onec_key": "pending-linked", "name": "1С имя", "document_name": "1С имя", "email": "remote@example.test"
+        }
+        self.service.db.upsert_counterparties([row])
+        counterparty = self.service.db.get_counterparty_by_onec_key("pending-linked")
+        self.service.build_user_client = lambda **_: CounterpartyRowsOneC([row])  # type: ignore[method-assign]
+        for sync_status in ("pending", "blocked_capability"):
+            card = self.service.db.create_crm_client_card({"document_name": "Локальное ожидание", "email": "local@example.test"})
+            with self.service.db.transaction() as conn:
+                conn.execute(
+                    "UPDATE crm_clients SET linked_counterparty_id = ?, sync_status = ? WHERE id = ?",
+                    (int(counterparty["id"]), sync_status, int(card["id"])),
+                )
+
+            self.assertEqual(1, self.service.sync_counterparties(user_id=self.owner_id))
+            refreshed = self.service.db.get_crm_client(int(card["id"]))
+            self.assertEqual("Локальное ожидание", refreshed["document_name"])
+            self.assertEqual("local@example.test", refreshed["email"])
+            self.assertEqual(sync_status, refreshed["sync_status"])
+            with self.service.db.transaction() as conn:
+                conn.execute("UPDATE crm_clients SET linked_counterparty_id = NULL WHERE id = ?", (int(card["id"]),))
+
+    def test_batch_pull_uses_the_first_linked_card_when_legacy_duplicates_exist(self) -> None:
+        row: dict[str, object] = {
+            "onec_key": "duplicate-linked", "name": "1С имя", "document_name": "1С имя", "email": "remote@example.test"
+        }
+        self.service.db.upsert_counterparties([row])
+        counterparty = self.service.db.get_counterparty_by_onec_key("duplicate-linked")
+        first = self.service.db.create_crm_client_card({"document_name": "Первый", "email": "base@example.test"})
+        second = self.service.db.create_crm_client_card({"document_name": "Второй", "email": "second@example.test"})
+        with self.service.db.transaction() as conn:
+            conn.execute("DROP INDEX idx_crm_clients_linked_counterparty_unique")
+            conn.execute(
+                "UPDATE crm_clients SET linked_counterparty_id = ?, sync_status = 'synced' WHERE id IN (?, ?)",
+                (int(counterparty["id"]), int(first["id"]), int(second["id"])),
+            )
+            conn.execute(
+                "INSERT INTO crm_sync_state(crm_client_id, version, last_synced_snapshot, updated_at) VALUES (?, 1, ?, ?)",
+                (int(first["id"]), json.dumps({"document_name": "Первый", "email": "base@example.test", "phone": "", "legal_address": ""}), "2026-09-08T00:00:00"),
+            )
+
+        self.service.build_user_client = lambda **_: CounterpartyRowsOneC([row])  # type: ignore[method-assign]
+        self.assertEqual(1, self.service.sync_counterparties(user_id=self.owner_id))
+
+        self.assertEqual("remote@example.test", self.service.db.get_crm_client(int(first["id"]))["email"])
+        self.assertEqual("second@example.test", self.service.db.get_crm_client(int(second["id"]))["email"])
 
     def test_successful_crm_sync_persists_last_success_status(self) -> None:
         self.service.build_user_client = lambda **_: RecordingOneC()  # type: ignore[method-assign]

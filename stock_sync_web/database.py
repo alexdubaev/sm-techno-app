@@ -1634,12 +1634,24 @@ class WebDatabase(Database):
             (*values, client_id),
         )
 
-    def reconcile_crm_counterparty_pull(self, records: list[dict[str, Any]]) -> int:
+    def reconcile_crm_counterparty_pull(
+        self, records: list[dict[str, Any]], *, owner_token: str | None = None
+    ) -> int | None:
         """Apply one 1C counterparty snapshot as a single, batched SQLite write."""
         now = utc_now()
         keys = [str(record.get("onec_key") or "").strip() for record in records]
         active_keys = sorted({key for key in keys if key})
         with self.transaction(immediate=True) as conn:
+            if owner_token is not None:
+                lease = conn.execute(
+                    "SELECT owner_token, expires_at FROM crm_pull_leases WHERE lease_name = 'crm_counterparty_pull'"
+                ).fetchone()
+                if (
+                    lease is None
+                    or str(lease["owner_token"] or "") != owner_token
+                    or str(lease["expires_at"] or "") <= now
+                ):
+                    return None
             for record in records:
                 conn.execute(
                     """
@@ -1666,14 +1678,17 @@ class WebDatabase(Database):
             cards = conn.execute(
                 f"""
                 SELECT c.id, c.linked_counterparty_id, c.crm_archived_at, c.document_name, c.email,
-                       c.phone, c.legal_address, s.version, s.last_synced_snapshot
+                       c.phone, c.legal_address, c.sync_status, s.version, s.last_synced_snapshot
                 FROM crm_clients c
                 LEFT JOIN crm_sync_state s ON s.crm_client_id = c.id
                 WHERE c.linked_counterparty_id IN ({id_placeholders})
+                ORDER BY c.id
                 """,
                 counterparty_ids,
             ).fetchall()
-            cards_by_counterparty = {int(card["linked_counterparty_id"]): card for card in cards}
+            cards_by_counterparty: dict[int, sqlite3.Row] = {}
+            for card in cards:
+                cards_by_counterparty.setdefault(int(card["linked_counterparty_id"]), card)
             for record, key in zip(records, keys):
                 counterparty_id = counterparties_by_key.get(key)
                 if counterparty_id is None:
@@ -1688,8 +1703,9 @@ class WebDatabase(Database):
                 elif card["crm_archived_at"] is None:
                     client_id = int(card["id"])
                     if card["version"] is None:
-                        self._replace_crm_client_from_counterparty(conn, client_id, values)
-                        self._save_crm_sync_snapshot(conn, client_id, now)
+                        if str(card["sync_status"] or "") not in {"pending", "blocked_capability"}:
+                            self._replace_crm_client_from_counterparty(conn, client_id, values)
+                            self._save_crm_sync_snapshot(conn, client_id, now)
                     else:
                         self._merge_crm_client_fields_from_counterparty(conn, card, record, now)
         return len(records)
