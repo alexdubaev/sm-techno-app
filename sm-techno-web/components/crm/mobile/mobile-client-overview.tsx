@@ -155,7 +155,7 @@ export function MobileClientOverview({
                         type="button"
                         onClick={() => void deleteContact()}
                         disabled={isSaving !== null}
-                        className={`${mobileButton} border-transparent bg-[#B91C1C] text-white`}
+                        className={mobileButton}
                       >
                         {isSaving === 'contact-delete' ? 'Удаляем…' : 'Удалить'}
                       </button>
