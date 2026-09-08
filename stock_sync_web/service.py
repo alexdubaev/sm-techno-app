@@ -1230,32 +1230,45 @@ class WebStockSyncService:
         safe_source_name = self._safe_filename(original_filename)
         stored_source = self.commercial_offer_uploads_dir / f"{file_id}_{safe_source_name}"
         output_path = self.commercial_offer_exports_dir / f"{file_id}_{self._safe_filename('КП_' + offer_number + '.xlsx')}"
-        shutil.copyfile(source_path, stored_source)
-
+        staged_source = self._commercial_offer_staging_path(stored_source)
+        staged_output = self._commercial_offer_staging_path(output_path)
         offer_date = date.today()
-        generate_commercial_offer_workbook(
-            template_path=self.commercial_offer_template_path,
-            output_path=output_path,
-            lines=lines,
-            offer_number=offer_number,
-            client_name=client["client_name"],
-            offer_date=offer_date,
-        )
-        offer_id = self.db.create_commercial_offer(
-            number=offer_number,
-            client_source=client["client_source"],
-            counterparty_id=client["counterparty_id"],
-            crm_client_id=client["crm_client_id"],
-            client_name=client["client_name"],
-            offer_date=offer_date.isoformat(),
-            source_filename=original_filename,
-            source_path=self._store_path(stored_source),
-            output_path=self._store_path(output_path),
-            notes=notes,
-            lines=[self._line_to_db(line) for line in lines],
-            created_by_user_id=created_by_user_id,
-        )
-        return self.db.get_commercial_offer_bundle(offer_id)
+        offer_id: int | None = None
+        try:
+            shutil.copyfile(source_path, staged_source)
+            generate_commercial_offer_workbook(
+                template_path=self.commercial_offer_template_path,
+                output_path=staged_output,
+                lines=lines,
+                offer_number=offer_number,
+                client_name=client["client_name"],
+                offer_date=offer_date,
+            )
+            offer_id = self.db.create_commercial_offer(
+                number=offer_number,
+                client_source=client["client_source"],
+                counterparty_id=client["counterparty_id"],
+                crm_client_id=client["crm_client_id"],
+                client_name=client["client_name"],
+                offer_date=offer_date.isoformat(),
+                source_filename=original_filename,
+                source_path=self._store_path(stored_source),
+                output_path=self._store_path(output_path),
+                notes=notes,
+                lines=[self._line_to_db(line) for line in lines],
+                created_by_user_id=created_by_user_id,
+            )
+            staged_source.replace(stored_source)
+            staged_output.replace(output_path)
+            return self.db.get_commercial_offer_bundle(offer_id)
+        except Exception:
+            if offer_id is not None:
+                try:
+                    self.db.delete_commercial_offer(offer_id)
+                except Exception:
+                    pass
+            self._cleanup_commercial_offer_paths(staged_source, staged_output, stored_source, output_path)
+            raise
 
     def create_commercial_offer_from_draft(
         self,
@@ -1280,30 +1293,42 @@ class WebStockSyncService:
         offer_number = f"КП-{now:%Y%m%d-%H%M%S}"
         file_id = uuid.uuid4().hex[:12]
         output_path = self.commercial_offer_exports_dir / f"{file_id}_{self._safe_filename(offer_number + '.xlsx')}"
+        staged_output = self._commercial_offer_staging_path(output_path)
         offer_date = date.today()
-        generate_commercial_offer_workbook(
-            template_path=self.commercial_offer_template_path,
-            output_path=output_path,
-            lines=parsed_lines,
-            offer_number=offer_number,
-            client_name=client["client_name"],
-            offer_date=offer_date,
-        )
-        offer_id = self.db.create_commercial_offer(
-            number=offer_number,
-            client_source=client["client_source"],
-            counterparty_id=client["counterparty_id"],
-            crm_client_id=client["crm_client_id"],
-            client_name=client["client_name"],
-            offer_date=offer_date.isoformat(),
-            source_filename=None,
-            source_path=None,
-            output_path=self._store_path(output_path),
-            notes=notes,
-            lines=[self._line_to_db(line) for line in parsed_lines],
-            created_by_user_id=created_by_user_id,
-        )
-        return self.db.get_commercial_offer_bundle(offer_id)
+        offer_id: int | None = None
+        try:
+            generate_commercial_offer_workbook(
+                template_path=self.commercial_offer_template_path,
+                output_path=staged_output,
+                lines=parsed_lines,
+                offer_number=offer_number,
+                client_name=client["client_name"],
+                offer_date=offer_date,
+            )
+            offer_id = self.db.create_commercial_offer(
+                number=offer_number,
+                client_source=client["client_source"],
+                counterparty_id=client["counterparty_id"],
+                crm_client_id=client["crm_client_id"],
+                client_name=client["client_name"],
+                offer_date=offer_date.isoformat(),
+                source_filename=None,
+                source_path=None,
+                output_path=self._store_path(output_path),
+                notes=notes,
+                lines=[self._line_to_db(line) for line in parsed_lines],
+                created_by_user_id=created_by_user_id,
+            )
+            staged_output.replace(output_path)
+            return self.db.get_commercial_offer_bundle(offer_id)
+        except Exception:
+            if offer_id is not None:
+                try:
+                    self.db.delete_commercial_offer(offer_id)
+                except Exception:
+                    pass
+            self._cleanup_commercial_offer_paths(staged_output, output_path)
+            raise
 
     def list_commercial_offers_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
         return self.db.list_commercial_offers(user_id=user_id, include_all=is_admin)
@@ -1344,13 +1369,13 @@ class WebStockSyncService:
         bundle = self.get_commercial_offer_for_user(offer_id=offer_id, user_id=user_id, is_admin=is_admin)
         offer = bundle["offer"]
         if kind == "output":
-            path = self._resolve_stored_path(str(offer.get("output_path") or ""))
+            path = self._resolve_commercial_offer_stored_path(str(offer.get("output_path") or ""))
             filename = f"КП_{offer.get('number') or offer_id}.xlsx"
         elif kind == "source":
             source_path = offer.get("source_path")
             if not source_path:
                 raise ValueError("У этого КП нет исходного Excel-файла.")
-            path = self._resolve_stored_path(str(source_path))
+            path = self._resolve_commercial_offer_stored_path(str(source_path))
             filename = offer.get("source_filename") or "source.xlsx"
         else:
             raise ValueError("Неизвестный тип файла.")
@@ -1667,6 +1692,8 @@ class WebStockSyncService:
                 price = float(raw_line.get("priceVat", raw_line.get("price_vat", raw_line.get("price", 0))) or 0)
             except (TypeError, ValueError) as exc:
                 raise ValueError("Количество и цена в КП должны быть числами.") from exc
+            if not math.isfinite(qty) or not math.isfinite(price):
+                raise ValueError("Количество и цена в КП должны быть конечными числами.")
             if qty <= 0:
                 raise ValueError("Количество в строках КП должно быть больше нуля.")
             if price < 0:
@@ -1749,17 +1776,35 @@ class WebStockSyncService:
             return path
         return ROOT_DIR / path
 
+    @staticmethod
+    def _commercial_offer_staging_path(final_path: Path) -> Path:
+        return final_path.with_name(f".{final_path.name}.{uuid.uuid4().hex}.staging")
+
+    @staticmethod
+    def _cleanup_commercial_offer_paths(*paths: Path) -> None:
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _resolve_commercial_offer_stored_path(self, value: str) -> Path:
+        path = self._resolve_stored_path(value).resolve()
+        storage_root = self.commercial_offer_storage_dir.resolve()
+        try:
+            path.relative_to(storage_root)
+        except ValueError as exc:
+            raise ValueError("Файл КП находится вне хранилища.") from exc
+        return path
+
     def _delete_stored_offer_file(self, value: Any) -> None:
         if not value:
             return
 
-        path = self._resolve_stored_path(str(value)).resolve()
-        storage_root = self.commercial_offer_storage_dir.resolve()
         try:
-            path.relative_to(storage_root)
+            path = self._resolve_commercial_offer_stored_path(str(value))
         except ValueError:
             return
-
         path.unlink(missing_ok=True)
 
     def set_stock_quantity(self, item_id: int, quantity: float, comment: str = "") -> None:
