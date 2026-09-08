@@ -439,7 +439,7 @@ class CrmSyncExecutionTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"status": "error", "lastSyncAt": first_timestamp}, response.json())
 
-    def test_app_lifecycle_blocks_an_explicit_legacy_job_without_onec_client(self) -> None:
+    def test_app_lifecycle_does_not_run_retired_crm_outbox(self) -> None:
         repo = CrmRepository(self.service.db)
         card, _assignment, _tab = repo.create_local_lead_for_actor(
             actor_id=self.owner_id,
@@ -456,13 +456,11 @@ class CrmSyncExecutionTest(unittest.TestCase):
         )
 
         with TestClient(stock_sync_api.app):
-            deadline = time.monotonic() + 3
-            while self.service.db.get_crm_client(int(card["id"]))["sync_status"] != "blocked_capability" and time.monotonic() < deadline:
-                time.sleep(0.05)
+            pass
 
-        self.assertEqual("blocked_capability", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
+        self.assertEqual("pending", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
 
-    def test_app_lifecycle_shutdown_does_not_construct_onec_for_legacy_jobs(self) -> None:
+    def test_app_lifecycle_shutdown_does_not_construct_onec_for_retired_jobs(self) -> None:
         repo = CrmRepository(self.service.db)
         card, _assignment, _tab = repo.create_local_lead_for_actor(
             actor_id=self.owner_id,
@@ -484,4 +482,4 @@ class CrmSyncExecutionTest(unittest.TestCase):
             await asyncio.wait_for(lifespan.__aexit__(None, None, None), timeout=2)
 
         asyncio.run(shutdown_scenario())
-        self.assertEqual("blocked_capability", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
+        self.assertEqual("pending", self.service.db.get_crm_client(int(card["id"]))["sync_status"])
