@@ -13,7 +13,11 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from stock_sync_web.vps_integrity import storage_operation_lock, validate_database_storage_pair
+from stock_sync_web.vps_integrity import (
+    RESERVED_STORAGE_ENTRY_NAMES,
+    storage_operation_lock,
+    validate_database_storage_pair,
+)
 
 
 MANIFEST_NAME = "manifest.json"
@@ -29,18 +33,20 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _copy_storage_snapshot(source: Path, destination: Path) -> None:
+def _copy_storage_snapshot(source: Path, destination: Path, *, is_storage_root: bool = True) -> None:
     """Copy only ordinary directories/files, never following a storage link."""
     if source.is_symlink() or not source.is_dir():
         raise RuntimeError("Storage must be a real directory, not a symbolic link.")
     destination.mkdir()
     for entry in os.scandir(source):
+        if is_storage_root and entry.name in RESERVED_STORAGE_ENTRY_NAMES:
+            continue
         source_entry = Path(entry.path)
         destination_entry = destination / entry.name
         entry_stat = entry.stat(follow_symlinks=False)
         mode = entry_stat.st_mode
         if stat.S_ISDIR(mode):
-            _copy_storage_snapshot(source_entry, destination_entry)
+            _copy_storage_snapshot(source_entry, destination_entry, is_storage_root=False)
         elif stat.S_ISREG(mode):
             if source_entry.is_symlink() or entry_stat.st_nlink > 1:
                 raise RuntimeError("Storage contains a symbolic link or hard link.")
@@ -97,7 +103,7 @@ def create_backup(root: Path, backups_dir: Path) -> Path:
             snapshot_root = Path(temp_dir)
             snapshot_db = snapshot_root / DATABASE_NAME
             snapshot_storage = snapshot_root / "storage"
-            with storage_operation_lock(root):
+            with storage_operation_lock(source_storage):
                 _snapshot_database(source_db, snapshot_db)
                 _copy_storage_snapshot(source_storage, snapshot_storage)
                 validate_database_storage_pair(snapshot_db, snapshot_storage)

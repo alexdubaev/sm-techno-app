@@ -10,7 +10,11 @@ import tempfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from stock_sync_web.vps_integrity import validate_database_storage_pair
+from stock_sync_web.vps_integrity import (
+    STORAGE_OPERATION_LOCK_NAME,
+    STORAGE_STAGING_DIR_NAME,
+    validate_database_storage_pair,
+)
 
 
 DATABASE_NAME = "stock_sync.db"
@@ -62,11 +66,19 @@ def _safe_extraction_path(destination: Path, name: str) -> Path:
     return output
 
 
+def _is_internal_storage_member(name: str) -> bool:
+    return name == f"storage/{STORAGE_OPERATION_LOCK_NAME}" or name.startswith(
+        f"storage/{STORAGE_STAGING_DIR_NAME}/"
+    ) or name == f"storage/{STORAGE_STAGING_DIR_NAME}"
+
+
 def _validate_members(tar: tarfile.TarFile) -> dict[str, tarfile.TarInfo]:
     members: dict[str, tarfile.TarInfo] = {}
     for member in tar.getmembers():
         if not _safe_member_name(member.name) or not (member.isfile() or member.isdir()):
             raise RuntimeError("Archive contains an unsafe path or member type.")
+        if _is_internal_storage_member(member.name):
+            raise RuntimeError("Archive contains internal storage artifacts.")
         if member.name in members:
             raise RuntimeError("Archive contains duplicate member names.")
         if member.name not in {DATABASE_NAME, MANIFEST_NAME, "storage"} and not member.name.startswith("storage/"):

@@ -17,7 +17,7 @@ from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounter
 from stock_sync_desktop.database import resolve_db_path
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.settings import DEFAULT_SETTINGS
-from stock_sync_web.vps_integrity import storage_operation_lock
+from stock_sync_web.vps_integrity import STORAGE_STAGING_DIR_NAME, storage_operation_lock
 
 CLIENT_PRICE_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templates" / "client_price_template.xlsx"
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -72,9 +72,8 @@ class WebStockSyncService:
         self._crm_refresh_lock = Lock()
 
     def _storage_operation_root(self) -> Path:
-        """Return the deployed root shared by the database and storage archive."""
-        database_parent = self.db.db_path.resolve().parent
-        return database_parent.parent if database_parent.name == "data" else database_parent
+        """Use the storage bind mount so host backups share this process lock."""
+        return self.commercial_offer_storage_dir.resolve().parent
 
     def bootstrap(self) -> bool:
         return self.db.ensure_default_admin()
@@ -1865,8 +1864,17 @@ class WebStockSyncService:
         return ROOT_DIR / path
 
     def _storage_staging_path(self, final_path: Path) -> Path:
-        """Keep incomplete publications outside the storage tree copied by VPS backup."""
-        staging_dir = self._storage_operation_root() / ".sm-techno-storage-staging"
+        """Stage beside the final storage mount in a directory excluded from VPS backups."""
+        resolved_final = final_path.resolve()
+        for storage_dir in (self.commercial_offer_storage_dir, self.document_storage_dir):
+            try:
+                resolved_final.relative_to(storage_dir.resolve())
+            except ValueError:
+                continue
+            staging_dir = storage_dir.resolve().parent / STORAGE_STAGING_DIR_NAME
+            break
+        else:
+            raise ValueError("Staged publication must remain inside a configured storage directory.")
         staging_dir.mkdir(parents=True, exist_ok=True)
         return staging_dir / f".{final_path.name}.{uuid.uuid4().hex}.staging"
 

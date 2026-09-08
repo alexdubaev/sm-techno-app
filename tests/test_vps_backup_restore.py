@@ -152,6 +152,32 @@ def _remove_archive_member_and_update_manifest(archive: Path, removed_name: str)
     replacement.replace(archive)
 
 
+def _append_internal_member_and_update_manifest(archive: Path, member_name: str) -> None:
+    replacement = archive.with_suffix(".internal.tar.gz")
+    with tarfile.open(archive, "r:gz") as source:
+        payloads = {
+            member.name: source.extractfile(member).read()
+            for member in source.getmembers()
+            if member.isfile()
+        }
+        manifest = json.loads(payloads["manifest.json"])
+        payloads[member_name] = b"internal"
+        manifest["files"][member_name] = hashlib.sha256(payloads[member_name]).hexdigest()
+        payloads["manifest.json"] = json.dumps(manifest, sort_keys=True).encode("utf-8")
+        with tarfile.open(replacement, "w:gz") as destination:
+            for member in source.getmembers():
+                if member.isfile():
+                    content = payloads[member.name]
+                    member.size = len(content)
+                    destination.addfile(member, io.BytesIO(content))
+                else:
+                    destination.addfile(member)
+            internal = tarfile.TarInfo(member_name)
+            internal.size = len(payloads[member_name])
+            destination.addfile(internal, io.BytesIO(payloads[member_name]))
+    replacement.replace(archive)
+
+
 def test_backup_writes_complete_manifest_with_file_hashes(tmp_path: Path) -> None:
     """A missing manifest or un-hashed payload would make archive corruption undetectable."""
     root = _make_root(tmp_path)
@@ -166,6 +192,27 @@ def test_backup_writes_complete_manifest_with_file_hashes(tmp_path: Path) -> Non
         assert set(manifest["files"]) == archive_files - {"manifest.json"}
         for name, digest in manifest["files"].items():
             assert hashlib.sha256(tar.extractfile(name).read()).hexdigest() == digest
+
+
+def test_backup_excludes_only_reserved_storage_entries(tmp_path: Path) -> None:
+    """Internal stage/lock entries must not leak into backups, unlike legitimate hidden files."""
+    root = _make_root(tmp_path)
+    storage = root / "storage"
+    (storage / ".sm-techno-storage-staging").mkdir()
+    (storage / ".sm-techno-storage-staging" / "partial.xlsx").write_bytes(b"partial")
+    (storage / ".sm-techno-storage-operation.lock").write_bytes(b"lock")
+    (storage / ".user-visible.txt").write_bytes(b"keep")
+    (storage / "documents" / ".sm-techno-storage-staging").mkdir()
+    (storage / "documents" / ".sm-techno-storage-staging" / "user-file.docx").write_bytes(b"keep-too")
+
+    archive = create_backup(root, tmp_path / "backups")
+
+    with tarfile.open(archive, "r:gz") as tar:
+        names = {member.name for member in tar.getmembers()}
+    assert "storage/.user-visible.txt" in names
+    assert "storage/documents/.sm-techno-storage-staging/user-file.docx" in names
+    assert "storage/.sm-techno-storage-operation.lock" not in names
+    assert not any(name.startswith("storage/.sm-techno-storage-staging") for name in names)
 
 
 def test_verify_only_rejects_corruption_without_creating_target(tmp_path: Path) -> None:
@@ -203,6 +250,19 @@ def test_verify_only_rejects_tar_symlinks_without_creating_target(tmp_path: Path
         restore_backup(archive, target, verify_only=True)
 
     assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    "member_name",
+    ["storage/.sm-techno-storage-operation.lock", "storage/.sm-techno-storage-staging/partial.xlsx"],
+)
+def test_verify_only_rejects_internal_storage_artifacts(tmp_path: Path, member_name: str) -> None:
+    """An archive must never restore the application's own lock or incomplete publication files."""
+    archive = create_backup(_make_root(tmp_path), tmp_path / "backups")
+    _append_internal_member_and_update_manifest(archive, member_name)
+
+    with pytest.raises(RuntimeError, match="internal"):
+        restore_backup(archive, tmp_path / "restore", verify_only=True)
 
 
 @pytest.mark.parametrize("member_name", ["storage/C:/evil.txt", "storage//server/share/evil.txt"])
@@ -283,6 +343,26 @@ def test_backup_waits_for_reference_publication_then_archives_a_verifiable_pair(
     restore_backup(archive_holder[0], tmp_path / "restore", verify_only=True)
 
 
+def test_service_uses_storage_mount_for_lock_and_staging_when_data_is_elsewhere(tmp_path: Path) -> None:
+    """Compose mounts /data and /storage separately, so publication cannot use the database filesystem."""
+    data_root = tmp_path / "data-mount"
+    storage_root = tmp_path / "storage-mount"
+    data_root.mkdir()
+    storage_root.mkdir()
+    service = WebStockSyncService(
+        db=WebDatabase(db_path=data_root / "stock_sync.db"),
+        commercial_offer_storage_dir=storage_root / "commercial_offers",
+        document_storage_dir=storage_root / "documents",
+    )
+
+    staged = service._commercial_offer_staging_path(
+        storage_root / "commercial_offers" / "exports" / "offer.xlsx"
+    )
+
+    assert service._storage_operation_root() == storage_root
+    assert staged.parent == storage_root / ".sm-techno-storage-staging"
+
+
 def test_backup_excludes_staged_offer_files_during_generation(tmp_path: Path, monkeypatch) -> None:
     """Staging below storage would let a backup retain unreferenced partial output."""
     root = tmp_path / "source"
@@ -298,10 +378,12 @@ def test_backup_excludes_staged_offer_files_during_generation(tmp_path: Path, mo
     generated_stage = threading.Event()
     release_generation = threading.Event()
     errors: list[BaseException] = []
+    staged_paths: list[Path] = []
     original_generator = commercial_offers_module.generate_commercial_offer_workbook
 
     def pause_after_staging_write(**kwargs) -> None:
         original_generator(**kwargs)
+        staged_paths.append(Path(kwargs["output_path"]))
         generated_stage.set()
         assert release_generation.wait(timeout=5)
 
@@ -323,6 +405,7 @@ def test_backup_excludes_staged_offer_files_during_generation(tmp_path: Path, mo
     writer_thread = threading.Thread(target=writer)
     writer_thread.start()
     assert generated_stage.wait(timeout=5)
+    assert staged_paths[0].parent == root / "storage" / ".sm-techno-storage-staging"
     archive = create_backup(root, tmp_path / "backups")
     release_generation.set()
     writer_thread.join(timeout=5)
@@ -355,7 +438,7 @@ def test_backup_releases_writer_lock_before_hashing_archive(tmp_path: Path, monk
         archive_holder.append(create_backup(root, tmp_path / "backups"))
 
     def writer() -> None:
-        with storage_operation_lock(root):
+        with storage_operation_lock(root / "storage"):
             writer_acquired.set()
 
     backup_thread = threading.Thread(target=backup)

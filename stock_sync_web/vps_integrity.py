@@ -11,6 +11,9 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 _LOCKS_GUARD = threading.Lock()
 _PROCESS_LOCKS: dict[str, threading.RLock] = {}
 _LOCAL = threading.local()
+STORAGE_STAGING_DIR_NAME = ".sm-techno-storage-staging"
+STORAGE_OPERATION_LOCK_NAME = ".sm-techno-storage-operation.lock"
+RESERVED_STORAGE_ENTRY_NAMES = frozenset({STORAGE_STAGING_DIR_NAME, STORAGE_OPERATION_LOCK_NAME})
 
 
 def _thread_held_keys() -> set[str]:
@@ -48,8 +51,8 @@ def _unlock_file(handle) -> None:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _acquire_process_lock(root: Path, timeout: float) -> object:
-    handle = (root / ".sm-techno-storage-operation.lock").open("a+b")
+def _acquire_process_lock(storage_root: Path, timeout: float) -> object:
+    handle = (storage_root / STORAGE_OPERATION_LOCK_NAME).open("a+b")
     deadline = time.monotonic() + timeout
     while True:
         try:
@@ -58,22 +61,22 @@ def _acquire_process_lock(root: Path, timeout: float) -> object:
         except OSError:
             if time.monotonic() >= deadline:
                 handle.close()
-                raise RuntimeError(f"Timed out waiting for storage operation lock at {root}.")
+                raise RuntimeError(f"Timed out waiting for storage operation lock at {storage_root}.")
             time.sleep(0.05)
 
 
 @contextmanager
-def storage_operation_lock(root: Path, *, timeout: float = 30.0):
+def storage_operation_lock(storage_root: Path, *, timeout: float = 30.0):
     """Serialize database-reference and storage-file publication across processes.
 
     The persistent lock file is advisory only; its OS lock is released on process
     exit. The in-process RLock makes nested service calls safe without taking the
     OS byte lock twice on Windows.
     """
-    root = root.expanduser().resolve()
-    if not root.is_dir():
-        raise RuntimeError(f"Storage operation root does not exist: {root}")
-    key = str(root)
+    storage_root = storage_root.expanduser().resolve()
+    if not storage_root.is_dir():
+        raise RuntimeError(f"Storage operation root does not exist: {storage_root}")
+    key = str(storage_root)
     with _LOCKS_GUARD:
         thread_lock = _PROCESS_LOCKS.setdefault(key, threading.RLock())
     thread_lock.acquire()
@@ -82,7 +85,7 @@ def storage_operation_lock(root: Path, *, timeout: float = 30.0):
     outermost = key not in held_keys
     try:
         if outermost:
-            handle = _acquire_process_lock(root, timeout)
+            handle = _acquire_process_lock(storage_root, timeout)
             held_keys.add(key)
         yield
     finally:
