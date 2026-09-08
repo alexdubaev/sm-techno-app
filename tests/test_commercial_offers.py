@@ -532,8 +532,8 @@ class CommercialOfferApiTest(unittest.TestCase):
         self.assertEqual(list(self.service.commercial_offer_exports_dir.iterdir()), [])
         self.assertEqual(self.db.list_commercial_offers(include_all=True), [])
 
-    def test_excel_creation_reports_cleanup_failure_without_hiding_persistence_failure(self) -> None:
-        # A cleanup error must be actionable while preserving the operation that failed first.
+    def test_excel_creation_reports_all_cleanup_failures_without_hiding_persistence_failure(self) -> None:
+        # A cleanup error must expose every failed removal while preserving the operation that failed first.
         source_path = Path(self._temp_dir.name) / "cleanup-failure-source.xlsx"
         workbook = Workbook()
         sheet = workbook.active
@@ -554,8 +554,10 @@ class CommercialOfferApiTest(unittest.TestCase):
                         created_by_user_id=1,
                     )
 
-        self.assertIsInstance(raised.exception.__cause__, OSError)
-        self.assertIn("unlink denied", str(raised.exception.__cause__))
+        cleanup_error = raised.exception.__cause__
+        cleanup_errors = getattr(cleanup_error, "errors", ())
+        self.assertEqual(len(cleanup_errors), 4)
+        self.assertTrue(all("unlink denied" in str(error) for error in cleanup_errors))
 
     def test_persisted_path_outside_offer_storage_cannot_be_downloaded_or_deleted(self) -> None:
         # Stored paths must not read from or unlink files outside offer storage.

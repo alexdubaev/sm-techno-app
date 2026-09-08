@@ -30,6 +30,14 @@ DOCUMENT_STORAGE_DIR = ROOT_DIR / "storage" / "documents"
 CRM_LOCAL_ONLY_POLICY_MESSAGE = "CRM не отправляет клиентов или изменения в 1С; создание выполняется в разделе «Клиенты»."
 
 
+class CommercialOfferCleanupError(OSError):
+    def __init__(self, failures: list[tuple[Path, OSError]]) -> None:
+        self.failures = tuple(failures)
+        self.errors = tuple(error for _, error in failures)
+        details = "; ".join(f"{path}: {error}" for path, error in failures)
+        super().__init__(f"Не удалось очистить файлы КП: {details}")
+
+
 class WebStockSyncService:
     def __init__(
         self,
@@ -1267,9 +1275,9 @@ class WebStockSyncService:
                     self.db.delete_commercial_offer(offer_id)
                 except Exception:
                     pass
-            cleanup_errors = self._cleanup_commercial_offer_paths(staged_source, staged_output, stored_source, output_path)
-            if cleanup_errors:
-                raise exc from cleanup_errors[0]
+            cleanup_failures = self._cleanup_commercial_offer_paths(staged_source, staged_output, stored_source, output_path)
+            if cleanup_failures:
+                raise exc from CommercialOfferCleanupError(cleanup_failures)
             raise
 
     def create_commercial_offer_from_draft(
@@ -1329,9 +1337,9 @@ class WebStockSyncService:
                     self.db.delete_commercial_offer(offer_id)
                 except Exception:
                     pass
-            cleanup_errors = self._cleanup_commercial_offer_paths(staged_output, output_path)
-            if cleanup_errors:
-                raise exc from cleanup_errors[0]
+            cleanup_failures = self._cleanup_commercial_offer_paths(staged_output, output_path)
+            if cleanup_failures:
+                raise exc from CommercialOfferCleanupError(cleanup_failures)
             raise
 
     def list_commercial_offers_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
@@ -1785,14 +1793,14 @@ class WebStockSyncService:
         return final_path.with_name(f".{final_path.name}.{uuid.uuid4().hex}.staging")
 
     @staticmethod
-    def _cleanup_commercial_offer_paths(*paths: Path) -> list[OSError]:
-        errors: list[OSError] = []
+    def _cleanup_commercial_offer_paths(*paths: Path) -> list[tuple[Path, OSError]]:
+        failures: list[tuple[Path, OSError]] = []
         for path in paths:
             try:
                 path.unlink(missing_ok=True)
             except OSError as exc:
-                errors.append(exc)
-        return errors
+                failures.append((path, exc))
+        return failures
 
     def _resolve_commercial_offer_stored_path(self, value: str) -> Path:
         path = self._resolve_stored_path(value).resolve()
