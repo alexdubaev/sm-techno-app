@@ -48,13 +48,34 @@
 - По состоянию на `76e2ff2` рабочее дерево чистое (кроме игнорируемых локальных `.superpowers/sdd/` review packages).
 - Бывший RED-тест ТЗ 17 реализован и закоммичен; plaintext `app_sessions.token` больше не является текущим контрактом.
 
-### Следующая очередь
+### Итоговый статус ТЗ 01–22
 
-1. **ТЗ 19:** выполнить план `docs/superpowers/plans/2026-09-08-sqlite-migration-registry.md`: migration registry/lock, one-time backfills, integrity gates и upgrade fixtures. Это следующий P1.
-2. **ТЗ 21:** привести CI defaults/dependencies и разделённые critical smoke gates к воспроизводимому состоянию.
-3. **ТЗ 22:** добавить startup/readiness preflight для writable DB/storage, credentials/templates; liveness/readiness не должны зависеть от доступности 1С.
-4. После стабилизации — P2 ТЗ 08 (SQLite catalog search/filter/pagination benchmark), ТЗ 14 (retired CRM outbox cleanup), ТЗ 20 (единый API error contract/encoding).
-5. До merge выполнить полный backend/frontend gate из раздела «Проверки перед merge» и повторно проверить storage-lock модель при любом изменении `docker-compose.yml`, storage paths либо публикации файлов.
+Все ТЗ **01–22 реализованы и закрыты в этой ветке**. Итоговая проверка: `pytest -q` — **628 passed, 0 failed, 0 errors, 22 skipped**; TypeScript и production build frontend проходят. Исторические списки ниже сохранены как снимки прежнего состояния и не являются текущей очередью.
+
+| ТЗ | Статус | Подтверждение |
+| --- | --- | --- |
+| 01 | закрыто | Безопасная отправка заказа и recovery state machine. |
+| 02 | закрыто | Серверная бизнес-валидация заказа. |
+| 03 | закрыто | Надёжный transport 1С и независимое review. |
+| 04 | закрыто | Инварианты и конкурентные складские операции. |
+| 05 | закрыто | Rack/cell сохраняются для нулевого остатка. |
+| 06 | закрыто | Excel preview/commit, formula safety и atomicity. |
+| 07 | закрыто | Canonical SKU, collision audit и domain errors. |
+| 08 | закрыто | SQL catalog search/filter/pagination и 30k benchmark. |
+| 09 | закрыто | Batch CRM pull, lease и fencing. |
+| 10 | закрыто | UTC migration и rejection naïve timestamp. |
+| 11 | закрыто | Workspace authorization integration checks. |
+| 12 | закрыто | CRM preference versioning и position persistence. |
+| 13 | закрыто | INN/KPP conflict policy без duplicate creation. |
+| 14 | закрыто | Retired CRM outbox cleanup и terminal legacy jobs. |
+| 15 | закрыто | Atomic commercial-offer storage workflow. |
+| 16 | закрыто | Documents/specifications integrity and cleanup. |
+| 17 | закрыто | Hashed bearer sessions and revocation policy. |
+| 18 | закрыто | Verified VPS backup/restore and storage lock. |
+| 19 | закрыто | SQLite migration registry, integrity gates and upgrade fixtures. |
+| 20 | закрыто | Unified API error contract and encoding fixes. |
+| 21 | закрыто | Critical CI smoke gate and network runtime check. |
+| 22 | закрыто | Local startup/readiness preflight independent of 1С. |
 
 ### Проверки продолжения 2026-09-08
 
@@ -71,9 +92,9 @@
 - **ТЗ 17:** bearer tokens хешируются; legacy plaintext sessions удаляются при migration; idle lifetime — **180 дней**, absolute lifetime — **1 год**. Logout, смена пароля, отключение и удаление пользователя отзывают сессии немедленно. Коммиты: `49261d5`, `00b1ad7`; `tests.test_auth_session_persistence` — 6/6, `tests/auth/test_auth_api.py` — 41/41; независимое ревью account-disable revocation — без замечаний.
 - **ТЗ 18:** VPS backup/restore реализован как проверяемая SQLite+storage пара. Архив содержит `manifest.json` с SHA-256; restore проверяет tar member types/paths, hash, `integrity_check`, `foreign_key_check` и DB→storage references, поддерживает `--verify-only`, staging и atomic restore только в пустой target. Backup и live file operations используют один re-entrant OS lock **в storage bind mount**; staging остаётся на том же volume и исключён из snapshot. Lock удерживается только до готового validated snapshot, не во время gzip/hash. Защиты покрывают symlink/hardlink, traversal, Windows drive/UNC/case-variant reserved paths и descendants internal artifacts. Коммиты: `82fe76e`, `8e00b2e`, `5027c6a`, `97cdb84`, `c2f29ed`, `76e2ff2`; финальное независимое ревью — clean. `tests/test_vps_backup_restore.py` — 20/20; `tests/test_vps_runtime.py` + `tests/test_commercial_offers.py` + `tests/test_documents.py` — 46 passed, 2 subtests; `python -m compileall scripts stock_sync_web` и `git diff --check` — success.
 
-### Полный чек-лист незакрытой работы
+### Исторический чек-лист прежней незакрытой работы
 
-Не считать следующие пункты закрытыми до прямого подтверждения указанными проверками.
+Этот список отражает состояние до итогового regression. Текущий статус всех ТЗ 01–22 указан выше; не использовать его как актуальную очередь.
 
 - **ТЗ 06 (Excel stock import):** проверить formula cells, единый API error contract, атомарность каждого вида import и отсутствие частичного состояния при identity conflict; после `a9c5552` отдельно убедиться, что legacy SKU collision не приводит к неоднозначному последующему import.
 - **ТЗ 07 (identity SKU):** преобразовать все релевантные SQLite unique errors в domain errors и завершить migration audit, включая collision report из `app_settings`.
@@ -269,9 +290,9 @@ npm run build
 Pop-Location
 ```
 
-## Оставшиеся ТЗ аудита (не начаты)
+## Историческая карта ТЗ аудита (снимок до закрытия)
 
-Этот раздел включает все согласованные задания аудита после ТЗ 04, кроме отдельно исключённого ТЗ 90 о полном redesign Settings. Перед началом CRM/Excel задач сначала перечитать свежий код после merge global archive клиентов 1С и не откатывать его изменения.
+Этот раздел фиксирует исходный план и не описывает текущий статус: все ТЗ 01–22 закрыты в соответствии с таблицей выше. ТЗ 90 о полном redesign Settings остаётся вне scope.
 
 ### P1 — следующий этап
 
