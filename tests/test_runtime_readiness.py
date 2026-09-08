@@ -22,10 +22,13 @@ def test_liveness_does_not_depend_on_runtime_dependencies(monkeypatch) -> None:
 def test_readiness_reports_local_runtime_failure(monkeypatch) -> None:
     monkeypatch.setattr(stock_sync_api, "SERVICE", _UnavailableService())
 
-    response = stock_sync_api.readiness()
-
-    assert response.status_code == 503
-    assert response.body == b'{"detail":"storage is not writable"}'
+    try:
+        stock_sync_api.readiness()
+    except Exception as error:
+        assert getattr(error, "status_code", None) == 503
+        assert getattr(error, "detail", None) == "storage is not writable"
+    else:  # pragma: no cover
+        raise AssertionError("readiness must raise an HTTP 503")
 
 
 def test_readiness_reports_ready_without_onec(monkeypatch) -> None:

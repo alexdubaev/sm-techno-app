@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -62,6 +63,25 @@ ALLOWED_ORIGINS = [
 ]
 
 app = FastAPI(title=APP_TITLE, version="0.1.0", lifespan=_app_lifespan)
+
+
+def _error_code(status_code: int) -> str:
+    return {
+        400: "bad_request", 401: "unauthorized", 403: "forbidden", 404: "not_found",
+        409: "conflict", 413: "payload_too_large", 422: "validation_error",
+        502: "upstream_error", 503: "service_unavailable", 504: "upstream_timeout",
+    }.get(status_code, "internal_error")
+
+
+@app.exception_handler(HTTPException)
+async def http_error_contract(_: Any, error: HTTPException) -> JSONResponse:
+    return JSONResponse(status_code=error.status_code, headers=error.headers,
+                        content={"detail": error.detail, "code": _error_code(error.status_code)})
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_contract(_: Any, error: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": error.errors(), "code": "validation_error"})
 
 app.add_middleware(
     CORSMiddleware,
@@ -743,7 +763,7 @@ def readiness():
     try:
         return SERVICE.runtime_readiness()
     except RuntimeError as error:
-        return JSONResponse(status_code=503, content={"detail": str(error)})
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.post("/api/auth/login")
@@ -751,7 +771,7 @@ def login(payload: dict[str, Any]) -> dict[str, Any]:
     username = str(payload.get("username") or "").strip()
     password = str(payload.get("password") or "")
     if not username or not password:
-        raise HTTPException(status_code=400, detail="Р’РІРµРґРёС‚Рµ Р»РѕРіРёРЅ Рё РїР°СЂРѕР»СЊ.")
+        raise HTTPException(status_code=400, detail="Введите логин и пароль.")
     try:
         result = SERVICE.login_app_user(username, password)
     except Exception as exc:
