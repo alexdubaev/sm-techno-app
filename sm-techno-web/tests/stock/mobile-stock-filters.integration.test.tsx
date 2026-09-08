@@ -16,6 +16,7 @@ const user: AppUser = {
   fullName: 'Оператор',
   onecUsername: '',
   hasOnecPassword: false,
+  hasRecoverableAppPassword: false,
   isActive: true,
   createdAt: '2026-09-06T10:00:00Z',
   updatedAt: '2026-09-06T10:00:00Z',

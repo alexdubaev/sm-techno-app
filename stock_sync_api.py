@@ -486,6 +486,7 @@ def _serialize_user(
         "fullName": row.get("full_name") or "",
         "onecUsername": row.get("onec_username") or "",
         "hasOnecPassword": bool(row.get("has_onec_password") or row.get("onec_password")),
+        "hasRecoverableAppPassword": bool(row.get("has_recoverable_app_password")),
         "isActive": bool(row.get("is_active", 1)),
         "createdAt": row.get("created_at") or "",
         "updatedAt": row.get("updated_at") or "",
@@ -894,6 +895,35 @@ def update_user_account(
     if not updated_user:
         raise HTTPException(status_code=404, detail="РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ РЅР°Р№РґРµРЅ РїРѕСЃР»Рµ РѕР±РЅРѕРІР»РµРЅРёСЏ.")
     return {"user": _serialize_user(updated_user)}
+
+
+def _reveal_user_password_response(user_id: int, actor_user_id: int, *, onec: bool) -> JSONResponse:
+    try:
+        reveal = SERVICE.reveal_user_onec_password if onec else SERVICE.reveal_user_app_password
+        result = reveal(actor_user_id=actor_user_id, user_id=user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="Доступ разрешен только администратору.") from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Пользователь не найден.") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Не удалось раскрыть пароль.") from exc
+    return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/users/{user_id}/reveal-app-password")
+def reveal_user_app_password(
+    user_id: int,
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> JSONResponse:
+    return _reveal_user_password_response(user_id, int(current_user["id"]), onec=False)
+
+
+@app.post("/api/users/{user_id}/reveal-onec-password")
+def reveal_user_onec_password(
+    user_id: int,
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> JSONResponse:
+    return _reveal_user_password_response(user_id, int(current_user["id"]), onec=True)
 
 
 @app.delete("/api/users/{user_id}")
@@ -1627,6 +1657,26 @@ def list_crm_contacts(client_id: int, owner_id: int | None = Query(None, alias="
     try:
         repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
         return {"items": [_serialize_crm_contact(row) for row in repo.list_contacts_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id)]}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.patch("/api/crm/clients/{client_id}/contacts/{contact_id}")
+def update_crm_contact(client_id: int, contact_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        contact = repo.update_contact_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, contact_id=contact_id, name=str(payload.get("name") or ""), email=str(payload.get("email") or ""), phone=str(payload.get("phone") or ""), is_primary=bool(payload.get("isPrimary", False)))
+        return {"contact": _serialize_crm_contact(contact)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.delete("/api/crm/clients/{client_id}/contacts/{contact_id}")
+def delete_crm_contact(client_id: int, contact_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.delete_contact_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, contact_id=contact_id)
+        return {"ok": True}
     except Exception as exc:
         _crm_error(exc)
 

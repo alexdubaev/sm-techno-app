@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     app_password TEXT,
+    app_password_encrypted TEXT,
     role TEXT NOT NULL DEFAULT 'user',
     full_name TEXT,
     onec_username TEXT,
@@ -42,6 +43,15 @@ CREATE TABLE IF NOT EXISTS app_sessions (
     last_seen_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     FOREIGN KEY(user_id) REFERENCES users(id)
+);
+
+-- Historical IDs intentionally survive account deletion.
+CREATE TABLE IF NOT EXISTS user_secret_reveal_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id INTEGER NOT NULL,
+    target_user_id INTEGER NOT NULL,
+    action TEXT NOT NULL CHECK(action IN ('reveal_user_app_password', 'reveal_user_onec_password')),
+    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS crm_clients (
@@ -440,6 +450,8 @@ class WebDatabase(Database):
         user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "app_password" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN app_password TEXT")
+        if "app_password_encrypted" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN app_password_encrypted TEXT")
         if "full_name" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN full_name TEXT")
         if "onec_username" not in user_columns:
@@ -688,6 +700,7 @@ class WebDatabase(Database):
             return None
         normalized = dict(row)
         normalized["role"] = cls._normalize_role(normalized.get("role"))
+        normalized["has_recoverable_app_password"] = bool(normalized.get("has_recoverable_app_password"))
         return normalized
 
     @staticmethod
@@ -750,13 +763,14 @@ class WebDatabase(Database):
                 raise ValueError(f"Пользователь '{normalized_username}' уже существует.")
             cursor = conn.execute(
                 """
-                INSERT INTO users(username, password_hash, app_password, role, full_name, onec_username, onec_password, is_active, created_at, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users(username, password_hash, app_password, app_password_encrypted, role, full_name, onec_username, onec_password, is_active, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     normalized_username,
                     password_hash,
                     None,
+                    _protect_onec_password(password),
                     normalized_role,
                     full_name.strip() or None,
                     onec_username.strip() or None,
@@ -832,6 +846,7 @@ class WebDatabase(Database):
             raise ValueError("Пароль должен содержать минимум 6 символов.")
 
         password_hash = self._hash_password(new_password or "") if password_change else None
+        protected_app_password = _protect_onec_password(new_password or "") if password_change else None
         protected_onec_password = _protect_onec_password(onec_password) if onec_password else None
         now = utc_now()
 
@@ -867,6 +882,7 @@ class WebDatabase(Database):
                     onec_username = CASE WHEN ? THEN ? ELSE onec_username END,
                     onec_password = COALESCE(?, onec_password),
                     password_hash = COALESCE(?, password_hash),
+                    app_password_encrypted = COALESCE(?, app_password_encrypted),
                     app_password = CASE WHEN ? THEN NULL ELSE app_password END,
                     updated_at = ?
                 WHERE id = ?
@@ -880,6 +896,7 @@ class WebDatabase(Database):
                     onec_username.strip() or None if onec_username is not None else None,
                     protected_onec_password,
                     password_hash,
+                    protected_app_password,
                     password_change,
                     now,
                     user_id,
@@ -898,10 +915,11 @@ class WebDatabase(Database):
                 UPDATE users
                 SET password_hash = ?,
                     app_password = ?,
+                    app_password_encrypted = ?,
                     updated_at = ?
                 WHERE id = ?
                 """,
-                (self._hash_password(new_password), None, utc_now(), user_id),
+                (self._hash_password(new_password), None, _protect_onec_password(new_password), utc_now(), user_id),
             )
             conn.execute("DELETE FROM app_sessions WHERE user_id = ?", (user_id,))
 
@@ -912,7 +930,8 @@ class WebDatabase(Database):
         with self.connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, username, password_hash, app_password, role, full_name, onec_username, onec_password, is_active, created_at, updated_at
+                SELECT id, username, password_hash, app_password, role, full_name, onec_username, onec_password, is_active, created_at, updated_at,
+                       CASE WHEN COALESCE(app_password_encrypted, '') != '' THEN 1 ELSE 0 END AS has_recoverable_app_password
                 FROM users
                 WHERE username = ?
                 """,
@@ -924,7 +943,8 @@ class WebDatabase(Database):
         with self.connect() as conn:
             row = conn.execute(
                 """
-                SELECT id, username, password_hash, app_password, role, full_name, onec_username, onec_password, is_active, created_at, updated_at
+                SELECT id, username, password_hash, app_password, role, full_name, onec_username, onec_password, is_active, created_at, updated_at,
+                       CASE WHEN COALESCE(app_password_encrypted, '') != '' THEN 1 ELSE 0 END AS has_recoverable_app_password
                 FROM users
                 WHERE id = ?
                 """,
@@ -936,6 +956,30 @@ class WebDatabase(Database):
         with self.connect() as conn:
             row = conn.execute("SELECT onec_password FROM users WHERE id = ?", (user_id,)).fetchone()
         return _unprotect_onec_password(row["onec_password"] if row else "")
+
+    def reveal_user_password(self, *, actor_user_id: int, user_id: int, action: str) -> dict[str, Any]:
+        columns = {
+            "reveal_user_app_password": "app_password_encrypted",
+            "reveal_user_onec_password": "onec_password",
+        }
+        if action not in columns:
+            raise ValueError("Неизвестное действие раскрытия пароля.")
+        with self.transaction() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            actor = conn.execute("SELECT role, is_active FROM users WHERE id = ?", (actor_user_id,)).fetchone()
+            if actor is None or actor["role"] != "admin" or not actor["is_active"]:
+                raise PermissionError("Доступ разрешен только администратору.")
+            row = conn.execute(f"SELECT {columns[action]} AS encrypted FROM users WHERE id = ?", (user_id,)).fetchone()
+            if row is None:
+                raise LookupError("Пользователь не найден.")
+            if not row["encrypted"]:
+                return {"available": False, "password": None}
+            password = _unprotect_onec_password(row["encrypted"])
+            conn.execute(
+                "INSERT INTO user_secret_reveal_audit(actor_user_id, target_user_id, action, created_at) VALUES (?, ?, ?, ?)",
+                (actor_user_id, user_id, action, utc_now()),
+            )
+        return {"available": True, "password": password}
 
     def authenticate(self, username: str, password: str) -> dict[str, Any] | None:
         user = self.get_user_by_username(username)
@@ -975,6 +1019,7 @@ class WebDatabase(Database):
                     u.username,
                     u.password_hash,
                     u.app_password,
+                    CASE WHEN COALESCE(u.app_password_encrypted, '') != '' THEN 1 ELSE 0 END AS has_recoverable_app_password,
                     u.role,
                     u.full_name,
                     u.onec_username,
@@ -1062,6 +1107,7 @@ class WebDatabase(Database):
                 """
                 SELECT id, username, role, full_name, onec_username,
                        CASE WHEN COALESCE(onec_password, '') != '' THEN 1 ELSE 0 END AS has_onec_password,
+                       CASE WHEN COALESCE(app_password_encrypted, '') != '' THEN 1 ELSE 0 END AS has_recoverable_app_password,
                        is_active, created_at, updated_at
                 FROM users
                 ORDER BY username COLLATE NOCASE

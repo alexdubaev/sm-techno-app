@@ -50,8 +50,9 @@ test("ordinary user is denied admin routes while admin has a positive control", 
   await page.getByRole("button", { name: "Выйти" }).first().click();
   await login(page, "admin", ADMIN_PASSWORD);
   await page.goto("/settings");
-  await expect(page.getByRole("heading", { name: "Настройки и пользователи" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Сохранить настройки" })).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Настройки", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Пользователи.*Учетные записи/ })).toHaveAttribute("href", "/settings/users");
+  await expect(page.getByRole("link", { name: /Интеграция с 1С.*Подключение/ })).toHaveAttribute("href", "/settings/onec");
 });
 
 test("deactivation invalidates an active browser and reactivation needs a fresh login", async ({ page, request }) => {

@@ -27,6 +27,7 @@ function account(
     fullName: username,
     onecUsername: '',
     hasOnecPassword: false,
+    hasRecoverableAppPassword: false,
     isActive: true,
     createdAt: '',
     updatedAt: '',

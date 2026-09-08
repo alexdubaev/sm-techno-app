@@ -1,5 +1,5 @@
 import { http, HttpResponse } from "msw";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 
@@ -19,6 +19,7 @@ function account(role: AppUser["role"]): AppUser {
     fullName: role === "admin" ? "Administrator" : "Operator",
     onecUsername: "",
     hasOnecPassword: false,
+    hasRecoverableAppPassword: false,
     isActive: true,
     createdAt: "",
     updatedAt: "",
@@ -106,10 +107,9 @@ describe("rendered role gates", () => {
     const user = userEvent.setup();
     render(<AuthProvider><SettingsPage /></AuthProvider>);
 
-    expect(await screen.findByRole("heading", { name: "Настройки и пользователи" })).toBeVisible();
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Сохранить настройки" })).toBeEnabled();
-    });
+    expect(await screen.findByRole("heading", { name: "Настройки" })).toBeVisible();
+    expect(screen.getByRole("link", { name: /Пользователи.*Учетные записи/ })).toHaveAttribute("href", "/settings/users");
+    expect(screen.getByRole("link", { name: /Интеграция с 1С.*Подключение/ })).toHaveAttribute("href", "/settings/onec");
 
     await expandDesktopGroup(user, "Администрирование");
     expect(screen.getAllByRole("link", { name: "Настройки" })).not.toHaveLength(0);

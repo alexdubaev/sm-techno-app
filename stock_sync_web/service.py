@@ -151,6 +151,16 @@ class WebStockSyncService:
     def list_users(self) -> list[dict[str, Any]]:
         return self.db.list_users()
 
+    def reveal_user_app_password(self, *, actor_user_id: int, user_id: int) -> dict[str, Any]:
+        return self.db.reveal_user_password(
+            actor_user_id=actor_user_id, user_id=user_id, action="reveal_user_app_password",
+        )
+
+    def reveal_user_onec_password(self, *, actor_user_id: int, user_id: int) -> dict[str, Any]:
+        return self.db.reveal_user_password(
+            actor_user_id=actor_user_id, user_id=user_id, action="reveal_user_onec_password",
+        )
+
     def create_user(
         self,
         *,

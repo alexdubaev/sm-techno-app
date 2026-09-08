@@ -26,6 +26,7 @@
   OrderDetails,
   OrderHistoryItem,
   Organization,
+  PasswordRevealResponse,
   StockCatalogResponse,
   StockSortOrder,
   StockItem,
@@ -693,6 +694,22 @@ export async function deleteAppUser(userId: number): Promise<{ ok: boolean }> {
   );
 }
 
+export async function revealAppPassword(userId: number): Promise<PasswordRevealResponse> {
+  return requestJsonWithInit<PasswordRevealResponse>(
+    `/api/users/${userId}/reveal-app-password`,
+    { method: "POST" },
+    "Не удалось показать пароль СМ ТЕХНО.",
+  );
+}
+
+export async function revealOneCPassword(userId: number): Promise<PasswordRevealResponse> {
+  return requestJsonWithInit<PasswordRevealResponse>(
+    `/api/users/${userId}/reveal-onec-password`,
+    { method: "POST" },
+    "Не удалось показать пароль 1С.",
+  );
+}
+
 export async function testOneCAccess(payload?: {
   onecUsername?: string;
   onecPassword?: string;
@@ -933,6 +950,28 @@ export async function createCrmContact(
   return result.contact;
 }
 
+export async function updateCrmContact(
+  clientId: number,
+  contactId: number,
+  payload: { name: string; email: string; phone: string; isPrimary: boolean },
+  ownerId?: number,
+): Promise<CrmContact> {
+  const result = await requestJsonWithInit<{ contact: CrmContact }>(
+    `/api/crm/clients/${clientId}/contacts/${contactId}${buildCrmQuery({ ownerId })}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+    "Не удалось изменить контакт.",
+  );
+  return result.contact;
+}
+
+export async function deleteCrmContact(clientId: number, contactId: number, ownerId?: number): Promise<void> {
+  await requestJsonWithInit<{ ok: boolean }>(
+    `/api/crm/clients/${clientId}/contacts/${contactId}${buildCrmQuery({ ownerId })}`,
+    { method: "DELETE" },
+    "Не удалось удалить контакт.",
+  );
+}
+
 export async function fetchCrmEvents(clientId: number, ownerId?: number): Promise<CrmEvent[]> {
   const result = await requestJson<{ items: CrmEvent[] }>(
     `/api/crm/clients/${clientId}/events${buildCrmQuery({ ownerId })}`,
@@ -1073,6 +1112,7 @@ export async function updateCrmClient(
     inn: string;
     kpp: string;
     city: string;
+    contactPerson: string;
     email: string;
     phone: string;
     telegram?: string;
