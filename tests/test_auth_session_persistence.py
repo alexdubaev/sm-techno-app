@@ -30,6 +30,17 @@ class AuthSessionPersistenceTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def _user_session_count(self, user_id: int) -> int:
+        conn = self.db.connect()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS total FROM app_sessions WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+            return int(row["total"])
+        finally:
+            conn.close()
+
     def test_session_bearer_is_hashed_for_storage_lookup_and_logout(self) -> None:
         user_id = self.db.create_user(username="operator", password="secret1")
         statements: list[str] = []
@@ -153,15 +164,25 @@ class AuthSessionPersistenceTest(unittest.TestCase):
                 self.assertIsNone(self.db.get_user_by_session_token(token))
                 self.assertEqual(self._session_count(token), 0)
 
-    def test_security_events_revoke_all_user_sessions(self) -> None:
+    def test_logout_revokes_only_the_submitted_session(self) -> None:
+        user_id = self.db.create_user(username="operator", password="secret1")
+        first_token = self.db.create_session(user_id)
+        second_token = self.db.create_session(user_id)
+
+        self.db.delete_session(first_token)
+
+        self.assertEqual(self._session_count(first_token), 0)
+        self.assertIsNotNone(self.db.get_user_by_session_token(second_token))
+
+    def test_account_wide_security_events_revoke_all_user_sessions(self) -> None:
         actions = {
-            "logout": lambda user_id, token: self.db.delete_session(token),
-            "password reset": lambda user_id, token: self.db.reset_user_password(user_id, "changed1"),
-            "password change": lambda user_id, token: self.db.update_user(
+            "password reset": lambda user_id: self.db.reset_user_password(user_id, "changed1"),
+            "password change": lambda user_id: self.db.update_user(
                 user_id, role="user", is_active=True, new_password="changed1"
             ),
-            "user disable": lambda user_id, token: self.db.update_user(user_id, role="user", is_active=False),
-            "user delete": lambda user_id, token: self.db.delete_user(user_id),
+            "user disable": lambda user_id: self.db.update_user(user_id, role="user", is_active=False),
+            "account disable": lambda user_id: self.db.update_user_account(user_id, role="user", is_active=False),
+            "user delete": lambda user_id: self.db.delete_user(user_id),
         }
         for action_name, action in actions.items():
             with self.subTest(action=action_name):
@@ -183,11 +204,12 @@ class AuthSessionPersistenceTest(unittest.TestCase):
                     user_id = int(cursor.lastrowid)
                 else:
                     user_id = self.db.create_user(username=f"operator-{action_name}", password="secret1")
-                token = self.db.create_session(user_id)
+                self.db.create_session(user_id)
+                self.db.create_session(user_id)
 
-                action(user_id, token)
+                action(user_id)
 
-                self.assertEqual(self._session_count(token), 0)
+                self.assertEqual(self._user_session_count(user_id), 0)
 
 
 if __name__ == "__main__":

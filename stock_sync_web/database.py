@@ -850,6 +850,8 @@ class WebDatabase(Database):
                 """,
                 (normalized_role, 1 if is_active else 0, utc_now(), user_id),
             )
+            if not is_active:
+                conn.execute("DELETE FROM app_sessions WHERE user_id = ?", (user_id,))
 
     def update_user(
         self,
