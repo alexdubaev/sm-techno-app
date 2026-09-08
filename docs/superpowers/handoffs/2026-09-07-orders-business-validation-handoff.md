@@ -1,12 +1,16 @@
-# Заказы → 1С и склад: ТЗ 01 + ТЗ 02 + ТЗ 03 + ТЗ 04 — полный handoff
+# Заказы → 1С и склад: аудит бизнес-валидации — полный handoff
 
-Дата исходной задачи: 2026-09-07. Обновлено после завершения ТЗ 03: 2026-09-08.
+Дата исходной задачи: 2026-09-07. Последнее обновление: 2026-09-08.
 
 ## Состояние
 
 - Worktree: `D:/codex/sm-techno-app/worktrees/orders-business-validation`.
 - Ветка: `codex/orders-business-validation`.
-- База: `b4bc198` (актуальный CRM archive handoff).
+- Remote: `origin` → `https://github.com/alexdubaev/sm-techno-app.git`.
+- Ветка пока **не пушилась** и не сливалась в `codex/vps-self-hosting`.
+- Текущий HEAD: `52c3eced fix: require exact CRM INN KPP match`.
+- Рабочее дерево намеренно не чистое: есть только незакоммиченный RED-тест `tests/test_auth_session_persistence.py` для ТЗ 17. Не удалять и не откатывать его; он фиксирует требуемое поведение до реализации.
+- База исходного handoff: `b4bc198` (актуальный CRM archive handoff).
 - ТЗ 01: `a297cf8`, `4269003`; его docs/handoff: `ad9915e`, `dc2d1aa`, `58983e6`.
 - ТЗ 02: `b857dc7`, `6732edb`, `379a00f`, `9bbece1`.
 - ТЗ 04: `f1781d3`…`4e3b247`; design/plan: `6f49eb2`, `e4ab0e1`.
@@ -15,6 +19,51 @@
 Текущий проверенный HEAD перед этим обновлением handoff: `9964f73`. Слияние или push в `codex/vps-self-hosting` не выполнялись.
 
 Не использовать `git reset --hard`, `git clean` или массовое восстановление в других worktree: там есть сторонние изменения.
+
+## Продолжение после исходного handoff: фактическая история коммитов
+
+Следующие коммиты уже находятся поверх `9964f730`; они не были включены в старый список ТЗ и должны попасть в итоговый merge/push одной веткой.
+
+| Коммит | Содержание | Состояние |
+| --- | --- | --- |
+| `a0095f09` | Валидирует строки складского Excel-import: SKU, finite/non-negative quantity и price, duplicate SKU+warehouse. | Есть целевые тесты. |
+| `f74a96d2` | Убирает скрытое сопоставление товара только по name. | Есть целевые тесты. |
+| `f785e77c` | Design и plan безопасного Excel-import/идентичности SKU. | Документация. |
+| `0ae1e154`, `5adbf2ab` | Вводят canonical normalized SKU и сохранение его при import. | Есть целевые тесты. |
+| `f29dcb61`, `b7ab166e`, `8925f38e`, `e3726f67`, `9fcc31f6` | Preview → подтверждение Excel-import, endpoint preview, plan hash и API-тесты. | Нужен итоговый review edge cases до закрытия ТЗ 06/07. |
+| `090135c4` | Отклоняет конфликт, когда OneC identity и SKU указывают на разные товары. | Есть целевые тесты. |
+| `4b564a4a` | Не позволяет pull-sync 1С перезаписывать локально archived CRM-клиента. | Узкий тест проходит; ТЗ 09 всё ещё открыто. |
+| `a1c17b5e` | Сохраняет ручную `position` CRM row preference. | Целевой тест проходит. |
+| `c0ef91cd` | Выполняет workspace write-authorization до разбора payload row preference. | Целевой тест проходит. |
+| `2bf5c996`, `52c3eced` | Убирают fallback CRM import с несовпадающего KPP на unique INN. | Два одинаково названных коммита сохранены как есть; не переписывать историю без отдельного решения. Нужна финальная policy-проверка ТЗ 13. |
+
+### Проверенные результаты этого продолжения
+
+- ТЗ 05 фактически закрыто ещё в цепочке ТЗ 04: `389fd3d fix: preserve locations on zero stock set`; тест `tests.test_stock_invariants.StockInvariantTest.test_manual_set_to_zero_preserves_storage_location` и `tests.test_storage_locations` проходили (8 тестов).
+- Целевые backend-наборы ТЗ 06/07 проходили: `tests.test_stock_excel_import_safety` и `tests.test_stock_item_identity` — 6 тестов; ранее расширенный набор import/stock — 26 тестов.
+- API preview/import: `tests.test_stock_excel_import_api` проходил.
+- CRM timezone: `tests.test_crm_reminders_api` — 7 тестов проходили; отдельной реализации в этом продолжении не делалось, потому что контракт UTC уже присутствует в коде.
+- Не заявлять, что frontend проверен: в worktree отсутствуют установленные frontend executables (`oxlint`, `tsc`, `next`). Перед merge обязательно восстановить lockfile-зависимости и выполнить команды из раздела проверки.
+
+## ТЗ 17 — незавершённое продолжение: безопасность сессий
+
+Работа остановлена сразу после RED-фазы TDD. Production-код для ТЗ 17 **не менялся**.
+
+- Незакоммиченный тест: `tests/test_auth_session_persistence.py::AuthSessionPersistenceTest::test_session_token_is_not_stored_in_plaintext`.
+- Точный RED-результат: `create_session()` сохраняет bearer token в `app_sessions.token` без hash; assertion сравнивает возвращённый token со значением в БД и закономерно получает одинаковую строку.
+- Во время этого конкретного запуска Windows также удержал SQLite-файл при cleanup после чтения connection, поэтому unittest показал дополнительный `WinError 32` в `tearDown`. Это не является основанием менять production-код; при правке теста нужно обеспечить закрытие cursor/connection до `TemporaryDirectory.cleanup()`.
+- До реализации согласована безопасная последовательность: новый bearer token возвращается только вызывающему коду; в БД ищется только `SHA-256` hash; существующие legacy raw-token sessions удаляются миграцией; проверяются и idle, и absolute expiry; password change, disable и delete user продолжают удалять все сессии.
+- Длительности idle/absolute lifetime в handoff не были зафиксированы. Перед реализацией выбрать и задокументировать значения либо вывести их из действующей product policy; не подменять выбор молча.
+
+### Следующий TDD-план ТЗ 17
+
+1. Сохранить RED-тест и добавить отдельные failing tests: raw token никогда не хранится, legacy session инвалидируется при `initialize()`, idle expiry отклоняется, absolute expiry не продлевается activity, revoke/password reset/disable/delete удаляют hash session.
+2. Прогнать только новый тест и зафиксировать ожидаемое падение до production-изменений.
+3. Изменить fresh schema и migration в `stock_sync_web/database.py`: `token_hash`, `absolute_expires_at`; миграция удаляет legacy rows с raw `token`.
+4. В `create_session`, lookup и `delete_session` использовать единую private hash helper; lookup обновляет `last_seen_at` и idle expiry, но никогда absolute expiry.
+5. Прогнать `tests.test_auth_session_persistence` и связанные auth/session тесты; затем commit отдельным сообщением `fix: hash web session tokens`.
+
+Не закрывать ТЗ 17 или весь аудит до RED→GREEN-проверки и migration regression.
 
 ## Обязательный режим непрерывного выполнения
 
@@ -133,14 +182,14 @@ Pop-Location
 
 ### P1 — следующий этап
 
-- **ТЗ 05 — сохранение стеллажа/ячейки при нулевом остатке.** Не удалять location при `quantity = 0`; после пополнения показывать прежние rack/cell. Зависит от завершённого ТЗ 04.
-- **ТЗ 06 — безопасный Excel import склада.** Добавить validate/preview/commit, финитную валидацию price/quantity, явную политику duplicates и один atomic commit. Делать после ТЗ 04 и согласовать с ТЗ 07.
-- **ТЗ 07 — идентичность товаров и duplicates.** Убрать скрытый update товара по совпавшему name, централизовать normalised SKU и вернуть domain errors вместо raw SQLite errors. Согласовать до окончательной реализации ТЗ 06.
+- **ТЗ 05 — закрыто.** Нулевая строка сохраняет rack/cell; см. `389fd3d` и проверку выше.
+- **ТЗ 06 — частично реализовано, требуется review.** Реализованы validate/preview/confirm и plan hash. Перед закрытием проверить: formula cells, корректный error contract, атомарность всех видов import и отсутствие частичного состояния при identity conflict.
+- **ТЗ 07 — частично реализовано, требуется review.** Реализованы normalized SKU, отказ от name matching и conflict OneC↔SKU. Перед закрытием проверить migration collisions и преобразование всех SQLite unique errors в domain errors.
 - **ТЗ 09 — консистентный CRM pull-sync из 1С.** Убрать N+1, определить ownership полей и conflict policy, применить batch/transaction, cross-process lease и защитить local-only/archived clients. Перед работой прочитать код после merge global archive клиентов.
-- **ТЗ 10 — timezone contract CRM reminders.** Хранить UTC ISO8601, принимать только aware input, мигрировать legacy naive Moscow timestamps и привести UI к `Date.toISOString()`. После merge archive clients.
-- **ТЗ 11 — authorization-first CRM mutation.** Исправить `PUT /api/crm/clients/{id}/row-preference`: permission guard до parse payload, чтобы чужой workspace всегда получал 403. После archive merge повторно проверить новые archive routes.
-- **ТЗ 12 — сохранение ручной позиции CRM-карточки.** Обновлять `position` в existing row preference независимо от color и не ломать optimistic versioning/primary order.
-- **ТЗ 13 — безопасный CRM Excel matching без hidden IDs.** INN+KPP — только exact pair; без INN — normalized company name + phone/email; ambiguous rows — conflict без update. Не возвращать technical hidden IDs в обычный export. Перед началом перечитать свежий archive/import code.
+- **ТЗ 10 — целевые тесты зелёные, нужен migration audit.** Код использует UTC ISO8601; до закрытия проверить migration legacy naive Moscow timestamps и strict rejection naive API input.
+- **ТЗ 11 — реализовано, требуется integration regression.** Permission guard перенесён до parse payload (`c0ef91cd`); прогнать foreign-workspace suite и archive routes.
+- **ТЗ 12 — реализовано, требуется integration regression.** Existing preference обновляет `position` (`a1c17b5e`); прогнать optimistic versioning/primary order suite.
+- **ТЗ 13 — частично реализовано, policy не завершена.** Exact INN+KPP fallback удалён (`2bf5c996`, `52c3eced`). Нужен тест и явная политика: строка с существующим INN, но иным KPP должна стать conflict/no update, а не создать потенциальный duplicate.
 - **ТЗ 15 — целостность коммерческих предложений.** Проверять Excel lines, рассчитывать amount server-side, manual client делать snapshot-only, согласовать DB/files через staging/cleanup и проверить ownership.
 - **ТЗ 16 — целостность документов/specifications.** Строго валидировать дату и связь offer/client, contract очищает irrelevant offer ID, определить policy missing requisites и сделать staging/cleanup/path guard. Делать после/вместе с ТЗ 15.
 - **ТЗ 17 — security сессий.** Хранить hash bearer token, инвалидировать legacy sessions, добавить idle/absolute lifetime и сохранить revocation при password change/disable/delete. Если Settings изменяет password/users, выполнять после Settings либо изолировать изменения.
@@ -154,6 +203,56 @@ Pop-Location
 - **ТЗ 08 — масштабирование stock catalog.** Перенести search/filter/pagination/count в SQLite и benchmark на 30k товаров × несколько складов. После стабилизации модели ТЗ 04–07.
 - **ТЗ 14 — cleanup CRM local-only policy.** Убрать недостижимый CRM push/outbox worker, terminally обработать legacy jobs и не затронуть отдельный legacy Clients→1С flow. Согласовать с ТЗ 09.
 - **ТЗ 20 — API error contract и кодировка.** Исправить mojibake, добавить `{detail, code}` и единый HTTP mapping без secret/traceback. Делать после ТЗ 11 и желательно после order/transport state work.
+
+## Обязательная последовательность commit / review / merge / push
+
+1. Перед следующим кодовым изменением сохранить незакоммиченный RED-тест ТЗ 17; не использовать `git reset --hard`, `git clean`, `git checkout --`.
+2. Каждый самостоятельный фикс завершать целевыми тестами и отдельным conventional commit. Для ТЗ 17 ожидаемое сообщение: `fix: hash web session tokens`.
+3. До merge выполнить review незакрытых частей ТЗ 06, 07, 09, 10, 11, 12, 13 и 17. Не объявлять их завершёнными только по одному узкому тесту.
+4. Проверить чистоту и историю:
+
+```powershell
+git -C D:\codex\sm-techno-app\worktrees\orders-business-validation status --short
+git -C D:\codex\sm-techno-app\worktrees\orders-business-validation log --oneline codex/vps-self-hosting..HEAD
+git -C D:\codex\sm-techno-app\worktrees\orders-business-validation diff --check codex/vps-self-hosting...HEAD
+```
+
+5. После review и проверок создать merge из `codex/orders-business-validation` в `codex/vps-self-hosting` в предназначенном worktree целевой ветки. Не cherry-pick отдельных frontend/validation/transport коммитов: задачи взаимосвязаны.
+6. Push — только после успешного merge и проверок:
+
+```powershell
+git push origin codex/vps-self-hosting
+```
+
+Если protected branch или CI потребуют отдельного pull request, создать PR из этой ветки вместо force-push. `--force` и переписывание истории не применять.
+
+## Проверки перед merge
+
+Backend минимум:
+
+```powershell
+& 'D:\codex\sm-techno-app\worktrees\vps-self-hosting\.venv\Scripts\python.exe' -m unittest `
+  tests.test_stock_excel_import_safety `
+  tests.test_stock_item_identity `
+  tests.test_stock_excel_import_api `
+  tests.test_auth_session_persistence `
+  tests.test_crm_persistence `
+  tests.test_crm_import `
+  tests.test_crm_reminders_api
+```
+
+Затем выполнить релевантный широкий backend regression и сравнить полный `unittest discover` с baseline, а не скрывать новые красные тесты за прежними.
+
+Frontend (после восстановления строго lockfile-зависимостей):
+
+```powershell
+Push-Location D:\codex\sm-techno-app\worktrees\orders-business-validation\sm-techno-web
+npm ci
+npm run lint
+npx tsc --noEmit
+npm run build
+Pop-Location
+```
 
 ## Merge и deployment
 
