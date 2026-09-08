@@ -1,30 +1,148 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
+import json
+import os
 import shutil
 import sqlite3
+import stat
 import tarfile
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 
+MANIFEST_NAME = "manifest.json"
+DATABASE_NAME = "stock_sync.db"
+MANIFEST_VERSION = 1
+
+
+@contextmanager
+def root_operation_lock(root: Path):
+    """Prevent cooperative backup/restore operations from sharing one root."""
+    lock_path = root / ".sm-techno-backup-restore.lock"
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise RuntimeError(f"Another backup or restore is already using {root}.") from exc
+    try:
+        os.write(descriptor, f"pid={os.getpid()}\n".encode("ascii"))
+        yield
+    finally:
+        os.close(descriptor)
+        lock_path.unlink(missing_ok=True)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _copy_storage_snapshot(source: Path, destination: Path) -> None:
+    """Copy only ordinary directories/files, never following a storage link."""
+    if source.is_symlink() or not source.is_dir():
+        raise RuntimeError("Storage must be a real directory, not a symbolic link.")
+    destination.mkdir()
+    for entry in os.scandir(source):
+        source_entry = Path(entry.path)
+        destination_entry = destination / entry.name
+        entry_stat = entry.stat(follow_symlinks=False)
+        mode = entry_stat.st_mode
+        if stat.S_ISDIR(mode):
+            _copy_storage_snapshot(source_entry, destination_entry)
+        elif stat.S_ISREG(mode):
+            if source_entry.is_symlink() or entry_stat.st_nlink > 1:
+                raise RuntimeError("Storage contains a symbolic link or hard link.")
+            shutil.copyfile(source_entry, destination_entry)
+        else:
+            raise RuntimeError("Storage may contain only regular files and directories.")
+
+
+def _snapshot_database(source: Path, destination: Path) -> None:
+    if source.is_symlink() or not source.is_file():
+        raise RuntimeError("Database must be a regular file, not a symbolic link.")
+    source_uri = f"{source.resolve().as_uri()}?mode=ro"
+    source_connection = sqlite3.connect(source_uri, uri=True)
+    destination_connection = sqlite3.connect(destination)
+    try:
+        source_connection.backup(destination_connection)
+    finally:
+        destination_connection.close()
+        source_connection.close()
+
+
+def _require_direct_root_child(root: Path, path: Path) -> None:
+    try:
+        path.resolve().relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError("Backup inputs must remain below the selected root.") from exc
+    current = root
+    for part in path.relative_to(root).parts:
+        current = current / part
+        if current.is_symlink():
+            raise RuntimeError("Backup inputs may not use symbolic links.")
+
+
+def _archive_files(snapshot_root: Path) -> list[Path]:
+    return sorted(path for path in snapshot_root.rglob("*") if path.is_file())
+
+
 def create_backup(root: Path, backups_dir: Path) -> Path:
-    root = root.resolve()
-    source_db = root / "data" / "stock_sync.db"
+    """Create a self-verifying snapshot of ``data/stock_sync.db`` and ``storage``."""
+    root = root.expanduser().resolve()
+    source_db = root / "data" / DATABASE_NAME
     source_storage = root / "storage"
-    if not source_db.is_file() or not source_storage.is_dir():
+    if not root.is_dir() or not source_db.is_file() or not source_storage.is_dir():
         raise RuntimeError("Expected data/stock_sync.db and storage/ below the selected root.")
+    _require_direct_root_child(root, source_db)
+    _require_direct_root_child(root, source_storage)
+    backups_dir = backups_dir.expanduser().resolve()
     backups_dir.mkdir(parents=True, exist_ok=True)
-    name = f"sm-techno-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.tar.gz"
+    name = f"sm-techno-{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}.tar.gz"
     archive = backups_dir / name
-    with tempfile.TemporaryDirectory(prefix="sm-techno-backup-", dir=backups_dir) as temp_dir:
-        snapshot = Path(temp_dir) / "stock_sync.db"
-        with sqlite3.connect(source_db) as source, sqlite3.connect(snapshot) as destination:
-            source.backup(destination)
-        with tarfile.open(archive, "w:gz") as tar:
-            tar.add(snapshot, arcname="stock_sync.db")
-            tar.add(source_storage, arcname="storage")
+    temporary_archive: Path | None = None
+    try:
+        with root_operation_lock(root), tempfile.TemporaryDirectory(prefix="sm-techno-backup-") as temp_dir:
+            snapshot_root = Path(temp_dir)
+            snapshot_db = snapshot_root / DATABASE_NAME
+            snapshot_storage = snapshot_root / "storage"
+            _snapshot_database(source_db, snapshot_db)
+            _copy_storage_snapshot(source_storage, snapshot_storage)
+            files = _archive_files(snapshot_root)
+            manifest = {
+                "schema_version": MANIFEST_VERSION,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "database": DATABASE_NAME,
+                "files": {
+                    path.relative_to(snapshot_root).as_posix(): _sha256(path)
+                    for path in files
+                },
+            }
+            descriptor, temporary_name = tempfile.mkstemp(prefix=".sm-techno-backup-", suffix=".tar.gz", dir=backups_dir)
+            os.close(descriptor)
+            temporary_archive = Path(temporary_name)
+            with tarfile.open(temporary_archive, "w:gz") as tar:
+                tar.add(snapshot_db, arcname=DATABASE_NAME, recursive=False)
+                tar.add(snapshot_storage, arcname="storage", recursive=False)
+                for path in files:
+                    if path != snapshot_db:
+                        tar.add(path, arcname=path.relative_to(snapshot_root).as_posix(), recursive=False)
+                manifest_bytes = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                info = tarfile.TarInfo(MANIFEST_NAME)
+                info.size = len(manifest_bytes)
+                info.mtime = 0
+                tar.addfile(info, io.BytesIO(manifest_bytes))
+            temporary_archive.replace(archive)
+            temporary_archive = None
+    finally:
+        if temporary_archive is not None:
+            temporary_archive.unlink(missing_ok=True)
     return archive
 
 
