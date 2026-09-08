@@ -8,15 +8,15 @@
 - Ветка: `codex/orders-business-validation`.
 - Remote: `origin` → `https://github.com/alexdubaev/sm-techno-app.git`.
 - Ветка пока **не пушилась** и не сливалась в `codex/vps-self-hosting`.
-- Последний feature-коммит до обновления этого handoff: `52c3eced fix: require exact CRM INN KPP match`; сам handoff фиксируется отдельными docs-коммитами поверх него.
-- Рабочее дерево намеренно не чистое: есть только незакоммиченный RED-тест `tests/test_auth_session_persistence.py` для ТЗ 17. Не удалять и не откатывать его; он фиксирует требуемое поведение до реализации.
+- Последний feature-коммит перед этим обновлением handoff: `76e2ff2 Reject case-variant VPS lock artifacts`; сам handoff фиксируется отдельным docs-коммитом поверх него.
+- Рабочее дерево чистое, кроме игнорируемых локальных `.superpowers/sdd/` review packages.
 - База исходного handoff: `b4bc198` (актуальный CRM archive handoff).
 - ТЗ 01: `a297cf8`, `4269003`; его docs/handoff: `ad9915e`, `dc2d1aa`, `58983e6`.
 - ТЗ 02: `b857dc7`, `6732edb`, `379a00f`, `9bbece1`.
 - ТЗ 04: `f1781d3`…`4e3b247`; design/plan: `6f49eb2`, `e4ab0e1`.
 - ТЗ 03: `5cf0639`, `084ec74`, `c38ae25`, `215d2f4`, `a46c526`, `9964f73`; design/plan: `8725982`.
 
-Текущий HEAD: `ce4ee87`. Слияние или push в `codex/vps-self-hosting` не выполнялись.
+Базовый HEAD исходного handoff: `ce4ee87`; перед фиксацией этого обновления feature HEAD: `76e2ff2`. Слияние или push в `codex/vps-self-hosting` не выполнялись.
 
 Не использовать `git reset --hard`, `git clean` или массовое восстановление в других worktree: там есть сторонние изменения.
 
@@ -35,15 +35,16 @@
 
 ### Незакоммиченное состояние
 
-- Единственное незакоммиченное изменение — намеренный RED-тест ТЗ 17 `tests/test_auth_session_persistence.py`. Не удалять, не добавлять в чужой commit и не откатывать.
-- Уже проверенный RED: `app_sessions.token` хранит raw bearer token; тест ожидает, что сохранённое значение отличается от token, возвращённого `create_session()`.
+- По состоянию на `76e2ff2` рабочее дерево чистое (кроме игнорируемых локальных `.superpowers/sdd/` review packages).
+- Бывший RED-тест ТЗ 17 реализован и закоммичен; plaintext `app_sessions.token` больше не является текущим контрактом.
 
 ### Следующая очередь
 
-1. **ТЗ 15:** обеспечить staging/cleanup для source/output КП при ошибке DB или generation; добавить validation для draft-line finite values и ownership regression.
-2. **ТЗ 16:** проверить соответствие client КП для specification, policy missing requisites, staging/cleanup и path guard документов.
-3. **ТЗ 17:** продолжить только RED→GREEN. Перед реализацией зафиксировать idle и absolute session lifetime: старый handoff значений не содержит, поэтому выбрать из действующей product policy либо явно запросить решение; не выбирать молча.
-4. Повторить integration regression ТЗ 10–12; persistence-тест с naïve timestamp сейчас конфликтует со строгим UTC-контрактом и после ожидаемого падения оставляет Windows SQLite file handle. Исправить fixture/cleanup отдельно, не ослабляя UTC validation.
+1. **ТЗ 19:** выполнить план `docs/superpowers/plans/2026-09-08-sqlite-migration-registry.md`: migration registry/lock, one-time backfills, integrity gates и upgrade fixtures. Это следующий P1.
+2. **ТЗ 21:** привести CI defaults/dependencies и разделённые critical smoke gates к воспроизводимому состоянию.
+3. **ТЗ 22:** добавить startup/readiness preflight для writable DB/storage, credentials/templates; liveness/readiness не должны зависеть от доступности 1С.
+4. После стабилизации — P2 ТЗ 08 (SQLite catalog search/filter/pagination benchmark), ТЗ 14 (retired CRM outbox cleanup), ТЗ 20 (единый API error contract/encoding).
+5. До merge выполнить полный backend/frontend gate из раздела «Проверки перед merge» и повторно проверить storage-lock модель при любом изменении `docker-compose.yml`, storage paths либо публикации файлов.
 
 ### Проверки продолжения 2026-09-08
 
@@ -54,6 +55,7 @@
 - **ТЗ 09:** CRM pull теперь выполняется batch-transaction без N+1 через SQLite lease, общей для `/api/references/sync` и `/api/crm/sync`. Fencing-проверка токена/срока аренды внутри reconciliation transaction не даёт устаревшему медленному ответу 1С перезаписать свежий. Local-only и globally archived cards не меняются; snapshot-less `pending`/`blocked_capability` и legacy duplicate links сохраняют прежнюю безопасную семантику. Коммиты: `8fe4b7f`, `732ff46`; независимое повторное ревью — без замечаний. `tests/test_crm_sync_execution.py` — 14/14; дополнительные целевые: `tests/test_clients_onec_sync.py -k reference_sync` — 2/2, `tests/test_crm_persistence.py -k "oneC_pull or three_way_merge or confirmed_sync"` — 5/5.
 - **ТЗ 15/16:** атомарное staging/cleanup файлов КП и documents/specifications, path guard, ownership/client consistency и policy missing requisites реализованы ранее в этой сессии. Коммиты: `f461065`, `6061566`, `291e3a5`, `af73c92`, `69b0c74`; проверки: commercial offers — 16/16, documents + commercial offers — 42/42.
 - **ТЗ 17:** bearer tokens хешируются; legacy plaintext sessions удаляются при migration; idle lifetime — **180 дней**, absolute lifetime — **1 год**. Logout, смена пароля, отключение и удаление пользователя отзывают сессии немедленно. Коммиты: `49261d5`, `00b1ad7`; `tests.test_auth_session_persistence` — 6/6, `tests/auth/test_auth_api.py` — 41/41; независимое ревью account-disable revocation — без замечаний.
+- **ТЗ 18:** VPS backup/restore реализован как проверяемая SQLite+storage пара. Архив содержит `manifest.json` с SHA-256; restore проверяет tar member types/paths, hash, `integrity_check`, `foreign_key_check` и DB→storage references, поддерживает `--verify-only`, staging и atomic restore только в пустой target. Backup и live file operations используют один re-entrant OS lock **в storage bind mount**; staging остаётся на том же volume и исключён из snapshot. Lock удерживается только до готового validated snapshot, не во время gzip/hash. Защиты покрывают symlink/hardlink, traversal, Windows drive/UNC/case-variant reserved paths и descendants internal artifacts. Коммиты: `82fe76e`, `8e00b2e`, `5027c6a`, `97cdb84`, `c2f29ed`, `76e2ff2`; финальное независимое ревью — clean. `tests/test_vps_backup_restore.py` — 20/20; `tests/test_vps_runtime.py` + `tests/test_commercial_offers.py` + `tests/test_documents.py` — 46 passed, 2 subtests; `python -m compileall scripts stock_sync_web` и `git diff --check` — success.
 
 ### Полный чек-лист незакрытой работы
 
@@ -66,10 +68,10 @@
 - **ТЗ 11 (workspace authorization):** повторить foreign-workspace, row preference и archive-route integration suite. `tests.test_foreign_workspace_write_guard` ранее 4/4; широкий `tests.test_crm_api` требует повторного запуска с явным summary/exit code.
 - **ТЗ 12 (CRM preference):** подтвердить optimistic versioning и primary-order suite, включая сохранение `position` при update existing preference.
 - **ТЗ 13 (ИНН/КПП):** implementation есть в `684436a`; нужен повторный полный `tests/test_crm_import.py` с итоговым exit code и policy review для archived/linked candidates.
-- **ТЗ 15 (КП):** помимо `ce4ee87` и `1d9bdfe`, сделать atomic DB/files staging и cleanup при copy/generation/DB failures; проверить ownership list/get/download/delete; проверить finite validation и server amount также для draft payload.
-- **ТЗ 16 (documents/specifications):** помимо `884025f` и `393877b`, запретить specification с клиентом, не соответствующим выбранному КП; определить и задокументировать policy missing requisites; добавить staging/cleanup и path-guard regressions.
-- **ТЗ 17 (sessions):** hash token, reject/delete legacy raw sessions, idle + absolute expiry, revoke on logout/password change/disable/delete. RED-тест уже в рабочем дереве; lifetime values ещё не выбраны.
-- **ТЗ 18:** SQLite+storage backup/restore: quiesce/read lock, manifest/checksum, integrity/reference validation, staging restore и verify-only mode.
+- **ТЗ 15 (КП):** закрыто `f461065`, `6061566`, `291e3a5` и покрыто `tests.test_commercial_offers` — 16/16. Любое изменение storage publication должно сохранять общий storage lock ТЗ 18.
+- **ТЗ 16 (documents/specifications):** закрыто `af73c92`, `69b0c74`; проверка `tests.test_documents tests.test_commercial_offers` — 42/42.
+- **ТЗ 17 (sessions):** закрыто `49261d5`, `00b1ad7`. Product policy: idle **180 дней**, absolute **1 год**; revoke на logout/password change/disable/delete.
+- **ТЗ 18:** закрыто цепочкой `82fe76e`…`76e2ff2`; дальнейшие изменения storage publication или Docker mounts требуют повторной проверки общей storage-lock модели.
 - **ТЗ 19:** формальный migration registry/lock, one-time backfills, FK/integrity checks и upgrade fixtures.
 - **ТЗ 21:** CI defaults/dependencies, network-resilience script или эквивалент, разделённые suites и critical smoke gates.
 - **ТЗ 22:** startup/readiness preflight для writable DB/storage, credentials/templates, liveness/readiness без зависимости от доступности 1С.
