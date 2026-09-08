@@ -58,6 +58,8 @@
 
 ### Проверки продолжения 2026-09-08
 
+- **ТЗ 19 regression:** migration registry теперь повторно применяет CRM backfill только если фактическая legacy-строка ещё отличается от canonical inferred fields; пустой completed registry сам по себе не маскирует вставленную до upgrade legacy-запись. Коммит: `539cb04`; `tests/test_web_migration_registry.py` + `tests/test_clients_onec_sync.py::ClientOneCSyncTest::test_database_backfill_repairs_existing_ip_bank_and_signer_fields` — 4/4.
+- **ТЗ 21:** восстановлен `sm-techno-web/scripts/test-network-resilience.mjs`: запускает существующие integration checks кэша/auth bootstrap в browser-like runtime и завершается явным маркером. Коммит: `9ab9847`; `tests/test_network_resilience.py::NetworkResilienceTests::test_client_request_lifecycle_behaves_correctly_at_runtime` — 1/1.
 - **ТЗ 06/07:** formula cells в складском Excel больше не интерпретируются как нулевые значения: импорт явно отклоняет workbook с формулами. `tests.test_stock_excel_import_safety`, `tests.test_stock_item_identity`, `tests.test_stock_excel_import_api` — 11/11.
 - **ТЗ 10:** migration переводит legacy naïve Moscow `crm_reminders.due_at` и history `old_due_at`/`new_due_at` в canonical UTC; API продолжает отклонять naïve input. `tests.test_crm_reminders_api` — 8/8.
 - **ТЗ 11/12:** workspace authorization и CRM persistence подтверждены дробными запусками `tests.test_crm_persistence` — 31/31; старый тест переведён на timezone-aware input, не ослабляя UTC contract.
