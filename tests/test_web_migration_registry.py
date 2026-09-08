@@ -34,6 +34,24 @@ class WebMigrationRegistryTests(unittest.TestCase):
         self.assertTrue(first_versions)
         self.assertEqual(first_versions, self._migration_versions())
 
+    def test_later_contact_position_migration_runs_after_web_schema_is_recorded(self) -> None:
+        WebDatabase(self.db_path)
+        connection = sqlite3.connect(self.db_path)
+        try:
+            connection.execute("ALTER TABLE crm_contacts DROP COLUMN position")
+            connection.commit()
+        finally:
+            connection.close()
+
+        WebDatabase(self.db_path).initialize()
+
+        with sqlite3.connect(self.db_path) as connection:
+            columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(crm_contacts)")
+            }
+        self.assertIn("position", columns)
+
     def test_concurrent_initializers_do_not_duplicate_migration_records(self) -> None:
         WebDatabase(self.db_path)
         failures: list[BaseException] = []

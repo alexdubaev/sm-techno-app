@@ -484,6 +484,7 @@ def _inferred_crm_client_fields(record: dict[str, Any]) -> tuple[str, str, str, 
 class WebDatabase(Database):
     WEB_MIGRATIONS = (
         ("2026-09-08-web-schema-v1", "_apply_web_schema_v1"),
+        ("2026-09-08-crm-contact-position-v1", "_add_crm_contact_position"),
         ("2026-09-08-retire-crm-outbox-v1", "_retire_crm_outbox"),
     )
 
@@ -532,6 +533,12 @@ class WebDatabase(Database):
 
     @staticmethod
     def _migration_target_is_present(conn: sqlite3.Connection, version: str) -> bool:
+        if version == "2026-09-08-crm-contact-position-v1":
+            columns = {
+                str(row["name"])
+                for row in conn.execute("PRAGMA table_info(crm_contacts)").fetchall()
+            }
+            return "position" in columns
         if version == "2026-09-08-retire-crm-outbox-v1":
             return conn.execute("SELECT 1 FROM crm_sync_jobs WHERE status IN ('pending', 'running') LIMIT 1").fetchone() is None
         if version != "2026-09-08-web-schema-v1":
@@ -569,6 +576,15 @@ class WebDatabase(Database):
             if actual != expected:
                 return False
         return True
+
+    @staticmethod
+    def _add_crm_contact_position(conn: sqlite3.Connection) -> None:
+        columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(crm_contacts)").fetchall()
+        }
+        if "position" not in columns:
+            conn.execute("ALTER TABLE crm_contacts ADD COLUMN position TEXT")
 
     @staticmethod
     def _retire_crm_outbox(conn: sqlite3.Connection) -> None:
