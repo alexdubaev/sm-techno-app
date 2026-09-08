@@ -488,6 +488,24 @@ class DocumentApiTest(unittest.TestCase):
             download_response.headers["content-disposition"],
         )
 
+    def test_document_rejects_an_invalid_date_before_creating_any_artifact(self) -> None:
+        crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+
+        response = self.client.post(
+            "/api/documents",
+            json={
+                "documentType": "contract",
+                "number": "D-invalid-date",
+                "documentDate": "not-a-date",
+                "clientSource": "local",
+                "clientId": int(crm_client["id"]),
+            },
+        )
+
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertEqual(self.db.list_documents(include_all=True), [])
+        self.assertEqual(list(self.service.document_exports_dir.glob("*.docx")), [])
+
     def test_delete_document_removes_it_from_journal_and_downloads(self) -> None:
         crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
 

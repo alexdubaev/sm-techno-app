@@ -1404,7 +1404,15 @@ class WebStockSyncService:
             prefix = "ДОГ" if normalized_type == "contract" else "СП"
             document_number = f"{prefix}-{datetime.now():%Y%m%d-%H%M%S}"
 
-        normalized_date = str(document_date or "").strip()[:10] or date.today().isoformat()
+        raw_document_date = str(document_date or "").strip()
+        if raw_document_date:
+            try:
+                normalized_date = date.fromisoformat(raw_document_date)
+            except ValueError as exc:
+                raise ValueError("Дата документа должна быть указана в формате YYYY-MM-DD.") from exc
+            normalized_date = normalized_date.isoformat()
+        else:
+            normalized_date = date.today().isoformat()
         client = self._resolve_document_client(
             client_source=client_source,
             client_id=client_id,
