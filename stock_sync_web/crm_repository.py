@@ -875,6 +875,30 @@ class CrmRepository:
             self._require_personal_access(conn, actor_id, owner_id, client_id)
         return self._add_contact(owner_id, client_id, name=name, email=email, phone=phone, is_primary=is_primary)
 
+    def update_contact_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, contact_id: int, name: str, email: str = "", phone: str = "", is_primary: bool = False) -> dict[str, Any]:
+        if not name.strip():
+            raise ValueError("Укажите имя контактного лица.")
+        now = utc_now()
+        with self.db.transaction() as conn:
+            self._require_workspace_write(actor_id, owner_id)
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            contact = conn.execute("SELECT id FROM crm_contacts WHERE id = ? AND owner_user_id = ? AND crm_client_id = ?", (contact_id, owner_id, client_id)).fetchone()
+            if contact is None:
+                raise ValueError("Контакт не найден.")
+            if is_primary:
+                conn.execute("UPDATE crm_contacts SET is_primary = 0, updated_at = ? WHERE owner_user_id = ? AND crm_client_id = ? AND id != ?", (now, owner_id, client_id, contact_id))
+            conn.execute("UPDATE crm_contacts SET name = ?, email = ?, phone = ?, is_primary = ?, updated_at = ? WHERE id = ?", (name.strip(), email.strip() or None, phone.strip() or None, 1 if is_primary else 0, now, contact_id))
+            row = conn.execute("SELECT * FROM crm_contacts WHERE id = ?", (contact_id,)).fetchone()
+        return dict(row)
+
+    def delete_contact_for_actor(self, *, actor_id: int, owner_id: int, client_id: int, contact_id: int) -> None:
+        with self.db.transaction() as conn:
+            self._require_workspace_write(actor_id, owner_id)
+            self._require_personal_access(conn, actor_id, owner_id, client_id)
+            cursor = conn.execute("DELETE FROM crm_contacts WHERE id = ? AND owner_user_id = ? AND crm_client_id = ?", (contact_id, owner_id, client_id))
+            if cursor.rowcount != 1:
+                raise ValueError("Контакт не найден.")
+
     def _list_contacts(self, owner_id: int, client_id: int) -> list[dict[str, Any]]:
         with self.db.connect() as conn:
             rows = conn.execute("SELECT * FROM crm_contacts WHERE owner_user_id = ? AND crm_client_id = ? ORDER BY is_primary DESC, id", (owner_id, client_id)).fetchall()

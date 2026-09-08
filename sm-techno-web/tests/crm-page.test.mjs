@@ -937,6 +937,23 @@ test("CRM card saves the contact person shown in the main CRM list", async () =>
   assert.match(mobileSheets, /\['contactPerson', 'Контактное лицо'\]/);
 });
 
+test("CRM card can edit and delete local contacts without deleting them in 1C", async () => {
+  const [workspace, controller, api] = await Promise.all([
+    readFile(crmWorkspaceUrl, "utf8"),
+    readFile(crmClientDetailControllerUrl, "utf8"),
+    readFile(crmApiUrl, "utf8"),
+  ]);
+
+  assert.match(api, /export async function updateCrmContact/);
+  assert.match(api, /export async function deleteCrmContact/);
+  assert.match(api, /\/contacts\/\$\{contactId\}/);
+  assert.match(workspace, /Редактировать контакт/);
+  assert.match(workspace, /Удалить контакт/);
+  assert.match(controller, /updateCrmContact\(currentClient\.id, contactEditor\.id,/);
+  assert.match(controller, /deleteCrmContact\(currentClient\.id, contactPendingDelete\.id, ownerId\)/);
+  assert.match(workspace, /Очистить контактное лицо в CRM/);
+});
+
 test("CRM workspace manages only custom personal tabs and edits company requisites separately from contacts", async () => {
   const [workspace, controller, api, types] = await Promise.all([
     readFile(crmWorkspaceUrl, "utf8"),

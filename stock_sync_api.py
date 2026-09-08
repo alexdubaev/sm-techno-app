@@ -1661,6 +1661,26 @@ def list_crm_contacts(client_id: int, owner_id: int | None = Query(None, alias="
         _crm_error(exc)
 
 
+@app.patch("/api/crm/clients/{client_id}/contacts/{contact_id}")
+def update_crm_contact(client_id: int, contact_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        contact = repo.update_contact_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, contact_id=contact_id, name=str(payload.get("name") or ""), email=str(payload.get("email") or ""), phone=str(payload.get("phone") or ""), is_primary=bool(payload.get("isPrimary", False)))
+        return {"contact": _serialize_crm_contact(contact)}
+    except Exception as exc:
+        _crm_error(exc)
+
+
+@app.delete("/api/crm/clients/{client_id}/contacts/{contact_id}")
+def delete_crm_contact(client_id: int, contact_id: int, owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, bool]:
+    try:
+        repo, actor_id, resolved_owner_id = _crm_context(current_user, owner_id)
+        repo.delete_contact_for_actor(actor_id=actor_id, owner_id=resolved_owner_id, client_id=client_id, contact_id=contact_id)
+        return {"ok": True}
+    except Exception as exc:
+        _crm_error(exc)
+
+
 @app.post("/api/crm/clients/{client_id}/events", status_code=201)
 def add_crm_event(client_id: int, payload: dict[str, Any], owner_id: int | None = Query(None, alias="ownerId"), current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     try:

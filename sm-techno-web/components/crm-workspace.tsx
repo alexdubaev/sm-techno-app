@@ -1094,6 +1094,8 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
     isSaving,
     requisitesForm,
     contactForm,
+    contactEditor,
+    contactPendingDelete,
     eventForm,
     reminderDueAt,
     archiveReason,
@@ -1111,6 +1113,8 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
     canRestorePrimaryClient,
     setRequisitesForm,
     setContactForm,
+    setContactEditor,
+    setContactPendingDelete,
     setEventForm,
     setReminderDueAt,
     setArchiveReason,
@@ -1121,6 +1125,8 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
     setLinkCandidate,
     setSyncConflictResolution,
     saveContact,
+    editContact,
+    deleteContact,
     saveEvent,
     saveReminder,
     transitionReminder,
@@ -1169,6 +1175,7 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
                 <div className="grid grid-cols-2 gap-2"><Field label="ИНН" value={requisitesForm.inn} onChange={(inn) => setRequisitesForm((form) => ({ ...form, inn }))} /><Field label="КПП" value={requisitesForm.kpp} onChange={(kpp) => setRequisitesForm((form) => ({ ...form, kpp }))} /></div>
                 <Field label="Город" value={requisitesForm.city} onChange={(city) => setRequisitesForm((form) => ({ ...form, city }))} />
                 <Field label="Контактное лицо" value={requisitesForm.contactPerson} onChange={(contactPerson) => setRequisitesForm((form) => ({ ...form, contactPerson }))} />
+                <button type="button" onClick={() => setRequisitesForm((form) => ({ ...form, contactPerson: "" }))} disabled={!requisitesForm.contactPerson || isSaving !== null} className="justify-self-start text-[10px] font-semibold text-[#B91C1C] underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-50">Очистить контактное лицо в CRM</button>
                 <Field label="Общий телефон компании" value={requisitesForm.phone} onChange={(phone) => setRequisitesForm((form) => ({ ...form, phone }))} type="tel" />
                 <Field label="Общая почта компании" value={requisitesForm.email} onChange={(email) => setRequisitesForm((form) => ({ ...form, email }))} type="email" />
                 <Field label="Telegram (username, ссылка или номер)" value={requisitesForm.telegram || ""} onChange={(telegram) => setRequisitesForm((form) => ({ ...form, telegram }))} />
@@ -1178,13 +1185,15 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
             </DetailSection>
             <DetailSection title="Контакты">
               {canEditWorkspace ? <form onSubmit={saveContact} className="grid gap-2">
+                <p className="text-[11px] font-semibold text-[var(--text-primary)]">{contactEditor ? "Редактирование контакта" : "Новый контакт"}</p>
                 <Field label="Имя *" value={contactForm.name} onChange={(name) => setContactForm((form) => ({ ...form, name }))} />
                 <Field label="Телефон" value={contactForm.phone} onChange={(phone) => setContactForm((form) => ({ ...form, phone }))} type="tel" />
                 <Field label="Почта" value={contactForm.email} onChange={(email) => setContactForm((form) => ({ ...form, email }))} type="email" />
                 <label className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]"><input type="checkbox" checked={contactForm.isPrimary} onChange={(event) => setContactForm((form) => ({ ...form, isPrimary: event.target.checked }))} />Основной контакт</label>
-                <button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "contact" ? "Сохраняем…" : "Добавить контакт"}</button>
+                <div className="flex gap-2"><button type="submit" disabled={isSaving !== null} className="app-action-button h-9 rounded-[9px] px-3 text-[11px]">{isSaving === "contact" ? "Сохраняем…" : contactEditor ? "Сохранить контакт" : "Добавить контакт"}</button>{contactEditor ? <button type="button" onClick={() => { setContactEditor(null); setContactForm({ name: "", phone: "", email: "", isPrimary: false }); }} disabled={isSaving !== null} className="h-9 rounded-[9px] border border-[var(--border-color)] bg-white px-3 text-[11px] font-semibold">Отмена</button> : null}</div>
               </form> : <p className="text-[11px] text-[var(--text-secondary)]">Контакты доступны только для просмотра.</p>}
-              <DetailEmpty items={contacts} empty="Контактов пока нет." render={(contact) => <div key={contact.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{contact.name}{contact.isPrimary ? " · основной" : ""}</div><div className="mt-0.5 text-[var(--text-secondary)]">{[contact.phone, contact.email].filter(Boolean).join(" · ") || "Контакты не указаны"}</div></div>} />
+              <DetailEmpty items={contacts} empty="Контактов пока нет." render={(contact) => <div key={contact.id} className="rounded-[9px] bg-[#F7F9FC] px-2.5 py-2 text-[11px]"><div className="font-semibold">{contact.name}{contact.isPrimary ? " · основной" : ""}</div><div className="mt-0.5 text-[var(--text-secondary)]">{[contact.phone, contact.email].filter(Boolean).join(" · ") || "Контакты не указаны"}</div>{canEditWorkspace ? <div className="mt-2 flex gap-2"><button type="button" onClick={() => editContact(contact)} disabled={isSaving !== null} className="h-7 rounded-[7px] border border-[var(--border-color)] bg-white px-2 text-[10px] font-semibold">Редактировать контакт</button><button type="button" onClick={() => setContactPendingDelete(contact)} disabled={isSaving !== null} className="h-7 rounded-[7px] border border-[#F9D4D4] bg-[#FEF2F2] px-2 text-[10px] font-semibold text-[#B91C1C]">Удалить контакт</button></div> : null}</div>} />
+              <AlertDialog open={contactPendingDelete !== null} onOpenChange={(open) => { if (!open) setContactPendingDelete(null); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Удалить контакт?</AlertDialogTitle><AlertDialogDescription>{contactPendingDelete ? <>Удалить «{contactPendingDelete.name}» только из CRM? В 1С этот контакт не изменится.</> : null}</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => void deleteContact()} disabled={isSaving !== null}>{isSaving === "contact-delete" ? "Удаляем…" : "Удалить"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
             </DetailSection>
             <DetailSection title="История">
               {canEditWorkspace ? <form onSubmit={saveEvent} className="grid gap-2">

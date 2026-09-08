@@ -22,13 +22,15 @@ import {
   resolveCrmSyncConflict,
   restoreLocalCrmClient,
   restorePrimaryCrmClient,
+  deleteCrmContact,
   updateCrmClient,
+  updateCrmContact,
 } from "@/lib/api";
 import type { CrmAuditAction, CrmContact, CrmEvent, CrmLinkCandidate, CrmReminder, CrmSyncConflict, CrmWorkspaceClient } from "@/lib/types";
 import { moscowInputToUtc } from "@/components/crm/mobile/mobile-crm-utils";
 
 type ActiveTab = "primary" | number;
-type SavingAction = "contact" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "resolve";
+type SavingAction = "contact" | "contact-delete" | "event" | "reminder" | "complete-reminder" | "cancel-reminder" | "requisites" | "archive" | "restore" | "remove" | "link" | "resolve";
 type CompanyRequisitesForm = Pick<CrmWorkspaceClient, "documentName" | "fullName" | "inn" | "kpp" | "city" | "contactPerson" | "email" | "phone"> & { telegram: string; maxLink: string };
 type ContactForm = Pick<CrmContact, "name" | "phone" | "email" | "isPrimary">;
 type EventForm = Pick<CrmEvent, "kind" | "body">;
@@ -63,6 +65,8 @@ export type DetailController = {
   isSaving: SavingAction | null;
   requisitesForm: CompanyRequisitesForm;
   contactForm: ContactForm;
+  contactEditor: CrmContact | null;
+  contactPendingDelete: CrmContact | null;
   eventForm: EventForm;
   reminderDueAt: string;
   archiveReason: string;
@@ -80,6 +84,8 @@ export type DetailController = {
   canRestorePrimaryClient: boolean;
   setRequisitesForm: Dispatch<SetStateAction<CompanyRequisitesForm>>;
   setContactForm: Dispatch<SetStateAction<ContactForm>>;
+  setContactEditor: Dispatch<SetStateAction<CrmContact | null>>;
+  setContactPendingDelete: Dispatch<SetStateAction<CrmContact | null>>;
   setEventForm: Dispatch<SetStateAction<EventForm>>;
   setReminderDueAt: Dispatch<SetStateAction<string>>;
   setArchiveReason: Dispatch<SetStateAction<string>>;
@@ -90,6 +96,8 @@ export type DetailController = {
   setLinkCandidate: Dispatch<SetStateAction<CrmLinkCandidate | null>>;
   setSyncConflictResolution: Dispatch<SetStateAction<SyncConflictResolution | null>>;
   saveContact: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
+  editContact: (contact: CrmContact) => void;
+  deleteContact: () => Promise<void>;
   saveEvent: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
   saveReminder: (event: SubmitEvent<HTMLFormElement>) => Promise<boolean | void>;
   transitionReminder: (reminder: CrmReminder, action: "complete" | "cancel") => Promise<void>;
@@ -163,6 +171,8 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
   const [isSaving, setIsSaving] = useState<SavingAction | null>(null);
   const [requisitesForm, setRequisitesForm] = useState(() => companyRequisitesForm(client));
   const [contactForm, setContactForm] = useState<ContactForm>({ name: "", phone: "", email: "", isPrimary: false });
+  const [contactEditor, setContactEditor] = useState<CrmContact | null>(null);
+  const [contactPendingDelete, setContactPendingDelete] = useState<CrmContact | null>(null);
   const [eventForm, setEventForm] = useState<EventForm>({ kind: "comment", body: "" });
   const [reminderDueAt, setReminderDueAt] = useState("");
   const [archiveReason, setArchiveReason] = useState("");
@@ -245,6 +255,23 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
       setError("Укажите имя контакта.");
       return;
     }
+    if (contactEditor) {
+      setIsSaving("contact");
+      setError(null);
+      try {
+        const saved = await updateCrmContact(currentClient.id, contactEditor.id, { name: contactForm.name.trim(), phone: contactForm.phone.trim(), email: contactForm.email.trim(), isPrimary: contactForm.isPrimary }, ownerId);
+        setContacts((current) => current.map((item) => item.id === saved.id ? saved : saved.isPrimary ? { ...item, isPrimary: false } : item));
+        setContactEditor(null);
+        setContactForm({ name: "", phone: "", email: "", isPrimary: false });
+        notifyChanged();
+        return true;
+      } catch (cause) {
+        setError(errorMessage(cause, "Не удалось изменить контакт. Изменение отменено."));
+      } finally {
+        setIsSaving(null);
+      }
+      return;
+    }
     const temporary: CrmContact = {
       id: -Date.now(),
       name: contactForm.name.trim(),
@@ -271,6 +298,32 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     } catch (cause) {
       setContacts((current) => current.filter((item) => item.id !== temporary.id));
       setError(errorMessage(cause, "Не удалось добавить контакт. Изменение отменено."));
+    } finally {
+      setIsSaving(null);
+    }
+  };
+
+  const editContact = (contact: CrmContact) => {
+    setContactEditor(contact);
+    setContactForm({ name: contact.name, phone: contact.phone, email: contact.email, isPrimary: contact.isPrimary });
+    setError(null);
+  };
+
+  const deleteContact = async () => {
+    if (!contactPendingDelete) return;
+    setIsSaving("contact-delete");
+    setError(null);
+    try {
+      await deleteCrmContact(currentClient.id, contactPendingDelete.id, ownerId);
+      setContacts((current) => current.filter((contact) => contact.id !== contactPendingDelete.id));
+      if (contactEditor?.id === contactPendingDelete.id) {
+        setContactEditor(null);
+        setContactForm({ name: "", phone: "", email: "", isPrimary: false });
+      }
+      setContactPendingDelete(null);
+      notifyChanged();
+    } catch (cause) {
+      setError(errorMessage(cause, "Не удалось удалить контакт. Изменение отменено."));
     } finally {
       setIsSaving(null);
     }
@@ -572,6 +625,8 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     isSaving,
     requisitesForm,
     contactForm,
+    contactEditor,
+    contactPendingDelete,
     eventForm,
     reminderDueAt,
     archiveReason,
@@ -589,6 +644,8 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     canRestorePrimaryClient,
     setRequisitesForm,
     setContactForm,
+    setContactEditor,
+    setContactPendingDelete,
     setEventForm,
     setReminderDueAt,
     setArchiveReason,
@@ -599,6 +656,8 @@ export function useCrmClientDetailController(options: CrmClientDetailControllerO
     setLinkCandidate,
     setSyncConflictResolution,
     saveContact,
+    editContact,
+    deleteContact,
     saveEvent,
     saveReminder,
     transitionReminder,
