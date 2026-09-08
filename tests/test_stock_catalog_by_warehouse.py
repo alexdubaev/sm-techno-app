@@ -100,6 +100,33 @@ class StockCatalogByWarehouseTest(unittest.TestCase):
 
         self.assertEqual(sku_rows, ["SKU-001", "SKU-002"])
 
+    def test_database_catalog_query_filters_unicode_search_and_paginates(self) -> None:
+        first_warehouse = self.db.create_warehouse(name="Склад A")
+        second_warehouse = self.db.create_warehouse(name="Склад B")
+        for index, name in enumerate(("Муфта стальная", "Кран латунный", "Муфта нержавеющая"), start=1):
+            self.db.create_local_item(
+                sku=f"SQL-{index}",
+                name=name,
+                print_name=name,
+                category_name="Арматура",
+                group_name="Тест",
+                price=100,
+                warehouses=[{"warehouse_id": first_warehouse["id"], "warehouse_name": "Склад A", "quantity": index},
+                            {"warehouse_id": second_warehouse["id"], "warehouse_name": "Склад B", "quantity": index}],
+            )
+
+        catalog = self.db.query_stock_catalog(
+            search="МУФТА",
+            warehouse_id=first_warehouse["id"],
+            only_in_stock=True,
+            page=2,
+            page_size=1,
+            sort_order="oldest",
+        )
+
+        self.assertEqual(2, catalog["total"])
+        self.assertEqual(["Муфта нержавеющая"], [row["name"] for row in catalog["items"]])
+
 
 if __name__ == "__main__":
     unittest.main()

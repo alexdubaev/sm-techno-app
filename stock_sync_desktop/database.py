@@ -729,6 +729,7 @@ class Database:
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=5)
         conn.row_factory = sqlite3.Row
+        conn.create_function("casefold", 1, lambda value: str(value or "").casefold(), deterministic=True)
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA busy_timeout = 5000")
         return conn
@@ -1426,6 +1427,51 @@ class Database:
                 params,
             ).fetchall()
         return self._rows_to_dicts(rows)
+
+    def query_stock_catalog(self, *, search: str = "", category: str = "", warehouse_id: int | None = None,
+                            only_in_stock: bool = False, page: int = 1, page_size: int = 20,
+                            sort_order: str = "newest") -> dict[str, Any]:
+        page = max(1, int(page))
+        page_size = max(1, min(int(page_size), 100))
+        row_filter, item_filter, params = "", "", []
+        if warehouse_id is not None:
+            row_filter, item_filter = " AND iwb.warehouse_id = ?", " AND row_balances.item_id IS NOT NULL"
+            params.append(int(warehouse_id))
+        where = ["i.is_local = 1" + item_filter]
+        if search.strip():
+            where.append("casefold(COALESCE(i.sku, '') || ' ' || i.name || ' ' || COALESCE(i.print_name, '') || ' ' || COALESCE(i.category_name, '') || ' ' || COALESCE(i.group_name, '')) LIKE ?")
+            params.append(f"%{search.strip().casefold()}%")
+        if category.strip():
+            where.append("COALESCE(i.category_name, '') = ?")
+            params.append(category.strip())
+        if only_in_stock:
+            where.append("COALESCE(row_balances.row_quantity, 0) > 0")
+        order = "created_at ASC, id ASC" if sort_order == "oldest" else "created_at DESC, id DESC"
+        cte = f"""
+            WITH row_balances AS (
+                SELECT iwb.item_id, iwb.warehouse_id, w.name AS row_warehouse_name, iwb.quantity AS row_quantity, iwb.rack AS row_rack, iwb.cell AS row_cell
+                FROM item_warehouse_balances iwb JOIN warehouses w ON w.id = iwb.warehouse_id
+                WHERE w.is_active = 1 AND iwb.quantity > 0 {row_filter}
+            ), agg AS (
+                SELECT iwb.item_id, SUM(iwb.quantity) AS quantity, COUNT(*) AS warehouse_count,
+                       GROUP_CONCAT(w.name, ', ') AS warehouse_summary
+                FROM item_warehouse_balances iwb JOIN warehouses w ON w.id = iwb.warehouse_id
+                WHERE w.is_active = 1 AND iwb.quantity > 0 GROUP BY iwb.item_id
+            ), catalog AS (
+                SELECT i.id, i.onec_key, i.sku, i.name, i.print_name, i.category_name, i.group_name, i.unit_key, i.unit_name, i.price, i.created_at,
+                       COALESCE(agg.quantity, 0) AS quantity, COALESCE(agg.warehouse_count, 0) AS warehouse_count,
+                       COALESCE(agg.warehouse_summary, '') AS warehouse_summary, row_balances.warehouse_id AS row_warehouse_id,
+                       COALESCE(row_balances.row_warehouse_name, '') AS row_warehouse_name, COALESCE(row_balances.row_quantity, 0) AS row_quantity,
+                       row_balances.row_rack, row_balances.row_cell
+                FROM items i LEFT JOIN row_balances ON row_balances.item_id = i.id LEFT JOIN agg ON agg.item_id = i.id
+                WHERE {' AND '.join(where)}
+            )
+        """
+        with self.connect() as conn:
+            total_row = conn.execute(cte + "SELECT COUNT(*) AS total, COALESCE(SUM(row_quantity), 0) AS quantity FROM catalog", params).fetchone()
+            rows = conn.execute(cte + f"SELECT * FROM catalog ORDER BY {order}, row_warehouse_name COLLATE NOCASE LIMIT ? OFFSET ?", [*params, page_size, (page - 1) * page_size]).fetchall()
+            facets = conn.execute(cte + "SELECT DISTINCT category_name, group_name FROM catalog", params).fetchall()
+        return {"items": [self._attach_location_label(row, rack_key="row_rack", cell_key="row_cell", label_key="row_location_label") for row in self._rows_to_dicts(rows)], "total": int(total_row["total"]), "filtered_quantity": float(total_row["quantity"]), "categories": sorted({str(row["category_name"] or "").strip() for row in facets if str(row["category_name"] or "").strip()}, key=str.lower), "groups": sorted({str(row["group_name"] or "").strip() for row in facets if str(row["group_name"] or "").strip()}, key=str.lower)}
 
     def list_warehouses(self, *, active_only: bool = True) -> list[dict[str, Any]]:
         with self.connect() as conn:

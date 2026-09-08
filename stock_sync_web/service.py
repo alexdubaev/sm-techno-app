@@ -698,36 +698,24 @@ class WebStockSyncService:
         page_size: int = 20,
         sort_order: str = "newest",
     ) -> dict[str, Any]:
-        rows, categories, groups = self._filter_catalog_rows(
-            search=search,
-            category=category,
-            warehouse_id=warehouse_id,
-            only_in_stock=only_in_stock,
-            split_by_warehouse=True,
-            sort_order=sort_order,
-        )
-        total = len(rows)
-        total_quantity = round(
-            sum(float(row.get("row_quantity", row.get("quantity") or 0) or 0) for row in rows),
-            2,
-        )
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
-        start = (page - 1) * page_size
-        end = start + page_size
-        page_rows = rows[start:end]
+        catalog = self.db.query_stock_catalog(
+            search=search, category=category, warehouse_id=warehouse_id,
+            only_in_stock=only_in_stock, page=page, page_size=page_size, sort_order=sort_order,
+        )
 
         return {
-            "items": page_rows,
-            "total": total,
+            "items": catalog["items"],
+            "total": catalog["total"],
             "page": page,
             "page_size": page_size,
-            "categories": categories,
-            "groups": groups,
+            "categories": catalog["categories"],
+            "groups": catalog["groups"],
             "summary": {
                 "catalog_count": len(self.db.list_items(split_by_warehouse=True)),
-                "filtered_count": total,
-                "filtered_quantity": total_quantity,
+                "filtered_count": catalog["total"],
+                "filtered_quantity": round(catalog["filtered_quantity"], 2),
             },
         }
 
