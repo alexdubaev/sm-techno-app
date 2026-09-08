@@ -52,6 +52,18 @@ class CommercialOfferExcelTest(unittest.TestCase):
         self.assertEqual(lines[0].amount_vat, 25001.0)
         self.assertEqual(lines[1].article, "JCB-002")
 
+    def test_source_reader_calculates_amount_and_rejects_non_finite_lines(self) -> None:
+        source_path = self.temp_path / "validated.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Артикул", "Наименование", "Количество", "Цена с НДС", "Сумма с НДС"])
+        sheet.append(["A-1", "Фильтр", 2, 100, 1])
+        workbook.save(source_path)
+
+        lines = read_source_offer_lines(source_path)
+
+        self.assertEqual(lines[0].amount_vat, 200)
+
     def test_generator_writes_offer_rows_and_total_formula_without_extra_sheets(self) -> None:
         template_path = self.temp_path / "template.xlsx"
         output_path = self.temp_path / "out.xlsx"
