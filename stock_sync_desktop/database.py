@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import math
+import json
 import os
 import secrets
 import sqlite3
@@ -237,6 +238,40 @@ class Database:
             conn.execute(
                 "UPDATE items SET sku_normalized = ? WHERE id = ?",
                 (self._normalize_stock_sku(row["sku"]), row["id"]),
+            )
+        sku_collisions = conn.execute(
+            """
+            SELECT sku_normalized, GROUP_CONCAT(id) AS item_ids
+            FROM items
+            WHERE sku_normalized IS NOT NULL AND sku_normalized <> ''
+            GROUP BY sku_normalized
+            HAVING COUNT(*) > 1
+            """
+        ).fetchall()
+        if sku_collisions:
+            collision_report: list[dict[str, Any]] = []
+            for collision in sku_collisions:
+                item_ids = [int(value) for value in str(collision["item_ids"]).split(",")]
+                keeper_id = min(item_ids)
+                duplicate_ids = [item_id for item_id in item_ids if item_id != keeper_id]
+                placeholders = ", ".join("?" for _ in duplicate_ids)
+                conn.execute(
+                    f"UPDATE items SET sku_normalized = NULL WHERE id IN ({placeholders})",
+                    duplicate_ids,
+                )
+                collision_report.append(
+                    {
+                        "sku": collision["sku_normalized"],
+                        "canonicalItemId": keeper_id,
+                        "duplicateItemIds": duplicate_ids,
+                    }
+                )
+            conn.execute(
+                """
+                INSERT INTO app_settings(key, value) VALUES('stock_sku_normalization_collisions', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (json.dumps(collision_report, ensure_ascii=False, sort_keys=True),),
             )
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_items_sku_normalized_not_empty "

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
 from stock_sync_web.database import WebDatabase
@@ -56,6 +57,34 @@ class StockItemIdentityTest(unittest.TestCase):
         self.db.import_stock_rows([dict(self._import_row("SKU-B", "Второй"), onec_key="22222222-2222-2222-2222-222222222222")])
         with self.assertRaises(ValueError):
             self.db.import_stock_rows([dict(self._import_row("SKU-B", "Конфликт"), onec_key="11111111-1111-1111-1111-111111111111")])
+
+    def test_legacy_normalized_sku_collision_is_reported_without_blocking_startup(self) -> None:
+        legacy_path = Path(self._temp_dir.name) / "legacy-collision.db"
+        with sqlite3.connect(legacy_path) as conn:
+            conn.executescript(
+                """
+                CREATE TABLE items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    onec_key TEXT UNIQUE,
+                    sku TEXT,
+                    name TEXT NOT NULL,
+                    price REAL NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+                INSERT INTO items(sku, name, updated_at) VALUES
+                    (' AB-1 ', 'Первый', '2026-09-08T00:00:00'),
+                    ('ab-1', 'Второй', '2026-09-08T00:00:00');
+                """
+            )
+
+        db = WebDatabase(legacy_path)
+
+        with db.connect() as conn:
+            duplicates = conn.execute(
+                "SELECT value FROM app_settings WHERE key = 'stock_sku_normalization_collisions'"
+            ).fetchone()
+        self.assertIsNotNone(duplicates)
+        self.assertIn("ab-1", duplicates["value"])
 
     @staticmethod
     def _import_row(sku: str, name: str) -> dict[str, object]:
