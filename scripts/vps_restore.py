@@ -67,9 +67,12 @@ def _safe_extraction_path(destination: Path, name: str) -> Path:
 
 
 def _is_internal_storage_member(name: str) -> bool:
-    return name == f"storage/{STORAGE_OPERATION_LOCK_NAME}" or name.startswith(
-        f"storage/{STORAGE_STAGING_DIR_NAME}/"
-    ) or name == f"storage/{STORAGE_STAGING_DIR_NAME}"
+    return (
+        name == f"storage/{STORAGE_OPERATION_LOCK_NAME}"
+        or name.startswith(f"storage/{STORAGE_OPERATION_LOCK_NAME}/")
+        or name == f"storage/{STORAGE_STAGING_DIR_NAME}"
+        or name.startswith(f"storage/{STORAGE_STAGING_DIR_NAME}/")
+    )
 
 
 def _validate_members(tar: tarfile.TarFile) -> dict[str, tarfile.TarInfo]:

@@ -254,7 +254,11 @@ def test_verify_only_rejects_tar_symlinks_without_creating_target(tmp_path: Path
 
 @pytest.mark.parametrize(
     "member_name",
-    ["storage/.sm-techno-storage-operation.lock", "storage/.sm-techno-storage-staging/partial.xlsx"],
+    [
+        "storage/.sm-techno-storage-operation.lock",
+        "storage/.sm-techno-storage-operation.lock/child",
+        "storage/.sm-techno-storage-staging/partial.xlsx",
+    ],
 )
 def test_verify_only_rejects_internal_storage_artifacts(tmp_path: Path, member_name: str) -> None:
     """An archive must never restore the application's own lock or incomplete publication files."""
