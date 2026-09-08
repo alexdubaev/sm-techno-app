@@ -969,6 +969,7 @@ test("mobile CRM card lets users edit and remove local contacts without changing
   assert.match(overview, /deleteContact/);
   assert.match(detail, /setContactEditor\(null\)/);
   assert.match(detail, /setContactForm\(\{\s+name: '',\s+position: '',\s+phone: '',\s+email: '',\s+isPrimary: false,\s+\}\)/);
+  assert.doesNotMatch(overview, /bg-\[#B91C1C\] text-white/);
 });
 
 test("CRM workspace manages only custom personal tabs and edits company requisites separately from contacts", async () => {
