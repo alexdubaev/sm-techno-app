@@ -992,7 +992,7 @@ class CrmApiTest(unittest.TestCase):
 
         changed = self.client.patch(
             f"/api/crm/clients/{client_id}",
-            json={"email": "local@example.test", "expectedVersion": 1},
+            json={"contactPerson": "Анна Петрова", "email": "local@example.test", "expectedVersion": 1},
         )
         with self.service.db.connect() as conn:
             jobs = conn.execute(
@@ -1004,12 +1004,52 @@ class CrmApiTest(unittest.TestCase):
             ).fetchone()
 
         self.assertEqual(200, changed.status_code, changed.text)
+        self.assertEqual("Анна Петрова", changed.json()["client"]["contactPerson"])
         self.assertEqual("local@example.test", changed.json()["client"]["email"])
         self.assertEqual(2, changed.json()["client"]["version"])
         self.assertEqual("synced", changed.json()["client"]["syncStatus"])
         self.assertEqual([], jobs)
         self.assertEqual("local@example.test", card["email"])
         self.assertEqual("synced", card["sync_status"])
+
+    def test_linked_crm_card_contact_person_can_be_cleared_locally(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Связанная", "contactPerson": "Анна"}).json()
+        client_id = created["client"]["id"]
+        self.link_primary_client(client_id, 902)
+
+        cleared = self.client.patch(
+            f"/api/crm/clients/{client_id}",
+            json={"contactPerson": "", "expectedVersion": 1},
+        )
+        with self.service.db.connect() as conn:
+            jobs = conn.execute("SELECT id FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchall()
+
+        self.assertEqual(200, cleared.status_code, cleared.text)
+        self.assertEqual("", cleared.json()["client"]["contactPerson"])
+        self.assertEqual([], jobs)
+
+    def test_contact_can_be_edited_and_deleted_only_in_local_crm(self) -> None:
+        created = self.client.post("/api/crm/clients", json={"documentName": "Контакты"}).json()
+        client_id = created["client"]["id"]
+        contact = self.client.post(
+            f"/api/crm/clients/{client_id}/contacts",
+            json={"name": "Анна", "email": "anna@example.test", "phone": "+79990000000", "isPrimary": True},
+        ).json()["contact"]
+
+        updated = self.client.patch(
+            f"/api/crm/clients/{client_id}/contacts/{contact['id']}",
+            json={"name": "Анна Петрова", "email": "petrova@example.test", "phone": "+79991111111", "isPrimary": False},
+        )
+        deleted = self.client.delete(f"/api/crm/clients/{client_id}/contacts/{contact['id']}")
+        listed = self.client.get(f"/api/crm/clients/{client_id}/contacts")
+        with self.service.db.connect() as conn:
+            jobs = conn.execute("SELECT id FROM crm_sync_jobs WHERE crm_client_id = ?", (client_id,)).fetchall()
+
+        self.assertEqual(200, updated.status_code, updated.text)
+        self.assertEqual({"name": "Анна Петрова", "email": "petrova@example.test", "phone": "+79991111111", "isPrimary": False}, {key: updated.json()["contact"][key] for key in ("name", "email", "phone", "isPrimary")})
+        self.assertEqual(200, deleted.status_code, deleted.text)
+        self.assertEqual([], listed.json()["items"])
+        self.assertEqual([], jobs)
 
     @unittest.skip("Retired CRM outbound 1C update workflow")
     def test_due_sync_worker_blocks_automatic_update_without_proven_conditional_write(self) -> None:

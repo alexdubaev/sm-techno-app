@@ -950,6 +950,28 @@ export async function createCrmContact(
   return result.contact;
 }
 
+export async function updateCrmContact(
+  clientId: number,
+  contactId: number,
+  payload: { name: string; email: string; phone: string; isPrimary: boolean },
+  ownerId?: number,
+): Promise<CrmContact> {
+  const result = await requestJsonWithInit<{ contact: CrmContact }>(
+    `/api/crm/clients/${clientId}/contacts/${contactId}${buildCrmQuery({ ownerId })}`,
+    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+    "Не удалось изменить контакт.",
+  );
+  return result.contact;
+}
+
+export async function deleteCrmContact(clientId: number, contactId: number, ownerId?: number): Promise<void> {
+  await requestJsonWithInit<{ ok: boolean }>(
+    `/api/crm/clients/${clientId}/contacts/${contactId}${buildCrmQuery({ ownerId })}`,
+    { method: "DELETE" },
+    "Не удалось удалить контакт.",
+  );
+}
+
 export async function fetchCrmEvents(clientId: number, ownerId?: number): Promise<CrmEvent[]> {
   const result = await requestJson<{ items: CrmEvent[] }>(
     `/api/crm/clients/${clientId}/events${buildCrmQuery({ ownerId })}`,
@@ -1090,6 +1112,7 @@ export async function updateCrmClient(
     inn: string;
     kpp: string;
     city: string;
+    contactPerson: string;
     email: string;
     phone: string;
     telegram?: string;
