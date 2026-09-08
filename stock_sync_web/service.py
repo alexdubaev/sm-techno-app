@@ -38,6 +38,14 @@ class CommercialOfferCleanupError(OSError):
         super().__init__(f"Не удалось очистить файлы КП: {details}")
 
 
+class DocumentCleanupError(OSError):
+    def __init__(self, failures: list[tuple[str, Exception]]) -> None:
+        self.failures = tuple(failures)
+        self.errors = tuple(error for _, error in failures)
+        details = "; ".join(f"{resource}: {error}" for resource, error in failures)
+        super().__init__(f"Не удалось завершить очистку документа: {details}")
+
+
 class WebStockSyncService:
     def __init__(
         self,
@@ -1533,13 +1541,19 @@ class WebStockSyncService:
             )
             staged_output.replace(output_path)
             return self.db.get_document(document_id)
-        except Exception:
+        except Exception as exc:
+            cleanup_failures: list[tuple[str, Exception]] = []
             if document_id is not None:
                 try:
                     self.db.delete_document(document_id)
-                except Exception:
-                    pass
-            self._cleanup_document_paths(staged_output, output_path)
+                except Exception as cleanup_exc:
+                    cleanup_failures.append((f"запись документа {document_id}", cleanup_exc))
+            cleanup_failures.extend(
+                (str(path), cleanup_exc)
+                for path, cleanup_exc in self._cleanup_document_paths(staged_output, output_path)
+            )
+            if cleanup_failures:
+                raise exc from DocumentCleanupError(cleanup_failures)
             raise
 
     def resolve_document_file_for_user(
@@ -1832,12 +1846,14 @@ class WebStockSyncService:
         return failures
 
     @staticmethod
-    def _cleanup_document_paths(*paths: Path) -> None:
+    def _cleanup_document_paths(*paths: Path) -> list[tuple[Path, OSError]]:
+        failures: list[tuple[Path, OSError]] = []
         for path in paths:
             try:
                 path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            except OSError as exc:
+                failures.append((path, exc))
+        return failures
 
     def _resolve_commercial_offer_stored_path(self, value: str) -> Path:
         path = self._resolve_stored_path(value).resolve()

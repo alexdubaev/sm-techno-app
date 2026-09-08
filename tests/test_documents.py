@@ -631,6 +631,80 @@ class DocumentApiTest(unittest.TestCase):
         self.assertEqual(self.db.list_documents(include_all=True), [])
         self.assertEqual(list(self.service.document_exports_dir.iterdir()), [])
 
+    def test_failed_document_promotion_preserves_primary_error_and_reports_rollback_failure(self) -> None:
+        crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+
+        with patch.object(Path, "replace", side_effect=OSError("promotion failed")):
+            with patch.object(self.db, "delete_document", side_effect=OSError("row rollback failed")):
+                with self.assertRaisesRegex(OSError, "promotion failed") as raised:
+                    self.service.create_document(
+                        document_type="contract",
+                        number="D-promotion-failure",
+                        document_date="2026-07-14",
+                        client_source="local",
+                        client_id=int(crm_client["id"]),
+                        commercial_offer_id=None,
+                        correspondent_account="",
+                        notes="",
+                        signer_position="",
+                        created_by_user_id=1,
+                        is_admin=True,
+                    )
+
+        self.assertIsNotNone(raised.exception.__cause__)
+        self.assertIn("row rollback failed", str(raised.exception.__cause__))
+        self.assertEqual(len(self.db.list_documents(include_all=True)), 1)
+        self.assertEqual(list(self.service.document_exports_dir.iterdir()), [])
+
+    def test_failed_document_final_read_rolls_back_persisted_row_and_file(self) -> None:
+        crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+
+        with patch.object(self.db, "get_document", side_effect=RuntimeError("final read failed")):
+            with self.assertRaisesRegex(RuntimeError, "final read failed"):
+                self.service.create_document(
+                    document_type="contract",
+                    number="D-final-read-failure",
+                    document_date="2026-07-14",
+                    client_source="local",
+                    client_id=int(crm_client["id"]),
+                    commercial_offer_id=None,
+                    correspondent_account="",
+                    notes="",
+                    signer_position="",
+                    created_by_user_id=1,
+                    is_admin=True,
+                )
+
+        self.assertEqual(self.db.list_documents(include_all=True), [])
+        self.assertEqual(list(self.service.document_exports_dir.iterdir()), [])
+
+    def test_document_cleanup_failure_is_attached_to_the_primary_failure(self) -> None:
+        crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+
+        def write_then_fail(*, output_path: Path, **_: object) -> None:
+            output_path.write_bytes(b"partial document")
+            raise RuntimeError("generation failed")
+
+        with patch("stock_sync_web.documents.generate_document_docx", side_effect=write_then_fail):
+            with patch.object(Path, "unlink", side_effect=OSError("file cleanup failed")):
+                with self.assertRaisesRegex(RuntimeError, "generation failed") as raised:
+                    self.service.create_document(
+                        document_type="contract",
+                        number="D-cleanup-failure",
+                        document_date="2026-07-14",
+                        client_source="local",
+                        client_id=int(crm_client["id"]),
+                        commercial_offer_id=None,
+                        correspondent_account="",
+                        notes="",
+                        signer_position="",
+                        created_by_user_id=1,
+                        is_admin=True,
+                    )
+
+        self.assertIsNotNone(raised.exception.__cause__)
+        self.assertIn("file cleanup failed", str(raised.exception.__cause__))
+
     def test_document_paths_outside_storage_cannot_be_resolved_or_deleted(self) -> None:
         outside_path = self.temp_path / "outside.docx"
         outside_path.write_bytes(b"outside document")
