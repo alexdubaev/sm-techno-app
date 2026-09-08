@@ -1261,13 +1261,15 @@ class WebStockSyncService:
             staged_source.replace(stored_source)
             staged_output.replace(output_path)
             return self.db.get_commercial_offer_bundle(offer_id)
-        except Exception:
+        except Exception as exc:
             if offer_id is not None:
                 try:
                     self.db.delete_commercial_offer(offer_id)
                 except Exception:
                     pass
-            self._cleanup_commercial_offer_paths(staged_source, staged_output, stored_source, output_path)
+            cleanup_errors = self._cleanup_commercial_offer_paths(staged_source, staged_output, stored_source, output_path)
+            if cleanup_errors:
+                raise exc from cleanup_errors[0]
             raise
 
     def create_commercial_offer_from_draft(
@@ -1321,13 +1323,15 @@ class WebStockSyncService:
             )
             staged_output.replace(output_path)
             return self.db.get_commercial_offer_bundle(offer_id)
-        except Exception:
+        except Exception as exc:
             if offer_id is not None:
                 try:
                     self.db.delete_commercial_offer(offer_id)
                 except Exception:
                     pass
-            self._cleanup_commercial_offer_paths(staged_output, output_path)
+            cleanup_errors = self._cleanup_commercial_offer_paths(staged_output, output_path)
+            if cleanup_errors:
+                raise exc from cleanup_errors[0]
             raise
 
     def list_commercial_offers_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
@@ -1781,12 +1785,14 @@ class WebStockSyncService:
         return final_path.with_name(f".{final_path.name}.{uuid.uuid4().hex}.staging")
 
     @staticmethod
-    def _cleanup_commercial_offer_paths(*paths: Path) -> None:
+    def _cleanup_commercial_offer_paths(*paths: Path) -> list[OSError]:
+        errors: list[OSError] = []
         for path in paths:
             try:
                 path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            except OSError as exc:
+                errors.append(exc)
+        return errors
 
     def _resolve_commercial_offer_stored_path(self, value: str) -> Path:
         path = self._resolve_stored_path(value).resolve()

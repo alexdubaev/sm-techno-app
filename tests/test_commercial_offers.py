@@ -532,6 +532,31 @@ class CommercialOfferApiTest(unittest.TestCase):
         self.assertEqual(list(self.service.commercial_offer_exports_dir.iterdir()), [])
         self.assertEqual(self.db.list_commercial_offers(include_all=True), [])
 
+    def test_excel_creation_reports_cleanup_failure_without_hiding_persistence_failure(self) -> None:
+        # A cleanup error must be actionable while preserving the operation that failed first.
+        source_path = Path(self._temp_dir.name) / "cleanup-failure-source.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Артикул", "Наименование", "Количество", "Цена с НДС"])
+        sheet.append(["CLEANUP-1", "Позиция", 1, 100])
+        workbook.save(source_path)
+
+        with patch.object(self.db, "create_commercial_offer", side_effect=RuntimeError("database unavailable")):
+            with patch.object(Path, "unlink", side_effect=OSError("unlink denied")):
+                with self.assertRaisesRegex(RuntimeError, "database unavailable") as raised:
+                    self.service.create_commercial_offer_from_excel(
+                        source_path=source_path,
+                        original_filename="КП-Очистка.xlsx",
+                        client_source="manual",
+                        client_id=None,
+                        client_name="Клиент",
+                        notes="",
+                        created_by_user_id=1,
+                    )
+
+        self.assertIsInstance(raised.exception.__cause__, OSError)
+        self.assertIn("unlink denied", str(raised.exception.__cause__))
+
     def test_persisted_path_outside_offer_storage_cannot_be_downloaded_or_deleted(self) -> None:
         # Stored paths must not read from or unlink files outside offer storage.
         external_file = Path(self._temp_dir.name) / "outside-storage.xlsx"
