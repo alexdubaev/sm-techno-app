@@ -37,10 +37,11 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS app_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    token TEXT NOT NULL UNIQUE,
+    token_hash TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
+    absolute_expires_at TEXT NOT NULL,
     FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
@@ -450,11 +451,43 @@ class WebDatabase(Database):
             conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
 
         session_columns = {row["name"] for row in conn.execute("PRAGMA table_info(app_sessions)").fetchall()}
-        if "expires_at" not in session_columns:
-            conn.execute("ALTER TABLE app_sessions ADD COLUMN expires_at TEXT")
+        if "token" in session_columns:
+            # Plaintext bearer tokens cannot be safely migrated: remove both the
+            # rows and the legacy column before creating the hashed-token table.
+            conn.execute("ALTER TABLE app_sessions RENAME TO app_sessions_legacy")
             conn.execute(
-                "UPDATE app_sessions SET expires_at = ? WHERE expires_at IS NULL OR expires_at = ''",
-                ((datetime.fromisoformat(utc_now()) + timedelta(days=7)).isoformat(timespec="seconds"),),
+                """
+                CREATE TABLE app_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    last_seen_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    absolute_expires_at TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )
+                """
+            )
+            conn.execute("DROP TABLE app_sessions_legacy")
+            session_columns = {"id", "user_id", "token_hash", "created_at", "last_seen_at", "expires_at", "absolute_expires_at"}
+        if "absolute_expires_at" not in session_columns:
+            conn.execute("ALTER TABLE app_sessions ADD COLUMN absolute_expires_at TEXT")
+            now = datetime.fromisoformat(utc_now())
+            rows = conn.execute("SELECT id, created_at FROM app_sessions").fetchall()
+            for row in rows:
+                try:
+                    absolute_expires_at = datetime.fromisoformat(str(row["created_at"])) + timedelta(days=365)
+                except ValueError:
+                    conn.execute("DELETE FROM app_sessions WHERE id = ?", (row["id"],))
+                    continue
+                conn.execute(
+                    "UPDATE app_sessions SET absolute_expires_at = ? WHERE id = ?",
+                    (absolute_expires_at.isoformat(timespec="seconds"), row["id"]),
+                )
+            conn.execute(
+                "DELETE FROM app_sessions WHERE absolute_expires_at <= ?",
+                (now.isoformat(timespec="seconds"),),
             )
 
         legacy_credentials = conn.execute(
@@ -708,6 +741,10 @@ class WebDatabase(Database):
         digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations)
         return hmac.compare_digest(digest.hex(), expected_hash)
 
+    @staticmethod
+    def _hash_session_token(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
     def user_count(self) -> int:
         with self.connect() as conn:
             row = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()
@@ -949,14 +986,18 @@ class WebDatabase(Database):
     def create_session(self, user_id: int) -> str:
         token = secrets.token_urlsafe(32)
         now = utc_now()
-        expires_at = (datetime.fromisoformat(now) + timedelta(days=7)).isoformat(timespec="seconds")
+        now_dt = datetime.fromisoformat(now)
+        absolute_expires_at = (now_dt + timedelta(days=365)).isoformat(timespec="seconds")
+        expires_at = min(now_dt + timedelta(days=180), datetime.fromisoformat(absolute_expires_at)).isoformat(
+            timespec="seconds"
+        )
         with self.transaction() as conn:
             conn.execute(
                 """
-                INSERT INTO app_sessions(user_id, token, created_at, last_seen_at, expires_at)
-                VALUES(?, ?, ?, ?, ?)
+                INSERT INTO app_sessions(user_id, token_hash, created_at, last_seen_at, expires_at, absolute_expires_at)
+                VALUES(?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, token, now, now, expires_at),
+                (user_id, self._hash_session_token(token), now, now, expires_at, absolute_expires_at),
             )
         return token
 
@@ -964,6 +1005,7 @@ class WebDatabase(Database):
         normalized_token = token.strip()
         if not normalized_token:
             return None
+        token_hash = self._hash_session_token(normalized_token)
 
         now = utc_now()
         now_dt = datetime.fromisoformat(now)
@@ -983,31 +1025,35 @@ class WebDatabase(Database):
                     u.created_at,
                     u.updated_at,
                     s.last_seen_at,
-                    s.expires_at
+                    s.expires_at,
+                    s.absolute_expires_at
                 FROM app_sessions s
                 JOIN users u ON u.id = s.user_id
-                WHERE s.token = ?
+                WHERE s.token_hash = ?
                 """,
-                (normalized_token,),
+                (token_hash,),
             ).fetchone()
 
             if row is None:
                 return None
 
             expires_at = datetime.fromisoformat(str(row["expires_at"]))
-            if now_dt >= expires_at:
-                conn.execute("DELETE FROM app_sessions WHERE token = ?", (normalized_token,))
+            absolute_expires_at = datetime.fromisoformat(str(row["absolute_expires_at"]))
+            if now_dt >= expires_at or now_dt >= absolute_expires_at:
+                conn.execute("DELETE FROM app_sessions WHERE token_hash = ?", (token_hash,))
                 return None
 
-            refreshed_expires_at = (now_dt + timedelta(days=7)).isoformat(timespec="seconds")
+            refreshed_expires_at = min(now_dt + timedelta(days=180), absolute_expires_at).isoformat(
+                timespec="seconds"
+            )
             conn.execute(
                 """
                 UPDATE app_sessions
                 SET last_seen_at = ?,
                     expires_at = ?
-                WHERE token = ?
+                WHERE token_hash = ?
                 """,
-                (now, refreshed_expires_at, normalized_token),
+                (now, refreshed_expires_at, token_hash),
             )
 
         user = self._normalize_user_row(dict(row))
@@ -1021,7 +1067,7 @@ class WebDatabase(Database):
         if not normalized_token:
             return
         with self.transaction() as conn:
-            conn.execute("DELETE FROM app_sessions WHERE token = ?", (normalized_token,))
+            conn.execute("DELETE FROM app_sessions WHERE token_hash = ?", (self._hash_session_token(normalized_token),))
 
     def delete_user(self, user_id: int, *, current_user_id: int | None = None) -> None:
         with self.transaction() as conn:
