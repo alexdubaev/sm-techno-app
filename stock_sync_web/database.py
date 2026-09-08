@@ -446,6 +446,30 @@ def _clean_bank_name(value: Any, bik: str = "") -> str:
     return re.sub(r"\s{2,}", " ", text).strip(" ,;")
 
 
+def _inferred_crm_client_fields(record: dict[str, Any]) -> tuple[str, str, str, str, str, str, str]:
+    """Return the normalized legacy CRM fields used by the one-time backfill."""
+    full_name = str(record.get("full_name") or record.get("document_name") or "").strip()
+    document_name = str(record.get("document_name") or full_name or record.get("name") or "").strip()
+    legal_type = _infer_crm_legal_type(record, document_name, full_name)
+    bank_name_or_bik = str(record.get("bank_name_or_bik") or "").strip()
+    bank_name = str(record.get("bank_name") or "").strip()
+    bank_text = bank_name or bank_name_or_bik
+    bank_bik = str(record.get("bank_bik") or "").strip() or _extract_bik_from_bank_text(bank_text)
+    if bank_bik:
+        bank_name_or_bik = bank_bik
+        bank_name = _clean_bank_name(bank_text, bank_bik)
+
+    signer_position = str(record.get("signer_position") or "").strip()
+    signer_name = str(record.get("signer_name") or "").strip()
+    signer_basis = str(record.get("signer_basis") or "").strip()
+    if legal_type == "individual_entrepreneur":
+        if not signer_position:
+            signer_position = "Индивидуальный предприниматель"
+        if not signer_name:
+            signer_name = document_name.removeprefix("ИП ").strip() or full_name.removeprefix("ИП ").strip()
+    return legal_type, bank_name_or_bik, bank_name, bank_bik, signer_position, signer_name, signer_basis
+
+
 class WebDatabase(Database):
     WEB_MIGRATIONS = (
         ("2026-09-08-web-schema-v1", "_apply_web_schema_v1"),
@@ -515,6 +539,23 @@ class WebDatabase(Database):
                 _migrate_legacy_moscow_timestamp(row["old_due_at"])
                 or _migrate_legacy_moscow_timestamp(row["new_due_at"])
             ):
+                return False
+        crm_rows = conn.execute(
+            """
+            SELECT id, name, legal_type, document_name, full_name, inn, kpp,
+                   bank_name_or_bik, bank_name, bank_bik,
+                   signer_position, signer_name, signer_basis
+            FROM crm_clients
+            """
+        ).fetchall()
+        for row in crm_rows:
+            record = dict(row)
+            expected = _inferred_crm_client_fields(record)
+            actual = tuple(str(record.get(column) or "").strip() for column in (
+                "legal_type", "bank_name_or_bik", "bank_name", "bank_bik",
+                "signer_position", "signer_name", "signer_basis",
+            ))
+            if actual != expected:
                 return False
         return True
 
@@ -787,25 +828,15 @@ class WebDatabase(Database):
         ).fetchall()
         for row in rows:
             record = dict(row)
-            full_name = str(record.get("full_name") or record.get("document_name") or "").strip()
-            document_name = str(record.get("document_name") or full_name or record.get("name") or "").strip()
-            legal_type = _infer_crm_legal_type(record, document_name, full_name)
-            bank_name_or_bik = str(record.get("bank_name_or_bik") or "").strip()
-            bank_name = str(record.get("bank_name") or "").strip()
-            bank_text = bank_name or bank_name_or_bik
-            bank_bik = str(record.get("bank_bik") or "").strip() or _extract_bik_from_bank_text(bank_text)
-            if bank_bik:
-                bank_name_or_bik = bank_bik
-                bank_name = _clean_bank_name(bank_text, bank_bik)
-
-            signer_position = str(record.get("signer_position") or "").strip()
-            signer_name = str(record.get("signer_name") or "").strip()
-            signer_basis = str(record.get("signer_basis") or "").strip()
-            if legal_type == "individual_entrepreneur":
-                if not signer_position:
-                    signer_position = "Индивидуальный предприниматель"
-                if not signer_name:
-                    signer_name = document_name.removeprefix("ИП ").strip() or full_name.removeprefix("ИП ").strip()
+            (
+                legal_type,
+                bank_name_or_bik,
+                bank_name,
+                bank_bik,
+                signer_position,
+                signer_name,
+                signer_basis,
+            ) = _inferred_crm_client_fields(record)
 
             conn.execute(
                 """
