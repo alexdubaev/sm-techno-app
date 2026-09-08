@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from io import BytesIO
+import json
 from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
 from urllib.parse import quote
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -530,6 +532,154 @@ class DocumentApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIsNone(response.json()["document"]["commercialOfferId"])
+
+    def test_specification_rejects_a_client_different_from_its_commercial_offer(self) -> None:
+        offer_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+        different_client = self.db.create_crm_client_card(
+            {**VALID_CLIENT_CARD, "document_name": "OOO Different", "inn": "7707083894"}
+        )
+        offer_id = self.db.create_commercial_offer(
+            number="KP-client-match",
+            client_source="local",
+            counterparty_id=None,
+            crm_client_id=int(offer_client["id"]),
+            client_name=offer_client["document_name"],
+            offer_date="2026-07-14",
+            source_filename=None,
+            source_path=None,
+            output_path="storage/commercial_offers/client-match.xlsx",
+            notes="",
+            lines=[
+                {
+                    "row_no": 1,
+                    "article": "CLIENT-MATCH",
+                    "name": "Position",
+                    "brand": "",
+                    "qty": 1,
+                    "price_vat": 100,
+                    "amount_vat": 100,
+                    "delivery_time": "",
+                    "note": "",
+                    "warehouse_id": None,
+                    "warehouse_name": "",
+                }
+            ],
+            created_by_user_id=1,
+        )
+
+        response = self.client.post(
+            "/api/documents",
+            json={
+                "documentType": "specification",
+                "number": "SP-client-match",
+                "documentDate": "2026-07-14",
+                "clientSource": "local",
+                "clientId": int(different_client["id"]),
+                "commercialOfferId": offer_id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertEqual(self.db.list_documents(include_all=True), [])
+        self.assertEqual(list(self.service.document_exports_dir.iterdir()), [])
+
+    def test_failed_docx_generation_leaves_no_document_row_or_file(self) -> None:
+        crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+
+        def write_then_fail(*, output_path: Path, **_: object) -> None:
+            output_path.write_bytes(b"partial document")
+            raise RuntimeError("generation failed")
+
+        with patch("stock_sync_web.documents.generate_document_docx", side_effect=write_then_fail):
+            with self.assertRaisesRegex(RuntimeError, "generation failed"):
+                self.service.create_document(
+                    document_type="contract",
+                    number="D-generation-failure",
+                    document_date="2026-07-14",
+                    client_source="local",
+                    client_id=int(crm_client["id"]),
+                    commercial_offer_id=None,
+                    correspondent_account="",
+                    notes="",
+                    signer_position="",
+                    created_by_user_id=1,
+                    is_admin=True,
+                )
+
+        self.assertEqual(self.db.list_documents(include_all=True), [])
+        self.assertEqual(list(self.service.document_exports_dir.iterdir()), [])
+
+    def test_failed_document_persistence_leaves_no_document_row_or_file(self) -> None:
+        crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)
+
+        with patch.object(self.db, "create_document", side_effect=RuntimeError("persistence failed")):
+            with self.assertRaisesRegex(RuntimeError, "persistence failed"):
+                self.service.create_document(
+                    document_type="contract",
+                    number="D-persistence-failure",
+                    document_date="2026-07-14",
+                    client_source="local",
+                    client_id=int(crm_client["id"]),
+                    commercial_offer_id=None,
+                    correspondent_account="",
+                    notes="",
+                    signer_position="",
+                    created_by_user_id=1,
+                    is_admin=True,
+                )
+
+        self.assertEqual(self.db.list_documents(include_all=True), [])
+        self.assertEqual(list(self.service.document_exports_dir.iterdir()), [])
+
+    def test_document_paths_outside_storage_cannot_be_resolved_or_deleted(self) -> None:
+        outside_path = self.temp_path / "outside.docx"
+        outside_path.write_bytes(b"outside document")
+        document_id = self.db.create_document(
+            document_type="contract",
+            number="D-traversal",
+            client_source="local",
+            counterparty_id=None,
+            crm_client_id=None,
+            commercial_offer_id=None,
+            client_name="Outside",
+            document_date="2026-07-14",
+            output_path=str(outside_path),
+            notes="",
+            missing_fields="[]",
+            created_by_user_id=1,
+        )
+
+        with self.assertRaisesRegex(ValueError, "вне хранилища"):
+            self.service.resolve_document_file_for_user(document_id=document_id, user_id=1, is_admin=True)
+        with self.assertRaisesRegex(ValueError, "вне хранилища"):
+            self.service.delete_document_for_user(document_id=document_id, user_id=1, is_admin=True)
+
+        self.assertEqual(outside_path.read_bytes(), b"outside document")
+        self.assertEqual(self.db.get_document(document_id)["id"], document_id)
+
+    def test_document_with_missing_requisites_persists_missing_fields(self) -> None:
+        crm_client = self.db.create_crm_client_card(
+            {"document_name": "OOO Incomplete", "full_name": "OOO Incomplete", "is_buyer": True}
+        )
+
+        response = self.client.post(
+            "/api/documents",
+            json={
+                "documentType": "contract",
+                "number": "D-incomplete",
+                "documentDate": "2026-07-14",
+                "clientSource": "local",
+                "clientId": int(crm_client["id"]),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        document_id = int(response.json()["document"]["id"])
+        stored_document = self.db.get_document(document_id)
+        self.assertEqual(
+            sorted(json.loads(stored_document["missing_fields"])),
+            ["bank_account", "correspondent_account", "inn", "kpp", "legal_address", "ogrn", "signer_basis", "signer_name", "signer_position"],
+        )
 
     def test_delete_document_removes_it_from_journal_and_downloads(self) -> None:
         crm_client = self.db.create_crm_client_card(VALID_CLIENT_CARD)

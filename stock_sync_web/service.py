@@ -1407,7 +1407,7 @@ class WebStockSyncService:
 
     def delete_document_for_user(self, *, document_id: int, user_id: int, is_admin: bool) -> None:
         document = self.get_document_for_user(document_id=document_id, user_id=user_id, is_admin=is_admin)
-        output_path = document.get("output_path")
+        output_path = self._resolve_document_stored_path(str(document.get("output_path") or ""))
         self.db.delete_document(document_id)
         self._delete_stored_document_file(output_path)
 
@@ -1473,6 +1473,19 @@ class WebStockSyncService:
                 user_id=created_by_user_id,
                 is_admin=is_admin,
             )
+            offer = offer_bundle["offer"]
+            document_client_identity = (
+                client["client_source"],
+                client["counterparty_id"],
+                client["crm_client_id"],
+            )
+            offer_client_identity = (
+                offer.get("client_source"),
+                offer.get("counterparty_id"),
+                offer.get("crm_client_id"),
+            )
+            if document_client_identity != offer_client_identity:
+                raise ValueError("Клиент спецификации должен совпадать с клиентом КП.")
             lines = self._commercial_offer_lines_to_document_lines(offer_bundle["lines"])
 
         context = build_document_context(
@@ -1496,26 +1509,38 @@ class WebStockSyncService:
             document_number=document_number,
         )
         output_path = self.document_exports_dir / f"{file_id}_{document_filename}"
-        generate_document_docx(
-            template_path=template_path,
-            output_path=output_path,
-            context=context,
-        )
-        document_id = self.db.create_document(
-            document_type=normalized_type,
-            number=document_number,
-            client_source=client["client_source"],
-            counterparty_id=client["counterparty_id"],
-            crm_client_id=client["crm_client_id"],
-            commercial_offer_id=linked_offer_id,
-            client_name=context["client"]["document_name"],
-            document_date=normalized_date,
-            output_path=self._store_path(output_path),
-            notes=notes,
-            missing_fields=json.dumps(missing_fields, ensure_ascii=False),
-            created_by_user_id=created_by_user_id,
-        )
-        return self.db.get_document(document_id)
+        staged_output = self._document_staging_path(output_path)
+        document_id: int | None = None
+        try:
+            generate_document_docx(
+                template_path=template_path,
+                output_path=staged_output,
+                context=context,
+            )
+            document_id = self.db.create_document(
+                document_type=normalized_type,
+                number=document_number,
+                client_source=client["client_source"],
+                counterparty_id=client["counterparty_id"],
+                crm_client_id=client["crm_client_id"],
+                commercial_offer_id=linked_offer_id,
+                client_name=context["client"]["document_name"],
+                document_date=normalized_date,
+                output_path=self._store_path(output_path),
+                notes=notes,
+                missing_fields=json.dumps(missing_fields, ensure_ascii=False),
+                created_by_user_id=created_by_user_id,
+            )
+            staged_output.replace(output_path)
+            return self.db.get_document(document_id)
+        except Exception:
+            if document_id is not None:
+                try:
+                    self.db.delete_document(document_id)
+                except Exception:
+                    pass
+            self._cleanup_document_paths(staged_output, output_path)
+            raise
 
     def resolve_document_file_for_user(
         self,
@@ -1525,7 +1550,7 @@ class WebStockSyncService:
         is_admin: bool,
     ) -> tuple[Path, str]:
         document = self.get_document_for_user(document_id=document_id, user_id=user_id, is_admin=is_admin)
-        path = self._resolve_stored_path(str(document.get("output_path") or ""))
+        path = self._resolve_document_stored_path(str(document.get("output_path") or ""))
         if not path.exists():
             raise ValueError("Файл не найден на диске.")
         filename = self._build_document_filename(
@@ -1539,7 +1564,7 @@ class WebStockSyncService:
         if not stored_path:
             return
         try:
-            path = self._resolve_stored_path(str(stored_path))
+            path = stored_path if isinstance(stored_path, Path) else self._resolve_document_stored_path(str(stored_path))
         except ValueError:
             return
         try:
@@ -1793,6 +1818,10 @@ class WebStockSyncService:
         return final_path.with_name(f".{final_path.name}.{uuid.uuid4().hex}.staging")
 
     @staticmethod
+    def _document_staging_path(final_path: Path) -> Path:
+        return final_path.with_name(f".{final_path.name}.{uuid.uuid4().hex}.staging")
+
+    @staticmethod
     def _cleanup_commercial_offer_paths(*paths: Path) -> list[tuple[Path, OSError]]:
         failures: list[tuple[Path, OSError]] = []
         for path in paths:
@@ -1802,6 +1831,14 @@ class WebStockSyncService:
                 failures.append((path, exc))
         return failures
 
+    @staticmethod
+    def _cleanup_document_paths(*paths: Path) -> None:
+        for path in paths:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     def _resolve_commercial_offer_stored_path(self, value: str) -> Path:
         path = self._resolve_stored_path(value).resolve()
         storage_root = self.commercial_offer_storage_dir.resolve()
@@ -1809,6 +1846,15 @@ class WebStockSyncService:
             path.relative_to(storage_root)
         except ValueError as exc:
             raise ValueError("Файл КП находится вне хранилища.") from exc
+        return path
+
+    def _resolve_document_stored_path(self, value: str) -> Path:
+        path = self._resolve_stored_path(value).resolve()
+        storage_root = self.document_storage_dir.resolve()
+        try:
+            path.relative_to(storage_root)
+        except ValueError as exc:
+            raise ValueError("Файл документа находится вне хранилища.") from exc
         return path
 
     def _delete_stored_offer_file(self, value: Any) -> None:
