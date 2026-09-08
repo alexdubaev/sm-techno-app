@@ -253,11 +253,18 @@ def test_malformed_workbook_is_rejected(setup):
         run(setup, b"not xlsx")
 
 
-def test_unmatched_kpp_does_not_fall_back_to_unique_inn(setup):
-    _, repo, owner, _, _ = setup
+def test_unmatched_kpp_is_identity_conflict_and_never_creates_a_duplicate(setup):
+    db, repo, owner, _, _ = setup
     repo.create_local_client(actor_id=owner, values={"document_name": "А", "inn": "123", "kpp": "old"})
-    preview = run(setup, workbook([{"Компания": "А", "ИНН": "123", "КПП": "new"}]))
-    assert (preview["clientsToCreate"], preview["clientsToUpdate"]) == (1, 0)
+    content = workbook([{"Компания": "А", "ИНН": "123", "КПП": "new"}])
+
+    preview = run(setup, content)
+
+    assert (preview["clientsToCreate"], preview["clientsToUpdate"]) == (0, 0)
+    assert [error["code"] for error in preview["errors"]] == ["inn_kpp_conflict"]
+    with pytest.raises(ValueError):
+        run(setup, content, final=True)
+    assert len(rows(db, "crm_clients")) == 1
 
 
 def test_colour_restores_for_existing_target_even_when_assignment_inclusion_is_false(setup):

@@ -189,6 +189,22 @@ def plan_crm_import(book: WorkbookRows, *, owner_id: int, target_tab_id: int | N
             continue
         if not matches:
             matches = matches_for(values, None, staged)
+        if not matches and values.get("inn") and values.get("kpp"):
+            same_inn = [
+                client
+                for client in staged
+                if text(client.get("inn")) == values["inn"]
+                and text(client.get("kpp")) != text(values["kpp"])
+            ]
+            if same_inn:
+                error(
+                    "Клиенты",
+                    row,
+                    "inn_kpp_conflict",
+                    "Найден клиент с тем же ИНН, но другим КПП. Обновление или создание дубликата запрещено.",
+                    "КПП",
+                )
+                continue
         if len(matches) > 1:
             error("Клиенты", row, "ambiguous_client", "Найдено несколько клиентов с такими реквизитами.")
             continue
