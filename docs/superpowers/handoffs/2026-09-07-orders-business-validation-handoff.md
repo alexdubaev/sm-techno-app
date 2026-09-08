@@ -8,7 +8,7 @@
 - Ветка: `codex/orders-business-validation`.
 - Remote: `origin` → `https://github.com/alexdubaev/sm-techno-app.git`.
 - Ветка пока **не пушилась** и не сливалась в `codex/vps-self-hosting`.
-- Текущий HEAD: `52c3eced fix: require exact CRM INN KPP match`.
+- Последний feature-коммит до обновления этого handoff: `52c3eced fix: require exact CRM INN KPP match`; сам handoff фиксируется отдельными docs-коммитами поверх него.
 - Рабочее дерево намеренно не чистое: есть только незакоммиченный RED-тест `tests/test_auth_session_persistence.py` для ТЗ 17. Не удалять и не откатывать его; он фиксирует требуемое поведение до реализации.
 - База исходного handoff: `b4bc198` (актуальный CRM archive handoff).
 - ТЗ 01: `a297cf8`, `4269003`; его docs/handoff: `ad9915e`, `dc2d1aa`, `58983e6`.
