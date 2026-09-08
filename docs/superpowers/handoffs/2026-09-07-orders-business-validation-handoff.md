@@ -45,6 +45,33 @@
 3. **ТЗ 17:** продолжить только RED→GREEN. Перед реализацией зафиксировать idle и absolute session lifetime: старый handoff значений не содержит, поэтому выбрать из действующей product policy либо явно запросить решение; не выбирать молча.
 4. Повторить integration regression ТЗ 10–12; persistence-тест с naïve timestamp сейчас конфликтует со строгим UTC-контрактом и после ожидаемого падения оставляет Windows SQLite file handle. Исправить fixture/cleanup отдельно, не ослабляя UTC validation.
 
+### Полный чек-лист незакрытой работы
+
+Не считать следующие пункты закрытыми до прямого подтверждения указанными проверками.
+
+- **ТЗ 06 (Excel stock import):** проверить formula cells, единый API error contract, атомарность каждого вида import и отсутствие частичного состояния при identity conflict; после `a9c5552` отдельно убедиться, что legacy SKU collision не приводит к неоднозначному последующему import.
+- **ТЗ 07 (identity SKU):** преобразовать все релевантные SQLite unique errors в domain errors и завершить migration audit, включая collision report из `app_settings`.
+- **ТЗ 09 (CRM pull-sync):** устранить N+1; зафиксировать ownership/conflict policy; сделать batch + transaction + cross-process lease; сохранить local-only и globally archived cards. Нельзя менять legacy CRM→1С flow без отдельного review.
+- **ТЗ 10 (timezone):** migration legacy naïve Moscow timestamps в UTC и regression строгого rejection naïve API input; исправить старый persistence fixture и закрыть Windows SQLite handles.
+- **ТЗ 11 (workspace authorization):** повторить foreign-workspace, row preference и archive-route integration suite. `tests.test_foreign_workspace_write_guard` ранее 4/4; широкий `tests.test_crm_api` требует повторного запуска с явным summary/exit code.
+- **ТЗ 12 (CRM preference):** подтвердить optimistic versioning и primary-order suite, включая сохранение `position` при update existing preference.
+- **ТЗ 13 (ИНН/КПП):** implementation есть в `684436a`; нужен повторный полный `tests/test_crm_import.py` с итоговым exit code и policy review для archived/linked candidates.
+- **ТЗ 15 (КП):** помимо `ce4ee87` и `1d9bdfe`, сделать atomic DB/files staging и cleanup при copy/generation/DB failures; проверить ownership list/get/download/delete; проверить finite validation и server amount также для draft payload.
+- **ТЗ 16 (documents/specifications):** помимо `884025f` и `393877b`, запретить specification с клиентом, не соответствующим выбранному КП; определить и задокументировать policy missing requisites; добавить staging/cleanup и path-guard regressions.
+- **ТЗ 17 (sessions):** hash token, reject/delete legacy raw sessions, idle + absolute expiry, revoke on logout/password change/disable/delete. RED-тест уже в рабочем дереве; lifetime values ещё не выбраны.
+- **ТЗ 18:** SQLite+storage backup/restore: quiesce/read lock, manifest/checksum, integrity/reference validation, staging restore и verify-only mode.
+- **ТЗ 19:** формальный migration registry/lock, one-time backfills, FK/integrity checks и upgrade fixtures.
+- **ТЗ 21:** CI defaults/dependencies, network-resilience script или эквивалент, разделённые suites и critical smoke gates.
+- **ТЗ 22:** startup/readiness preflight для writable DB/storage, credentials/templates, liveness/readiness без зависимости от доступности 1С.
+- **ТЗ 08, 14, 20 (P2):** соответственно SQL search/filter/pagination benchmark; cleanup retired CRM outbox; единый API error contract/encoding.
+
+### До merge
+
+1. Повторить minimum backend gate из раздела «Проверки перед merge» и записать точные результаты.
+2. Выполнить frontend `npm ci`, lint, `tsc --noEmit`, build: сейчас executables в worktree отсутствуют, поэтому frontend не проверен.
+3. `git diff --check codex/vps-self-hosting...HEAD`, затем review всех всё ещё незакрытых ТЗ.
+4. Merge всей ветки в `codex/vps-self-hosting`; не cherry-pick частичные security/transport/import commits.
+
 ## Продолжение после исходного handoff: фактическая история коммитов
 
 Следующие коммиты уже находятся поверх `9964f730`; они не были включены в старый список ТЗ и должны попасть в итоговый merge/push одной веткой.
