@@ -76,6 +76,17 @@ class ExcelImportSafetyTest(unittest.TestCase):
         catalog = db.query_stock_catalog(page_size=10)
         self.assertEqual({(row["row_warehouse_name"], row["price"]) for row in catalog["items"]}, {("Склад A", 10), ("Склад B", 20)})
 
+    def test_import_matches_legacy_sku_without_normalized_value(self) -> None:
+        db = WebDatabase(self.temp_path / "stock.db")
+        db.import_stock_rows([{"sku": "LEGACY-1", "name": "Имя из базы", "print_name": "Имя из базы", "category_name": "", "group_name": "", "price": 10, "warehouse_name": "Склад A", "quantity": 1, "onec_key": None, "unit_key": None, "unit_name": None}])
+        with db.transaction() as conn:
+            conn.execute("UPDATE items SET sku_normalized = NULL WHERE sku = 'LEGACY-1'")
+
+        created, updated = db.import_stock_rows([{"sku": "LEGACY-1", "name": "Имя из файла", "print_name": "Имя из файла", "category_name": "", "group_name": "", "price": 20, "warehouse_name": "Склад B", "quantity": 2, "onec_key": None, "unit_key": None, "unit_name": None}])
+
+        self.assertEqual((created, updated), (0, 1))
+        self.assertEqual({row["name"] for row in db.list_items(split_by_warehouse=True)}, {"Имя из базы"})
+
     def _write_workbook(self, rows: list[list[object]]) -> Path:
         workbook = Workbook()
         sheet = workbook.active

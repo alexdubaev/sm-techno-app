@@ -1005,6 +1005,12 @@ class Database:
             ).fetchone()
             if row:
                 return row
+            row = conn.execute(
+                f"SELECT * FROM items WHERE sku = ?{local_clause}",
+                (str(sku).strip(),),
+            ).fetchone()
+            if row:
+                return row
         if match_by_name and name:
             return conn.execute(
                 f"SELECT * FROM items WHERE name = ?{local_clause} ORDER BY id LIMIT 1",
