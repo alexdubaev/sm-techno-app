@@ -87,6 +87,13 @@ class ExcelImportSafetyTest(unittest.TestCase):
         self.assertEqual((created, updated), (0, 1))
         self.assertEqual({row["name"] for row in db.list_items(split_by_warehouse=True)}, {"Имя из базы"})
 
+    def test_import_matches_legacy_sku_with_whitespace(self) -> None:
+        db = WebDatabase(self.temp_path / "stock.db")
+        db.import_stock_rows([{"sku": "LEGACY-2", "name": "Имя из базы", "print_name": "Имя из базы", "category_name": "", "group_name": "", "price": 10, "warehouse_name": "Склад A", "quantity": 1, "onec_key": None, "unit_key": None, "unit_name": None}])
+        with db.transaction() as conn:
+            conn.execute("UPDATE items SET sku = 'LEGACY-2\t', sku_normalized = NULL WHERE sku = 'LEGACY-2'")
+        self.assertEqual(db.import_stock_rows([{"sku": "LEGACY-2", "name": "Имя из файла", "print_name": "Имя из файла", "category_name": "", "group_name": "", "price": 20, "warehouse_name": "Склад B", "quantity": 2, "onec_key": None, "unit_key": None, "unit_name": None}]), (0, 1))
+
     def _write_workbook(self, rows: list[list[object]]) -> Path:
         workbook = Workbook()
         sheet = workbook.active

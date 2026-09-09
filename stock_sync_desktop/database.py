@@ -1011,6 +1011,13 @@ class Database:
             ).fetchone()
             if row:
                 return row
+            normalized_sku = self._normalize_stock_sku(sku)
+            legacy_rows = conn.execute(
+                f"SELECT * FROM items WHERE COALESCE(sku_normalized, '') = ''{local_clause}"
+            ).fetchall()
+            for legacy_row in legacy_rows:
+                if self._normalize_stock_sku(legacy_row["sku"]) == normalized_sku:
+                    return legacy_row
         if match_by_name and name:
             return conn.execute(
                 f"SELECT * FROM items WHERE name = ?{local_clause} ORDER BY id LIMIT 1",
