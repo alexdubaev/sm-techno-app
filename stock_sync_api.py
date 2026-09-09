@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import os
+import sqlite3
 import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -2494,6 +2495,8 @@ async def price_import(
         except ValueError as exc:
             status_code = 409 if "изменился" in str(exc) else 400
             raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        except sqlite3.IntegrityError as exc:
+            raise HTTPException(status_code=400, detail="Артикул уже связан с другим товаром. Проверьте файл и повторите импорт.") from exc
     finally:
         temp_path.unlink(missing_ok=True)
     return result

@@ -62,6 +62,20 @@ class ExcelImportSafetyTest(unittest.TestCase):
         preview = WebStockSyncService(db=db).preview_stock_excel(self._write_workbook([["sku-003", "Болт", "Склад A", 2, 1]]))
         self.assertEqual((preview["created"], preview["updated"]), (0, 1))
 
+    def test_import_keeps_canonical_name_and_price_per_warehouse(self) -> None:
+        db = WebDatabase(self.temp_path / "stock.db")
+        db.import_stock_rows([
+            {"sku": "SKU-PRICE", "name": "Исходное имя", "print_name": "Исходное имя", "category_name": "", "group_name": "", "price": 10, "warehouse_name": "Склад A", "quantity": 1, "onec_key": None, "unit_key": None, "unit_name": None},
+            {"sku": "SKU-PRICE", "name": "Другое имя из файла", "print_name": "Другое имя из файла", "category_name": "", "group_name": "", "price": 20, "warehouse_name": "Склад B", "quantity": 2, "onec_key": None, "unit_key": None, "unit_name": None},
+        ])
+
+        rows = db.list_items(split_by_warehouse=True)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row["name"] for row in rows}, {"Исходное имя"})
+        self.assertEqual({(row["row_warehouse_name"], row["price"]) for row in rows}, {("Склад A", 10), ("Склад B", 20)})
+        catalog = db.query_stock_catalog(page_size=10)
+        self.assertEqual({(row["row_warehouse_name"], row["price"]) for row in catalog["items"]}, {("Склад A", 10), ("Склад B", 20)})
+
     def _write_workbook(self, rows: list[list[object]]) -> Path:
         workbook = Workbook()
         sheet = workbook.active

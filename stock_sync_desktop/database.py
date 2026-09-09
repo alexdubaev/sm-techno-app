@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS item_warehouse_balances (
     item_id INTEGER NOT NULL,
     warehouse_id INTEGER NOT NULL,
     quantity REAL NOT NULL DEFAULT 0,
+    price REAL NOT NULL DEFAULT 0,
     rack TEXT,
     cell TEXT,
     updated_at TEXT NOT NULL,
@@ -458,6 +459,14 @@ class Database:
             conn.execute("ALTER TABLE item_warehouse_balances ADD COLUMN rack TEXT")
         if "cell" not in balance_columns:
             conn.execute("ALTER TABLE item_warehouse_balances ADD COLUMN cell TEXT")
+        if "price" not in balance_columns:
+            conn.execute("ALTER TABLE item_warehouse_balances ADD COLUMN price REAL NOT NULL DEFAULT 0")
+            conn.execute(
+                """
+                UPDATE item_warehouse_balances
+                SET price = (SELECT items.price FROM items WHERE items.id = item_warehouse_balances.item_id)
+                """
+            )
 
         stock_movement_columns = {
             row["name"]
@@ -1055,8 +1064,8 @@ class Database:
                         SET onec_key = COALESCE(?, onec_key),
                             sku = COALESCE(NULLIF(?, ''), sku),
                             sku_normalized = COALESCE(NULLIF(?, ''), sku_normalized),
-                            name = ?,
-                            print_name = COALESCE(NULLIF(?, ''), ?),
+                            name = name,
+                            print_name = print_name,
                             category_name = COALESCE(NULLIF(?, ''), category_name),
                             group_name = COALESCE(NULLIF(?, ''), group_name),
                             unit_key = COALESCE(NULLIF(?, ''), unit_key),
@@ -1070,9 +1079,6 @@ class Database:
                             onec_key,
                             row.get("sku"),
                             self._normalize_stock_sku(row.get("sku")),
-                            row["name"],
-                            row.get("print_name"),
-                            row["name"],
                             row.get("category_name"),
                             row.get("group_name"),
                             unit_key,
@@ -1121,10 +1127,11 @@ class Database:
                 cell = self._clean_optional_text(row.get("cell"))
                 conn.execute(
                     """
-                    INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, rack, cell, updated_at)
-                    VALUES(?, ?, ?, ?, ?, ?)
+                    INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, price, rack, cell, updated_at)
+                    VALUES(?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(item_id, warehouse_id) DO UPDATE SET
                         quantity = excluded.quantity,
+                        price = excluded.price,
                         rack = CASE WHEN ? THEN excluded.rack ELSE rack END,
                         cell = CASE WHEN ? THEN excluded.cell ELSE cell END,
                         updated_at = excluded.updated_at
@@ -1133,6 +1140,7 @@ class Database:
                         item_id,
                         warehouse_id,
                         row["quantity"],
+                        row["price"],
                         rack,
                         cell,
                         now,
@@ -1322,7 +1330,7 @@ class Database:
                         i.group_name,
                         i.unit_key,
                         i.unit_name,
-                        i.price,
+                        COALESCE(row_balances.price, i.price) AS price,
                         i.created_at,
                         COALESCE(agg.quantity, 0) AS quantity,
                         COALESCE(agg.warehouse_count, 0) AS warehouse_count,
@@ -1340,6 +1348,7 @@ class Database:
                             iwb.warehouse_id,
                             w.name AS warehouse_name,
                             iwb.quantity,
+                            iwb.price,
                             iwb.rack,
                             iwb.cell
                         FROM item_warehouse_balances iwb
@@ -1466,7 +1475,7 @@ class Database:
         order = "created_at ASC, id ASC" if sort_order == "oldest" else "created_at DESC, id DESC"
         cte = f"""
             WITH row_balances AS (
-                SELECT iwb.item_id, iwb.warehouse_id, w.name AS row_warehouse_name, iwb.quantity AS row_quantity, iwb.rack AS row_rack, iwb.cell AS row_cell
+                SELECT iwb.item_id, iwb.warehouse_id, w.name AS row_warehouse_name, iwb.quantity AS row_quantity, iwb.price AS row_price, iwb.rack AS row_rack, iwb.cell AS row_cell
                 FROM item_warehouse_balances iwb JOIN warehouses w ON w.id = iwb.warehouse_id
                 WHERE w.is_active = 1 AND iwb.quantity > 0 {row_filter}
             ), agg AS (
@@ -1475,7 +1484,7 @@ class Database:
                 FROM item_warehouse_balances iwb JOIN warehouses w ON w.id = iwb.warehouse_id
                 WHERE w.is_active = 1 AND iwb.quantity > 0 GROUP BY iwb.item_id
             ), catalog AS (
-                SELECT i.id, i.onec_key, i.sku, i.name, i.print_name, i.category_name, i.group_name, i.unit_key, i.unit_name, i.price, i.created_at,
+                SELECT i.id, i.onec_key, i.sku, i.name, i.print_name, i.category_name, i.group_name, i.unit_key, i.unit_name, COALESCE(row_balances.row_price, i.price) AS price, i.created_at,
                        COALESCE(agg.quantity, 0) AS quantity, COALESCE(agg.warehouse_count, 0) AS warehouse_count,
                        COALESCE(agg.warehouse_summary, '') AS warehouse_summary, row_balances.warehouse_id AS row_warehouse_id,
                        COALESCE(row_balances.row_warehouse_name, '') AS row_warehouse_name, COALESCE(row_balances.row_quantity, 0) AS row_quantity,
@@ -1502,6 +1511,14 @@ class Database:
             query += " ORDER BY name COLLATE NOCASE"
             rows = conn.execute(query, params).fetchall()
         return self._rows_to_dicts(rows)
+
+    def get_item_warehouse_price(self, item_id: int, warehouse_id: int) -> float | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT price FROM item_warehouse_balances WHERE item_id = ? AND warehouse_id = ?",
+                (item_id, warehouse_id),
+            ).fetchone()
+        return float(row["price"]) if row is not None else None
 
     def create_warehouse(self, *, name: str, external_code: str = "") -> dict[str, Any]:
         normalized_name = name.strip()

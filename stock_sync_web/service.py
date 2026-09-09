@@ -2138,7 +2138,10 @@ class WebStockSyncService:
             quantity = float(line.quantity)
             if not math.isfinite(quantity) or quantity <= 0:
                 raise ValueError("Количество заказа должно быть конечным положительным числом.")
-            price = float(item["price"] or 0)
+            warehouse_price = self.db.get_item_warehouse_price(item_id, warehouse_id)
+            if warehouse_price is None:
+                raise ValueError("Для выбранного склада не найдена цена товара.")
+            price = float(warehouse_price)
             if not math.isfinite(price) or price < 0:
                 raise ValueError("В прайсе указана некорректная цена товара.")
             line.quantity = quantity
