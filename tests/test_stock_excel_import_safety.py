@@ -94,6 +94,20 @@ class ExcelImportSafetyTest(unittest.TestCase):
             conn.execute("UPDATE items SET sku = 'LEGACY-2\t', sku_normalized = NULL WHERE sku = 'LEGACY-2'")
         self.assertEqual(db.import_stock_rows([{"sku": "LEGACY-2", "name": "Имя из файла", "print_name": "Имя из файла", "category_name": "", "group_name": "", "price": 20, "warehouse_name": "Склад B", "quantity": 2, "onec_key": None, "unit_key": None, "unit_name": None}]), (0, 1))
 
+    def test_import_preserves_canonical_sku_when_legacy_raw_duplicate_exists(self) -> None:
+        db = WebDatabase(self.temp_path / "stock.db")
+        db.import_stock_rows([{"sku": "R131817 ", "name": "Каноническое имя", "print_name": "Каноническое имя", "category_name": "", "group_name": "", "price": 10, "warehouse_name": "Склад A", "quantity": 1, "onec_key": None, "unit_key": None, "unit_name": None}])
+        with db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO items(sku, sku_normalized, name, price, updated_at, created_at) VALUES (?, NULL, ?, 0, ?, ?)",
+                ("R131817", "Устаревший дубликат", "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+            )
+
+        self.assertEqual(db.import_stock_rows([{"sku": "R131817", "name": "Имя из файла", "print_name": "Имя из файла", "category_name": "", "group_name": "", "price": 20, "warehouse_name": "Склад B", "quantity": 2, "onec_key": None, "unit_key": None, "unit_name": None}]), (0, 1))
+        rows = db.list_items(split_by_warehouse=True)
+        self.assertEqual({row["name"] for row in rows}, {"Каноническое имя"})
+        self.assertEqual({(row["row_warehouse_name"], row["price"]) for row in rows}, {("Склад A", 10), ("Склад B", 20)})
+
     def _write_workbook(self, rows: list[list[object]]) -> Path:
         workbook = Workbook()
         sheet = workbook.active

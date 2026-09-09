@@ -1075,8 +1075,8 @@ class Database:
                         """
                         UPDATE items
                         SET onec_key = COALESCE(?, onec_key),
-                            sku = COALESCE(NULLIF(?, ''), sku),
-                            sku_normalized = COALESCE(NULLIF(?, ''), sku_normalized),
+                            sku = COALESCE(NULLIF(sku, ''), NULLIF(?, '')),
+                            sku_normalized = COALESCE(NULLIF(sku_normalized, ''), NULLIF(?, '')),
                             name = name,
                             print_name = print_name,
                             category_name = COALESCE(NULLIF(?, ''), category_name),
