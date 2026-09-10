@@ -10,6 +10,7 @@ import socket
 import time
 import uuid
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from http.client import IncompleteRead
 from typing import Any
 from urllib.error import HTTPError, URLError

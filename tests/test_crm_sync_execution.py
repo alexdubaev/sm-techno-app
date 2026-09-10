@@ -17,6 +17,7 @@ import stock_sync_api
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.crm_repository import CrmRepository
 from stock_sync_web.service import WebStockSyncService
+from stock_sync_desktop.onec_api import OneCClient
 
 
 class RecordingOneC:
@@ -213,6 +214,14 @@ class CrmSyncExecutionTest(unittest.TestCase):
         self.assertEqual({"status": "synced", "counterparties": 1}, result)
         self.assertEqual(["2026-09-09T00:00:00"], fake.since_values)
         self.assertEqual("Новый клиент", self.service.db.list_counterparties()[-1]["name"])
+
+    def test_onec_recent_counterparty_query_formats_created_rows(self) -> None:
+        client = OneCClient("https://onec.example", "user", "password")
+        client._collect_all = lambda _: [{"Ref_Key": "recent-1", "Description": "Новый клиент", "НаименованиеПолное": "Новый клиент", "ИНН": "1660331314", "КПП": "166001001"}]  # type: ignore[method-assign]
+
+        rows = client.list_counterparties_created_since("2026-09-09T00:00:00")
+
+        self.assertEqual("recent-1", rows[0]["onec_key"])
 
     def test_failed_crm_refresh_releases_coalescing_lock_for_retry(self) -> None:
         fake = FailingThenWorkingOneC()
