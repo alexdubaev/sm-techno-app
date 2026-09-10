@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -36,6 +36,7 @@ from stock_sync_web.crm_repository import CrmRepository
 APP_TITLE = "SM Techno Stock Sync API"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 CRM_SYNC_WORKER_POLL_SECONDS = 1.0
+CRM_COUNTERPARTY_POLL_SECONDS = 5 * 60
 LOGGER = logging.getLogger(__name__)
 
 
@@ -54,8 +55,33 @@ SERVICE.bootstrap()
 
 @asynccontextmanager
 async def _app_lifespan(_: FastAPI):
-    """The API has no background 1C worker; readiness is strictly local."""
-    yield
+    """Run the optional incremental counterparty pull without affecting readiness."""
+    stop_event = asyncio.Event()
+    task: asyncio.Task[None] | None = None
+    raw_user_id = os.environ.get("SM_TECHNO_CRM_SYNC_USER_ID", "").strip()
+    if raw_user_id:
+        try:
+            user_id = int(raw_user_id)
+        except ValueError:
+            LOGGER.error("SM_TECHNO_CRM_SYNC_USER_ID must be an integer")
+        else:
+            async def poll_counterparties() -> None:
+                while not stop_event.is_set():
+                    try:
+                        await asyncio.to_thread(SERVICE.sync_recent_counterparties_for_user, user_id)
+                    except Exception:
+                        LOGGER.exception("Background counterparty sync failed")
+                    try:
+                        await asyncio.wait_for(stop_event.wait(), timeout=CRM_COUNTERPARTY_POLL_SECONDS)
+                    except TimeoutError:
+                        pass
+            task = asyncio.create_task(poll_counterparties())
+    try:
+        yield
+    finally:
+        stop_event.set()
+        if task is not None:
+            await task
 
 ALLOWED_ORIGINS = [
     origin.strip()
@@ -1034,7 +1060,7 @@ def sync_crm_counterparties(
 ) -> dict[str, int | str]:
     """Refresh CRM companies with the authenticated user's 1C credentials."""
     try:
-        return SERVICE.sync_crm_counterparties_for_user(int(current_user["id"]))
+        return SERVICE.sync_recent_counterparties_for_user(int(current_user["id"]))
     except OneCClientError as exc:
         raise _onec_http_exception(exc) from exc
     except Exception as exc:

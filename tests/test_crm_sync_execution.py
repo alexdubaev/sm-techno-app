@@ -28,6 +28,9 @@ class RecordingOneC:
         self.list_counterparties_calls += 1
         return []
 
+    def list_counterparties_created_since(self, since: str) -> list[dict[str, str]]:
+        return self.list_counterparties()
+
 
 class BlockingOneC(RecordingOneC):
     def __init__(self) -> None:
@@ -90,6 +93,17 @@ class CounterpartyRowsOneC(RecordingOneC):
         self.rows = rows
 
     def list_counterparties(self) -> list[dict[str, object]]:
+        return self.rows
+
+
+class RecentCounterpartyRowsOneC(RecordingOneC):
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        super().__init__()
+        self.rows = rows
+        self.since_values: list[str] = []
+
+    def list_counterparties_created_since(self, since: str) -> list[dict[str, object]]:
+        self.since_values.append(since)
         return self.rows
 
 
@@ -187,6 +201,18 @@ class CrmSyncExecutionTest(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual({"status": "synced", "counterparties": 0}, first_result)
         self.assertEqual({"status": "coalesced", "counterparties": 0}, second_result)
+
+    def test_recent_counterparty_refresh_reads_only_records_created_since_cursor(self) -> None:
+        fake = RecentCounterpartyRowsOneC([
+            {"onec_key": "recent-1", "name": "Новый клиент", "full_name": "Новый клиент", "inn": "1660331314", "kpp": "166001001"},
+        ])
+        self.service.build_user_client = lambda **_: fake  # type: ignore[method-assign]
+
+        result = self.service.sync_recent_counterparties_for_user(self.owner_id, since="2026-09-09T00:00:00")
+
+        self.assertEqual({"status": "synced", "counterparties": 1}, result)
+        self.assertEqual(["2026-09-09T00:00:00"], fake.since_values)
+        self.assertEqual("Новый клиент", self.service.db.list_counterparties()[-1]["name"])
 
     def test_failed_crm_refresh_releases_coalescing_lock_for_retry(self) -> None:
         fake = FailingThenWorkingOneC()

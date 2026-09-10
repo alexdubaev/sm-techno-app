@@ -1428,6 +1428,19 @@ class OneCClient:
             result.append(self._format_counterparty_row(row))
         return result
 
+    def list_counterparties_created_since(self, since: str) -> list[dict[str, Any]]:
+        value = str(since or "").strip().replace("+00:00", "")
+        try:
+            created_since = datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise OneCClientError("Некорректная дата для поиска новых контрагентов.") from exc
+        marker = created_since.replace(microsecond=0).isoformat()
+        endpoint = (
+            "Catalog_Контрагенты?"
+            f"$filter=ДатаСоздания ge datetime'{marker}'&$format=json"
+        )
+        return [self._format_counterparty_row(row) for row in self._collect_all(endpoint)]
+
     def find_counterparty_by_inn(self, inn: str) -> dict[str, Any] | None:
         normalized_inn = inn.strip()
         if not normalized_inn:

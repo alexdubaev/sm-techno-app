@@ -12,7 +12,7 @@ import {
   createClient,
   fetchClients,
   sendClientToOneC,
-  syncReferences,
+  syncCrmWorkspace,
   type ClientSyncResult,
   type CreateClientPayload,
 } from "@/lib/api";
@@ -118,11 +118,11 @@ export default function ClientsPage() {
     setNotice(null);
 
     try {
-      const result = await syncReferences();
+      const result = await syncCrmWorkspace();
       await loadClients();
-      setNotice(
-        `Справочники 1С обновлены. Контрагентов: ${result.counterparties}, договоров: ${result.contracts}, организаций: ${result.organizations}.`,
-      );
+      setNotice(result.status === "coalesced"
+        ? "Синхронизация с 1С уже выполняется. Список обновится после её завершения."
+        : `Проверены новые контрагенты 1С: ${result.counterparties}.`);
     } catch (requestError: unknown) {
       setError(getErrorMessage(requestError, "Не удалось синхронизировать клиентов с 1С."));
     } finally {

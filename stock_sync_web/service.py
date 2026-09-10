@@ -8,7 +8,7 @@ import tempfile
 import re
 import shutil
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -304,12 +304,29 @@ class WebStockSyncService:
         )
         return count
 
+    def sync_recent_counterparties_for_user(
+        self, user_id: int, *, since: str | None = None
+    ) -> dict[str, int | str]:
+        marker = since or (datetime.now(timezone.utc) - timedelta(days=1)).replace(tzinfo=None).isoformat(timespec="seconds")
+        try:
+            completed, count = self._sync_counterparty_pull(
+                user_id=int(user_id), onec_username="", onec_password="", created_since=marker
+            )
+            if not completed:
+                return {"status": "coalesced", "counterparties": 0}
+            self._save_crm_sync_status(status="synced", last_sync_at=datetime.now(timezone.utc).isoformat())
+            return {"status": "synced", "counterparties": count}
+        except Exception:
+            self._save_crm_sync_status(status="error")
+            raise
+
     def _sync_counterparty_pull(
         self,
         *,
         user_id: int | None,
         onec_username: str,
         onec_password: str,
+        created_since: str | None = None,
     ) -> tuple[bool, int]:
         """Fetch and reconcile one CRM pull under local and SQLite leases."""
         if not self._crm_refresh_lock.acquire(blocking=False):
@@ -324,6 +341,7 @@ class WebStockSyncService:
                 user_id=user_id,
                 onec_username=onec_username,
                 onec_password=onec_password,
+                created_since=created_since,
             )
             count = self.db.reconcile_crm_counterparty_pull(rows, owner_token=lease_token)
             if count is None:
@@ -340,12 +358,15 @@ class WebStockSyncService:
         user_id: int | None,
         onec_username: str,
         onec_password: str,
+        created_since: str | None = None,
     ) -> list[dict[str, Any]]:
         client = self.build_user_client(
             user_id=user_id,
             onec_username=onec_username,
             onec_password=onec_password,
         )
+        if created_since is not None:
+            return client.list_counterparties_created_since(created_since)
         return client.list_counterparties()
 
     def get_crm_sync_status(self) -> dict[str, str]:

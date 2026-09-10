@@ -8,6 +8,7 @@ services:
     environment:
       SM_TECHNO_DB_PATH: /data/stock_sync.db
       SM_TECHNO_STORAGE_ROOT: /storage
+      SM_TECHNO_CRM_SYNC_USER_ID: ${SM_TECHNO_CRM_SYNC_USER_ID:-}
       SM_TECHNO_ALLOWED_ORIGINS: http://127.0.0.1:3000,http://localhost:3000
     ports:
       - "127.0.0.1:8000:8000"
