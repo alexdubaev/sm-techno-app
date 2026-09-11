@@ -762,6 +762,9 @@ class WebStockSyncService:
     def create_warehouse(self, *, name: str, external_code: str = "") -> dict[str, Any]:
         return self.db.create_warehouse(name=name, external_code=external_code)
 
+    def rename_warehouse(self, warehouse_id: int, *, name: str) -> dict[str, Any]:
+        return self.db.rename_warehouse(warehouse_id, name=name)
+
     def delete_warehouse(self, warehouse_id: int) -> None:
         self.db.delete_warehouse(warehouse_id)
 

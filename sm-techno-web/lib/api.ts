@@ -1502,6 +1502,19 @@ export async function createWarehouse(payload: {
   return result.warehouse;
 }
 
+export async function renameWarehouse(warehouseId: number, payload: { name: string }): Promise<Warehouse> {
+  const result = await requestJsonWithInit<{ warehouse: Warehouse }>(
+    `/api/warehouses/${warehouseId}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    "Не удалось переименовать склад.",
+  );
+  return result.warehouse;
+}
+
 export async function deleteWarehouse(warehouseId: number): Promise<{ ok: boolean }> {
   return requestJsonWithInit<{ ok: boolean }>(
     `/api/warehouses/${warehouseId}`,

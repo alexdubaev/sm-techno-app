@@ -1542,16 +1542,17 @@ class Database:
         now = utc_now()
 
         with self.transaction() as conn:
-            existing = conn.execute(
+            existing_rows = conn.execute(
                 """
-                SELECT id, external_code
+                SELECT id, name, external_code
                 FROM warehouses
-                WHERE name = ? COLLATE NOCASE
                 ORDER BY id
-                LIMIT 1
                 """,
-                (normalized_name,),
-            ).fetchone()
+            ).fetchall()
+            existing = next(
+                (row for row in existing_rows if str(row["name"] or "").strip().casefold() == normalized_name.casefold()),
+                None,
+            )
 
             if existing:
                 warehouse_id = int(existing["id"])
@@ -1596,6 +1597,43 @@ class Database:
 
         if row is None:
             raise ValueError("Не удалось сохранить склад.")
+        return dict(row)
+
+    def rename_warehouse(self, warehouse_id: int, *, name: str) -> dict[str, Any]:
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Укажите название склада.")
+
+        with self.transaction() as conn:
+            warehouse = conn.execute(
+                "SELECT id FROM warehouses WHERE id = ? AND is_active = 1",
+                (warehouse_id,),
+            ).fetchone()
+            if warehouse is None:
+                raise ValueError("Склад не найден.")
+
+            candidates = conn.execute(
+                "SELECT id, name FROM warehouses WHERE id <> ?",
+                (warehouse_id,),
+            ).fetchall()
+            duplicate = next(
+                (row for row in candidates if str(row["name"] or "").strip().casefold() == normalized_name.casefold()),
+                None,
+            )
+            if duplicate is not None:
+                raise ValueError("Склад с таким названием уже существует.")
+
+            conn.execute(
+                "UPDATE warehouses SET name = ?, updated_at = ? WHERE id = ?",
+                (normalized_name, utc_now(), warehouse_id),
+            )
+            row = conn.execute(
+                "SELECT id, name, external_code, is_active, created_at, updated_at FROM warehouses WHERE id = ?",
+                (warehouse_id,),
+            ).fetchone()
+
+        if row is None:
+            raise ValueError("Не удалось переименовать склад.")
         return dict(row)
 
     def delete_warehouse(self, warehouse_id: int) -> None:

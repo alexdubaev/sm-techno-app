@@ -2339,6 +2339,20 @@ def create_warehouse(
     return {"warehouse": _serialize_warehouse(warehouse)}
 
 
+@app.patch("/api/warehouses/{warehouse_id}")
+def rename_warehouse(
+    warehouse_id: int,
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> dict[str, Any]:
+    parsed = _parse_warehouse_payload(payload)
+    try:
+        warehouse = SERVICE.rename_warehouse(warehouse_id, name=parsed["name"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"warehouse": _serialize_warehouse(warehouse)}
+
+
 @app.delete("/api/warehouses/{warehouse_id}")
 def delete_warehouse(
     warehouse_id: int,

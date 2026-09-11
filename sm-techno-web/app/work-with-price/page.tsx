@@ -27,6 +27,7 @@ import {
   importPriceFile,
   previewPriceImport,
   moveItemStock,
+  renameWarehouse,
   updateLocalItem,
   writeoffItemStock,
   type LocalItemPayload,
@@ -139,6 +140,10 @@ function WorkWithPriceAdminPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warehouseNameInput, setWarehouseNameInput] = useState("");
+  const [warehouseBeingRenamed, setWarehouseBeingRenamed] = useState<{
+    id: number;
+    name: string;
+  } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
   const [isCreateExpanded, setIsCreateExpanded] = useState(false);
@@ -782,6 +787,43 @@ function WorkWithPriceAdminPage() {
       }
     } catch (requestError: unknown) {
       setError(requestError instanceof Error ? requestError.message : "Не удалось удалить склад.");
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleRenameWarehouse = async () => {
+    if (warehouseBeingRenamed === null) {
+      return;
+    }
+    const trimmedName = warehouseBeingRenamed.name.trim();
+    if (!trimmedName) {
+      setError("Укажите название склада.");
+      setMessage(null);
+      return;
+    }
+    if (warehouses.some(
+      (warehouse) =>
+        warehouse.id !== warehouseBeingRenamed.id &&
+        warehouse.name.trim().toLocaleLowerCase("ru") === trimmedName.toLocaleLowerCase("ru"),
+    )) {
+      setError("Склад с таким названием уже существует.");
+      setMessage(null);
+      return;
+    }
+    setIsBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const warehouse = await renameWarehouse(warehouseBeingRenamed.id, { name: trimmedName });
+      setWarehouseBeingRenamed(null);
+      setMessage(`Склад переименован: "${warehouse.name}".`);
+      await Promise.all([loadWarehouses(), loadCatalog()]);
+      if (selectedId !== null) {
+        setSelectedItem(await fetchStockItem(selectedId));
+      }
+    } catch (requestError: unknown) {
+      setError(requestError instanceof Error ? requestError.message : "Не удалось переименовать склад.");
     } finally {
       setIsBusy(false);
     }
@@ -1512,22 +1554,48 @@ function WorkWithPriceAdminPage() {
                             key={warehouse.id}
                             className="flex items-center justify-between gap-2 rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-2.5 py-2"
                           >
-                            <div className="min-w-0">
-                              <div className="truncate text-[11px] font-semibold text-[var(--text-primary)]">
-                                {warehouse.name}
+                            {warehouseBeingRenamed?.id === warehouse.id ? (
+                              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                <input
+                                  autoFocus
+                                  value={warehouseBeingRenamed.name}
+                                  onChange={(event) => setWarehouseBeingRenamed((current) => current ? { ...current, name: event.target.value } : current)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      void handleRenameWarehouse();
+                                    }
+                                    if (event.key === "Escape") setWarehouseBeingRenamed(null);
+                                  }}
+                                  className="h-[30px] min-w-0 flex-1 rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
+                                />
+                                <button type="button" disabled={isBusy || !warehouseBeingRenamed.name.trim()} onClick={() => void handleRenameWarehouse()} className="app-action-button app-action-button--xs shrink-0">
+                                  Сохранить
+                                </button>
+                                <button type="button" disabled={isBusy} onClick={() => setWarehouseBeingRenamed(null)} className="app-action-button app-action-button--xs shrink-0">
+                                  Отмена
+                                </button>
                               </div>
-                              <div className="text-[9px] text-[var(--text-secondary)]">
-                                ID: {warehouse.id}
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={isBusy}
-                              onClick={() => void handleDeleteWarehouse(warehouse.id)}
-                              className="app-action-button app-action-button--xs shrink-0"
-                            >
-                              Удалить
-                            </button>
+                            ) : (
+                              <>
+                                <div className="min-w-0">
+                                  <div className="truncate text-[11px] font-semibold text-[var(--text-primary)]">
+                                    {warehouse.name}
+                                  </div>
+                                  <div className="text-[9px] text-[var(--text-secondary)]">
+                                    ID: {warehouse.id}
+                                  </div>
+                                </div>
+                                <div className="flex shrink-0 gap-1.5">
+                                  <button type="button" disabled={isBusy} onClick={() => setWarehouseBeingRenamed({ id: warehouse.id, name: warehouse.name })} className="app-action-button app-action-button--xs">
+                                    Переименовать
+                                  </button>
+                                  <button type="button" disabled={isBusy} onClick={() => void handleDeleteWarehouse(warehouse.id)} className="app-action-button app-action-button--xs">
+                                    Удалить
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
                         ))
                       ) : (
