@@ -1,25 +1,17 @@
-﻿'use client';
+﻿"use client";
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type SVGProps,
-} from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
+import { createPortal } from "react-dom";
 
-import { useAuth } from '@/components/auth-provider';
-import { AppShell } from '@/components/app-shell';
+import { useAuth } from "@/components/auth-provider";
+import { AppShell } from "@/components/app-shell";
 import {
   ResizableTableHeader,
   useResizableColumns,
   type ResizableColumnConfig,
-} from '@/components/resizable-table';
+} from "@/components/resizable-table";
 import {
   addItemStock,
   clearCatalog,
@@ -35,12 +27,11 @@ import {
   importPriceFile,
   previewPriceImport,
   moveItemStock,
-  renameWarehouse,
   updateLocalItem,
   writeoffItemStock,
   type LocalItemPayload,
-} from '@/lib/api';
-import type { StockItem, Warehouse } from '@/lib/types';
+} from "@/lib/api";
+import type { StockItem, Warehouse } from "@/lib/types";
 
 type ItemFormState = {
   sku: string;
@@ -60,7 +51,7 @@ type WarehouseFormState = {
   cell: string;
 };
 
-type StockActionMode = 'add' | 'move' | 'writeoff';
+type StockActionMode = "add" | "move" | "writeoff";
 
 type StockActionState = {
   itemId: number;
@@ -83,24 +74,24 @@ type RowMenuState = {
 };
 
 const EMPTY_FORM: ItemFormState = {
-  sku: '',
-  name: '',
-  categoryName: '',
-  groupName: '',
-  price: '0.00',
-  warehouses: [createWarehouseFormState('Основной склад', '0')],
+  sku: "",
+  name: "",
+  categoryName: "",
+  groupName: "",
+  price: "0.00",
+  warehouses: [createWarehouseFormState("Основной склад", "0")],
 };
 
 const PRICE_TABLE_COLUMNS: ResizableColumnConfig[] = [
-  { key: 'sku', width: 108, minWidth: 84, maxWidth: 180 },
-  { key: 'name', width: 258, minWidth: 190, maxWidth: 440 },
-  { key: 'warehouse', width: 160, minWidth: 124, maxWidth: 240 },
-  { key: 'category', width: 148, minWidth: 104, maxWidth: 230 },
-  { key: 'group', width: 124, minWidth: 96, maxWidth: 200 },
-  { key: 'stock', width: 88, minWidth: 72, maxWidth: 138 },
-  { key: 'price', width: 102, minWidth: 84, maxWidth: 160 },
-  { key: 'amount', width: 114, minWidth: 92, maxWidth: 180 },
-  { key: 'action', width: 72, minWidth: 64, maxWidth: 96 },
+  { key: "sku", width: 108, minWidth: 84, maxWidth: 180 },
+  { key: "name", width: 258, minWidth: 190, maxWidth: 440 },
+  { key: "warehouse", width: 160, minWidth: 124, maxWidth: 240 },
+  { key: "category", width: 148, minWidth: 104, maxWidth: 230 },
+  { key: "group", width: 124, minWidth: 96, maxWidth: 200 },
+  { key: "stock", width: 88, minWidth: 72, maxWidth: 138 },
+  { key: "price", width: 102, minWidth: 84, maxWidth: 160 },
+  { key: "amount", width: 114, minWidth: 92, maxWidth: 180 },
+  { key: "action", width: 72, minWidth: 64, maxWidth: 96 },
 ];
 
 export default function WorkWithPricePage() {
@@ -131,57 +122,42 @@ function WorkWithPriceAdminPage() {
   const [groups, setGroups] = useState<string[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedRowKey, setSelectedRowKey] = useState<string | null>(null);
-  const [selectedRowWarehouseId, setSelectedRowWarehouseId] = useState<
-    number | null
-  >(null);
+  const [selectedRowWarehouseId, setSelectedRowWarehouseId] = useState<number | null>(null);
   const [selectedItem, setSelectedItem] = useState<StockItem | null>(null);
-  const [activeWarehouseId, setActiveWarehouseId] = useState<number | null>(
-    null,
-  );
-  const [search, setSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [category, setCategory] = useState('');
+  const [activeWarehouseId, setActiveWarehouseId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [category, setCategory] = useState("");
   const [onlyUnlinked, setOnlyUnlinked] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importPreview, setImportPreview] = useState<{
-    planHash: string;
-    created: number;
-    updated: number;
-    unchanged: number;
-    errors: string[];
-  } | null>(null);
+  const [importPreview, setImportPreview] = useState<{ planHash: string; created: number; updated: number; unchanged: number; errors: string[] } | null>(null);
   const [createForm, setCreateForm] = useState<ItemFormState>(EMPTY_FORM);
   const [editForm, setEditForm] = useState<ItemFormState>(EMPTY_FORM);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [warehouseNameInput, setWarehouseNameInput] = useState('');
-  const [warehouseBeingRenamed, setWarehouseBeingRenamed] = useState<{
-    id: number;
-    name: string;
-  } | null>(null);
+  const [warehouseNameInput, setWarehouseNameInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isBusy, setIsBusy] = useState(false);
   const [isCreateExpanded, setIsCreateExpanded] = useState(false);
-  const [isWarehouseSettingsExpanded, setIsWarehouseSettingsExpanded] =
-    useState(false);
+  const [isWarehouseSettingsExpanded, setIsWarehouseSettingsExpanded] = useState(false);
   const [activeRowMenu, setActiveRowMenu] = useState<RowMenuState | null>(null);
   const [stockAction, setStockAction] = useState<StockActionState | null>(null);
   const [stockActionForm, setStockActionForm] = useState<StockActionFormState>({
-    warehouseId: '',
-    fromWarehouseId: '',
-    toWarehouseId: '',
-    quantity: '1',
-    comment: '',
+    warehouseId: "",
+    fromWarehouseId: "",
+    toWarehouseId: "",
+    quantity: "1",
+    comment: "",
   });
   const [isStockActionBusy, setIsStockActionBusy] = useState(false);
-  const [itemPendingDelete, setItemPendingDelete] = useState<StockItem | null>(
-    null,
+  const [itemPendingDelete, setItemPendingDelete] = useState<StockItem | null>(null);
+  const { containerRef, getWidth, onResizeStart, tableWidth } = useResizableColumns(
+    "sm-techno-price-table-widths-v2",
+    PRICE_TABLE_COLUMNS,
   );
-  const { containerRef, getWidth, onResizeStart, tableWidth } =
-    useResizableColumns('sm-techno-price-table-widths-v2', PRICE_TABLE_COLUMNS);
 
   // Текущее выделение читается через refs, чтобы клик по строке не пересоздавал
   // loadCatalog и не перезагружал каталог целиком.
@@ -234,29 +210,26 @@ function WorkWithPriceAdminPage() {
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         closeMenu();
       }
     };
 
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('resize', closeMenu);
-    window.addEventListener('scroll', closeMenu, true);
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
 
     return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('resize', closeMenu);
-      window.removeEventListener('scroll', closeMenu, true);
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
     };
   }, [activeRowMenu]);
 
   useEffect(() => {
-    if (
-      activeRowMenu &&
-      !items.some((item) => getCatalogRowKey(item) === activeRowMenu.rowKey)
-    ) {
+    if (activeRowMenu && !items.some((item) => getCatalogRowKey(item) === activeRowMenu.rowKey)) {
       setActiveRowMenu(null);
     }
   }, [activeRowMenu, items]);
@@ -309,9 +282,8 @@ function WorkWithPriceAdminPage() {
     }
 
     const matched =
-      filtered.find(
-        (item) => getCatalogRowKey(item) === selectedRowKeyRef.current,
-      ) ?? filtered.find((item) => item.id === selectedIdRef.current);
+      filtered.find((item) => getCatalogRowKey(item) === selectedRowKeyRef.current) ??
+      filtered.find((item) => item.id === selectedIdRef.current);
     if (matched) {
       setSelectedId(matched.id);
       setSelectedRowKey(getCatalogRowKey(matched));
@@ -333,7 +305,14 @@ function WorkWithPriceAdminPage() {
     if (catalogRequestId === catalogRequestIdRef.current) {
       setSelectedItem(persisted);
     }
-  }, [activeWarehouseId, search, category, onlyUnlinked, page, pageSize]);
+  }, [
+    activeWarehouseId,
+    search,
+    category,
+    onlyUnlinked,
+    page,
+    pageSize,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -344,7 +323,7 @@ function WorkWithPriceAdminPage() {
           setError(
             requestError instanceof Error
               ? requestError.message
-              : 'Не удалось загрузить локальный каталог.',
+              : "Не удалось загрузить локальный каталог.",
           );
         }
       })
@@ -364,9 +343,7 @@ function WorkWithPriceAdminPage() {
     void loadWarehouses().catch((requestError: unknown) => {
       if (!cancelled) {
         setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Не удалось загрузить список складов.',
+          requestError instanceof Error ? requestError.message : "Не удалось загрузить список складов.",
         );
       }
     });
@@ -382,10 +359,10 @@ function WorkWithPriceAdminPage() {
     }
 
     setEditForm({
-      sku: selectedItem.sku || '',
-      name: selectedItem.name || '',
-      categoryName: selectedItem.categoryName || '',
-      groupName: selectedItem.groupName || '',
+      sku: selectedItem.sku || "",
+      name: selectedItem.name || "",
+      categoryName: selectedItem.categoryName || "",
+      groupName: selectedItem.groupName || "",
       price: formatNumberInput(selectedItem.price, 2),
       warehouses:
         selectedItem.warehouses.length > 0
@@ -398,7 +375,7 @@ function WorkWithPriceAdminPage() {
                 warehouse.cell,
               ),
             )
-          : [createWarehouseFormState('Основной склад', '0')],
+          : [createWarehouseFormState("Основной склад", "0")],
     });
   }, [selectedItem]);
 
@@ -412,11 +389,7 @@ function WorkWithPriceAdminPage() {
     const detailRequestId = ++detailRequestIdRef.current;
     void fetchStockItem(selectedId)
       .then((item) => {
-        if (
-          !cancelled &&
-          detailRequestId === detailRequestIdRef.current &&
-          item
-        ) {
+        if (!cancelled && detailRequestId === detailRequestIdRef.current && item) {
           setSelectedItem(item);
         }
       })
@@ -441,43 +414,35 @@ function WorkWithPriceAdminPage() {
       selectedRowWarehouseId !== null
         ? selectedRowWarehouseId
         : activeWarehouseId !== null
-          ? activeWarehouseId
-          : (positiveWarehouses[0]?.warehouseId ?? warehouses[0]?.id ?? null);
+        ? activeWarehouseId
+        : positiveWarehouses[0]?.warehouseId ?? warehouses[0]?.id ?? null;
     const destinationWarehouseId =
-      warehouses.find((warehouse) => warehouse.id !== preferredWarehouseId)
-        ?.id ??
+      warehouses.find((warehouse) => warehouse.id !== preferredWarehouseId)?.id ??
       warehouses[0]?.id ??
       null;
 
     setStockActionForm((current) => ({
       warehouseId:
-        stockAction.mode === 'add' && preferredWarehouseId !== null
+        stockAction.mode === "add" && preferredWarehouseId !== null
           ? String(preferredWarehouseId)
-          : stockAction.mode === 'writeoff' && positiveWarehouses[0]
+          : stockAction.mode === "writeoff" && positiveWarehouses[0]
             ? String(preferredWarehouseId ?? positiveWarehouses[0].warehouseId)
             : current.warehouseId,
       fromWarehouseId:
-        stockAction.mode === 'move' && positiveWarehouses[0]
+        stockAction.mode === "move" && positiveWarehouses[0]
           ? String(
-              positiveWarehouses.find(
-                (warehouse) => warehouse.warehouseId === preferredWarehouseId,
-              )?.warehouseId ?? positiveWarehouses[0].warehouseId,
+              positiveWarehouses.find((warehouse) => warehouse.warehouseId === preferredWarehouseId)
+                ?.warehouseId ?? positiveWarehouses[0].warehouseId,
             )
           : current.fromWarehouseId,
       toWarehouseId:
-        stockAction.mode === 'move' && destinationWarehouseId !== null
+        stockAction.mode === "move" && destinationWarehouseId !== null
           ? String(destinationWarehouseId)
           : current.toWarehouseId,
-      quantity: '1',
-      comment: '',
+      quantity: "1",
+      comment: "",
     }));
-  }, [
-    stockAction,
-    selectedItem,
-    activeWarehouseId,
-    selectedRowWarehouseId,
-    warehouses,
-  ]);
+  }, [stockAction, selectedItem, activeWarehouseId, selectedRowWarehouseId, warehouses]);
 
   useEffect(() => {
     if (isCreateExpanded) {
@@ -488,8 +453,7 @@ function WorkWithPriceAdminPage() {
 
   const summary = useMemo(() => {
     const totalQuantity = items.reduce(
-      (sum, item) =>
-        sum + getIntegerQuantity(item.rowQuantity || item.quantity),
+      (sum, item) => sum + getIntegerQuantity(item.rowQuantity || item.quantity),
       0,
     );
     const unlinkedCount = items.filter((item) => !item.isLinkedToOneC).length;
@@ -503,11 +467,10 @@ function WorkWithPriceAdminPage() {
 
   const activeWarehouseName = useMemo(() => {
     if (activeWarehouseId === null) {
-      return 'Все склады';
+      return "Все склады";
     }
     return (
-      warehouses.find((warehouse) => warehouse.id === activeWarehouseId)
-        ?.name ?? 'Выбранный склад'
+      warehouses.find((warehouse) => warehouse.id === activeWarehouseId)?.name ?? "Выбранный склад"
     );
   }, [activeWarehouseId, warehouses]);
 
@@ -524,63 +487,42 @@ function WorkWithPriceAdminPage() {
     () =>
       (selectedItem?.warehouses ?? [])
         .filter((warehouse) => getIntegerQuantity(warehouse.quantity) > 0)
-        .sort(
-          (left, right) =>
-            right.quantity - left.quantity ||
-            left.warehouseName.localeCompare(right.warehouseName, 'ru'),
-        ),
+        .sort((left, right) => right.quantity - left.quantity || left.warehouseName.localeCompare(right.warehouseName, "ru")),
     [selectedItem],
   );
 
   const stockActionItem =
-    stockAction && selectedItem?.id === stockAction.itemId
-      ? selectedItem
-      : null;
+    stockAction && selectedItem?.id === stockAction.itemId ? selectedItem : null;
 
   const stockActionSourceWarehouses = useMemo(
     () =>
       (stockActionItem?.warehouses ?? [])
         .filter((warehouse) => getIntegerQuantity(warehouse.quantity) > 0)
-        .sort(
-          (left, right) =>
-            right.quantity - left.quantity ||
-            left.warehouseName.localeCompare(right.warehouseName, 'ru'),
-        ),
+        .sort((left, right) => right.quantity - left.quantity || left.warehouseName.localeCompare(right.warehouseName, "ru")),
     [stockActionItem],
   );
 
   const stockActionAvailable = useMemo(() => {
-    if (stockAction?.mode === 'move') {
+    if (stockAction?.mode === "move") {
       const target = stockActionSourceWarehouses.find(
-        (warehouse) =>
-          String(warehouse.warehouseId) === stockActionForm.fromWarehouseId,
+        (warehouse) => String(warehouse.warehouseId) === stockActionForm.fromWarehouseId,
       );
       return getIntegerQuantity(target?.quantity ?? 0);
     }
-    if (stockAction?.mode === 'writeoff') {
+    if (stockAction?.mode === "writeoff") {
       const target = stockActionSourceWarehouses.find(
-        (warehouse) =>
-          String(warehouse.warehouseId) === stockActionForm.warehouseId,
+        (warehouse) => String(warehouse.warehouseId) === stockActionForm.warehouseId,
       );
       return getIntegerQuantity(target?.quantity ?? 0);
     }
     return 0;
-  }, [
-    stockAction,
-    stockActionForm.fromWarehouseId,
-    stockActionForm.warehouseId,
-    stockActionSourceWarehouses,
-  ]);
+  }, [stockAction, stockActionForm.fromWarehouseId, stockActionForm.warehouseId, stockActionSourceWarehouses]);
 
   const pageCount = Math.max(1, Math.ceil(Math.max(total, 1) / pageSize));
-  const activeRowMenuItem = activeRowMenu
-    ? (items.find((item) => getCatalogRowKey(item) === activeRowMenu.rowKey) ??
-      null)
-    : null;
+  const activeRowMenuItem =
+    activeRowMenu ? items.find((item) => getCatalogRowKey(item) === activeRowMenu.rowKey) ?? null : null;
   const selectedInList =
-    selectedRowKey !== null
-      ? items.some((item) => getCatalogRowKey(item) === selectedRowKey)
-      : false;
+    selectedRowKey !== null ? items.some((item) => getCatalogRowKey(item) === selectedRowKey) : false;
 
   const createFormValidation = validateItemForm(createForm);
   const editFormValidation = validateItemForm(editForm);
@@ -602,16 +544,14 @@ function WorkWithPriceAdminPage() {
 
     void fetchStockCatalog({
       search: value.trim(),
-      category: '',
+      category: "",
       warehouseId: null,
       onlyInStock: false,
       page: 1,
       pageSize: 20,
     })
       .then((response) => {
-        const matchedItem = response.items.find(
-          (item) => normalizeSku(item.sku) === normalizedSku,
-        );
+        const matchedItem = response.items.find((item) => normalizeSku(item.sku) === normalizedSku);
         if (!matchedItem?.name) {
           return;
         }
@@ -642,7 +582,7 @@ function WorkWithPriceAdminPage() {
     try {
       const created = await createLocalItem(parsed.payload);
       if (!created) {
-        throw new Error('Сервер не вернул созданную позицию.');
+        throw new Error("Сервер не вернул созданную позицию.");
       }
 
       applyItemToLocalState(created);
@@ -650,11 +590,7 @@ function WorkWithPriceAdminPage() {
       setMessage(`Позиция "${created.name}" сохранена в локальном прайсе.`);
       await loadCatalog();
     } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось создать позицию.',
-      );
+      setError(requestError instanceof Error ? requestError.message : "Не удалось создать позицию.");
     } finally {
       setIsBusy(false);
     }
@@ -679,7 +615,7 @@ function WorkWithPriceAdminPage() {
     try {
       const updated = await updateLocalItem(selectedItem.id, parsed.payload);
       if (!updated) {
-        throw new Error('Сервер не вернул обновленную позицию.');
+        throw new Error("Сервер не вернул обновленную позицию.");
       }
 
       applyItemToLocalState(updated);
@@ -689,7 +625,7 @@ function WorkWithPriceAdminPage() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Не удалось сохранить изменения по позиции.',
+          : "Не удалось сохранить изменения по позиции.",
       );
     } finally {
       setIsBusy(false);
@@ -709,25 +645,17 @@ function WorkWithPriceAdminPage() {
     try {
       const result = await deleteItem(itemToDelete.id);
       const deletedName = itemToDelete.name;
-      setItems((current) =>
-        current.filter((item) => item.id !== itemToDelete.id),
-      );
+      setItems((current) => current.filter((item) => item.id !== itemToDelete.id));
       if (selectedItem?.id === itemToDelete.id) {
         setSelectedId(null);
         setSelectedItem(null);
       }
       setItemPendingDelete(null);
       setActiveRowMenu(null);
-      setMessage(
-        `Позиция "${deletedName}" удалена. Удалено: ${result.deleted}, скрыто: ${result.hidden}.`,
-      );
+      setMessage(`Позиция "${deletedName}" удалена. Удалено: ${result.deleted}, скрыто: ${result.hidden}.`);
       await loadCatalog();
     } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось удалить позицию.',
-      );
+      setError(requestError instanceof Error ? requestError.message : "Не удалось удалить позицию.");
     } finally {
       setIsBusy(false);
     }
@@ -745,16 +673,10 @@ function WorkWithPriceAdminPage() {
       setGroups([]);
       setSelectedId(null);
       setSelectedItem(null);
-      setMessage(
-        `Каталог очищен. Удалено: ${result.deleted}, скрыто: ${result.hidden}.`,
-      );
+      setMessage(`Каталог очищен. Удалено: ${result.deleted}, скрыто: ${result.hidden}.`);
       await loadCatalog();
     } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось очистить каталог.',
-      );
+      setError(requestError instanceof Error ? requestError.message : "Не удалось очистить каталог.");
     } finally {
       setIsBusy(false);
     }
@@ -773,9 +695,7 @@ function WorkWithPriceAdminPage() {
       if (!importPreview) {
         const preview = await previewPriceImport(importFile);
         setImportPreview(preview);
-        setMessage(
-          `Проверка: будет создано ${preview.created}, обновлено ${preview.updated}.`,
-        );
+        setMessage(`Проверка: будет создано ${preview.created}, обновлено ${preview.updated}.`);
         return;
       }
       const result = await importPriceFile(importFile, importPreview.planHash);
@@ -786,11 +706,7 @@ function WorkWithPriceAdminPage() {
       );
       await loadCatalog();
     } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось импортировать прайс.',
-      );
+      setError(requestError instanceof Error ? requestError.message : "Не удалось импортировать прайс.");
     } finally {
       setIsBusy(false);
     }
@@ -804,11 +720,7 @@ function WorkWithPriceAdminPage() {
     try {
       await downloadPriceTemplateFile();
     } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось скачать шаблон прайса.',
-      );
+      setError(requestError instanceof Error ? requestError.message : "Не удалось скачать шаблон прайса.");
     } finally {
       setIsBusy(false);
     }
@@ -822,11 +734,7 @@ function WorkWithPriceAdminPage() {
     try {
       await downloadStockSnapshotFile();
     } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось выгрузить текущий срез.',
-      );
+      setError(requestError instanceof Error ? requestError.message : "Не удалось выгрузить текущий срез.");
     } finally {
       setIsBusy(false);
     }
@@ -835,7 +743,7 @@ function WorkWithPriceAdminPage() {
   const handleCreateWarehouse = async () => {
     const trimmedName = warehouseNameInput.trim();
     if (!trimmedName) {
-      setError('Укажите название склада.');
+      setError("Укажите название склада.");
       setMessage(null);
       return;
     }
@@ -846,15 +754,11 @@ function WorkWithPriceAdminPage() {
 
     try {
       const warehouse = await createWarehouse({ name: trimmedName });
-      setWarehouseNameInput('');
+      setWarehouseNameInput("");
       setMessage(`Склад "${warehouse.name}" сохранен.`);
       await loadWarehouses();
     } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось сохранить склад.',
-      );
+      setError(requestError instanceof Error ? requestError.message : "Не удалось сохранить склад.");
     } finally {
       setIsBusy(false);
     }
@@ -870,67 +774,14 @@ function WorkWithPriceAdminPage() {
       if (activeWarehouseId === warehouseId) {
         setActiveWarehouseId(null);
       }
-      setMessage('Склад удален.');
+      setMessage("Склад удален.");
       await Promise.all([loadWarehouses(), loadCatalog()]);
       if (selectedId !== null) {
         const refreshedItem = await fetchStockItem(selectedId);
         setSelectedItem(refreshedItem);
       }
     } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось удалить склад.',
-      );
-    } finally {
-      setIsBusy(false);
-    }
-  };
-
-  const handleRenameWarehouse = async () => {
-    if (warehouseBeingRenamed === null) {
-      return;
-    }
-
-    const trimmedName = warehouseBeingRenamed.name.trim();
-    if (!trimmedName) {
-      setError('Укажите название склада.');
-      setMessage(null);
-      return;
-    }
-    if (
-      warehouses.some(
-        (warehouse) =>
-          warehouse.id !== warehouseBeingRenamed.id &&
-          warehouse.name.trim().toLocaleLowerCase('ru') ===
-            trimmedName.toLocaleLowerCase('ru'),
-      )
-    ) {
-      setError('Склад с таким названием уже существует.');
-      setMessage(null);
-      return;
-    }
-
-    setIsBusy(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      const warehouse = await renameWarehouse(warehouseBeingRenamed.id, {
-        name: trimmedName,
-      });
-      setWarehouseBeingRenamed(null);
-      setMessage(`Склад переименован: "${warehouse.name}".`);
-      await Promise.all([loadWarehouses(), loadCatalog()]);
-      if (selectedId !== null) {
-        setSelectedItem(await fetchStockItem(selectedId));
-      }
-    } catch (requestError: unknown) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Не удалось переименовать склад.',
-      );
+      setError(requestError instanceof Error ? requestError.message : "Не удалось удалить склад.");
     } finally {
       setIsBusy(false);
     }
@@ -944,38 +795,28 @@ function WorkWithPriceAdminPage() {
     setActiveRowMenu(null);
   };
 
-  const handleToggleRowMenu = useCallback(
-    (rowKey: string, trigger: HTMLButtonElement) => {
-      const rect = trigger.getBoundingClientRect();
-      const viewportPadding = 12;
-      const estimatedHeight = 196;
-      const nextRight = Math.max(
-        viewportPadding,
-        window.innerWidth - rect.right,
-      );
-      const openUpward =
-        rect.bottom + 6 + estimatedHeight >
-          window.innerHeight - viewportPadding &&
-        rect.top - 6 - estimatedHeight > viewportPadding;
+  const handleToggleRowMenu = useCallback((rowKey: string, trigger: HTMLButtonElement) => {
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 12;
+    const estimatedHeight = 196;
+    const nextRight = Math.max(viewportPadding, window.innerWidth - rect.right);
+    const openUpward =
+      rect.bottom + 6 + estimatedHeight > window.innerHeight - viewportPadding &&
+      rect.top - 6 - estimatedHeight > viewportPadding;
 
-      setActiveRowMenu((current) =>
-        current?.rowKey === rowKey
-          ? null
-          : {
-              rowKey,
-              top: openUpward ? rect.top - 6 : rect.bottom + 6,
-              right: nextRight,
-              openUpward,
-            },
-      );
-    },
-    [],
-  );
+    setActiveRowMenu((current) =>
+      current?.rowKey === rowKey
+        ? null
+        : {
+            rowKey,
+            top: openUpward ? rect.top - 6 : rect.bottom + 6,
+            right: nextRight,
+            openUpward,
+          },
+    );
+  }, []);
 
-  const handleOpenStockAction = async (
-    item: StockItem,
-    mode: StockActionMode,
-  ) => {
+  const handleOpenStockAction = async (item: StockItem, mode: StockActionMode) => {
     handleSelectItem(item);
     setStockAction({ itemId: item.id, mode });
     try {
@@ -989,20 +830,13 @@ function WorkWithPriceAdminPage() {
   };
 
   const handleSubmitStockAction = async () => {
-    if (
-      !stockAction ||
-      !selectedItem ||
-      selectedItem.id !== stockAction.itemId
-    ) {
+    if (!stockAction || !selectedItem || selectedItem.id !== stockAction.itemId) {
       return;
     }
 
-    const quantity = Number.parseInt(
-      sanitizeIntegerInput(stockActionForm.quantity),
-      10,
-    );
+    const quantity = Number.parseInt(sanitizeIntegerInput(stockActionForm.quantity), 10);
     if (!Number.isFinite(quantity) || quantity <= 0) {
-      setError('Укажите количество больше нуля.');
+      setError("Укажите количество больше нуля.");
       setMessage(null);
       return;
     }
@@ -1014,10 +848,10 @@ function WorkWithPriceAdminPage() {
     try {
       let updatedItem: StockItem;
 
-      if (stockAction.mode === 'add') {
+      if (stockAction.mode === "add") {
         const warehouseId = Number.parseInt(stockActionForm.warehouseId, 10);
         if (!Number.isFinite(warehouseId)) {
-          throw new Error('Выберите склад.');
+          throw new Error("Выберите склад.");
         }
         updatedItem = await addItemStock(selectedItem.id, {
           warehouseId,
@@ -1025,23 +859,13 @@ function WorkWithPriceAdminPage() {
           comment: stockActionForm.comment.trim(),
         });
         const warehouseName =
-          warehouses.find((warehouse) => warehouse.id === warehouseId)?.name ??
-          'склад';
+          warehouses.find((warehouse) => warehouse.id === warehouseId)?.name ?? "склад";
         setMessage(`На склад "${warehouseName}" добавлено ${quantity} шт.`);
-      } else if (stockAction.mode === 'move') {
-        const fromWarehouseId = Number.parseInt(
-          stockActionForm.fromWarehouseId,
-          10,
-        );
-        const toWarehouseId = Number.parseInt(
-          stockActionForm.toWarehouseId,
-          10,
-        );
-        if (
-          !Number.isFinite(fromWarehouseId) ||
-          !Number.isFinite(toWarehouseId)
-        ) {
-          throw new Error('Выберите склады для перемещения.');
+      } else if (stockAction.mode === "move") {
+        const fromWarehouseId = Number.parseInt(stockActionForm.fromWarehouseId, 10);
+        const toWarehouseId = Number.parseInt(stockActionForm.toWarehouseId, 10);
+        if (!Number.isFinite(fromWarehouseId) || !Number.isFinite(toWarehouseId)) {
+          throw new Error("Выберите склады для перемещения.");
         }
         updatedItem = await moveItemStock(selectedItem.id, {
           fromWarehouseId,
@@ -1050,17 +874,14 @@ function WorkWithPriceAdminPage() {
           comment: stockActionForm.comment.trim(),
         });
         const fromName =
-          selectedItem.warehouses.find(
-            (warehouse) => warehouse.warehouseId === fromWarehouseId,
-          )?.warehouseName ?? 'склад';
-        const toName =
-          warehouses.find((warehouse) => warehouse.id === toWarehouseId)
-            ?.name ?? 'склад';
+          selectedItem.warehouses.find((warehouse) => warehouse.warehouseId === fromWarehouseId)
+            ?.warehouseName ?? "склад";
+        const toName = warehouses.find((warehouse) => warehouse.id === toWarehouseId)?.name ?? "склад";
         setMessage(`Перемещено ${quantity} шт.: ${fromName} → ${toName}.`);
       } else {
         const warehouseId = Number.parseInt(stockActionForm.warehouseId, 10);
         if (!Number.isFinite(warehouseId)) {
-          throw new Error('Выберите склад.');
+          throw new Error("Выберите склад.");
         }
         updatedItem = await writeoffItemStock(selectedItem.id, {
           warehouseId,
@@ -1068,9 +889,8 @@ function WorkWithPriceAdminPage() {
           comment: stockActionForm.comment.trim(),
         });
         const warehouseName =
-          selectedItem.warehouses.find(
-            (warehouse) => warehouse.warehouseId === warehouseId,
-          )?.warehouseName ?? 'склад';
+          selectedItem.warehouses.find((warehouse) => warehouse.warehouseId === warehouseId)
+            ?.warehouseName ?? "склад";
         setMessage(`Со склада "${warehouseName}" списано ${quantity} шт.`);
       }
 
@@ -1082,7 +902,7 @@ function WorkWithPriceAdminPage() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Не удалось изменить остатки по складам.',
+          : "Не удалось изменить остатки по складам.",
       );
     } finally {
       setIsStockActionBusy(false);
@@ -1099,8 +919,8 @@ function WorkWithPriceAdminPage() {
             </h1>
             <p className="mt-0.5 max-w-[62ch] text-[10px] leading-[15px] text-[var(--text-secondary)]">
               {isAdmin
-                ? 'Тот же локальный каталог, что и в остатках: здесь можно импортировать позиции, добавлять их вручную, менять цену и остаток, а также удалять карточки по одной.'
-                : 'Просмотр локального прайса в режиме пользователя. Изменение каталога доступно только администратору.'}
+                ? "Тот же локальный каталог, что и в остатках: здесь можно импортировать позиции, добавлять их вручную, менять цену и остаток, а также удалять карточки по одной."
+                : "Просмотр локального прайса в режиме пользователя. Изменение каталога доступно только администратору."}
             </p>
           </div>
 
@@ -1142,14 +962,9 @@ function WorkWithPriceAdminPage() {
                     type="file"
                     className="hidden"
                     accept=".xlsx,.xls,.csv"
-                    onChange={(event) => {
-                      setImportFile(event.target.files?.[0] ?? null);
-                      setImportPreview(null);
-                    }}
+                    onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); }}
                   />
-                  <span className="truncate">
-                    {importFile ? importFile.name : 'Выбрать файл прайса'}
-                  </span>
+                  <span className="truncate">{importFile ? importFile.name : "Выбрать файл прайса"}</span>
                 </label>
                 <button
                   type="button"
@@ -1158,7 +973,7 @@ function WorkWithPriceAdminPage() {
                   className="app-action-button app-action-button--md"
                 >
                   <SparkBoxIcon className="h-3.5 w-3.5 stroke-[2]" />
-                  {importPreview ? 'Подтвердить импорт' : 'Проверить импорт'}
+                  {importPreview ? "Подтвердить импорт" : "Проверить импорт"}
                 </button>
               </>
             ) : (
@@ -1253,10 +1068,7 @@ function WorkWithPriceAdminPage() {
                 ))}
               </div>
 
-              <div
-                ref={containerRef}
-                className="max-h-[calc(100dvh-8rem)] overflow-auto rounded-[12px] border border-[var(--border-color)] bg-white"
-              >
+              <div ref={containerRef} className="max-h-[calc(100dvh-8rem)] overflow-auto rounded-[12px] border border-[var(--border-color)] bg-white">
                 {isLoading && items.length === 0 ? (
                   <TableSkeleton />
                 ) : items.length === 0 ? (
@@ -1265,8 +1077,8 @@ function WorkWithPriceAdminPage() {
                     title="Локальный каталог пуст"
                     description={
                       isAdmin
-                        ? 'Импортируйте Excel-файл или добавьте первую позицию вручную в правой колонке.'
-                        : 'Каталог пока пуст. Попросите администратора загрузить прайс.'
+                        ? "Импортируйте Excel-файл или добавьте первую позицию вручную в правой колонке."
+                        : "Каталог пока пуст. Попросите администратора загрузить прайс."
                     }
                   />
                 ) : (
@@ -1276,68 +1088,20 @@ function WorkWithPriceAdminPage() {
                   >
                     <colgroup>
                       {PRICE_TABLE_COLUMNS.map((column) => (
-                        <col
-                          key={column.key}
-                          style={{ width: getWidth(column.key) }}
-                        />
+                        <col key={column.key} style={{ width: getWidth(column.key) }} />
                       ))}
                     </colgroup>
                     <thead>
                       <tr className="bg-[#FAFBFD] text-left text-[10px] text-[var(--text-secondary)]">
-                        <ResizableTableHeader
-                          columnKey="sku"
-                          label="Артикул"
-                          onResizeStart={onResizeStart}
-                          className="px-3 py-2 font-semibold"
-                        />
-                        <ResizableTableHeader
-                          columnKey="name"
-                          label="Наименование"
-                          onResizeStart={onResizeStart}
-                          className="px-3 py-2 font-semibold"
-                        />
-                        <ResizableTableHeader
-                          columnKey="warehouse"
-                          label="Склад"
-                          onResizeStart={onResizeStart}
-                          className="px-3 py-2 font-semibold"
-                        />
-                        <ResizableTableHeader
-                          columnKey="category"
-                          label="Категория"
-                          onResizeStart={onResizeStart}
-                          className="px-3 py-2 font-semibold"
-                        />
-                        <ResizableTableHeader
-                          columnKey="group"
-                          label="Группа"
-                          onResizeStart={onResizeStart}
-                          className="px-3 py-2 font-semibold"
-                        />
-                        <ResizableTableHeader
-                          columnKey="stock"
-                          label="Остаток"
-                          onResizeStart={onResizeStart}
-                          className="px-3 py-2 font-semibold"
-                        />
-                        <ResizableTableHeader
-                          columnKey="price"
-                          label="Цена"
-                          onResizeStart={onResizeStart}
-                          className="px-3 py-2 font-semibold"
-                        />
-                        <ResizableTableHeader
-                          columnKey="amount"
-                          label="Сумма"
-                          onResizeStart={onResizeStart}
-                          className="px-3 py-2 font-semibold"
-                        />
-                        <ResizableTableHeader
-                          columnKey="action"
-                          label="Действия"
-                          onResizeStart={onResizeStart}
-                          className="px-3 py-2 font-semibold"
-                        />
+                        <ResizableTableHeader columnKey="sku" label="Артикул" onResizeStart={onResizeStart} className="px-3 py-2 font-semibold" />
+                        <ResizableTableHeader columnKey="name" label="Наименование" onResizeStart={onResizeStart} className="px-3 py-2 font-semibold" />
+                        <ResizableTableHeader columnKey="warehouse" label="Склад" onResizeStart={onResizeStart} className="px-3 py-2 font-semibold" />
+                        <ResizableTableHeader columnKey="category" label="Категория" onResizeStart={onResizeStart} className="px-3 py-2 font-semibold" />
+                        <ResizableTableHeader columnKey="group" label="Группа" onResizeStart={onResizeStart} className="px-3 py-2 font-semibold" />
+                        <ResizableTableHeader columnKey="stock" label="Остаток" onResizeStart={onResizeStart} className="px-3 py-2 font-semibold" />
+                        <ResizableTableHeader columnKey="price" label="Цена" onResizeStart={onResizeStart} className="px-3 py-2 font-semibold" />
+                        <ResizableTableHeader columnKey="amount" label="Сумма" onResizeStart={onResizeStart} className="px-3 py-2 font-semibold" />
+                        <ResizableTableHeader columnKey="action" label="Действия" onResizeStart={onResizeStart} className="px-3 py-2 font-semibold" />
                       </tr>
                     </thead>
                     <tbody>
@@ -1353,21 +1117,21 @@ function WorkWithPriceAdminPage() {
                             key={rowKey}
                             onClick={() => handleSelectItem(item)}
                             className={[
-                              'cursor-pointer transition-colors duration-200',
+                              "cursor-pointer transition-colors duration-200",
                               isSelected
-                                ? 'bg-[#FFF8D9] shadow-[inset_3px_0_0_#FFC400]'
-                                : 'bg-white hover:bg-[#F8FBFF]',
-                            ].join(' ')}
+                                ? "bg-[#FFF8D9] shadow-[inset_3px_0_0_#FFC400]"
+                                : "bg-white hover:bg-[#F8FBFF]",
+                            ].join(" ")}
                           >
                             <td
                               className={[
-                                'border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] font-semibold tabular-nums',
+                                "border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] font-semibold tabular-nums",
                                 item.isLinkedToOneC
-                                  ? 'text-[var(--stock-ok)]'
-                                  : 'text-[var(--text-primary)]',
-                              ].join(' ')}
+                                  ? "text-[var(--stock-ok)]"
+                                  : "text-[var(--text-primary)]",
+                              ].join(" ")}
                             >
-                              {item.sku || '-'}
+                              {item.sku || "-"}
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-primary)]">
                               <div className="max-w-[320px] line-clamp-2 text-[11px] font-medium leading-[15px]">
@@ -1385,20 +1149,11 @@ function WorkWithPriceAdminPage() {
                                 title={
                                   rowLocationLabel
                                     ? `${formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)} · ${rowLocationLabel}`
-                                    : item.warehouseSummary ||
-                                      formatWarehouseLabel(
-                                        item,
-                                        activeWarehouseName,
-                                        activeWarehouseId,
-                                      )
+                                    : item.warehouseSummary || formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)
                                 }
                               >
                                 <span className="line-clamp-1">
-                                  {formatWarehouseLabel(
-                                    item,
-                                    activeWarehouseName,
-                                    activeWarehouseId,
-                                  )}
+                                  {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
                                 </span>
                                 {rowLocationLabel ? (
                                   <span className="mt-0.5 block truncate text-[9px] text-[var(--text-secondary)]">
@@ -1408,19 +1163,13 @@ function WorkWithPriceAdminPage() {
                               </button>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-secondary)]">
-                              {item.categoryName || '-'}
+                              {item.categoryName || "-"}
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-secondary)]">
-                              {item.groupName || '-'}
+                              {item.groupName || "-"}
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] font-semibold tabular-nums">
-                              <span
-                                className={
-                                  hasStock
-                                    ? 'text-[var(--stock-ok)]'
-                                    : 'text-[var(--stock-empty)]'
-                                }
-                              >
+                              <span className={hasStock ? "text-[var(--stock-ok)]" : "text-[var(--stock-empty)]"}>
                                 {formatStockUnits(rowQuantity)}
                               </span>
                             </td>
@@ -1428,23 +1177,15 @@ function WorkWithPriceAdminPage() {
                               {formatMoney(item.price)}
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] font-semibold tabular-nums text-[var(--text-primary)]">
-                              {formatMoney(
-                                getIntegerQuantity(rowQuantity) * item.price,
-                              )}
+                              {formatMoney(getIntegerQuantity(rowQuantity) * item.price)}
                             </td>
                             <td className="relative border-t border-[var(--border-color)] px-3 py-1.5 text-right">
-                              <div
-                                className="relative inline-flex"
-                                data-row-actions-root="true"
-                              >
+                              <div className="relative inline-flex" data-row-actions-root="true">
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleToggleRowMenu(
-                                      rowKey,
-                                      event.currentTarget,
-                                    );
+                                    handleToggleRowMenu(rowKey, event.currentTarget);
                                   }}
                                   className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--text-secondary)] transition hover:border-[var(--brand-yellow)] hover:text-[var(--brand-dark)]"
                                   title="Быстрые действия"
@@ -1463,16 +1204,13 @@ function WorkWithPriceAdminPage() {
 
               <div className="mt-1.5 flex flex-col gap-1.5 border-t border-[var(--border-color)] pt-1.5 text-[10px] text-[var(--text-secondary)] md:flex-row md:items-center md:justify-between">
                 <div>
-                  Показано {items.length} из {summary.totalItems} · Без связи с
-                  1С: {summary.unlinkedCount}
+                  Показано {items.length} из {summary.totalItems} · Без связи с 1С: {summary.unlinkedCount}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     disabled={page <= 1}
-                    onClick={() =>
-                      setPage((current) => Math.max(1, current - 1))
-                    }
+                    onClick={() => setPage((current) => Math.max(1, current - 1))}
                     className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <ChevronLeftIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -1483,9 +1221,7 @@ function WorkWithPriceAdminPage() {
                   <button
                     type="button"
                     disabled={page >= pageCount}
-                    onClick={() =>
-                      setPage((current) => Math.min(pageCount, current + 1))
-                    }
+                    onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
                     className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <ChevronRightIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -1515,9 +1251,7 @@ function WorkWithPriceAdminPage() {
                   style={{
                     top: activeRowMenu.top,
                     right: activeRowMenu.right,
-                    transform: activeRowMenu.openUpward
-                      ? 'translateY(-100%)'
-                      : undefined,
+                    transform: activeRowMenu.openUpward ? "translateY(-100%)" : undefined,
                   }}
                   onClick={(event) => event.stopPropagation()}
                 >
@@ -1530,22 +1264,16 @@ function WorkWithPriceAdminPage() {
                   />
                   <ActionMenuButton
                     label="Добавить остаток"
-                    onClick={() =>
-                      void handleOpenStockAction(activeRowMenuItem, 'add')
-                    }
+                    onClick={() => void handleOpenStockAction(activeRowMenuItem, "add")}
                   />
                   <ActionMenuButton
                     label="Переместить между складами"
-                    onClick={() =>
-                      void handleOpenStockAction(activeRowMenuItem, 'move')
-                    }
+                    onClick={() => void handleOpenStockAction(activeRowMenuItem, "move")}
                   />
                   <ActionMenuButton
                     label="Списать остаток"
                     destructive
-                    onClick={() =>
-                      void handleOpenStockAction(activeRowMenuItem, 'writeoff')
-                    }
+                    onClick={() => void handleOpenStockAction(activeRowMenuItem, "writeoff")}
                   />
                   <ActionMenuButton
                     label="Удалить товар"
@@ -1569,19 +1297,17 @@ function WorkWithPriceAdminPage() {
                     Выбранная позиция
                   </p>
                   <h2 className="mt-1 text-[13px] font-[650] leading-tight text-[var(--text-primary)]">
-                    {selectedItem ? selectedItem.name : 'Позиция не выбрана'}
+                    {selectedItem ? selectedItem.name : "Позиция не выбрана"}
                   </h2>
                   <p className="mt-1 text-[9px] text-[var(--text-secondary)]">
                     {selectedItem
-                      ? `Артикул: ${selectedItem.sku || '-'}`
-                      : 'Кликните по строке в таблице, чтобы редактировать карточку.'}
+                      ? `Артикул: ${selectedItem.sku || "-"}`
+                      : "Кликните по строке в таблице, чтобы редактировать карточку."}
                   </p>
                 </div>
                 {selectedInList && selectedItem ? (
-                  <StatusBadge
-                    tone={selectedItem.isLinkedToOneC ? 'success' : 'warning'}
-                  >
-                    {selectedItem.isLinkedToOneC ? 'Связана' : 'Локальная'}
+                  <StatusBadge tone={selectedItem.isLinkedToOneC ? "success" : "warning"}>
+                    {selectedItem.isLinkedToOneC ? "Связана" : "Локальная"}
                   </StatusBadge>
                 ) : null}
               </div>
@@ -1593,17 +1319,13 @@ function WorkWithPriceAdminPage() {
                       label="Артикул"
                       value={editForm.sku}
                       disabled={!isAdmin}
-                      onChange={(value) =>
-                        setEditForm((current) => ({ ...current, sku: value }))
-                      }
+                      onChange={(value) => setEditForm((current) => ({ ...current, sku: value }))}
                     />
                     <CompactField
                       label="Наименование"
                       value={editForm.name}
                       disabled={!isAdmin}
-                      onChange={(value) =>
-                        setEditForm((current) => ({ ...current, name: value }))
-                      }
+                      onChange={(value) => setEditForm((current) => ({ ...current, name: value }))}
                     />
                     <div className="grid grid-cols-2 gap-1.5">
                       <CompactField
@@ -1611,10 +1333,7 @@ function WorkWithPriceAdminPage() {
                         value={editForm.categoryName}
                         disabled={!isAdmin}
                         onChange={(value) =>
-                          setEditForm((current) => ({
-                            ...current,
-                            categoryName: value,
-                          }))
+                          setEditForm((current) => ({ ...current, categoryName: value }))
                         }
                       />
                       <CompactField
@@ -1622,10 +1341,7 @@ function WorkWithPriceAdminPage() {
                         value={editForm.groupName}
                         disabled={!isAdmin}
                         onChange={(value) =>
-                          setEditForm((current) => ({
-                            ...current,
-                            groupName: value,
-                          }))
+                          setEditForm((current) => ({ ...current, groupName: value }))
                         }
                       />
                     </div>
@@ -1636,10 +1352,7 @@ function WorkWithPriceAdminPage() {
                         inputMode="decimal"
                         disabled={!isAdmin}
                         onChange={(value) =>
-                          setEditForm((current) => ({
-                            ...current,
-                            price: sanitizeMoneyInput(value),
-                          }))
+                          setEditForm((current) => ({ ...current, price: sanitizeMoneyInput(value) }))
                         }
                       />
                       <CompactReadonlyField
@@ -1653,7 +1366,7 @@ function WorkWithPriceAdminPage() {
                           Остатки по складам
                         </div>
                         <div className="mt-0.5 text-[10px] text-[var(--text-secondary)]">
-                          Общий остаток:{' '}
+                          Общий остаток:{" "}
                           <span className="font-semibold text-[var(--text-primary)]">
                             {formatStockUnits(selectedItem.quantity)}
                           </span>
@@ -1663,9 +1376,7 @@ function WorkWithPriceAdminPage() {
                       <button
                         type="button"
                         disabled={isBusy}
-                        onClick={() =>
-                          void handleOpenStockAction(selectedItem, 'add')
-                        }
+                        onClick={() => void handleOpenStockAction(selectedItem, "add")}
                         className="app-action-button app-action-button--xs mt-1.5 w-full"
                       >
                         Изменить остатки
@@ -1704,8 +1415,7 @@ function WorkWithPriceAdminPage() {
 
                   {!isAdmin ? (
                     <p className="mt-1.5 text-[9px] leading-[14px] text-[var(--text-secondary)]">
-                      Режим просмотра. Менять цену, остаток и удалять позиции
-                      может только администратор.
+                      Режим просмотра. Менять цену, остаток и удалять позиции может только администратор.
                     </p>
                   ) : !editFormValidation.ok ? (
                     <p className="mt-1.5 text-[9px] leading-[14px] text-[var(--stock-empty)]">
@@ -1739,8 +1449,8 @@ function WorkWithPriceAdminPage() {
               ) : (
                 <div className="mt-1.5 rounded-[10px] border border-dashed border-[var(--border-color)] bg-[#FBFCFE] px-3 py-3 text-[10px] leading-[15px] text-[var(--text-secondary)]">
                   {isAdmin
-                    ? 'Выберите позицию в таблице слева. Здесь можно менять цену, остаток, категорию, группу и удалять карточку по одной.'
-                    : 'Выберите позицию в таблице слева, чтобы посмотреть карточку товара.'}
+                    ? "Выберите позицию в таблице слева. Здесь можно менять цену, остаток, категорию, группу и удалять карточку по одной."
+                    : "Выберите позицию в таблице слева, чтобы посмотреть карточку товара."}
                 </div>
               )}
             </section>
@@ -1749,9 +1459,7 @@ function WorkWithPriceAdminPage() {
               <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
                 <button
                   type="button"
-                  onClick={() =>
-                    setIsWarehouseSettingsExpanded((current) => !current)
-                  }
+                  onClick={() => setIsWarehouseSettingsExpanded((current) => !current)}
                   className="flex w-full items-center justify-between gap-2 rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-3 py-1.5 text-left transition hover:bg-white"
                 >
                   <div>
@@ -1763,19 +1471,17 @@ function WorkWithPriceAdminPage() {
                     </h2>
                     <p className="mt-1 text-[9px] text-[var(--text-secondary)]">
                       {isWarehouseSettingsExpanded
-                        ? 'Добавляйте и удаляйте локальные склады. В 1С они не отправляются.'
-                        : 'Разверните блок, чтобы управлять локальными складами.'}
+                        ? "Добавляйте и удаляйте локальные склады. В 1С они не отправляются."
+                        : "Разверните блок, чтобы управлять локальными складами."}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <StatusBadge tone="success">
-                      {warehouses.length} шт.
-                    </StatusBadge>
+                    <StatusBadge tone="success">{warehouses.length} шт.</StatusBadge>
                     <ChevronToggleIcon
                       className={[
-                        'h-4 w-4 shrink-0 text-[var(--text-secondary)] transition-transform duration-200',
-                        isWarehouseSettingsExpanded ? 'rotate-180' : '',
-                      ].join(' ')}
+                        "h-4 w-4 shrink-0 text-[var(--text-secondary)] transition-transform duration-200",
+                        isWarehouseSettingsExpanded ? "rotate-180" : "",
+                      ].join(" ")}
                     />
                   </div>
                 </button>
@@ -1785,9 +1491,7 @@ function WorkWithPriceAdminPage() {
                     <div className="mt-1.5 flex gap-1.5">
                       <input
                         value={warehouseNameInput}
-                        onChange={(event) =>
-                          setWarehouseNameInput(event.target.value)
-                        }
+                        onChange={(event) => setWarehouseNameInput(event.target.value)}
                         placeholder="Название нового склада"
                         className="h-[30px] min-w-0 flex-1 rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition-all duration-200 placeholder:text-[#94A3B8] focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
                       />
@@ -1808,94 +1512,27 @@ function WorkWithPriceAdminPage() {
                             key={warehouse.id}
                             className="flex items-center justify-between gap-2 rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-2.5 py-2"
                           >
-                            {warehouseBeingRenamed?.id === warehouse.id ? (
-                              <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                                <input
-                                  autoFocus
-                                  value={warehouseBeingRenamed.name}
-                                  onChange={(event) =>
-                                    setWarehouseBeingRenamed((current) =>
-                                      current
-                                        ? {
-                                            ...current,
-                                            name: event.target.value,
-                                          }
-                                        : current,
-                                    )
-                                  }
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                      event.preventDefault();
-                                      void handleRenameWarehouse();
-                                    }
-                                    if (event.key === 'Escape') {
-                                      setWarehouseBeingRenamed(null);
-                                    }
-                                  }}
-                                  className="h-[30px] min-w-0 flex-1 rounded-[9px] border border-[var(--border-color)] bg-white px-2.5 text-[11px] text-[var(--text-primary)] outline-none transition-all duration-200 focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
-                                />
-                                <button
-                                  type="button"
-                                  disabled={
-                                    isBusy || !warehouseBeingRenamed.name.trim()
-                                  }
-                                  onClick={() => void handleRenameWarehouse()}
-                                  className="app-action-button app-action-button--xs shrink-0"
-                                >
-                                  Сохранить
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={isBusy}
-                                  onClick={() => setWarehouseBeingRenamed(null)}
-                                  className="app-action-button app-action-button--xs shrink-0"
-                                >
-                                  Отмена
-                                </button>
+                            <div className="min-w-0">
+                              <div className="truncate text-[11px] font-semibold text-[var(--text-primary)]">
+                                {warehouse.name}
                               </div>
-                            ) : (
-                              <>
-                                <div className="min-w-0">
-                                  <div className="truncate text-[11px] font-semibold text-[var(--text-primary)]">
-                                    {warehouse.name}
-                                  </div>
-                                  <div className="text-[9px] text-[var(--text-secondary)]">
-                                    ID: {warehouse.id}
-                                  </div>
-                                </div>
-                                <div className="flex shrink-0 gap-1.5">
-                                  <button
-                                    type="button"
-                                    disabled={isBusy}
-                                    onClick={() =>
-                                      setWarehouseBeingRenamed({
-                                        id: warehouse.id,
-                                        name: warehouse.name,
-                                      })
-                                    }
-                                    className="app-action-button app-action-button--xs"
-                                  >
-                                    Переименовать
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={isBusy}
-                                    onClick={() =>
-                                      void handleDeleteWarehouse(warehouse.id)
-                                    }
-                                    className="app-action-button app-action-button--xs"
-                                  >
-                                    Удалить
-                                  </button>
-                                </div>
-                              </>
-                            )}
+                              <div className="text-[9px] text-[var(--text-secondary)]">
+                                ID: {warehouse.id}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={() => void handleDeleteWarehouse(warehouse.id)}
+                              className="app-action-button app-action-button--xs shrink-0"
+                            >
+                              Удалить
+                            </button>
                           </div>
                         ))
                       ) : (
                         <div className="rounded-[10px] border border-dashed border-[var(--border-color)] bg-[#FBFCFE] px-3 py-3 text-[10px] text-[var(--text-secondary)]">
-                          Пока нет складов. Добавьте первый склад вручную или
-                          импортируйте остатки из Excel.
+                          Пока нет складов. Добавьте первый склад вручную или импортируйте остатки из Excel.
                         </div>
                       )}
                     </div>
@@ -1906,22 +1543,20 @@ function WorkWithPriceAdminPage() {
 
             {isAdmin ? (
               <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setIsCreateExpanded((current) => {
-                      const next = !current;
-                      if (next) {
-                        setCreateForm(
-                          buildItemForm(activeWarehouseId, warehouses),
-                        );
-                      }
-                      return next;
-                    })
-                  }
-                  className="flex w-full items-center justify-between gap-2 rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-3 py-1.5 text-left transition hover:bg-white"
-                >
-                  <div>
+              <button
+                type="button"
+                onClick={() =>
+                  setIsCreateExpanded((current) => {
+                    const next = !current;
+                    if (next) {
+                      setCreateForm(buildItemForm(activeWarehouseId, warehouses));
+                    }
+                    return next;
+                  })
+                }
+                className="flex w-full items-center justify-between gap-2 rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-3 py-1.5 text-left transition hover:bg-white"
+              >
+                <div>
                     <p className="text-[9px] font-semibold text-[var(--text-secondary)]">
                       Новая позиция
                     </p>
@@ -1929,145 +1564,132 @@ function WorkWithPriceAdminPage() {
                       Добавление вручную
                     </h2>
                     <p className="mt-1 text-[9px] text-[var(--text-secondary)]">
-                      {isCreateExpanded
-                        ? 'Заполните поля и сохраните локальную позицию.'
-                        : 'Разверните блок, чтобы добавить товар вручную.'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
+                    {isCreateExpanded
+                      ? "Заполните поля и сохраните локальную позицию."
+                      : "Разверните блок, чтобы добавить товар вручную."}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
                     <span className="rounded-full bg-[#FFF8D9] px-2 py-0.5 text-[9px] font-semibold text-[var(--brand-dark)]">
                       Локально
                     </span>
-                    <ChevronToggleIcon
-                      className={[
-                        'h-4 w-4 shrink-0 text-[var(--text-secondary)] transition-transform duration-200',
-                        isCreateExpanded ? 'rotate-180' : '',
-                      ].join(' ')}
-                    />
-                  </div>
-                </button>
+                  <ChevronToggleIcon
+                    className={[
+                      "h-4 w-4 shrink-0 text-[var(--text-secondary)] transition-transform duration-200",
+                      isCreateExpanded ? "rotate-180" : "",
+                    ].join(" ")}
+                  />
+                </div>
+              </button>
 
-                {isCreateExpanded ? (
-                  <>
-                    <div className="mt-1.5 grid gap-1.5">
+              {isCreateExpanded ? (
+                <>
+                  <div className="mt-1.5 grid gap-1.5">
+                    <CompactField
+                      label="Артикул"
+                      value={createForm.sku}
+                      onChange={handleCreateSkuChange}
+                    />
+                    <CompactField
+                      label="Наименование"
+                      value={createForm.name}
+                      onChange={(value) => setCreateForm((current) => ({ ...current, name: value }))}
+                    />
+                    <div className="grid grid-cols-2 gap-1.5">
                       <CompactField
-                        label="Артикул"
-                        value={createForm.sku}
-                        onChange={handleCreateSkuChange}
+                        label="Категория"
+                        value={createForm.categoryName}
+                        listId="create-item-category-options"
+                        onChange={(value) =>
+                          setCreateForm((current) => ({ ...current, categoryName: value }))
+                        }
                       />
                       <CompactField
-                        label="Наименование"
-                        value={createForm.name}
+                        label="Группа"
+                        value={createForm.groupName}
+                        listId="create-item-group-options"
+                        onChange={(value) =>
+                          setCreateForm((current) => ({ ...current, groupName: value }))
+                        }
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <CompactField
+                        label="Цена"
+                        value={createForm.price}
+                        inputMode="decimal"
                         onChange={(value) =>
                           setCreateForm((current) => ({
                             ...current,
-                            name: value,
+                            price: sanitizeMoneyInput(value),
                           }))
                         }
                       />
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <CompactField
-                          label="Категория"
-                          value={createForm.categoryName}
-                          listId="create-item-category-options"
-                          onChange={(value) =>
-                            setCreateForm((current) => ({
-                              ...current,
-                              categoryName: value,
-                            }))
-                          }
-                        />
-                        <CompactField
-                          label="Группа"
-                          value={createForm.groupName}
-                          listId="create-item-group-options"
-                          onChange={(value) =>
-                            setCreateForm((current) => ({
-                              ...current,
-                              groupName: value,
-                            }))
-                          }
-                        />
+                      <div className="rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-2 py-1.5 text-[10px] text-[var(--text-secondary)]">
+                        Первая строка склада обязательна. Остатки по товару считаются суммой всех складов.
                       </div>
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <CompactField
-                          label="Цена"
-                          value={createForm.price}
-                          inputMode="decimal"
-                          onChange={(value) =>
-                            setCreateForm((current) => ({
-                              ...current,
-                              price: sanitizeMoneyInput(value),
-                            }))
-                          }
-                        />
-                        <div className="rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-2 py-1.5 text-[10px] text-[var(--text-secondary)]">
-                          Первая строка склада обязательна. Остатки по товару
-                          считаются суммой всех складов.
-                        </div>
-                      </div>
-                      <WarehouseFormEditor
-                        rows={createForm.warehouses}
-                        warehouses={warehouses}
-                        onChange={(rows) =>
-                          setCreateForm((current) => ({
-                            ...current,
-                            warehouses: rows,
-                          }))
-                        }
-                      />
-                      <datalist id="create-item-category-options">
-                        {categories.map((option) => (
-                          <option key={option} value={option} />
-                        ))}
-                      </datalist>
-                      <datalist id="create-item-group-options">
-                        {groups.map((option) => (
-                          <option key={option} value={option} />
-                        ))}
-                      </datalist>
                     </div>
+                    <WarehouseFormEditor
+                      rows={createForm.warehouses}
+                      warehouses={warehouses}
+                      onChange={(rows) =>
+                        setCreateForm((current) => ({
+                          ...current,
+                          warehouses: rows,
+                        }))
+                      }
+                    />
+                    <datalist id="create-item-category-options">
+                      {categories.map((option) => (
+                        <option key={option} value={option} />
+                      ))}
+                    </datalist>
+                    <datalist id="create-item-group-options">
+                      {groups.map((option) => (
+                        <option key={option} value={option} />
+                      ))}
+                    </datalist>
+                  </div>
 
-                    {!createFormValidation.ok ? (
-                      <p className="mt-1.5 text-[9px] leading-[14px] text-[var(--stock-empty)]">
-                        {createFormValidation.message}
-                      </p>
-                    ) : null}
+                  {!createFormValidation.ok ? (
+                    <p className="mt-1.5 text-[9px] leading-[14px] text-[var(--stock-empty)]">
+                      {createFormValidation.message}
+                    </p>
+                  ) : null}
 
-                    <button
-                      type="button"
-                      disabled={isBusy || !createFormValidation.ok}
-                      onClick={handleCreateItem}
-                      className="app-action-button app-action-button--sm mt-1.5 w-full"
-                    >
-                      <PlusIcon className="h-3.5 w-3.5 stroke-[2]" />
-                      Добавить позицию
-                    </button>
-                  </>
-                ) : null}
+                  <button
+                    type="button"
+                    disabled={isBusy || !createFormValidation.ok}
+                    onClick={handleCreateItem}
+                    className="app-action-button app-action-button--sm mt-1.5 w-full"
+                  >
+                    <PlusIcon className="h-3.5 w-3.5 stroke-[2]" />
+                    Добавить позицию
+                  </button>
+                </>
+              ) : null}
               </section>
             ) : null}
 
             {isAdmin ? (
               <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-                <p className="text-[9px] font-semibold text-[var(--text-secondary)]">
-                  Обслуживание каталога
-                </p>
-                <div className="mt-1.5 grid gap-1.5 text-[10px] text-[var(--text-secondary)]">
-                  <div className="rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-3 py-2">
-                    В локальном прайсе сейчас {summary.totalItems} позиций. В
-                    текущей выборке видно {summary.visibleItems}.
-                  </div>
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    onClick={handleClearCatalog}
-                    className="app-action-button app-action-button--sm"
-                  >
-                    <TrashIcon className="h-3.5 w-3.5 stroke-[2]" />
-                    Очистить весь локальный прайс
-                  </button>
+              <p className="text-[9px] font-semibold text-[var(--text-secondary)]">
+                Обслуживание каталога
+              </p>
+              <div className="mt-1.5 grid gap-1.5 text-[10px] text-[var(--text-secondary)]">
+                <div className="rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-3 py-2">
+                  В локальном прайсе сейчас {summary.totalItems} позиций. В текущей выборке видно {summary.visibleItems}.
                 </div>
+                <button
+                  type="button"
+                  disabled={isBusy}
+                  onClick={handleClearCatalog}
+                  className="app-action-button app-action-button--sm"
+                >
+                  <TrashIcon className="h-3.5 w-3.5 stroke-[2]" />
+                  Очистить весь локальный прайс
+                </button>
+              </div>
               </section>
             ) : null}
           </aside>
@@ -2090,9 +1712,7 @@ function WorkWithPriceAdminPage() {
             }))
           }
           onModeChange={(mode) =>
-            setStockAction((current) =>
-              current ? { ...current, mode } : current,
-            )
+            setStockAction((current) => (current ? { ...current, mode } : current))
           }
           onSubmit={() => void handleSubmitStockAction()}
         />
@@ -2109,9 +1729,9 @@ function WorkWithPriceAdminPage() {
     </AppShell>
   );
 }
-function toPayload(
-  form: ItemFormState,
-): { ok: true; payload: LocalItemPayload } | { ok: false; message: string } {
+function toPayload(form: ItemFormState):
+  | { ok: true; payload: LocalItemPayload }
+  | { ok: false; message: string } {
   const validation = validateItemForm(form);
   if (!validation.ok) {
     return validation;
@@ -2139,46 +1759,40 @@ function toPayload(
   };
 }
 
-function validateItemForm(
-  form: ItemFormState,
-): { ok: true } | { ok: false; message: string } {
+function validateItemForm(form: ItemFormState):
+  | { ok: true }
+  | { ok: false; message: string } {
   if (!form.name.trim()) {
-    return { ok: false, message: 'Заполните наименование товара.' };
+    return { ok: false, message: "Заполните наименование товара." };
   }
 
   const price = Number.parseFloat(normalizeMoneyValue(form.price));
   if (!Number.isFinite(price) || price < 0) {
-    return { ok: false, message: 'Цена должна быть числом от 0 и выше.' };
+    return { ok: false, message: "Цена должна быть числом от 0 и выше." };
   }
 
   const rows = normalizeWarehouseRows(form.warehouses);
   if (rows.length === 0) {
-    return { ok: false, message: 'Добавьте хотя бы одну складскую строку.' };
+    return { ok: false, message: "Добавьте хотя бы одну складскую строку." };
   }
 
   const seen = new Set<string>();
   for (const row of rows) {
     if (!row.warehouseName.trim()) {
-      return { ok: false, message: 'Укажите название склада в каждой строке.' };
+      return { ok: false, message: "Укажите название склада в каждой строке." };
     }
 
     const quantity = parseWarehouseQuantity(row.quantity);
     if (!Number.isFinite(quantity) || quantity < 0) {
-      return {
-        ok: false,
-        message: 'Остаток по складу должен быть целым числом от 0 и выше.',
-      };
+      return { ok: false, message: "Остаток по складу должен быть целым числом от 0 и выше." };
     }
 
     const duplicateKey =
       row.warehouseId !== null
         ? `id:${row.warehouseId}`
-        : `name:${row.warehouseName.trim().toLocaleLowerCase('ru')}`;
+        : `name:${row.warehouseName.trim().toLocaleLowerCase("ru")}`;
     if (seen.has(duplicateKey)) {
-      return {
-        ok: false,
-        message: 'Один и тот же склад нельзя добавлять в товар дважды.',
-      };
+      return { ok: false, message: "Один и тот же склад нельзя добавлять в товар дважды." };
     }
     seen.add(duplicateKey);
   }
@@ -2203,31 +1817,25 @@ function normalizeWarehouseRows(rows: WarehouseFormState[]) {
 }
 
 function normalizeSku(value: string) {
-  return value.trim().toLocaleLowerCase('ru');
+  return value.trim().toLocaleLowerCase("ru");
 }
 
-function buildItemForm(
-  activeWarehouseId: number | null,
-  warehouses: Warehouse[],
-): ItemFormState {
+function buildItemForm(activeWarehouseId: number | null, warehouses: Warehouse[]): ItemFormState {
   const preferredWarehouse =
     activeWarehouseId !== null
-      ? (warehouses.find((warehouse) => warehouse.id === activeWarehouseId) ??
-        null)
-      : (warehouses.find((warehouse) => warehouse.name === 'Основной склад') ??
-        warehouses[0] ??
-        null);
+      ? warehouses.find((warehouse) => warehouse.id === activeWarehouseId) ?? null
+      : warehouses.find((warehouse) => warehouse.name === "Основной склад") ?? warehouses[0] ?? null;
 
   return {
-    sku: '',
-    name: '',
-    categoryName: '',
-    groupName: '',
-    price: '0.00',
+    sku: "",
+    name: "",
+    categoryName: "",
+    groupName: "",
+    price: "0.00",
     warehouses: [
       createWarehouseFormState(
-        preferredWarehouse?.name ?? 'Основной склад',
-        '0',
+        preferredWarehouse?.name ?? "Основной склад",
+        "0",
         preferredWarehouse?.id ?? null,
       ),
     ],
@@ -2235,11 +1843,11 @@ function buildItemForm(
 }
 
 function createWarehouseFormState(
-  warehouseName = '',
-  quantity = '0',
+  warehouseName = "",
+  quantity = "0",
   warehouseId: number | null = null,
-  rack = '',
-  cell = '',
+  rack = "",
+  cell = "",
 ): WarehouseFormState {
   return {
     key: `warehouse-${Math.random().toString(36).slice(2, 10)}`,
@@ -2267,9 +1875,7 @@ function getWarehouseRowsTotal(rows: WarehouseFormState[]) {
 }
 
 function getCatalogRowKey(item: StockItem) {
-  return (
-    item.catalogRowKey || `${item.id}:${item.rowWarehouseId ?? 'no-warehouse'}`
-  );
+  return item.catalogRowKey || `${item.id}:${item.rowWarehouseId ?? "no-warehouse"}`;
 }
 
 function getCatalogRowQuantity(item: StockItem) {
@@ -2281,7 +1887,7 @@ function formatWarehouseLabel(
   activeWarehouseName: string,
   activeWarehouseId: number | null,
 ) {
-  const rowWarehouseName = item.rowWarehouseName?.trim() || '';
+  const rowWarehouseName = item.rowWarehouseName?.trim() || "";
   if (rowWarehouseName) {
     return rowWarehouseName;
   }
@@ -2290,8 +1896,8 @@ function formatWarehouseLabel(
     return activeWarehouseName;
   }
 
-  const summary = item.warehouseSummary?.trim() || '';
-  const primaryName = item.topWarehouseName?.trim() || 'Основной склад';
+  const summary = item.warehouseSummary?.trim() || "";
+  const primaryName = item.topWarehouseName?.trim() || "Основной склад";
   if ((item.warehouseCount || 0) <= 1) {
     return summary || primaryName;
   }
@@ -2300,26 +1906,26 @@ function formatWarehouseLabel(
 }
 
 function formatRowLocationLabel(item: StockItem) {
-  return item.rowLocationLabel?.trim() || '';
+  return item.rowLocationLabel?.trim() || "";
 }
 
 function getDrawerTitle(mode: StockActionMode) {
-  if (mode === 'add') {
-    return 'Добавить';
+  if (mode === "add") {
+    return "Добавить";
   }
-  if (mode === 'move') {
-    return 'Переместить';
+  if (mode === "move") {
+    return "Переместить";
   }
-  return 'Списать';
+  return "Списать";
 }
 
 function sanitizeIntegerInput(value: string) {
-  return value.replace(/[^\d]/g, '');
+  return value.replace(/[^\d]/g, "");
 }
 
 function sanitizeMoneyInput(value: string) {
-  const normalized = value.replace(',', '.').replace(/[^\d.]/g, '');
-  const [integerPart = '', fractionPart] = normalized.split('.');
+  const normalized = value.replace(",", ".").replace(/[^\d.]/g, "");
+  const [integerPart = "", fractionPart] = normalized.split(".");
 
   if (fractionPart === undefined) {
     return integerPart;
@@ -2330,7 +1936,7 @@ function sanitizeMoneyInput(value: string) {
 
 function normalizeMoneyValue(value: string) {
   const normalized = sanitizeMoneyInput(value);
-  return normalized.trim() ? normalized : '0';
+  return normalized.trim() ? normalized : "0";
 }
 
 function getIntegerQuantity(value: number) {
@@ -2347,22 +1953,22 @@ function formatIntegerInput(value: number) {
 
 function formatNumberInput(value: number, fractionDigits: number) {
   if (!Number.isFinite(value) || value <= 0) {
-    return fractionDigits > 0 ? '0.00' : '0';
+    return fractionDigits > 0 ? "0.00" : "0";
   }
 
   return value.toFixed(fractionDigits);
 }
 
 function formatMoney(value: number) {
-  const rubleSign = '\u20BD';
-  return `${new Intl.NumberFormat('ru-RU', {
+  const rubleSign = "\u20BD";
+  return `${new Intl.NumberFormat("ru-RU", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value)} ${rubleSign}`;
 }
 
 function formatStockUnits(value: number) {
-  return `${new Intl.NumberFormat('ru-RU').format(getIntegerQuantity(value))} шт.`;
+  return `${new Intl.NumberFormat("ru-RU").format(getIntegerQuantity(value))} шт.`;
 }
 
 function ActionButton({
@@ -2403,11 +2009,11 @@ function WarehouseTab({
       type="button"
       onClick={onClick}
       className={[
-        'inline-flex h-[34px] items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200',
+        "inline-flex h-[34px] items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200",
         active
-          ? 'border-[var(--border-color)] border-t-[2px] border-t-[var(--stock-ok)] bg-white text-[var(--brand-dark)] shadow-[0_10px_20px_rgba(7,22,46,0.06)]'
-          : 'border-[var(--border-color)] bg-[#F8FAFD] text-[var(--text-secondary)] hover:bg-white hover:text-[var(--text-primary)]',
-      ].join(' ')}
+          ? "border-[var(--border-color)] border-t-[2px] border-t-[var(--stock-ok)] bg-white text-[var(--brand-dark)] shadow-[0_10px_20px_rgba(7,22,46,0.06)]"
+          : "border-[var(--border-color)] bg-[#F8FAFD] text-[var(--text-secondary)] hover:bg-white hover:text-[var(--text-primary)]",
+      ].join(" ")}
     >
       <span className="truncate">{children}</span>
     </button>
@@ -2418,14 +2024,14 @@ function CompactField({
   label,
   value,
   onChange,
-  inputMode = 'text',
+  inputMode = "text",
   listId,
   disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
-  inputMode?: 'text' | 'numeric' | 'decimal';
+  inputMode?: "text" | "numeric" | "decimal";
   listId?: string;
   disabled?: boolean;
 }) {
@@ -2459,9 +2065,7 @@ function CompactReadonlyField({
 }) {
   const body = (
     <div className="flex h-[30px] w-full items-center justify-between rounded-[9px] border border-[var(--border-color)] bg-[#FCFDFE] px-2.5 text-[11px]">
-      <span className="truncate font-semibold text-[var(--text-primary)]">
-        {value}
-      </span>
+      <span className="truncate font-semibold text-[var(--text-primary)]">{value}</span>
       {hint ? (
         <span className="shrink-0 pl-2 text-[9px] font-semibold text-[var(--brand-dark)]">
           {hint}
@@ -2501,23 +2105,15 @@ function WarehouseFormEditor({
   onChange: (rows: WarehouseFormState[]) => void;
   disabled?: boolean;
 }) {
-  const safeRows =
-    rows.length > 0 ? rows : [createWarehouseFormState('Основной склад', '0')];
+  const safeRows = rows.length > 0 ? rows : [createWarehouseFormState("Основной склад", "0")];
 
-  const replaceRow = (
-    rowKey: string,
-    updater: (row: WarehouseFormState) => WarehouseFormState,
-  ) => {
+  const replaceRow = (rowKey: string, updater: (row: WarehouseFormState) => WarehouseFormState) => {
     onChange(safeRows.map((row) => (row.key === rowKey ? updater(row) : row)));
   };
 
   const handleRemove = (rowKey: string) => {
     const next = safeRows.filter((row) => row.key !== rowKey);
-    onChange(
-      next.length > 0
-        ? next
-        : [createWarehouseFormState('Основной склад', '0')],
-    );
+    onChange(next.length > 0 ? next : [createWarehouseFormState("Основной склад", "0")]);
   };
 
   return (
@@ -2528,7 +2124,7 @@ function WarehouseFormEditor({
             Остатки по складам
           </div>
           <div className="mt-0.5 text-[10px] text-[var(--text-secondary)]">
-            Общий остаток:{' '}
+            Общий остаток:{" "}
             <span className="font-semibold text-[var(--text-primary)]">
               {formatStockUnits(getWarehouseRowsTotal(safeRows))}
             </span>
@@ -2554,24 +2150,18 @@ function WarehouseFormEditor({
             <div className="grid grid-cols-[minmax(0,1fr)_32px] items-end gap-1.5">
               <label className="block min-w-0">
                 <span className="mb-1 block text-[9px] font-medium text-[var(--text-secondary)]">
-                  Склад {safeRows.length > 1 ? index + 1 : ''}
+                  Склад {safeRows.length > 1 ? index + 1 : ""}
                 </span>
                 <select
                   value={String(
-                    row.warehouseId ??
-                      warehouses.find(
-                        (warehouse) => warehouse.name === row.warehouseName,
-                      )?.id ??
-                      '',
+                    row.warehouseId ?? warehouses.find((warehouse) => warehouse.name === row.warehouseName)?.id ?? "",
                   )}
                   disabled={disabled}
                   onChange={(event) => {
-                    const warehouse = warehouses.find(
-                      (entry) => String(entry.id) === event.target.value,
-                    );
+                    const warehouse = warehouses.find((entry) => String(entry.id) === event.target.value);
                     replaceRow(row.key, (current) => ({
                       ...current,
-                      warehouseName: warehouse?.name ?? '',
+                      warehouseName: warehouse?.name ?? "",
                       warehouseId: warehouse?.id ?? null,
                     }));
                   }}
@@ -2671,11 +2261,11 @@ function ActionMenuButton({
       type="button"
       onClick={onClick}
       className={[
-        'flex w-full items-center rounded-[10px] px-2.5 py-2 text-left text-[11px] font-medium transition',
+        "flex w-full items-center rounded-[10px] px-2.5 py-2 text-left text-[11px] font-medium transition",
         destructive
-          ? 'text-[var(--stock-empty)] hover:bg-[#FEF2F2]'
-          : 'text-[var(--text-primary)] hover:bg-[#F8FAFD]',
-      ].join(' ')}
+          ? "text-[var(--stock-empty)] hover:bg-[#FEF2F2]"
+          : "text-[var(--text-primary)] hover:bg-[#F8FAFD]",
+      ].join(" ")}
     >
       {label}
     </button>
@@ -2705,27 +2295,20 @@ function StockActionDrawer({
   onModeChange: (mode: StockActionMode) => void;
   onSubmit: () => void;
 }) {
-  const positiveWarehouses = item.warehouses.filter(
-    (warehouse) => getIntegerQuantity(warehouse.quantity) > 0,
-  );
+  const positiveWarehouses = item.warehouses.filter((warehouse) => getIntegerQuantity(warehouse.quantity) > 0);
   const moveTargets = warehouses.filter(
     (warehouse) => String(warehouse.id) !== form.fromWarehouseId,
   );
-  const showWarehouseLabel = mode !== 'move';
-  const requestedQuantity = Number.parseInt(
-    sanitizeIntegerInput(form.quantity),
-    10,
-  );
+  const showWarehouseLabel = mode !== "move";
+  const requestedQuantity = Number.parseInt(sanitizeIntegerInput(form.quantity), 10);
   const isSubmitDisabled =
     isBusy ||
     !Number.isFinite(requestedQuantity) ||
     requestedQuantity <= 0 ||
-    (mode === 'add' && !form.warehouseId) ||
-    (mode === 'writeoff' &&
-      (!form.warehouseId ||
-        availableQuantity <= 0 ||
-        requestedQuantity > availableQuantity)) ||
-    (mode === 'move' &&
+    (mode === "add" && !form.warehouseId) ||
+    (mode === "writeoff" &&
+      (!form.warehouseId || availableQuantity <= 0 || requestedQuantity > availableQuantity)) ||
+    (mode === "move" &&
       (!form.fromWarehouseId ||
         !form.toWarehouseId ||
         form.fromWarehouseId === form.toWarehouseId ||
@@ -2750,8 +2333,7 @@ function StockActionDrawer({
               {item.name}
             </h2>
             <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
-              Артикул: {item.sku || '-'} · Общий остаток:{' '}
-              {formatStockUnits(item.quantity)}
+              Артикул: {item.sku || "-"} · Общий остаток: {formatStockUnits(item.quantity)}
             </p>
           </div>
           <button
@@ -2765,17 +2347,17 @@ function StockActionDrawer({
 
         <div className="border-b border-[var(--border-color)] px-4 py-2">
           <div className="flex gap-1">
-            {(['add', 'move', 'writeoff'] as StockActionMode[]).map((entry) => (
+            {(["add", "move", "writeoff"] as StockActionMode[]).map((entry) => (
               <button
                 key={entry}
                 type="button"
                 onClick={() => onModeChange(entry)}
                 className={[
-                  'flex h-9 items-center rounded-[10px] px-3 text-[11px] font-semibold transition',
+                  "flex h-9 items-center rounded-[10px] px-3 text-[11px] font-semibold transition",
                   mode === entry
-                    ? 'bg-[var(--brand-yellow)] text-[var(--brand-dark)]'
-                    : 'bg-[#F8FAFD] text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
-                ].join(' ')}
+                    ? "bg-[var(--brand-yellow)] text-[var(--brand-dark)]"
+                    : "bg-[#F8FAFD] text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+                ].join(" ")}
               >
                 {getDrawerTitle(entry)}
               </button>
@@ -2826,32 +2408,18 @@ function StockActionDrawer({
                 </span>
                 <select
                   value={form.warehouseId}
-                  onChange={(event) =>
-                    onFormChange({ warehouseId: event.target.value })
-                  }
+                  onChange={(event) => onFormChange({ warehouseId: event.target.value })}
                   className="h-[36px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
                 >
                   <option value="">Выберите склад</option>
-                  {(mode === 'add' ? warehouses : positiveWarehouses).map(
-                    (warehouse) => (
-                      <option
-                        key={
-                          'warehouseId' in warehouse
-                            ? warehouse.warehouseId
-                            : warehouse.id
-                        }
-                        value={
-                          'warehouseId' in warehouse
-                            ? warehouse.warehouseId
-                            : warehouse.id
-                        }
-                      >
-                        {'warehouseName' in warehouse
-                          ? warehouse.warehouseName
-                          : warehouse.name}
-                      </option>
-                    ),
-                  )}
+                  {(mode === "add" ? warehouses : positiveWarehouses).map((warehouse) => (
+                    <option
+                      key={"warehouseId" in warehouse ? warehouse.warehouseId : warehouse.id}
+                      value={"warehouseId" in warehouse ? warehouse.warehouseId : warehouse.id}
+                    >
+                      {"warehouseName" in warehouse ? warehouse.warehouseName : warehouse.name}
+                    </option>
+                  ))}
                 </select>
               </label>
             ) : (
@@ -2862,17 +2430,12 @@ function StockActionDrawer({
                   </span>
                   <select
                     value={form.fromWarehouseId}
-                    onChange={(event) =>
-                      onFormChange({ fromWarehouseId: event.target.value })
-                    }
+                    onChange={(event) => onFormChange({ fromWarehouseId: event.target.value })}
                     className="h-[36px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
                   >
                     <option value="">Выберите склад</option>
                     {positiveWarehouses.map((warehouse) => (
-                      <option
-                        key={warehouse.warehouseId}
-                        value={warehouse.warehouseId}
-                      >
+                      <option key={warehouse.warehouseId} value={warehouse.warehouseId}>
                         {warehouse.warehouseName}
                       </option>
                     ))}
@@ -2885,9 +2448,7 @@ function StockActionDrawer({
                   </span>
                   <select
                     value={form.toWarehouseId}
-                    onChange={(event) =>
-                      onFormChange({ toWarehouseId: event.target.value })
-                    }
+                    onChange={(event) => onFormChange({ toWarehouseId: event.target.value })}
                     className="h-[36px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
                   >
                     <option value="">Выберите склад</option>
@@ -2901,10 +2462,10 @@ function StockActionDrawer({
               </div>
             )}
 
-            {mode !== 'add' ? (
+            {mode !== "add" ? (
               <div className="space-y-1">
                 <div className="rounded-[10px] border border-[var(--border-color)] bg-white px-3 py-2 text-[11px] text-[var(--text-secondary)]">
-                  Доступно:{' '}
+                  Доступно:{" "}
                   <span className="font-semibold text-[var(--text-primary)] tabular-nums">
                     {formatStockUnits(availableQuantity)}
                   </span>
@@ -2927,9 +2488,7 @@ function StockActionDrawer({
                 value={form.quantity}
                 inputMode="numeric"
                 onChange={(event) =>
-                  onFormChange({
-                    quantity: sanitizeIntegerInput(event.target.value),
-                  })
+                  onFormChange({ quantity: sanitizeIntegerInput(event.target.value) })
                 }
                 className="h-[36px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-3 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
               />
@@ -2937,13 +2496,11 @@ function StockActionDrawer({
 
             <label className="block">
               <span className="mb-1 block text-[10px] font-medium text-[var(--text-secondary)]">
-                {mode === 'writeoff' ? 'Причина списания' : 'Комментарий'}
+                {mode === "writeoff" ? "Причина списания" : "Комментарий"}
               </span>
               <textarea
                 value={form.comment}
-                onChange={(event) =>
-                  onFormChange({ comment: event.target.value })
-                }
+                onChange={(event) => onFormChange({ comment: event.target.value })}
                 rows={3}
                 className="w-full resize-none rounded-[10px] border border-[var(--border-color)] bg-white px-3 py-2 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)] focus:shadow-[0_0_0_3px_rgba(255,196,0,0.12)]"
               />
@@ -2958,11 +2515,7 @@ function StockActionDrawer({
             onClick={onSubmit}
             className="app-action-button app-action-button--xl w-full"
           >
-            {mode === 'add'
-              ? 'Добавить остаток'
-              : mode === 'move'
-                ? 'Переместить'
-                : 'Списать'}
+            {mode === "add" ? "Добавить остаток" : mode === "move" ? "Переместить" : "Списать"}
           </button>
         </div>
       </section>
@@ -2984,12 +2537,9 @@ function ConfirmDeleteDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(7,22,46,0.2)] px-4 backdrop-blur-[2px]">
       <div className="w-full max-w-[420px] rounded-[18px] border border-[var(--border-color)] bg-white p-5 shadow-[0_22px_48px_rgba(7,22,46,0.16)]">
-        <h3 className="text-[16px] font-[650] text-[var(--text-primary)]">
-          Удалить товар?
-        </h3>
+        <h3 className="text-[16px] font-[650] text-[var(--text-primary)]">Удалить товар?</h3>
         <p className="mt-2 text-[12px] leading-5 text-[var(--text-secondary)]">
-          Товар &quot;{itemName}&quot; будет удален из локального прайса вместе
-          с остатками по всем складам.
+          Товар &quot;{itemName}&quot; будет удален из локального прайса вместе с остатками по всем складам.
         </p>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button
@@ -3041,17 +2591,17 @@ function StatusBadge({
   tone,
   children,
 }: {
-  tone: 'success' | 'warning';
+  tone: "success" | "warning";
   children: ReactNode;
 }) {
   return (
     <span
       className={[
-        'inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-semibold',
-        tone === 'success'
-          ? 'bg-[#ECFDF3] text-[var(--stock-ok)]'
-          : 'bg-[#FFF7E8] text-[#B45309]',
-      ].join(' ')}
+        "inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-semibold",
+        tone === "success"
+          ? "bg-[#ECFDF3] text-[var(--stock-ok)]"
+          : "bg-[#FFF7E8] text-[#B45309]",
+      ].join(" ")}
     >
       {children}
     </span>
@@ -3084,12 +2634,7 @@ function TableSkeleton() {
 function MoreIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path
-        d="M5 12h.01M12 12h.01M19 12h.01"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="2.2"
-      />
+      <path d="M5 12h.01M12 12h.01M19 12h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
     </svg>
   );
 }
@@ -3254,6 +2799,7 @@ function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
 
 function ChevronToggleIcon(props: SVGProps<SVGSVGElement>) {
   return (

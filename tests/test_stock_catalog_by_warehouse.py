@@ -63,45 +63,6 @@ class StockCatalogByWarehouseTest(unittest.TestCase):
             },
         )
 
-    def test_renaming_warehouse_keeps_its_stock_balance(self) -> None:
-        warehouse = self.db.create_warehouse(name="Старое название")
-        item = self.db.create_local_item(
-            sku="RENAME-001",
-            name="Тестовая позиция",
-            print_name="Тестовая позиция",
-            category_name="Категория",
-            group_name="Группа",
-            price=1500,
-            warehouses=[
-                {
-                    "warehouse_id": warehouse["id"],
-                    "warehouse_name": warehouse["name"],
-                    "quantity": 7,
-                }
-            ],
-        )
-
-        renamed = self.db.rename_warehouse(int(warehouse["id"]), name="Новое название")
-
-        self.assertEqual(renamed["id"], warehouse["id"])
-        self.assertEqual(renamed["name"], "Новое название")
-        catalog = self.service.get_stock_catalog(page=1, page_size=50)
-        row = next(row for row in catalog["items"] if row["id"] == item["id"])
-        self.assertEqual(row["row_warehouse_id"], warehouse["id"])
-        self.assertEqual(row["row_warehouse_name"], "Новое название")
-        self.assertEqual(float(row["row_quantity"]), 7.0)
-
-    def test_renaming_warehouse_rejects_blank_and_duplicate_name(self) -> None:
-        warehouse = self.db.create_warehouse(name="Первый склад")
-        self.db.create_warehouse(name="Второй склад")
-
-        with self.assertRaisesRegex(ValueError, "Укажите название склада"):
-            self.db.rename_warehouse(int(warehouse["id"]), name="   ")
-        with self.assertRaisesRegex(ValueError, "Склад с таким названием уже существует"):
-            self.db.rename_warehouse(int(warehouse["id"]), name="второй СКЛАД")
-
-        self.assertEqual(self.db.list_warehouses()[0]["name"], "Второй склад")
-
     def test_import_does_not_merge_different_skus_with_same_name(self) -> None:
         self.db.import_stock_rows(
             [
