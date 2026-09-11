@@ -66,6 +66,41 @@ def test_login_normalizes_username_and_me_returns_current_role_without_secrets(
     assert PROHIBITED_USER_FIELDS.isdisjoint(me_response.json()["user"])
 
 
+def test_admin_renames_warehouse_and_catalog_keeps_its_balance(auth_api: AuthApiHarness) -> None:
+    token = auth_api.login("admin", INITIAL_ADMIN_PASSWORD)
+    warehouse = auth_api.service.db.create_warehouse(name="Старый склад")
+    auth_api.service.db.create_local_item(
+        sku="WAREHOUSE-RENAME-001",
+        name="Тестовая позиция",
+        print_name="Тестовая позиция",
+        category_name="Категория",
+        group_name="Группа",
+        price=100,
+        warehouses=[
+            {
+                "warehouse_id": warehouse["id"],
+                "warehouse_name": warehouse["name"],
+                "quantity": 4,
+            }
+        ],
+    )
+
+    response = auth_api.client.patch(
+        f"/api/warehouses/{warehouse['id']}",
+        json={"name": "Новый склад"},
+        headers=auth_api.bearer(token),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["warehouse"]["id"] == warehouse["id"]
+    assert response.json()["warehouse"]["name"] == "Новый склад"
+    catalog = auth_api.client.get("/api/stock/catalog", headers=auth_api.bearer(token))
+    row = next(item for item in catalog.json()["items"] if item["sku"] == "WAREHOUSE-RENAME-001")
+    assert row["rowWarehouseId"] == warehouse["id"]
+    assert row["rowWarehouseName"] == "Новый склад"
+    assert row["rowQuantity"] == 4
+
+
 @pytest.mark.parametrize(
     ("payload", "expected_status"),
     [
@@ -196,6 +231,7 @@ ADMIN_REQUESTS: list[tuple[str, str, dict[str, Any]]] = [
     ("POST", "/api/users/999/reveal-app-password", {}),
     ("POST", "/api/users/999/reveal-onec-password", {}),
     ("POST", "/api/warehouses", {"json": {"name": "Denied"}}),
+    ("PATCH", "/api/warehouses/999", {"json": {"name": "Denied"}}),
     ("DELETE", "/api/warehouses/999", {}),
     ("POST", "/api/stock/items/999/add-stock", {"json": {"warehouseId": 1, "quantity": 1}}),
     ("POST", "/api/stock/items/999/move-stock", {"json": {"fromWarehouseId": 1, "toWarehouseId": 2, "quantity": 1}}),

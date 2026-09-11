@@ -33,16 +33,15 @@
   StockItem,
   SystemSettings,
   Warehouse,
-} from "@/lib/types";
-import { loadAuthTokenFromStorage } from "@/lib/storage";
-
+} from '@/lib/types';
+import { loadAuthTokenFromStorage } from '@/lib/storage';
 
 export class ApiRequestError extends Error {
   readonly status: number;
 
   constructor(message: string, status: number) {
     super(message);
-    this.name = "ApiRequestError";
+    this.name = 'ApiRequestError';
     this.status = status;
   }
 }
@@ -66,11 +65,15 @@ function waitForRetry(delayMs: number) {
 async function fetchWithRetry(
   input: RequestInfo | URL,
   init?: RequestInit,
-  { retryTransient = false, timeoutMs = REQUEST_TIMEOUT_MS }: FetchRetryOptions = {},
+  {
+    retryTransient = false,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  }: FetchRetryOptions = {},
 ): Promise<Response> {
   const requestGeneration = cacheGeneration;
-  const isSafeGet = (init?.method ?? "GET").toUpperCase() === "GET";
-  const maxAttempts = retryTransient && isSafeGet ? retryDelaysMs.length + 1 : 1;
+  const isSafeGet = (init?.method ?? 'GET').toUpperCase() === 'GET';
+  const maxAttempts =
+    retryTransient && isSafeGet ? retryDelaysMs.length + 1 : 1;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const timeoutController = new AbortController();
@@ -98,10 +101,16 @@ async function fetchWithRetry(
       return response;
     } catch (error: unknown) {
       if (timedOut) {
-        throw new ApiRequestError("Время ожидания ответа сервера истекло. Повторите попытку.", 0);
+        throw new ApiRequestError(
+          'Время ожидания ответа сервера истекло. Повторите попытку.',
+          0,
+        );
       }
 
-      if (attempt >= maxAttempts - 1 || (error instanceof Error && error.name === "AbortError")) {
+      if (
+        attempt >= maxAttempts - 1 ||
+        (error instanceof Error && error.name === 'AbortError')
+      ) {
         throw error;
       }
 
@@ -111,7 +120,7 @@ async function fetchWithRetry(
     }
   }
 
-  throw new Error("Сетевой запрос не выполнен.");
+  throw new Error('Сетевой запрос не выполнен.');
 }
 
 const GET_CACHE_TTL_MS = 30_000;
@@ -136,7 +145,7 @@ export function invalidateApiCache() {
 }
 
 function canCacheGet(path: string) {
-  return typeof window !== "undefined" && !path.startsWith("/api/auth/");
+  return typeof window !== 'undefined' && !path.startsWith('/api/auth/');
 }
 
 function readGetCache<T>(url: string): T | undefined {
@@ -156,8 +165,8 @@ function readGetCache<T>(url: string): T | undefined {
 function createHeaders(existing?: HeadersInit) {
   const headers = new Headers(existing);
   const token = loadAuthTokenFromStorage();
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
   return headers;
 }
@@ -210,7 +219,7 @@ export type AppUserPayload = {
   password: string;
   appPassword: string;
   fullName: string;
-  role: "admin" | "user";
+  role: 'admin' | 'user';
   onecUsername: string;
   onecPassword: string;
 };
@@ -218,14 +227,14 @@ export type AppUserPayload = {
 export type AppUserUpdatePayload = {
   fullName: string;
   appPassword?: string;
-  role: "admin" | "user";
+  role: 'admin' | 'user';
   isActive: boolean;
   onecUsername: string;
   onecPassword?: string;
 };
 
 export type CreateClientPayload = {
-  legalType: "legal_entity" | "individual_entrepreneur";
+  legalType: 'legal_entity' | 'individual_entrepreneur';
   documentName: string;
   fullName: string;
   inn: string;
@@ -253,7 +262,7 @@ export type CreateClientPayload = {
 };
 
 export type ClientSyncResult = {
-  status: "local" | "synced" | "sync_error";
+  status: 'local' | 'synced' | 'sync_error';
   message: string;
   onecRefKey?: string;
 };
@@ -276,7 +285,7 @@ export type CrmCreateClientPayload = {
   maxLink?: string;
   notes?: string;
   contactPerson?: string;
-  legalType?: "legal_entity" | "individual_entrepreneur";
+  legalType?: 'legal_entity' | 'individual_entrepreneur';
 };
 
 export type CrmClientsQuery = {
@@ -294,12 +303,12 @@ type CrmImportPayload = {
 };
 
 export type ResolveCrmSyncConflictPayload = {
-  choice: "local" | "remote";
+  choice: 'local' | 'remote';
   expectedUpdatedAt: string;
 };
 
 export type CreateCommercialOfferPayload = {
-  clientSource: "onec" | "local" | "manual";
+  clientSource: 'onec' | 'local' | 'manual';
   clientId?: number | null;
   clientName: string;
   notes?: string;
@@ -307,10 +316,10 @@ export type CreateCommercialOfferPayload = {
 };
 
 export type CreateDocumentPayload = {
-  documentType: "contract" | "specification";
+  documentType: 'contract' | 'specification';
   number: string;
   documentDate: string;
-  clientSource: "onec" | "local";
+  clientSource: 'onec' | 'local';
   clientId: number;
   commercialOfferId?: number | null;
   correspondentAccount?: string;
@@ -318,28 +327,32 @@ export type CreateDocumentPayload = {
   notes?: string;
 };
 
-async function parseJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
+async function parseJsonResponse<T>(
+  response: Response,
+  fallbackMessage: string,
+): Promise<T> {
   if (!response.ok) {
     let message = fallbackMessage;
 
     try {
       const data = (await response.json()) as { detail?: string };
-      if (typeof data.detail === "string" && data.detail.trim()) {
+      if (typeof data.detail === 'string' && data.detail.trim()) {
         message = data.detail.trim();
       }
     } catch {
       // Keep fallback if the response body is not JSON.
     }
 
-    const responseGeneration = responseGenerations.get(response) ?? cacheGeneration;
+    const responseGeneration =
+      responseGenerations.get(response) ?? cacheGeneration;
     if (
-      response.status === 401
-      && responseGeneration === cacheGeneration
-      && typeof window !== "undefined"
+      response.status === 401 &&
+      responseGeneration === cacheGeneration &&
+      typeof window !== 'undefined'
     ) {
       getCache.clear();
       inflightGetRequests.clear();
-      window.dispatchEvent(new CustomEvent("sm-techno-auth-expired"));
+      window.dispatchEvent(new CustomEvent('sm-techno-auth-expired'));
     }
 
     throw new ApiRequestError(message, response.status);
@@ -350,7 +363,10 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
 
 type GetRequestOptions = { bypassCache?: boolean };
 
-async function requestJson<T>(path: string, { bypassCache = false }: GetRequestOptions = {}): Promise<T> {
+async function requestJson<T>(
+  path: string,
+  { bypassCache = false }: GetRequestOptions = {},
+): Promise<T> {
   const url = buildApiUrl(path);
   const requestGeneration = cacheGeneration;
 
@@ -368,10 +384,13 @@ async function requestJson<T>(path: string, { bypassCache = false }: GetRequestO
     const request: Promise<T> = (async () => {
       const response = await fetchWithRetry(
         url,
-        { cache: "no-store", headers: createHeaders() },
+        { cache: 'no-store', headers: createHeaders() },
         { retryTransient: true },
       );
-      const data = await parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
+      const data = await parseJsonResponse<T>(
+        response,
+        `Ошибка API ${response.status}`,
+      );
       if (requestGeneration === cacheGeneration) {
         getCache.set(url, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
       }
@@ -388,7 +407,7 @@ async function requestJson<T>(path: string, { bypassCache = false }: GetRequestO
 
   const response = await fetchWithRetry(
     url,
-    { cache: "no-store", headers: createHeaders() },
+    { cache: 'no-store', headers: createHeaders() },
     { retryTransient: true },
   );
 
@@ -401,15 +420,19 @@ async function requestJsonWithInit<T>(
   fallbackMessage: string,
   options?: FetchRetryOptions,
 ): Promise<T> {
-  const response = await fetchWithRetry(buildApiUrl(path), {
-    cache: "no-store",
-    ...init,
-    headers: createHeaders(init.headers),
-  }, options);
+  const response = await fetchWithRetry(
+    buildApiUrl(path),
+    {
+      cache: 'no-store',
+      ...init,
+      headers: createHeaders(init.headers),
+    },
+    options,
+  );
 
   const data = await parseJsonResponse<T>(response, fallbackMessage);
 
-  if ((init.method ?? "GET").toUpperCase() !== "GET") {
+  if ((init.method ?? 'GET').toUpperCase() !== 'GET') {
     invalidateApiCache();
   }
 
@@ -426,13 +449,16 @@ export function buildApiUrl(path: string) {
 
 function buildClientPriceFilename() {
   const now = new Date();
-  const day = String(now.getDate()).padStart(2, "0");
-  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, '0');
+  const month = String(now.getMonth() + 1).padStart(2, '0');
   const year = String(now.getFullYear());
   return `cmteh_stock_${day}.${month}.${year}.xlsx`;
 }
 
-function parseDownloadFilename(contentDisposition: string | null, fallbackFilename: string) {
+function parseDownloadFilename(
+  contentDisposition: string | null,
+  fallbackFilename: string,
+) {
   if (!contentDisposition) {
     return fallbackFilename;
   }
@@ -454,11 +480,19 @@ function parseDownloadFilename(contentDisposition: string | null, fallbackFilena
   return fallbackFilename;
 }
 
-async function downloadApiFile(path: string, fallbackMessage: string, fallbackFilename: string) {
-  const response = await fetchWithRetry(buildApiUrl(path), {
-    cache: "no-store",
-    headers: createHeaders(),
-  }, { retryTransient: true });
+async function downloadApiFile(
+  path: string,
+  fallbackMessage: string,
+  fallbackFilename: string,
+) {
+  const response = await fetchWithRetry(
+    buildApiUrl(path),
+    {
+      cache: 'no-store',
+      headers: createHeaders(),
+    },
+    { retryTransient: true },
+  );
 
   if (!response.ok) {
     await parseJsonResponse<never>(response, fallbackMessage);
@@ -466,11 +500,11 @@ async function downloadApiFile(path: string, fallbackMessage: string, fallbackFi
 
   const blob = await response.blob();
   const filename = parseDownloadFilename(
-    response.headers.get("Content-Disposition"),
+    response.headers.get('Content-Disposition'),
     fallbackFilename,
   );
   const objectUrl = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
+  const link = document.createElement('a');
   link.href = objectUrl;
   link.download = filename;
   document.body.appendChild(link);
@@ -479,38 +513,40 @@ async function downloadApiFile(path: string, fallbackMessage: string, fallbackFi
   window.URL.revokeObjectURL(objectUrl);
 }
 
-export async function loginAppUser(payload: LoginPayload): Promise<LoginResponse> {
+export async function loginAppUser(
+  payload: LoginPayload,
+): Promise<LoginResponse> {
   return requestJsonWithInit<LoginResponse>(
-    "/api/auth/login",
+    '/api/auth/login',
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось выполнить вход.",
+    'Не удалось выполнить вход.',
     { retryTransient: true },
   );
 }
 
 export async function fetchCurrentUser(): Promise<AppUser> {
-  const response = await requestJson<{ user: AppUser }>("/api/auth/me");
+  const response = await requestJson<{ user: AppUser }>('/api/auth/me');
   return response.user;
 }
 
 export async function logoutAppUser(): Promise<{ ok: boolean }> {
   return requestJsonWithInit<{ ok: boolean }>(
-    "/api/auth/logout",
+    '/api/auth/logout',
     {
-      method: "POST",
+      method: 'POST',
     },
-    "Не удалось завершить сессию.",
+    'Не удалось завершить сессию.',
   );
 }
 
 export async function fetchMeta(): Promise<AppMeta> {
-  return requestJson<AppMeta>("/api/meta");
+  return requestJson<AppMeta>('/api/meta');
 }
 
 export async function fetchStockCatalog(params: {
@@ -524,16 +560,18 @@ export async function fetchStockCatalog(params: {
 }): Promise<StockCatalogResponse> {
   const query = new URLSearchParams();
 
-  if (params.search.trim()) query.set("search", params.search.trim());
-  if (params.category.trim()) query.set("category", params.category.trim());
-  if (params.warehouseId) query.set("warehouse_id", String(params.warehouseId));
-  if (params.onlyInStock) query.set("only_in_stock", "true");
+  if (params.search.trim()) query.set('search', params.search.trim());
+  if (params.category.trim()) query.set('category', params.category.trim());
+  if (params.warehouseId) query.set('warehouse_id', String(params.warehouseId));
+  if (params.onlyInStock) query.set('only_in_stock', 'true');
 
-  query.set("page", String(params.page));
-  query.set("page_size", String(params.pageSize));
-  query.set("sort_order", params.sortOrder ?? "newest");
+  query.set('page', String(params.page));
+  query.set('page_size', String(params.pageSize));
+  query.set('sort_order', params.sortOrder ?? 'newest');
 
-  return requestJson<StockCatalogResponse>(`/api/stock/catalog?${query.toString()}`);
+  return requestJson<StockCatalogResponse>(
+    `/api/stock/catalog?${query.toString()}`,
+  );
 }
 
 export async function downloadClientPriceFile(params: {
@@ -544,37 +582,41 @@ export async function downloadClientPriceFile(params: {
 }): Promise<void> {
   const query = new URLSearchParams();
 
-  if (params.search.trim()) query.set("search", params.search.trim());
-  if (params.category.trim()) query.set("category", params.category.trim());
-  if (params.warehouseId) query.set("warehouse_id", String(params.warehouseId));
-  if (params.onlyInStock) query.set("only_in_stock", "true");
+  if (params.search.trim()) query.set('search', params.search.trim());
+  if (params.category.trim()) query.set('category', params.category.trim());
+  if (params.warehouseId) query.set('warehouse_id', String(params.warehouseId));
+  if (params.onlyInStock) query.set('only_in_stock', 'true');
 
-  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  const suffix = query.size > 0 ? `?${query.toString()}` : '';
   await downloadApiFile(
     `/api/price/client-export${suffix}`,
-    "Не удалось выгрузить прайс для клиента.",
+    'Не удалось выгрузить прайс для клиента.',
     buildClientPriceFilename(),
   );
 }
 
 export async function downloadPriceTemplateFile(): Promise<void> {
   await downloadApiFile(
-    "/api/price/template",
-    "Не удалось скачать шаблон прайса.",
-    "stock_template.xlsx",
+    '/api/price/template',
+    'Не удалось скачать шаблон прайса.',
+    'stock_template.xlsx',
   );
 }
 
 export async function downloadStockSnapshotFile(): Promise<void> {
   await downloadApiFile(
-    "/api/price/snapshot",
-    "Не удалось выгрузить текущий срез.",
-    "stock_snapshot.xlsx",
+    '/api/price/snapshot',
+    'Не удалось выгрузить текущий срез.',
+    'stock_snapshot.xlsx',
   );
 }
 
-export async function fetchStockItem(itemId: number): Promise<StockItem | null> {
-  const result = await requestJson<{ item: StockItem | null }>(`/api/stock/items/${itemId}`);
+export async function fetchStockItem(
+  itemId: number,
+): Promise<StockItem | null> {
+  const result = await requestJson<{ item: StockItem | null }>(
+    `/api/stock/items/${itemId}`,
+  );
   return result.item;
 }
 
@@ -585,31 +627,36 @@ export async function addItemStock(
   const result = await requestJsonWithInit<{ item: StockItem }>(
     `/api/stock/items/${itemId}/add-stock`,
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось добавить остаток.",
+    'Не удалось добавить остаток.',
   );
   return result.item;
 }
 
 export async function moveItemStock(
   itemId: number,
-  payload: { fromWarehouseId: number; toWarehouseId: number; quantity: number; comment?: string },
+  payload: {
+    fromWarehouseId: number;
+    toWarehouseId: number;
+    quantity: number;
+    comment?: string;
+  },
 ): Promise<StockItem> {
   const result = await requestJsonWithInit<{ item: StockItem }>(
     `/api/stock/items/${itemId}/move-stock`,
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось переместить остаток.",
+    'Не удалось переместить остаток.',
   );
   return result.item;
 }
@@ -621,66 +668,71 @@ export async function writeoffItemStock(
   const result = await requestJsonWithInit<{ item: StockItem }>(
     `/api/stock/items/${itemId}/writeoff-stock`,
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось списать остаток.",
+    'Не удалось списать остаток.',
   );
   return result.item;
 }
 
 export async function fetchSystemSettings(): Promise<SystemSettings> {
-  return requestJson<SystemSettings>("/api/settings/system");
+  return requestJson<SystemSettings>('/api/settings/system');
 }
 
-export async function saveSystemSettings(payload: Partial<SystemSettings>): Promise<{ ok: boolean }> {
+export async function saveSystemSettings(
+  payload: Partial<SystemSettings>,
+): Promise<{ ok: boolean }> {
   return requestJsonWithInit<{ ok: boolean }>(
-    "/api/settings/system",
+    '/api/settings/system',
     {
-      method: "PUT",
+      method: 'PUT',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось сохранить настройки.",
+    'Не удалось сохранить настройки.',
   );
 }
 
 export async function fetchUsers(): Promise<AppUser[]> {
-  const result = await requestJson<{ items: AppUser[] }>("/api/users");
+  const result = await requestJson<{ items: AppUser[] }>('/api/users');
   return result.items;
 }
 
 export async function createAppUser(payload: AppUserPayload): Promise<AppUser> {
   const result = await requestJsonWithInit<{ user: AppUser }>(
-    "/api/users",
+    '/api/users',
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось создать пользователя.",
+    'Не удалось создать пользователя.',
   );
   return result.user;
 }
 
-export async function updateAppUser(userId: number, payload: AppUserUpdatePayload): Promise<AppUser> {
+export async function updateAppUser(
+  userId: number,
+  payload: AppUserUpdatePayload,
+): Promise<AppUser> {
   const result = await requestJsonWithInit<{ user: AppUser }>(
     `/api/users/${userId}`,
     {
-      method: "PATCH",
+      method: 'PATCH',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось обновить пользователя.",
+    'Не удалось обновить пользователя.',
   );
   return result.user;
 }
@@ -689,25 +741,29 @@ export async function deleteAppUser(userId: number): Promise<{ ok: boolean }> {
   return requestJsonWithInit<{ ok: boolean }>(
     `/api/users/${userId}`,
     {
-      method: "DELETE",
+      method: 'DELETE',
     },
-    "Не удалось удалить пользователя.",
+    'Не удалось удалить пользователя.',
   );
 }
 
-export async function revealAppPassword(userId: number): Promise<PasswordRevealResponse> {
+export async function revealAppPassword(
+  userId: number,
+): Promise<PasswordRevealResponse> {
   return requestJsonWithInit<PasswordRevealResponse>(
     `/api/users/${userId}/reveal-app-password`,
-    { method: "POST" },
-    "Не удалось показать пароль СМ ТЕХНО.",
+    { method: 'POST' },
+    'Не удалось показать пароль СМ ТЕХНО.',
   );
 }
 
-export async function revealOneCPassword(userId: number): Promise<PasswordRevealResponse> {
+export async function revealOneCPassword(
+  userId: number,
+): Promise<PasswordRevealResponse> {
   return requestJsonWithInit<PasswordRevealResponse>(
     `/api/users/${userId}/reveal-onec-password`,
-    { method: "POST" },
-    "Не удалось показать пароль 1С.",
+    { method: 'POST' },
+    'Не удалось показать пароль 1С.',
   );
 }
 
@@ -716,95 +772,118 @@ export async function testOneCAccess(payload?: {
   onecPassword?: string;
 }): Promise<{ counterparties: number; organizations: number }> {
   return requestJsonWithInit<{ counterparties: number; organizations: number }>(
-    "/api/onec/test",
+    '/api/onec/test',
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload ?? {}),
     },
-    "Не удалось проверить доступ к 1С.",
+    'Не удалось проверить доступ к 1С.',
   );
 }
 
 export async function syncReferences(payload?: {
   onecUsername?: string;
   onecPassword?: string;
-}): Promise<{ counterparties: number; contracts: number; organizations: number }> {
-  return requestJsonWithInit<{ counterparties: number; contracts: number; organizations: number }>(
-    "/api/references/sync",
+}): Promise<{
+  counterparties: number;
+  contracts: number;
+  organizations: number;
+}> {
+  return requestJsonWithInit<{
+    counterparties: number;
+    contracts: number;
+    organizations: number;
+  }>(
+    '/api/references/sync',
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload ?? {}),
     },
-    "Не удалось синхронизировать справочники.",
+    'Не удалось синхронизировать справочники.',
   );
 }
 
 export async function fetchCounterparties(): Promise<Counterparty[]> {
-  const result = await requestJson<{ items: Counterparty[] }>("/api/references/counterparties");
+  const result = await requestJson<{ items: Counterparty[] }>(
+    '/api/references/counterparties',
+  );
   return result.items;
 }
 
-export async function fetchContracts(counterpartyId?: number | null): Promise<Contract[]> {
+export async function fetchContracts(
+  counterpartyId?: number | null,
+): Promise<Contract[]> {
   const query = new URLSearchParams();
   if (counterpartyId) {
-    query.set("counterparty_id", String(counterpartyId));
+    query.set('counterparty_id', String(counterpartyId));
   }
-  const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  const result = await requestJson<{ items: Contract[] }>(`/api/references/contracts${suffix}`);
+  const suffix = query.size > 0 ? `?${query.toString()}` : '';
+  const result = await requestJson<{ items: Contract[] }>(
+    `/api/references/contracts${suffix}`,
+  );
   return result.items;
 }
 
 export async function fetchOrganizations(): Promise<Organization[]> {
-  const result = await requestJson<{ items: Organization[] }>("/api/references/organizations");
+  const result = await requestJson<{ items: Organization[] }>(
+    '/api/references/organizations',
+  );
   return result.items;
 }
 
 export async function fetchClients(): Promise<CrmClient[]> {
-  const result = await requestJson<{ items: CrmClient[] }>("/api/clients");
+  const result = await requestJson<{ items: CrmClient[] }>('/api/clients');
   return result.items;
 }
 
-export async function createClient(payload: CreateClientPayload): Promise<CreateClientResponse> {
+export async function createClient(
+  payload: CreateClientPayload,
+): Promise<CreateClientResponse> {
   return requestJsonWithInit<CreateClientResponse>(
-    "/api/clients",
+    '/api/clients',
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось сохранить клиента.",
+    'Не удалось сохранить клиента.',
   );
 }
 
-function buildCrmQuery(params: Record<string, string | number | boolean | undefined>) {
+function buildCrmQuery(
+  params: Record<string, string | number | boolean | undefined>,
+) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) {
       query.set(key, String(value));
     }
   }
-  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  const suffix = query.size > 0 ? `?${query.toString()}` : '';
   return suffix;
 }
 
 export type CrmSyncStatus = {
-  status: "synced" | "error" | "never";
+  status: 'synced' | 'error' | 'never';
   lastSyncAt: string;
 };
 
 export async function fetchCrmSyncStatus(): Promise<CrmSyncStatus> {
-  return requestJson<CrmSyncStatus>("/api/crm/sync-status");
+  return requestJson<CrmSyncStatus>('/api/crm/sync-status');
 }
 
-export async function fetchCrmTabs(ownerId?: number, options?: GetRequestOptions): Promise<CrmTab[]> {
+export async function fetchCrmTabs(
+  ownerId?: number,
+  options?: GetRequestOptions,
+): Promise<CrmTab[]> {
   const result = await requestJson<{ items: CrmTab[] }>(
     `/api/crm/tabs${buildCrmQuery({ ownerId })}`,
     options,
@@ -812,50 +891,67 @@ export async function fetchCrmTabs(ownerId?: number, options?: GetRequestOptions
   return result.items;
 }
 
-export async function syncCrmWorkspace(): Promise<{ status: string; counterparties: number }> {
+export async function syncCrmWorkspace(): Promise<{
+  status: string;
+  counterparties: number;
+}> {
   return requestJsonWithInit<{ status: string; counterparties: number }>(
-    "/api/crm/sync",
-    { method: "POST" },
-    "Не удалось обновить CRM из 1С.",
+    '/api/crm/sync',
+    { method: 'POST' },
+    'Не удалось обновить CRM из 1С.',
     { timeoutMs: CRM_SYNC_TIMEOUT_MS },
   );
 }
 
-export async function createCrmTab(name: string, ownerId?: number): Promise<CrmTab> {
+export async function createCrmTab(
+  name: string,
+  ownerId?: number,
+): Promise<CrmTab> {
   const result = await requestJsonWithInit<{ tab: CrmTab }>(
     `/api/crm/tabs${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     },
-    "Не удалось создать личную вкладку.",
+    'Не удалось создать личную вкладку.',
   );
   return result.tab;
 }
 
-export async function renameCrmTab(tabId: number, name: string, ownerId?: number): Promise<CrmTab> {
+export async function renameCrmTab(
+  tabId: number,
+  name: string,
+  ownerId?: number,
+): Promise<CrmTab> {
   const result = await requestJsonWithInit<{ tab: CrmTab }>(
     `/api/crm/tabs/${tabId}${buildCrmQuery({ ownerId })}`,
     {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     },
-    "Не удалось переименовать личную вкладку.",
+    'Не удалось переименовать личную вкладку.',
   );
   return result.tab;
 }
 
-export async function deleteCrmTab(tabId: number, replacementTabId: number, ownerId?: number): Promise<{ ok: true }> {
+export async function deleteCrmTab(
+  tabId: number,
+  replacementTabId: number,
+  ownerId?: number,
+): Promise<{ ok: true }> {
   return requestJsonWithInit<{ ok: true }>(
     `/api/crm/tabs/${tabId}${buildCrmQuery({ replacementTabId, ownerId })}`,
-    { method: "DELETE" },
-    "Не удалось удалить личную вкладку.",
+    { method: 'DELETE' },
+    'Не удалось удалить личную вкладку.',
   );
 }
 
-export async function fetchCrmClients(query: CrmClientsQuery = {}, options?: GetRequestOptions): Promise<CrmWorkspaceClient[]> {
+export async function fetchCrmClients(
+  query: CrmClientsQuery = {},
+  options?: GetRequestOptions,
+): Promise<CrmWorkspaceClient[]> {
   const result = await requestJson<{ items: CrmWorkspaceClient[] }>(
     `/api/crm/clients${buildCrmQuery(query)}`,
     options,
@@ -863,14 +959,20 @@ export async function fetchCrmClients(query: CrmClientsQuery = {}, options?: Get
   return result.items;
 }
 
-export async function fetchCrmClient(clientId: number, ownerId: number): Promise<CrmWorkspaceClient> {
+export async function fetchCrmClient(
+  clientId: number,
+  ownerId: number,
+): Promise<CrmWorkspaceClient> {
   const result = await requestJson<{ client: CrmWorkspaceClient }>(
     `/api/crm/clients/${clientId}${buildCrmQuery({ ownerId })}`,
   );
   return result.client;
 }
 
-export async function fetchPrimaryCrmClients(ownerId: number, options?: GetRequestOptions): Promise<CrmPrimaryListResponse> {
+export async function fetchPrimaryCrmClients(
+  ownerId: number,
+  options?: GetRequestOptions,
+): Promise<CrmPrimaryListResponse> {
   return requestJson<CrmPrimaryListResponse>(
     `/api/crm/clients${buildCrmQuery({ ownerId, primaryOnly: true })}`,
     options,
@@ -878,56 +980,66 @@ export async function fetchPrimaryCrmClients(ownerId: number, options?: GetReque
 }
 
 export async function downloadCrmExportFile(params: {
-  scope: "all" | "tab";
+  scope: 'all' | 'tab';
   tabId?: number;
   ownerId?: number;
 }): Promise<void> {
   await downloadApiFile(
     `/api/crm/export${buildCrmQuery({ scope: params.scope, tabId: params.tabId, ownerId: params.ownerId })}`,
-    "Не удалось выгрузить CRM в Excel.",
-    "crm_export.xlsx",
+    'Не удалось выгрузить CRM в Excel.',
+    'crm_export.xlsx',
   );
 }
 
 async function postCrmImport<T>(
-  path: "/api/crm/import/preview" | "/api/crm/import",
+  path: '/api/crm/import/preview' | '/api/crm/import',
   payload: CrmImportPayload,
   fallbackMessage: string,
 ): Promise<T> {
   const body = new FormData();
-  body.append("file", payload.file);
+  body.append('file', payload.file);
   if (payload.targetTabId !== undefined && payload.targetTabId !== null) {
-    body.append("targetTabId", String(payload.targetTabId));
+    body.append('targetTabId', String(payload.targetTabId));
   }
   if (payload.newTabName !== undefined && payload.newTabName !== null) {
-    body.append("newTabName", payload.newTabName);
+    body.append('newTabName', payload.newTabName);
   }
-  body.append("includeExistingClients", String(payload.includeExistingClients ?? true));
+  body.append(
+    'includeExistingClients',
+    String(payload.includeExistingClients ?? true),
+  );
 
   return requestJsonWithInit<T>(
     `${path}${buildCrmQuery({ ownerId: payload.ownerId })}`,
-    { method: "POST", body },
+    { method: 'POST', body },
     fallbackMessage,
   );
 }
 
-export async function previewCrmImport(payload: CrmImportPayload): Promise<CrmImportPreview> {
+export async function previewCrmImport(
+  payload: CrmImportPayload,
+): Promise<CrmImportPreview> {
   return postCrmImport(
-    "/api/crm/import/preview",
+    '/api/crm/import/preview',
     payload,
-    "Не удалось проверить CRM Excel файл.",
+    'Не удалось проверить CRM Excel файл.',
   );
 }
 
-export async function importCrmFile(payload: CrmImportPayload): Promise<CrmImportResult> {
+export async function importCrmFile(
+  payload: CrmImportPayload,
+): Promise<CrmImportResult> {
   return postCrmImport(
-    "/api/crm/import",
+    '/api/crm/import',
     payload,
-    "Не удалось импортировать CRM Excel файл.",
+    'Не удалось импортировать CRM Excel файл.',
   );
 }
 
-export async function fetchCrmContacts(clientId: number, ownerId?: number): Promise<CrmContact[]> {
+export async function fetchCrmContacts(
+  clientId: number,
+  ownerId?: number,
+): Promise<CrmContact[]> {
   const result = await requestJson<{ items: CrmContact[] }>(
     `/api/crm/clients/${clientId}/contacts${buildCrmQuery({ ownerId })}`,
   );
@@ -936,17 +1048,23 @@ export async function fetchCrmContacts(clientId: number, ownerId?: number): Prom
 
 export async function createCrmContact(
   clientId: number,
-  payload: { name: string; position: string; email: string; phone: string; isPrimary: boolean },
+  payload: {
+    name: string;
+    position: string;
+    email: string;
+    phone: string;
+    isPrimary: boolean;
+  },
   ownerId?: number,
 ): Promise<CrmContact> {
   const result = await requestJsonWithInit<{ contact: CrmContact }>(
     `/api/crm/clients/${clientId}/contacts${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось добавить контакт.",
+    'Не удалось добавить контакт.',
   );
   return result.contact;
 }
@@ -954,60 +1072,90 @@ export async function createCrmContact(
 export async function updateCrmContact(
   clientId: number,
   contactId: number,
-  payload: { name: string; position: string; email: string; phone: string; isPrimary: boolean },
+  payload: {
+    name: string;
+    position: string;
+    email: string;
+    phone: string;
+    isPrimary: boolean;
+  },
   ownerId?: number,
 ): Promise<CrmContact> {
   const result = await requestJsonWithInit<{ contact: CrmContact }>(
     `/api/crm/clients/${clientId}/contacts/${contactId}${buildCrmQuery({ ownerId })}`,
-    { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
-    "Не удалось изменить контакт.",
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+    'Не удалось изменить контакт.',
   );
   return result.contact;
 }
 
-export async function deleteCrmContact(clientId: number, contactId: number, ownerId?: number): Promise<void> {
+export async function deleteCrmContact(
+  clientId: number,
+  contactId: number,
+  ownerId?: number,
+): Promise<void> {
   await requestJsonWithInit<{ ok: boolean }>(
     `/api/crm/clients/${clientId}/contacts/${contactId}${buildCrmQuery({ ownerId })}`,
-    { method: "DELETE" },
-    "Не удалось удалить контакт.",
+    { method: 'DELETE' },
+    'Не удалось удалить контакт.',
   );
 }
 
-export async function fetchCrmEvents(clientId: number, ownerId?: number): Promise<CrmEvent[]> {
+export async function fetchCrmEvents(
+  clientId: number,
+  ownerId?: number,
+): Promise<CrmEvent[]> {
   const result = await requestJson<{ items: CrmEvent[] }>(
     `/api/crm/clients/${clientId}/events${buildCrmQuery({ ownerId })}`,
   );
   return result.items;
 }
 
-export async function fetchCrmClientNote(clientId: number, ownerId?: number): Promise<CrmClientNote | null> {
+export async function fetchCrmClientNote(
+  clientId: number,
+  ownerId?: number,
+): Promise<CrmClientNote | null> {
   const result = await requestJson<{ note: CrmClientNote | null }>(
     `/api/crm/clients/${clientId}/note${buildCrmQuery({ ownerId })}`,
   );
   return result.note;
 }
 
-export async function saveCrmClientNote(clientId: number, body: string, ownerId?: number): Promise<CrmClientNote> {
+export async function saveCrmClientNote(
+  clientId: number,
+  body: string,
+  ownerId?: number,
+): Promise<CrmClientNote> {
   const result = await requestJsonWithInit<{ note: CrmClientNote }>(
     `/api/crm/clients/${clientId}/note${buildCrmQuery({ ownerId })}`,
     {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body }),
     },
-    "Не удалось сохранить заметку о клиенте.",
+    'Не удалось сохранить заметку о клиенте.',
   );
   return result.note;
 }
 
-export async function fetchCrmAudit(clientId: number, ownerId?: number): Promise<CrmAuditAction[]> {
+export async function fetchCrmAudit(
+  clientId: number,
+  ownerId?: number,
+): Promise<CrmAuditAction[]> {
   const result = await requestJson<{ items: CrmAuditAction[] }>(
     `/api/crm/clients/${clientId}/audit${buildCrmQuery({ ownerId })}`,
   );
   return result.items;
 }
 
-export async function fetchCrmSyncConflicts(clientId: number, ownerId: number): Promise<CrmSyncConflict[]> {
+export async function fetchCrmSyncConflicts(
+  clientId: number,
+  ownerId: number,
+): Promise<CrmSyncConflict[]> {
   const result = await requestJson<{ items: CrmSyncConflict[] }>(
     `/api/crm/clients/${clientId}/sync-conflicts${buildCrmQuery({ ownerId })}`,
   );
@@ -1023,11 +1171,11 @@ export async function resolveCrmSyncConflict(
   const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
     `/api/crm/clients/${clientId}/sync-conflicts/${conflictId}/resolve${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось разрешить конфликт синхронизации.",
+    'Не удалось разрешить конфликт синхронизации.',
   );
   return result.client;
 }
@@ -1040,16 +1188,18 @@ export async function createCrmEvent(
   const result = await requestJsonWithInit<{ event: CrmEvent }>(
     `/api/crm/clients/${clientId}/events${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось добавить событие.",
+    'Не удалось добавить событие.',
   );
   return result.event;
 }
 
-export async function fetchCrmReminders(ownerId?: number): Promise<CrmReminder[]> {
+export async function fetchCrmReminders(
+  ownerId?: number,
+): Promise<CrmReminder[]> {
   const result = await requestJson<{ items: CrmReminder[] }>(
     `/api/crm/reminders${buildCrmQuery({ ownerId })}`,
   );
@@ -1064,49 +1214,85 @@ export async function createCrmReminder(
   const result = await requestJsonWithInit<{ reminder: CrmReminder }>(
     `/api/crm/clients/${clientId}/reminders${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось добавить напоминание.",
+    'Не удалось добавить напоминание.',
   );
   return result.reminder;
 }
 
-export async function rescheduleCrmReminder(reminderId: number, payload: { dueAt: string; expectedUpdatedAt: string }, ownerId?: number): Promise<CrmReminder> {
-  const result = await requestJsonWithInit<{ reminder: CrmReminder }>(`/api/crm/reminders/${reminderId}/reschedule${buildCrmQuery({ ownerId })}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }, "Не удалось перенести напоминание.");
+export async function rescheduleCrmReminder(
+  reminderId: number,
+  payload: { dueAt: string; expectedUpdatedAt: string },
+  ownerId?: number,
+): Promise<CrmReminder> {
+  const result = await requestJsonWithInit<{ reminder: CrmReminder }>(
+    `/api/crm/reminders/${reminderId}/reschedule${buildCrmQuery({ ownerId })}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+    'Не удалось перенести напоминание.',
+  );
   return result.reminder;
 }
 
-export async function fetchCurrentUserDueCrmReminders(): Promise<CrmReminder[]> {
-  const result = await requestJson<{ items: CrmReminder[] }>("/api/crm/reminders/due");
+export async function fetchCurrentUserDueCrmReminders(): Promise<
+  CrmReminder[]
+> {
+  const result = await requestJson<{ items: CrmReminder[] }>(
+    '/api/crm/reminders/due',
+  );
   return result.items;
 }
 
 async function transitionCrmReminder(
   reminderId: number,
-  action: "complete" | "cancel",
+  action: 'complete' | 'cancel',
   expectedUpdatedAt: string,
   ownerId?: number,
 ): Promise<CrmReminder> {
   const result = await requestJsonWithInit<{ reminder: CrmReminder }>(
     `/api/crm/reminders/${reminderId}/${action}${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ expectedUpdatedAt }),
     },
-    action === "complete" ? "Не удалось отметить напоминание выполненным." : "Не удалось отменить напоминание.",
+    action === 'complete'
+      ? 'Не удалось отметить напоминание выполненным.'
+      : 'Не удалось отменить напоминание.',
   );
   return result.reminder;
 }
 
-export async function completeCrmReminder(reminderId: number, expectedUpdatedAt: string, ownerId?: number): Promise<CrmReminder> {
-  return transitionCrmReminder(reminderId, "complete", expectedUpdatedAt, ownerId);
+export async function completeCrmReminder(
+  reminderId: number,
+  expectedUpdatedAt: string,
+  ownerId?: number,
+): Promise<CrmReminder> {
+  return transitionCrmReminder(
+    reminderId,
+    'complete',
+    expectedUpdatedAt,
+    ownerId,
+  );
 }
 
-export async function cancelCrmReminder(reminderId: number, expectedUpdatedAt: string, ownerId?: number): Promise<CrmReminder> {
-  return transitionCrmReminder(reminderId, "cancel", expectedUpdatedAt, ownerId);
+export async function cancelCrmReminder(
+  reminderId: number,
+  expectedUpdatedAt: string,
+  ownerId?: number,
+): Promise<CrmReminder> {
+  return transitionCrmReminder(
+    reminderId,
+    'cancel',
+    expectedUpdatedAt,
+    ownerId,
+  );
 }
 
 export async function createCrmClient(
@@ -1116,11 +1302,11 @@ export async function createCrmClient(
   const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
     `/api/crm/clients${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось добавить клиента в CRM.",
+    'Не удалось добавить клиента в CRM.',
   );
   return result.client;
 }
@@ -1145,16 +1331,19 @@ export async function updateCrmClient(
   const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
     `/api/crm/clients/${clientId}${buildCrmQuery({ ownerId })}`,
     {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось сохранить реквизиты компании.",
+    'Не удалось сохранить реквизиты компании.',
   );
   return result.client;
 }
 
-export async function fetchCrmLinkCandidates(clientId: number, ownerId?: number): Promise<CrmLinkCandidate[]> {
+export async function fetchCrmLinkCandidates(
+  clientId: number,
+  ownerId?: number,
+): Promise<CrmLinkCandidate[]> {
   const result = await requestJson<{ items: CrmLinkCandidate[] }>(
     `/api/crm/clients/${clientId}/link-candidates${buildCrmQuery({ ownerId })}`,
   );
@@ -1170,11 +1359,11 @@ export async function confirmCrmExistingLink(
   const result = await requestJsonWithInit<{ client: CrmWorkspaceClient }>(
     `/api/crm/clients/${clientId}/link-existing${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ counterpartyId, expectedVersion }),
     },
-    "Не удалось подтвердить связь с 1С.",
+    'Не удалось подтвердить связь с 1С.',
   );
   return result.client;
 }
@@ -1187,11 +1376,11 @@ export async function moveCrmClient(
   const result = await requestJsonWithInit<{ assignment: CrmAssignment }>(
     `/api/crm/clients/${clientId}/move${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tabId }),
     },
-    "Не удалось переместить клиента.",
+    'Не удалось переместить клиента.',
   );
   return result.assignment;
 }
@@ -1202,24 +1391,28 @@ export async function removeCrmAssignment(
 ): Promise<{ ok: true }> {
   return requestJsonWithInit<{ ok: true }>(
     `/api/crm/clients/${clientId}/assignment${buildCrmQuery({ ownerId })}`,
-    { method: "DELETE" },
-    "Не удалось оставить клиента только в основной вкладке.",
+    { method: 'DELETE' },
+    'Не удалось оставить клиента только в основной вкладке.',
   );
 }
 
 export async function saveCrmRowPreference(
   clientId: number,
-  payload: { tabId: number; colorKey: string | null; expectedOrderVersion: number },
+  payload: {
+    tabId: number;
+    colorKey: string | null;
+    expectedOrderVersion: number;
+  },
   ownerId?: number,
 ): Promise<CrmRowPreference> {
   const result = await requestJsonWithInit<{ preference: CrmRowPreference }>(
     `/api/crm/clients/${clientId}/row-preference${buildCrmQuery({ ownerId })}`,
     {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось сохранить оформление строки.",
+    'Не удалось сохранить оформление строки.',
   );
   return result.preference;
 }
@@ -1229,14 +1422,16 @@ export async function saveCrmPrimaryRowPreference(
   payload: { colorKey: string | null; expectedOrderVersion: number },
   ownerId: number,
 ): Promise<CrmPrimaryRowPreference> {
-  const result = await requestJsonWithInit<{ preference: CrmPrimaryRowPreference }>(
+  const result = await requestJsonWithInit<{
+    preference: CrmPrimaryRowPreference;
+  }>(
     `/api/crm/clients/${clientId}/primary-row-preference${buildCrmQuery({ ownerId })}`,
     {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось сохранить цвет строки.",
+    'Не удалось сохранить цвет строки.',
   );
   return result.preference;
 }
@@ -1253,11 +1448,11 @@ export async function reorderPrimaryCrmClients(
   return requestJsonWithInit<{ clientIds: number[]; orderVersion: number }>(
     `/api/crm/primary/reorder${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось сохранить порядок клиентов.",
+    'Не удалось сохранить порядок клиентов.',
   );
 }
 
@@ -1274,11 +1469,11 @@ export async function reorderCrmTabClients(
   return requestJsonWithInit<{ clientIds: number[]; orderVersion: number }>(
     `/api/crm/tabs/${tabId}/reorder${buildCrmQuery({ ownerId })}`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    "Не удалось сохранить порядок клиентов.",
+    'Не удалось сохранить порядок клиентов.',
   );
 }
 
@@ -1289,8 +1484,12 @@ export async function archiveLocalCrmClient(
 ): Promise<{ version: number }> {
   return requestJsonWithInit<{ ok: true; version: number }>(
     `/api/crm/clients/${clientId}/local-archive${buildCrmQuery({ ownerId })}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
-    "Не удалось архивировать локального клиента.",
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+    'Не удалось архивировать локального клиента.',
   );
 }
 
@@ -1301,24 +1500,26 @@ export async function archivePrimaryCrmClient(
   return requestJsonWithInit<{ ok: true }>(
     `/api/crm/clients/${clientId}/primary-archive`,
     {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason }),
     },
-    "Не удалось архивировать клиента из 1С.",
+    'Не удалось архивировать клиента из 1С.',
   );
 }
 
-export async function restorePrimaryCrmClient(clientId: number): Promise<{ ok: true }> {
+export async function restorePrimaryCrmClient(
+  clientId: number,
+): Promise<{ ok: true }> {
   return requestJsonWithInit<{ ok: true }>(
     `/api/crm/clients/${clientId}/primary-restore`,
-    { method: "POST" },
-    "Не удалось восстановить клиента в CRM.",
+    { method: 'POST' },
+    'Не удалось восстановить клиента в CRM.',
   );
 }
 
 export async function fetchPrimaryCrmArchive(): Promise<CrmPrimaryArchiveResponse> {
-  return requestJson<CrmPrimaryArchiveResponse>("/api/crm/primary-archive");
+  return requestJson<CrmPrimaryArchiveResponse>('/api/crm/primary-archive');
 }
 
 export async function restoreLocalCrmClient(
@@ -1328,71 +1529,86 @@ export async function restoreLocalCrmClient(
 ): Promise<{ version: number }> {
   return requestJsonWithInit<{ ok: true; version: number }>(
     `/api/crm/clients/${clientId}/local-restore${buildCrmQuery({ ownerId })}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
-    "Не удалось восстановить локального клиента.",
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+    'Не удалось восстановить локального клиента.',
   );
 }
 
-export async function sendClientToOneC(clientId: number): Promise<CreateClientResponse> {
+export async function sendClientToOneC(
+  clientId: number,
+): Promise<CreateClientResponse> {
   return requestJsonWithInit<CreateClientResponse>(
     `/api/clients/${clientId}/send-to-onec`,
     {
-      method: "POST",
+      method: 'POST',
     },
-    "Не удалось отправить клиента в 1С.",
+    'Не удалось отправить клиента в 1С.',
   );
 }
 
 export async function fetchCommercialOffers(): Promise<CommercialOffer[]> {
-  const result = await requestJson<{ items: CommercialOffer[] }>("/api/commercial-offers");
+  const result = await requestJson<{ items: CommercialOffer[] }>(
+    '/api/commercial-offers',
+  );
   return result.items;
 }
 
-export async function fetchCommercialOfferDetails(offerId: number): Promise<CommercialOfferDetails> {
-  return requestJson<CommercialOfferDetails>(`/api/commercial-offers/${offerId}`);
+export async function fetchCommercialOfferDetails(
+  offerId: number,
+): Promise<CommercialOfferDetails> {
+  return requestJson<CommercialOfferDetails>(
+    `/api/commercial-offers/${offerId}`,
+  );
 }
 
 export async function createCommercialOfferFromDraft(
   payload: CreateCommercialOfferPayload,
 ): Promise<CommercialOfferDetails> {
   return requestJsonWithInit<CommercialOfferDetails>(
-    "/api/commercial-offers/from-draft",
+    '/api/commercial-offers/from-draft',
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось сформировать КП из черновика.",
+    'Не удалось сформировать КП из черновика.',
   );
 }
 
 export async function createCommercialOfferFromExcel(payload: {
-  clientSource: "onec" | "local" | "manual";
+  clientSource: 'onec' | 'local' | 'manual';
   clientId?: number | null;
   clientName: string;
   notes?: string;
   file: File;
 }): Promise<CommercialOfferDetails> {
   const body = new FormData();
-  body.append("clientSource", payload.clientSource);
+  body.append('clientSource', payload.clientSource);
   if (payload.clientId) {
-    body.append("clientId", String(payload.clientId));
+    body.append('clientId', String(payload.clientId));
   }
-  body.append("clientName", payload.clientName);
-  body.append("notes", payload.notes ?? "");
-  body.append("file", payload.file);
+  body.append('clientName', payload.clientName);
+  body.append('notes', payload.notes ?? '');
+  body.append('file', payload.file);
 
-  const response = await fetch(buildApiUrl("/api/commercial-offers/from-excel"), {
-    method: "POST",
-    body,
-    headers: createHeaders(),
-  });
+  const response = await fetch(
+    buildApiUrl('/api/commercial-offers/from-excel'),
+    {
+      method: 'POST',
+      body,
+      headers: createHeaders(),
+    },
+  );
 
   const result = await parseJsonResponse<CommercialOfferDetails>(
     response,
-    "Не удалось сформировать КП из Excel.",
+    'Не удалось сформировать КП из Excel.',
   );
   invalidateApiCache();
   return result;
@@ -1405,58 +1621,68 @@ export async function markCommercialOfferSent(
   return requestJsonWithInit<CommercialOfferDetails>(
     `/api/commercial-offers/${offerId}/mark-sent`,
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось отметить КП отправленным.",
+    'Не удалось отметить КП отправленным.',
   );
 }
 
-export async function deleteCommercialOffer(offerId: number): Promise<{ ok: boolean }> {
+export async function deleteCommercialOffer(
+  offerId: number,
+): Promise<{ ok: boolean }> {
   return requestJsonWithInit<{ ok: boolean }>(
     `/api/commercial-offers/${offerId}`,
     {
-      method: "DELETE",
+      method: 'DELETE',
     },
-    "Не удалось удалить КП.",
+    'Не удалось удалить КП.',
   );
 }
 
 export async function downloadCommercialOfferFile(
   offerId: number,
-  kind: "source" | "output",
+  kind: 'source' | 'output',
 ): Promise<void> {
   await downloadApiFile(
     `/api/commercial-offers/${offerId}/download/${kind}`,
-    "Не удалось скачать файл КП.",
-    kind === "source" ? "source.xlsx" : "commercial_offer.xlsx",
+    'Не удалось скачать файл КП.',
+    kind === 'source' ? 'source.xlsx' : 'commercial_offer.xlsx',
   );
 }
 
 export async function fetchDocuments(): Promise<GeneratedDocument[]> {
-  const result = await requestJson<{ items: GeneratedDocument[] }>("/api/documents");
+  const result = await requestJson<{ items: GeneratedDocument[] }>(
+    '/api/documents',
+  );
   return result.items;
 }
 
-export async function fetchDocument(documentId: number): Promise<GeneratedDocument> {
-  const result = await requestJson<{ document: GeneratedDocument }>(`/api/documents/${documentId}`);
+export async function fetchDocument(
+  documentId: number,
+): Promise<GeneratedDocument> {
+  const result = await requestJson<{ document: GeneratedDocument }>(
+    `/api/documents/${documentId}`,
+  );
   return result.document;
 }
 
-export async function createDocument(payload: CreateDocumentPayload): Promise<GeneratedDocument> {
+export async function createDocument(
+  payload: CreateDocumentPayload,
+): Promise<GeneratedDocument> {
   const result = await requestJsonWithInit<{ document: GeneratedDocument }>(
-    "/api/documents",
+    '/api/documents',
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось сформировать документ.",
+    'Не удалось сформировать документ.',
   );
   return result.document;
 }
@@ -1464,23 +1690,25 @@ export async function createDocument(payload: CreateDocumentPayload): Promise<Ge
 export async function downloadDocumentFile(documentId: number): Promise<void> {
   await downloadApiFile(
     `/api/documents/${documentId}/download`,
-    "Не удалось скачать документ.",
-    "document.docx",
+    'Не удалось скачать документ.',
+    'document.docx',
   );
 }
 
-export async function deleteDocument(documentId: number): Promise<{ ok: boolean }> {
+export async function deleteDocument(
+  documentId: number,
+): Promise<{ ok: boolean }> {
   return requestJsonWithInit<{ ok: boolean }>(
     `/api/documents/${documentId}`,
     {
-      method: "DELETE",
+      method: 'DELETE',
     },
-    "Не удалось удалить документ.",
+    'Не удалось удалить документ.',
   );
 }
 
 export async function fetchWarehouses(): Promise<Warehouse[]> {
-  const result = await requestJson<{ items: Warehouse[] }>("/api/warehouses");
+  const result = await requestJson<{ items: Warehouse[] }>('/api/warehouses');
   return result.items;
 }
 
@@ -1489,26 +1717,46 @@ export async function createWarehouse(payload: {
   externalCode?: string;
 }): Promise<Warehouse> {
   const result = await requestJsonWithInit<{ warehouse: Warehouse }>(
-    "/api/warehouses",
+    '/api/warehouses',
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось создать склад.",
+    'Не удалось создать склад.',
   );
   return result.warehouse;
 }
 
-export async function deleteWarehouse(warehouseId: number): Promise<{ ok: boolean }> {
+export async function renameWarehouse(
+  warehouseId: number,
+  payload: { name: string },
+): Promise<Warehouse> {
+  const result = await requestJsonWithInit<{ warehouse: Warehouse }>(
+    `/api/warehouses/${warehouseId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    'Не удалось переименовать склад.',
+  );
+  return result.warehouse;
+}
+
+export async function deleteWarehouse(
+  warehouseId: number,
+): Promise<{ ok: boolean }> {
   return requestJsonWithInit<{ ok: boolean }>(
     `/api/warehouses/${warehouseId}`,
     {
-      method: "DELETE",
+      method: 'DELETE',
     },
-    "Не удалось удалить склад.",
+    'Не удалось удалить склад.',
   );
 }
 
@@ -1522,24 +1770,28 @@ export async function sendOrderToOneC(payload: SendOrderPayload): Promise<{
   };
 }> {
   return requestJsonWithInit(
-    "/api/orders/send",
+    '/api/orders/send',
     {
-      method: "POST",
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
     },
-    "Не удалось отправить заказ в 1С.",
+    'Не удалось отправить заказ в 1С.',
   );
 }
 
 export async function fetchOrders(): Promise<OrderHistoryItem[]> {
-  const result = await requestJson<{ items: OrderHistoryItem[] }>("/api/orders");
+  const result = await requestJson<{ items: OrderHistoryItem[] }>(
+    '/api/orders',
+  );
   return result.items;
 }
 
-export async function fetchOrderDetails(orderId: number): Promise<OrderDetails> {
+export async function fetchOrderDetails(
+  orderId: number,
+): Promise<OrderDetails> {
   return requestJson<OrderDetails>(`/api/orders/${orderId}`);
 }
 
@@ -1547,17 +1799,17 @@ export async function writeoffOrder(orderId: number): Promise<OrderDetails> {
   return requestJsonWithInit<OrderDetails>(
     `/api/orders/${orderId}/writeoff`,
     {
-      method: "POST",
+      method: 'POST',
     },
-    "Не удалось списать заказ со склада.",
+    'Не удалось списать заказ со склада.',
   );
 }
 
 export async function recoverOrderOnec(orderId: number): Promise<OrderDetails> {
   return requestJsonWithInit<OrderDetails>(
     `/api/orders/${orderId}/recover-onec`,
-    { method: "POST" },
-    "Не удалось сверить заказ с 1С.",
+    { method: 'POST' },
+    'Не удалось сверить заказ с 1С.',
   );
 }
 
@@ -1570,23 +1822,36 @@ export type PriceImportPreview = {
   errors: string[];
 };
 
-export async function previewPriceImport(file: File): Promise<PriceImportPreview> {
-  const body = new FormData(); body.append("file", file);
-  return parseJsonResponse<PriceImportPreview>(await fetch(buildApiUrl("/api/price/import/preview"), { method: "POST", body, headers: createHeaders() }), "Не удалось проверить прайс.");
+export async function previewPriceImport(
+  file: File,
+): Promise<PriceImportPreview> {
+  const body = new FormData();
+  body.append('file', file);
+  return parseJsonResponse<PriceImportPreview>(
+    await fetch(buildApiUrl('/api/price/import/preview'), {
+      method: 'POST',
+      body,
+      headers: createHeaders(),
+    }),
+    'Не удалось проверить прайс.',
+  );
 }
 
-export async function importPriceFile(file: File, planHash: string): Promise<{
+export async function importPriceFile(
+  file: File,
+  planHash: string,
+): Promise<{
   created: number;
   updated: number;
   locationUpdated: number;
   locationSkipped: number;
 }> {
   const body = new FormData();
-  body.append("file", file);
-  body.append("planHash", planHash);
+  body.append('file', file);
+  body.append('planHash', planHash);
 
-  const response = await fetch(buildApiUrl("/api/price/import"), {
-    method: "POST",
+  const response = await fetch(buildApiUrl('/api/price/import'), {
+    method: 'POST',
     body,
     headers: createHeaders(),
   });
@@ -1596,77 +1861,102 @@ export async function importPriceFile(file: File, planHash: string): Promise<{
     updated: number;
     locationUpdated: number;
     locationSkipped: number;
-  }>(
-    response,
-    "Не удалось импортировать прайс.",
-  );
+  }>(response, 'Не удалось импортировать прайс.');
   invalidateApiCache();
   return result;
 }
 
-export async function updateItemQuantity(itemId: number, quantity: number): Promise<StockItem | null> {
-  const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}/quantity`), {
-    method: "POST",
-    headers: createHeaders({
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({ quantity }),
-  });
+export async function updateItemQuantity(
+  itemId: number,
+  quantity: number,
+): Promise<StockItem | null> {
+  const response = await fetch(
+    buildApiUrl(`/api/stock/items/${itemId}/quantity`),
+    {
+      method: 'POST',
+      headers: createHeaders({
+        'Content-Type': 'application/json',
+      }),
+      body: JSON.stringify({ quantity }),
+    },
+  );
 
-  const result = await parseJsonResponse<{ item: StockItem | null }>(response, "Не удалось обновить остаток.");
+  const result = await parseJsonResponse<{ item: StockItem | null }>(
+    response,
+    'Не удалось обновить остаток.',
+  );
   invalidateApiCache();
   return result.item;
 }
 
-export async function createLocalItem(payload: LocalItemPayload): Promise<StockItem | null> {
-  const response = await fetch(buildApiUrl("/api/stock/items"), {
-    method: "POST",
+export async function createLocalItem(
+  payload: LocalItemPayload,
+): Promise<StockItem | null> {
+  const response = await fetch(buildApiUrl('/api/stock/items'), {
+    method: 'POST',
     headers: createHeaders({
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(payload),
-  });
-
-  const result = await parseJsonResponse<{ item: StockItem | null }>(response, "Не удалось создать позицию.");
-  invalidateApiCache();
-  return result.item;
-}
-
-export async function updateLocalItem(itemId: number, payload: LocalItemPayload): Promise<StockItem | null> {
-  const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}`), {
-    method: "PATCH",
-    headers: createHeaders({
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
     }),
     body: JSON.stringify(payload),
   });
 
   const result = await parseJsonResponse<{ item: StockItem | null }>(
     response,
-    "Не удалось сохранить изменения по позиции.",
+    'Не удалось создать позицию.',
   );
   invalidateApiCache();
   return result.item;
 }
 
-export async function deleteItem(itemId: number): Promise<{ deleted: number; hidden: number }> {
+export async function updateLocalItem(
+  itemId: number,
+  payload: LocalItemPayload,
+): Promise<StockItem | null> {
   const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}`), {
-    method: "DELETE",
+    method: 'PATCH',
+    headers: createHeaders({
+      'Content-Type': 'application/json',
+    }),
+    body: JSON.stringify(payload),
+  });
+
+  const result = await parseJsonResponse<{ item: StockItem | null }>(
+    response,
+    'Не удалось сохранить изменения по позиции.',
+  );
+  invalidateApiCache();
+  return result.item;
+}
+
+export async function deleteItem(
+  itemId: number,
+): Promise<{ deleted: number; hidden: number }> {
+  const response = await fetch(buildApiUrl(`/api/stock/items/${itemId}`), {
+    method: 'DELETE',
     headers: createHeaders(),
   });
 
-  const result = await parseJsonResponse<{ deleted: number; hidden: number }>(response, "Не удалось удалить товар.");
+  const result = await parseJsonResponse<{ deleted: number; hidden: number }>(
+    response,
+    'Не удалось удалить товар.',
+  );
   invalidateApiCache();
   return result;
 }
 
-export async function clearCatalog(): Promise<{ deleted: number; hidden: number }> {
-  const response = await fetch(buildApiUrl("/api/price/catalog"), {
-    method: "DELETE",
+export async function clearCatalog(): Promise<{
+  deleted: number;
+  hidden: number;
+}> {
+  const response = await fetch(buildApiUrl('/api/price/catalog'), {
+    method: 'DELETE',
     headers: createHeaders(),
   });
 
-  const result = await parseJsonResponse<{ deleted: number; hidden: number }>(response, "Не удалось очистить каталог.");
+  const result = await parseJsonResponse<{ deleted: number; hidden: number }>(
+    response,
+    'Не удалось очистить каталог.',
+  );
   invalidateApiCache();
   return result;
 }
