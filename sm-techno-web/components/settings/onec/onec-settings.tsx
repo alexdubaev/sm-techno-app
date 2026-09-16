@@ -1,10 +1,17 @@
 'use client';
 
-import { FileText, Network, Percent, Plug, RefreshCw } from 'lucide-react';
+import {
+  Building2,
+  ChevronDown,
+  Percent,
+  Plug,
+  RefreshCw,
+  Settings2,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
-import type { SystemSettings } from '../../../lib/types';
+import type { Organization, SystemSettings } from '../../../lib/types';
 import { SettingsSection } from './settings-section';
 
 const SETTINGS_KEYS = [
@@ -33,100 +40,105 @@ export type OneCSettingsValue = Pick<SystemSettings, OneCSettingsKey>;
 
 export type OneCSettingsProps = {
   loadSettings: () => Promise<OneCSettingsValue>;
+  loadOrganizations: () => Promise<Organization[]>;
   saveSettings: (settings: OneCSettingsValue) => Promise<unknown>;
-  testConnection: () => Promise<unknown>;
+  testConnection: () => Promise<{
+    counterparties: number;
+    organizations: number;
+  }>;
 };
 
 type TextField = {
-  key: Exclude<OneCSettingsKey, 'vat_included' | 'sum_includes_vat'>;
+  key: Exclude<
+    OneCSettingsKey,
+    | 'base_url'
+    | 'default_organization_key'
+    | 'vat_percent'
+    | 'vat_included'
+    | 'sum_includes_vat'
+  >;
   label: string;
-  placeholder?: string;
-};
-
-type SectionDefinition = {
-  title: string;
   description: string;
-  icon: ReactNode;
-  fields: readonly TextField[];
-  toggles?: readonly {
-    key: 'vat_included' | 'sum_includes_vat';
-    label: string;
-    description: string;
-  }[];
-  connectionAction?: boolean;
 };
 
-const SECTIONS: readonly SectionDefinition[] = [
+const ADVANCED_FIELDS: readonly TextField[] = [
   {
-    title: 'Подключение',
-    description: 'Адрес базы для обмена данными с 1С.',
-    icon: <Plug aria-hidden="true" className="size-5" strokeWidth={1.8} />,
-    fields: [
-      {
-        key: 'base_url',
-        label: 'URL базы 1С',
-        placeholder: 'https://server/odata/standard.odata',
-      },
-    ],
-    connectionAction: true,
+    key: 'sale_operation',
+    label: 'Вид операции продажи',
+    description: 'Значение операции, которое получает заказ в 1С.',
   },
   {
-    title: 'Заказы и документы',
-    description: 'Параметры организации, операций и состояний документов.',
-    icon: <FileText aria-hidden="true" className="size-5" strokeWidth={1.8} />,
-    fields: [
-      { key: 'default_organization_key', label: 'Организация по умолчанию' },
-      { key: 'sale_operation', label: 'Вид операции продажи' },
-      { key: 'currency_key', label: 'Валюта документа' },
-      { key: 'order_type_key', label: 'Ключ вида заказа' },
-      { key: 'order_type_type', label: 'Тип вида заказа' },
-      { key: 'price_type_key', label: 'Вид цен' },
-      { key: 'order_state_key', label: 'Ключ состояния заказа' },
-      { key: 'order_state_type', label: 'Тип состояния заказа' },
-      { key: 'business_operation_key', label: 'Хозяйственная операция' },
-    ],
+    key: 'currency_key',
+    label: 'Ключ валюты',
+    description:
+      'GUID валюты документа. Пустое значение использует правило 1С.',
   },
   {
-    title: 'Структура и единицы',
-    description: 'Структурные единицы продажи, резерва и единицы измерения.',
-    icon: <Network aria-hidden="true" className="size-5" strokeWidth={1.8} />,
-    fields: [
-      { key: 'sale_unit_key', label: 'Структурная единица продажи' },
-      { key: 'reserve_unit_key', label: 'Структурная единица резерва' },
-      { key: 'unit_type', label: 'Тип единицы измерения' },
-    ],
+    key: 'order_type_key',
+    label: 'Ключ вида заказа',
+    description: 'GUID вида заказа покупателя.',
   },
   {
-    title: 'НДС',
-    description: 'Ставка налога и правила включения НДС в стоимость документа.',
-    icon: <Percent aria-hidden="true" className="size-5" strokeWidth={1.8} />,
-    fields: [
-      { key: 'vat_rate_key', label: 'Ключ ставки НДС' },
-      { key: 'vat_percent', label: 'Ставка НДС, %', placeholder: '22' },
-    ],
-    toggles: [
-      {
-        key: 'vat_included',
-        label: 'НДС включён в стоимость',
-        description: 'Передавать цену позиции с включённым НДС.',
-      },
-      {
-        key: 'sum_includes_vat',
-        label: 'Сумма документа включает НДС',
-        description: 'Считать итоговую сумму документа уже содержащей НДС.',
-      },
-    ],
+    key: 'order_type_type',
+    label: 'Тип вида заказа',
+    description: 'Технический OData-тип справочника видов заказа.',
+  },
+  {
+    key: 'price_type_key',
+    label: 'Ключ вида цен',
+    description: 'GUID вида цен, передаваемого в документ.',
+  },
+  {
+    key: 'order_state_key',
+    label: 'Ключ состояния заказа',
+    description: 'GUID начального состояния заказа.',
+  },
+  {
+    key: 'order_state_type',
+    label: 'Тип состояния заказа',
+    description: 'Технический OData-тип справочника состояний.',
+  },
+  {
+    key: 'sale_unit_key',
+    label: 'Структурная единица продажи',
+    description: 'GUID подразделения, от которого оформляется продажа.',
+  },
+  {
+    key: 'reserve_unit_key',
+    label: 'Структурная единица резерва',
+    description: 'GUID подразделения, в котором резервируется товар.',
+  },
+  {
+    key: 'business_operation_key',
+    label: 'Хозяйственная операция',
+    description: 'GUID бухгалтерской операции документа.',
+  },
+  {
+    key: 'vat_rate_key',
+    label: 'Ключ ставки НДС',
+    description: 'Необязательно: без GUID ставка определяется по проценту.',
+  },
+  {
+    key: 'unit_type',
+    label: 'Тип единицы измерения',
+    description: 'Технический OData-тип единиц измерения.',
   },
 ];
 
+const INPUT_CLASS =
+  'min-h-11 w-full rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] text-[var(--text-primary)] outline-none transition placeholder:text-[#768397] hover:border-[#AEB9C8] focus:border-[var(--brand-yellow)] focus:ring-3 focus:ring-[rgba(255,196,0,0.18)]';
+
 export function OneCSettings({
   loadSettings,
+  loadOrganizations,
   saveSettings,
   testConnection,
 }: OneCSettingsProps) {
   const isMobile = useMobileLayout();
   const [form, setForm] = useState<OneCSettingsValue | null>(null);
   const [savedForm, setSavedForm] = useState<OneCSettingsValue | null>(null);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [organizationsError, setOrganizationsError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -149,34 +161,60 @@ export function OneCSettings({
     async function load() {
       setIsLoading(true);
       setFeedback(null);
-      try {
-        const loaded = pickSupportedSettings(await loadSettings());
-        if (isActive) {
-          setForm(loaded);
-          setSavedForm(loaded);
-        }
-      } catch (error: unknown) {
-        if (isActive) {
-          setFeedback({
-            kind: 'error',
-            text: getErrorMessage(error, 'Не удалось загрузить настройки 1С.'),
-          });
-        }
-      } finally {
-        if (isActive) {
-          setIsLoading(false);
-        }
+      const [settingsResult, organizationsResult] = await Promise.allSettled([
+        loadSettings(),
+        loadOrganizations(),
+      ]);
+
+      if (!isActive) {
+        return;
       }
+
+      if (settingsResult.status === 'fulfilled') {
+        const loaded = pickSupportedSettings(settingsResult.value);
+        setForm(loaded);
+        setSavedForm(loaded);
+      } else {
+        setFeedback({
+          kind: 'error',
+          text: getErrorMessage(
+            settingsResult.reason,
+            'Не удалось загрузить настройки 1С.',
+          ),
+        });
+      }
+
+      if (organizationsResult.status === 'fulfilled') {
+        setOrganizations(organizationsResult.value);
+        setOrganizationsError(false);
+      } else {
+        setOrganizationsError(true);
+      }
+      setIsLoading(false);
     }
 
     void load();
     return () => {
       isActive = false;
     };
-  }, [loadSettings]);
+  }, [loadOrganizations, loadSettings]);
 
   const updateField = useCallback((key: OneCSettingsKey, value: string) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));
+    setFeedback(null);
+  }, []);
+
+  const updateVatMode = useCallback((mode: 'included' | 'excluded') => {
+    const enabled = mode === 'included' ? '1' : '0';
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            vat_included: enabled,
+            sum_includes_vat: enabled,
+          }
+        : current,
+    );
     setFeedback(null);
   }, []);
 
@@ -207,7 +245,10 @@ export function OneCSettings({
     setFeedback(null);
     try {
       await testConnection();
-      setFeedback({ kind: 'success', text: 'Подключение к 1С работает.' });
+      setFeedback({
+        kind: 'success',
+        text: 'Доступ к 1С подтверждён. Каталоги контрагентов и организаций доступны.',
+      });
     } catch (error: unknown) {
       setFeedback({
         kind: 'error',
@@ -233,7 +274,7 @@ export function OneCSettings({
             Интеграция с 1С
           </h1>
           <p className="mt-1 hidden text-[12px] text-[var(--text-secondary)] md:block">
-            Глобальные параметры подключения, документов, структуры и НДС.
+            Подключение, организация документов и правила НДС.
           </p>
         </div>
       </header>
@@ -261,26 +302,67 @@ export function OneCSettings({
             data-testid={
               isMobile ? 'onec-mobile-sections' : 'onec-desktop-sections'
             }
-            className={isMobile ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-2'}
+            className={isMobile ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-3'}
           >
-            {SECTIONS.map((section) => (
-              <SettingsSection
-                key={section.title}
-                title={section.title}
-                description={section.description}
-                icon={section.icon}
-                variant={isMobile ? 'mobile' : 'desktop'}
-              >
-                <SectionFields
-                  section={section}
-                  form={form}
-                  updateField={updateField}
-                  isTesting={isTesting}
-                  onTestConnection={handleTestConnection}
+            <SettingsSection
+              title="Подключение"
+              description="Общий адрес базы и проверка доступа текущего пользователя."
+              icon={
+                <Plug aria-hidden="true" className="size-5" strokeWidth={1.8} />
+              }
+              variant={isMobile ? 'mobile' : 'desktop'}
+            >
+              <ConnectionFields
+                baseUrl={form.base_url}
+                isTesting={isTesting}
+                onChange={(value) => updateField('base_url', value)}
+                onTestConnection={handleTestConnection}
+              />
+            </SettingsSection>
+
+            <SettingsSection
+              title="Документы"
+              description="Организация, которая будет выбрана при создании заказа."
+              icon={
+                <Building2
+                  aria-hidden="true"
+                  className="size-5"
+                  strokeWidth={1.8}
                 />
-              </SettingsSection>
-            ))}
+              }
+              variant={isMobile ? 'mobile' : 'desktop'}
+            >
+              <OrganizationField
+                value={form.default_organization_key}
+                organizations={organizations}
+                hasLoadError={organizationsError}
+                onChange={(value) =>
+                  updateField('default_organization_key', value)
+                }
+              />
+            </SettingsSection>
+
+            <SettingsSection
+              title="НДС"
+              description="Ставка и способ расчёта налога в ценах заказа."
+              icon={
+                <Percent
+                  aria-hidden="true"
+                  className="size-5"
+                  strokeWidth={1.8}
+                />
+              }
+              variant={isMobile ? 'mobile' : 'desktop'}
+            >
+              <VatFields
+                form={form}
+                onPercentChange={(value) => updateField('vat_percent', value)}
+                onModeChange={updateVatMode}
+              />
+            </SettingsSection>
           </div>
+
+          <AdvancedSettings form={form} updateField={updateField} />
 
           <div
             className={
@@ -308,74 +390,308 @@ export function OneCSettings({
   );
 }
 
-function SectionFields({
-  section,
-  form,
-  updateField,
+function ConnectionFields({
+  baseUrl,
   isTesting,
+  onChange,
   onTestConnection,
 }: {
-  section: SectionDefinition;
-  form: OneCSettingsValue;
-  updateField: (key: OneCSettingsKey, value: string) => void;
+  baseUrl: string;
   isTesting: boolean;
+  onChange: (value: string) => void;
   onTestConnection: () => Promise<void>;
 }) {
   return (
     <div className="grid gap-3">
-      {section.fields.map((field) => (
-        <label key={field.key} className="grid gap-1.5">
-          <span className="text-[11px] font-[620] text-[var(--text-primary)]">
-            {field.label}
-          </span>
-          <input
-            type="text"
-            value={form[field.key]}
-            placeholder={field.placeholder}
-            onChange={(event) => updateField(field.key, event.target.value)}
-            className="min-h-11 w-full rounded-[12px] border border-[var(--border-color)] bg-white px-3 text-[12px] text-[var(--text-primary)] outline-none transition placeholder:text-[#9AA5B5] hover:border-[#CCD4E0] focus:border-[var(--brand-yellow)] focus:ring-3 focus:ring-[rgba(255,196,0,0.14)]"
-          />
-        </label>
-      ))}
-
-      {section.toggles?.map((toggle) => (
-        <label
-          key={toggle.key}
-          className="flex min-h-14 cursor-pointer items-center gap-3 rounded-[12px] border border-[var(--border-color)] px-3 py-2"
-        >
-          <input
-            type="checkbox"
-            aria-label={toggle.label}
-            checked={form[toggle.key] === '1'}
-            onChange={(event) =>
-              updateField(toggle.key, event.target.checked ? '1' : '0')
-            }
-            className="size-5 shrink-0 accent-[var(--brand-yellow)]"
-          />
-          <span className="min-w-0">
-            <span className="block text-[12px] font-[620]">{toggle.label}</span>
-            <span className="mt-0.5 block text-[10px] leading-4 text-[var(--text-secondary)]">
-              {toggle.description}
-            </span>
-          </span>
-        </label>
-      ))}
-
-      {section.connectionAction ? (
-        <button
-          type="button"
-          onClick={() => void onTestConnection()}
-          disabled={isTesting}
-          className="mt-1 flex min-h-11 w-full items-center justify-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-4 text-[12px] font-[620] text-[var(--brand-dark)] outline-none transition hover:bg-[#F8FAFD] focus-visible:ring-3 focus-visible:ring-[rgba(255,196,0,0.28)]"
-        >
-          <RefreshCw
-            aria-hidden="true"
-            className={`size-4 ${isTesting ? 'animate-spin' : ''}`}
-          />
-          {isTesting ? 'Проверяем…' : 'Проверить подключение'}
-        </button>
-      ) : null}
+      <FieldLabel label="URL базы 1С">
+        <input
+          type="url"
+          value={baseUrl}
+          placeholder="https://server/odata/standard.odata"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          onChange={(event) => onChange(event.target.value)}
+          className={INPUT_CLASS}
+        />
+      </FieldLabel>
+      <p className="text-[10px] leading-4 text-[var(--text-secondary)]">
+        Проверяется сохранённый URL и доступ 1С текущего пользователя.
+      </p>
+      <button
+        type="button"
+        onClick={() => void onTestConnection()}
+        disabled={isTesting}
+        className="mt-1 flex min-h-11 w-full items-center justify-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-4 text-[12px] font-[620] text-[var(--brand-dark)] outline-none transition hover:border-[#AEB9C8] hover:bg-[#F8FAFD] focus-visible:ring-3 focus-visible:ring-[rgba(255,196,0,0.28)] disabled:cursor-wait disabled:opacity-60"
+      >
+        <RefreshCw
+          aria-hidden="true"
+          className={`size-4 ${isTesting ? 'animate-spin' : ''}`}
+        />
+        {isTesting ? 'Проверяем…' : 'Проверить подключение'}
+      </button>
     </div>
+  );
+}
+
+function OrganizationField({
+  value,
+  organizations,
+  hasLoadError,
+  onChange,
+}: {
+  value: string;
+  organizations: Organization[];
+  hasLoadError: boolean;
+  onChange: (value: string) => void;
+}) {
+  const hasCurrentOrganization = organizations.some(
+    (organization) => organization.onecKey === value,
+  );
+
+  return (
+    <div className="grid gap-2">
+      <FieldLabel label="Организация по умолчанию">
+        <select
+          aria-label="Организация по умолчанию"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={INPUT_CLASS}
+        >
+          <option value="">Не выбрана</option>
+          {value && !hasCurrentOrganization ? (
+            <option value={value}>Сохранённая организация</option>
+          ) : null}
+          {organizations.map((organization) => (
+            <option key={organization.onecKey} value={organization.onecKey}>
+              {organization.name}
+            </option>
+          ))}
+        </select>
+      </FieldLabel>
+      <p className="text-[10px] leading-4 text-[var(--text-secondary)]">
+        {hasLoadError
+          ? 'Список организаций сейчас недоступен. Сохранённое значение не изменено.'
+          : organizations.length
+            ? 'В заказе организацию всё равно можно изменить перед отправкой.'
+            : 'Организации появятся после синхронизации справочников 1С.'}
+      </p>
+    </div>
+  );
+}
+
+function VatFields({
+  form,
+  onPercentChange,
+  onModeChange,
+}: {
+  form: OneCSettingsValue;
+  onPercentChange: (value: string) => void;
+  onModeChange: (mode: 'included' | 'excluded') => void;
+}) {
+  const included = form.vat_included === '1' && form.sum_includes_vat === '1';
+  const excluded = form.vat_included === '0' && form.sum_includes_vat === '0';
+
+  return (
+    <div className="grid gap-4">
+      <FieldLabel label="Ставка НДС, %">
+        <input
+          aria-label="Ставка НДС, %"
+          type="number"
+          min="0"
+          step="0.01"
+          inputMode="decimal"
+          value={form.vat_percent}
+          placeholder="22"
+          onChange={(event) => onPercentChange(event.target.value)}
+          className={INPUT_CLASS}
+        />
+      </FieldLabel>
+
+      <fieldset className="grid gap-2">
+        <legend className="mb-1 text-[11px] font-[620] text-[var(--text-primary)]">
+          Как указаны цены
+        </legend>
+        <VatModeOption
+          label="НДС включён в цены"
+          description="Итоговая цена уже содержит налог."
+          checked={included}
+          onChange={() => onModeChange('included')}
+        />
+        <VatModeOption
+          label="НДС начисляется сверху"
+          description="Налог добавляется к стоимости товара."
+          checked={excluded}
+          onChange={() => onModeChange('excluded')}
+        />
+        {!included && !excluded ? (
+          <p className="rounded-[10px] bg-[#FFF8DC] px-3 py-2 text-[10px] leading-4 text-[#6F5610]">
+            Сейчас используется индивидуальная схема. Изменить её можно в
+            расширенных настройках.
+          </p>
+        ) : null}
+      </fieldset>
+    </div>
+  );
+}
+
+function VatModeOption({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label
+      className={`flex min-h-14 cursor-pointer items-start gap-3 rounded-[12px] border px-3 py-2.5 transition ${
+        checked
+          ? 'border-[var(--brand-yellow)] bg-[#FFFBEB]'
+          : 'border-[var(--border-color)] hover:border-[#AEB9C8]'
+      }`}
+    >
+      <input
+        aria-label={label}
+        type="radio"
+        name="vat-price-mode"
+        checked={checked}
+        onChange={onChange}
+        className="mt-0.5 size-5 shrink-0 accent-[var(--brand-yellow)]"
+      />
+      <span className="min-w-0">
+        <span className="block text-[12px] font-[620]">{label}</span>
+        <span className="mt-0.5 block text-[10px] leading-4 text-[var(--text-secondary)]">
+          {description}
+        </span>
+      </span>
+    </label>
+  );
+}
+
+function AdvancedSettings({
+  form,
+  updateField,
+}: {
+  form: OneCSettingsValue;
+  updateField: (key: OneCSettingsKey, value: string) => void;
+}) {
+  return (
+    <details
+      data-testid="onec-advanced-settings"
+      className="group overflow-hidden rounded-[16px] border border-[var(--border-color)] bg-white"
+    >
+      <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3 outline-none transition hover:bg-[#F8FAFD] focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-[rgba(255,196,0,0.28)] [&::-webkit-details-marker]:hidden">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-[#F3F5F8] text-[var(--brand-dark)]">
+          <Settings2 aria-hidden="true" className="size-5" strokeWidth={1.8} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-[650]">
+            Расширенные настройки
+          </span>
+          <span className="mt-0.5 block text-[10px] leading-4 text-[var(--text-secondary)]">
+            Технические ключи 1С. Меняйте их только при настройке обмена.
+          </span>
+        </span>
+        <ChevronDown
+          aria-hidden="true"
+          className="size-5 shrink-0 transition-transform group-open:rotate-180"
+        />
+      </summary>
+
+      <div className="grid gap-4 border-t border-[var(--border-color)] px-4 py-5 md:grid-cols-2">
+        {ADVANCED_FIELDS.map((field) => (
+          <FieldLabel
+            key={field.key}
+            label={field.label}
+            description={field.description}
+          >
+            <input
+              aria-label={field.label}
+              type="text"
+              value={form[field.key]}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              onChange={(event) => updateField(field.key, event.target.value)}
+              className={INPUT_CLASS}
+            />
+          </FieldLabel>
+        ))}
+
+        <fieldset className="grid gap-3 rounded-[12px] bg-[#F8FAFD] p-4 md:col-span-2">
+          <legend className="px-1 text-[11px] font-[650]">
+            Индивидуальная схема НДС
+          </legend>
+          <p className="text-[10px] leading-4 text-[var(--text-secondary)]">
+            Эти флаги нужны только для нестандартной конфигурации 1С.
+          </p>
+          <AdvancedToggle
+            label="НДС включать в стоимость"
+            checked={form.vat_included === '1'}
+            onChange={(checked) =>
+              updateField('vat_included', checked ? '1' : '0')
+            }
+          />
+          <AdvancedToggle
+            label="Сумма документа включает НДС"
+            checked={form.sum_includes_vat === '1'}
+            onChange={(checked) =>
+              updateField('sum_includes_vat', checked ? '1' : '0')
+            }
+          />
+        </fieldset>
+      </div>
+    </details>
+  );
+}
+
+function AdvancedToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-11 cursor-pointer items-center gap-3">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="size-5 shrink-0 accent-[var(--brand-yellow)]"
+      />
+      <span className="text-[12px] font-[620]">{label}</span>
+    </label>
+  );
+}
+
+function FieldLabel({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="grid gap-1.5">
+      <span className="text-[11px] font-[620] text-[var(--text-primary)]">
+        {label}
+      </span>
+      {children}
+      {description ? (
+        <span className="text-[10px] leading-4 text-[var(--text-secondary)]">
+          {description}
+        </span>
+      ) : null}
+    </label>
   );
 }
 
