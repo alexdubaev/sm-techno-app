@@ -22,7 +22,7 @@ archive-delete-proposed — только предложение: tip включ�
 
 ## Проверки и блокеры
 
-Fernet-причина Linux CI воспроизведена. Исправлена изоляция тестов, subprocess и E2E без изменения production-шифрования. Backend auth/transport/security/CI: 104 passed (включая 103 subtests); frontend auth 134 passed; settings 42 passed; TypeScript и build проходят. Полный backend ещё перепроверяется; существующий тест цены заказа ожидал 100 вместо фактической складской цены 0. Node suite: 60 passed, 9 failed (устаревший CRM loader и source assertions). Общий lint: 72 errors, 1 warning. Проверки не отключены; PR не готов к merge.
+Fernet-причина Linux CI воспроизведена. Исправлена изоляция тестов, subprocess и E2E без изменения production-шифрования. Backend auth/transport/security/CI: 104 passed (включая 103 subtests); frontend auth 134 passed; settings 42 passed; TypeScript и build проходят. Первый полный backend: 523 passed, 22 skipped, 1 failed (не задана складская цена в fixture заказа), 128 subtests passed. Fixture дополнена складской ценой без изменения расчёта приложения; 6 тестов заказов проходят, полный набор требует повторной проверки. Node suite: 60 passed, 9 failed (устаревший CRM loader и source assertions). Общий lint: 72 errors, 1 warning. Проверки не отключены; PR не готов к merge.
 
 npm ci сообщил 10 audit vulnerabilities (3 moderate, 6 high, 1 critical); зависимости не обновлялись массово. Браузерная проверка требует фактического запуска, не заменяется build. Ручные бизнес-сценарии не считаются пройденными по результату auth-набора.
 
