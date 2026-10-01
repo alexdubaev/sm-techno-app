@@ -278,7 +278,14 @@ export default function DocumentsPage() {
                 </label>
               </div>
 
-              <div className="relative">
+              <div
+                className="relative"
+                onBlur={(event) => {
+                  // Keep the picker open while focus moves inside it (clear
+                  // button, suggestions) so keyboard users can Tab into it.
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsClientPickerOpen(false);
+                }}
+              >
                 <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
                   Клиент
                 </span>
@@ -288,7 +295,6 @@ export default function DocumentsPage() {
                     value={clientSearch}
                     onChange={(event) => handleClientSearchChange(event.target.value)}
                     onFocus={handleClientSearchFocus}
-                    onBlur={() => setIsClientPickerOpen(false)}
                     disabled={isLoading}
                     placeholder="Поиск по названию, ИНН или КПП"
                     className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 pr-8 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
@@ -307,7 +313,6 @@ export default function DocumentsPage() {
                 </div>
                 {isClientPickerOpen ? (
                   <div
-                    onMouseDown={(event) => event.preventDefault()}
                     className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-[214px] overflow-x-hidden overflow-y-auto rounded-[10px] border border-[var(--border-color)] bg-white p-1 shadow-[0_14px_30px_rgba(15,23,42,0.18)]"
                   >
                     {filteredClients.length > 0 ? (
@@ -319,6 +324,7 @@ export default function DocumentsPage() {
                             <button
                               key={value}
                               type="button"
+                              onMouseDown={(event) => event.preventDefault()}
                               onClick={() => handleClientSelect(client)}
                               className={`min-w-0 w-full overflow-hidden rounded-[8px] border px-2.5 py-1.5 text-left text-[10px] transition ${
                                 isSelected

@@ -731,6 +731,10 @@ export default function WorkWithInvoicePage() {
                             <td className="px-3 py-1.5 text-[10px] tabular-nums text-[var(--text-secondary)]">
                               {index + 1}
                             </td>
+                            {/* A data cell, not a control; the rule misreads div-wrapped cell
+                                text as an unlabeled control, and an aria-label would override
+                                the real cell content for screen readers. */}
+                            {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label */}
                             <td className="px-3 py-1.5">
                               <div className="space-y-0.5">
                                 <div className="text-[10px] font-semibold tabular-nums">

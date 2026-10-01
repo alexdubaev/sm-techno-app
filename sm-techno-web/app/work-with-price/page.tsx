@@ -170,6 +170,13 @@ function WorkWithPriceAdminPage() {
   const selectedRowKeyRef = useRef<string | null>(null);
   const catalogRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
+  const warehouseRenameInputRef = useRef<HTMLInputElement>(null);
+
+  // Refocusing an already focused input is a no-op, so tying this to the whole
+  // rename state keeps the caret stable while the name is being edited.
+  useEffect(() => {
+    if (warehouseBeingRenamed) warehouseRenameInputRef.current?.focus();
+  }, [warehouseBeingRenamed]);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -1296,7 +1303,6 @@ function WorkWithPriceAdminPage() {
                     right: activeRowMenu.right,
                     transform: activeRowMenu.openUpward ? "translateY(-100%)" : undefined,
                   }}
-                  onClick={(event) => event.stopPropagation()}
                 >
                   <ActionMenuButton
                     label="Изменить карточку"
@@ -1558,7 +1564,7 @@ function WorkWithPriceAdminPage() {
                             {warehouseBeingRenamed?.id === warehouse.id ? (
                               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                                 <input
-                                  autoFocus
+                                  ref={warehouseRenameInputRef}
                                   value={warehouseBeingRenamed.name}
                                   onChange={(event) => setWarehouseBeingRenamed((current) => current ? { ...current, name: event.target.value } : current)}
                                   onKeyDown={(event) => {

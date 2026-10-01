@@ -1064,7 +1064,7 @@ function ClientList({ activeTab, clients, tabs, canEditWorkspace, manualOrderEna
   </>;
 }
 
-function InsertionRow({ columns }: { columns: number }) { return <tr aria-hidden="true"><td colSpan={columns} className="p-0"><div className="h-1 rounded-full bg-[var(--brand-yellow)]" /></td></tr>; }
+function InsertionRow({ columns }: { columns: number }) { return <tr aria-hidden="true">{/* Decorative drag marker; the rule misreads the wrapper cell as a control. */}{/* oxlint-disable-next-line jsx-a11y/control-has-associated-label */}<td colSpan={columns} className="p-0"><div className="h-1 rounded-full bg-[var(--brand-yellow)]" /></td></tr>; }
 function InsertionMarker() { return <div aria-hidden="true" className="h-1 rounded-full bg-[var(--brand-yellow)]" />; }
 
 function ClientTableRow(props: RowProps) {

@@ -8,6 +8,9 @@ import { Separator } from '@/components/ui/separator';
 
 function ItemGroup({ className, ...props }: React.ComponentProps<'div'>) {
   return (
+    // Item is polymorphic (render can output any tag), so children are not
+    // guaranteed to be <li> and a real <ul> would assert a false structure.
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
     <div
       role="list"
       data-slot="item-group"
