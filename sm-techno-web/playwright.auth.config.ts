@@ -19,7 +19,6 @@ export default defineConfig({
   reporter: [["list"], ["html", { outputFolder: "playwright-report/auth", open: "never" }]],
   use: {
     ...devices["Desktop Chrome"],
-    viewport: { width: 1600, height: 900 },
     baseURL: `http://127.0.0.1:${frontendPort}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
@@ -48,5 +47,8 @@ export default defineConfig({
       },
     },
   ],
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [390, 1280, 1600].map((width) => ({
+    name: `chromium-${width}`,
+    use: { ...devices["Desktop Chrome"], viewport: { width, height: 900 } },
+  })),
 });
