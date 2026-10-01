@@ -79,6 +79,35 @@ function DialogContent({
   );
 }
 
+/**
+ * A bare dialog popup for layouts that DialogContent's centered panel does not
+ * fit (full-bleed sheets, scroll containers). Pair it with DialogPortal and
+ * DialogBackdrop the same way DialogContent does.
+ */
+function DialogPopup({ className, ...props }: DialogPrimitive.Popup.Props) {
+  return (
+    <DialogPrimitive.Popup
+      data-slot="dialog-popup"
+      className={className}
+      {...props}
+    />
+  );
+}
+
+/**
+ * A bare dialog backdrop with no default dim/blur styling, for dialogs that
+ * draw their own overlay look on the popup container.
+ */
+function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props) {
+  return (
+    <DialogPrimitive.Backdrop
+      data-slot="dialog-backdrop"
+      className={className}
+      {...props}
+    />
+  );
+}
+
 function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
@@ -147,6 +176,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBackdrop,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -154,6 +184,7 @@ export {
   DialogHeader,
   DialogOverlay,
   DialogPortal,
+  DialogPopup,
   DialogTitle,
   DialogTrigger,
 };
