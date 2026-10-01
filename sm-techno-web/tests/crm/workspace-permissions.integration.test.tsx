@@ -142,7 +142,7 @@ describe('desktop workspace and shared write permissions', () => {
     const reads = vi.mocked(api.fetchPrimaryCrmClients).mock.calls.length;
     render(<CrmWorkspace />);
     await screen.findByRole('row', { name: /ООО Документ/ });
-    const ownerSelect = screen.getByRole('combobox', { name: 'CRM сотрудника' });
+    const ownerSelect = screen.getByRole('combobox', { name: 'CRM сотрудника' }) as HTMLSelectElement;
     expect(ownerSelect.options).toHaveLength(0);
     // jsdom coerces the missing option to an empty value, which Number() maps to 0.
     fireEvent.change(ownerSelect, { target: { value: '8' } });
