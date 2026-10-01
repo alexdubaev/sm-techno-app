@@ -394,4 +394,5 @@ export {
   ChartLegend,
   ChartLegendContent,
   ChartStyle,
+  chartKeyToString,
 };
