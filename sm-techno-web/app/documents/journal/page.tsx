@@ -148,7 +148,7 @@ export default function DocumentsPage() {
           />
           <datalist id="document-search-options">
             {documentSearchOptions.map((option, index) => (
-              <option key={`${option}-${index}`} value={option} />
+              <option key={`${option}-${index}`} value={option}>{option}</option>
             ))}
           </datalist>
         </div>

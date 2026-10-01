@@ -4,6 +4,7 @@
 
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -115,6 +116,7 @@ const CLIENT_PRICE_EXPORT_ERROR =
   '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u0440\u0430\u0439\u0441 \u0434\u043b\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430.';
 
 export function StockPage() {
+  const warehouseSelectId = useId();
   const router = useRouter();
   const [meta, setMeta] = useState<AppMeta | null>(null);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
@@ -1436,10 +1438,14 @@ export function StockPage() {
 
                   {selectedWarehouseOptions.length > 0 ? (
                     <div className="mt-2">
-                      <label className="text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
+                      <label
+                        htmlFor={warehouseSelectId}
+                        className="text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]"
+                      >
                         Склад для счета
                       </label>
                       <select
+                        id={warehouseSelectId}
                         value={selectedWarehouseId ?? ''}
                         onChange={(event) => {
                           const nextValue = Number.parseInt(

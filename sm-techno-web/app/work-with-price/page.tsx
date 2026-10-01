@@ -1230,6 +1230,7 @@ function WorkWithPriceAdminPage() {
                                     handleToggleRowMenu(rowKey, event.currentTarget);
                                   }}
                                   className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--text-secondary)] transition hover:border-[var(--brand-yellow)] hover:text-[var(--brand-dark)]"
+                                  aria-label={`Быстрые действия для ${item.name}`}
                                   title="Быстрые действия"
                                 >
                                   <MoreIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -1709,12 +1710,12 @@ function WorkWithPriceAdminPage() {
                     />
                     <datalist id="create-item-category-options">
                       {categories.map((option) => (
-                        <option key={option} value={option} />
+                        <option key={option} value={option}>{option}</option>
                       ))}
                     </datalist>
                     <datalist id="create-item-group-options">
                       {groups.map((option) => (
-                        <option key={option} value={option} />
+                        <option key={option} value={option}>{option}</option>
                       ))}
                     </datalist>
                   </div>

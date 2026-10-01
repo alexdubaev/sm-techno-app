@@ -543,7 +543,7 @@ export default function WorkWithInvoicePage() {
               />
               <datalist id="counterparty-options">
                 {counterparties.map((item) => (
-                  <option key={item.id} value={item.name} />
+                  <option key={item.id} value={item.name}>{item.name}</option>
                 ))}
               </datalist>
             </FieldBlock>
@@ -749,6 +749,7 @@ export default function WorkWithInvoicePage() {
                             <td className="px-3 py-1.5">
                               {warehouseOptions.length > 0 ? (
                                 <select
+                                  aria-label={`Склад для ${line.name}`}
                                   value={line.warehouseId}
                                   onChange={(event) =>
                                     changeLineWarehouse(line.lineId, Number(event.target.value))
@@ -796,6 +797,7 @@ export default function WorkWithInvoicePage() {
                                 </QuantityButton>
                                 <input
                                   type="text"
+                                  aria-label={`Количество для ${line.name}`}
                                   inputMode="numeric"
                                   pattern="[0-9]*"
                                   value={rawInput}
