@@ -28,6 +28,8 @@ Frontend auth локально: 134 passed; settings: 42 passed; TypeScript и b
 
 npm ci сообщил 10 audit vulnerabilities (3 moderate, 6 high, 1 critical); зависимости не обновлялись массово. Браузерная проверка требует фактического запуска, не заменяется build. Ручные бизнес-сценарии не считаются пройденными по результату auth-набора.
 
+CI commit dcdca7d3a3f9bd57ec0ede40d9f8f4b55eacb352: critical-backend PASS (524 passed, 22 skipped, 128 subtests); auth FAIL (133 integration passed / 1 focus-trap failed, Node 9 failures, lint 72 errors, E2E 4 failures). TypeScript/build PASS. Settings был SKIPPED после frontend failure; условие workflow дополнено, чтобы независимая settings-проверка выполнялась и при других сбоях, не меняя failed-статус job. Результат следующего commit проверять в его Actions run.
+
 CI включает полный pytest, settings, общий lint, TypeScript, build, browser и Node checks. Предлагаемые обязательные checks main после подтверждения: critical-backend и auth; PR required, запрет force push/deletion, проверки без обхода и без обязательного второго человека. Текущей защиты нет; ничего не применено.
 
 Внешние блокеры: production deployment Vercel при merge в main требует отдельной сверки/исключения; Sites v26 имеет source SHA вне GitHub-клона; VPS checkout и зависимости имени ветки не подтверждены. См. [контуры](deployment-source-of-truth.md). До разрешения блокеров не выполнять merge/выпуск/деплой; до подтверждения пользователя также не менять защиту, не публиковать архивные теги и не удалять ветки. Архивы — не релизы.

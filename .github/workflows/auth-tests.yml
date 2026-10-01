@@ -85,6 +85,7 @@ jobs:
         run: npm run test:auth
 
       - name: Settings integration tests
+        if: ${{ !cancelled() }}
         working-directory: sm-techno-web
         run: npm run test:settings
 
