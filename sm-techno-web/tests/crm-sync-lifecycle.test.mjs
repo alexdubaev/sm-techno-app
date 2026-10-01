@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 import vm from "node:vm";
@@ -10,6 +10,23 @@ const React = require("react");
 const { createRoot } = require("react-dom/client");
 const { JSDOM } = require("jsdom");
 const { act } = React;
+
+function resolveTestModule(path) {
+  const candidates = /\.tsx?$/.test(path) ? [path] : [`${path}.ts`, `${path}.tsx`];
+  for (const candidate of candidates) {
+    if (existsSync(new URL(`../${candidate}`, import.meta.url))) return candidate;
+  }
+  throw new Error(`Cannot resolve test module: ${path} (tried ${candidates.join(", ")})`);
+}
+
+test("VM resolver supports TypeScript and TSX aliases and fails on missing modules", () => {
+  assert.equal(resolveTestModule("lib/api"), "lib/api.ts");
+  assert.equal(resolveTestModule("lib/api.ts"), "lib/api.ts");
+  assert.equal(resolveTestModule("components/crm/messenger-links"), "components/crm/messenger-links.tsx");
+  assert.equal(resolveTestModule("components/crm/messenger-links.tsx"), "components/crm/messenger-links.tsx");
+  assert.throws(() => resolveTestModule("lib/__missing_test_module__"), /Cannot resolve test module.*\.ts.*\.tsx/);
+  assert.throws(() => resolveTestModule("components/crm/messenger-links.ts"), /Cannot resolve test module/);
+});
 
 function deferred() {
   let resolve;
@@ -22,7 +39,7 @@ const card = (name) => ({
   inn: "7700000000", kpp: "770001001", city: "Москва", website: "",
   contactPerson: "Ирина", email: "", phone: "", notes: "",
   linkedCounterpartyId: 1, syncStatus: "synced", syncError: "",
-  createdAt: "", updatedAt: "", assignment: null, rowPreference: null, primaryRowPreference: null,
+  createdAt: "", updatedAt: "", assignment: null, workOwners: [], rowPreference: null, primaryRowPreference: null,
 });
 
 async function workspaceHarness(t, { localGate, cached = false } = {}) {
@@ -40,15 +57,16 @@ async function workspaceHarness(t, { localGate, cached = false } = {}) {
   const modules = new Map();
   const user = { id: 7, username: "owner", fullName: "Owner", role: "user" };
   function load(path) {
+    path = resolveTestModule(path);
     if (modules.has(path)) return modules.get(path).exports;
-    const module = { exports: {} };
-    modules.set(path, module);
+    const commonJsModule = { exports: {} };
+    modules.set(path, commonJsModule);
     const source = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
     const compiled = ts.transpileModule(source, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
     }).outputText;
     vm.runInNewContext(compiled, {
-      module, exports: module.exports, Date: Clock, window: dom.window, document: dom.window.document,
+      module: commonJsModule, exports: commonJsModule.exports, Date: Clock, window: dom.window, document: dom.window.document,
       URL, URLSearchParams, Headers, AbortController, AbortSignal, console, process: { env: {} },
       fetch: async (input, init) => {
         const url = new URL(input, "http://localhost");
@@ -81,11 +99,11 @@ async function workspaceHarness(t, { localGate, cached = false } = {}) {
         if (name === "@/components/crm/use-crm-client-detail") return {};
         if (name === "@/components/ui/alert-dialog") return new Proxy({}, { get: () => () => null });
         if (name === "@/lib/storage") return { loadAuthTokenFromStorage: () => null };
-        if (name.startsWith("@/")) return load(`${name.slice(2)}.ts`);
+        if (name.startsWith("@/")) return load(name.slice(2));
         return require(name);
       },
     });
-    return module.exports;
+    return commonJsModule.exports;
   }
   const api = load("lib/api.ts");
   if (cached) load("lib/crm-workspace-cache.ts").saveCrmWorkspaceCache(7, "primary", { tabs: [], clients: [card("Cached client")], primaryOrderVersion: 0 });
@@ -100,7 +118,7 @@ async function workspaceHarness(t, { localGate, cached = false } = {}) {
     globalThis.IS_REACT_ACT_ENVIRONMENT = previous.act;
   });
   return {
-    state, api, container,
+    state, api, container, load,
     mount: () => act(async () => root.render(React.createElement(CrmWorkspace))),
     check: () => act(async () => { dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange")); }),
     click: (text) => act(async () => {
@@ -186,4 +204,12 @@ test("manual refresh forces a fresh sync and failure retains cards with a workin
   await h.click("Повторить");
   assert.equal(h.state.syncs, 2);
   assert.match(h.container.textContent, /Retried client/);
+});
+
+test("VM cache shares explicit and extensionless imports within one isolated harness", async (t) => {
+  const first = await workspaceHarness(t);
+  assert.equal(first.load("lib/api"), first.api);
+  assert.equal(first.load("lib/api.ts"), first.api);
+  assert.equal(first.load("components/crm/messenger-links"), first.load("components/crm/messenger-links.tsx"));
+  assert.throws(() => first.load("lib/__missing_test_module__"), /Cannot resolve test module/);
 });
