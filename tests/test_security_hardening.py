@@ -7,6 +7,7 @@ from pathlib import Path
 from stock_sync_desktop.excel_tools import read_stock_import_bundle
 from stock_sync_web.commercial_offers import read_source_offer_lines
 from stock_sync_web.database import WebDatabase
+from stock_sync_web import database as database_module
 
 
 class CredentialStorageSecurityTest(unittest.TestCase):
@@ -45,7 +46,9 @@ class CredentialStorageSecurityTest(unittest.TestCase):
 
         self.assertIsNone(row["app_password"])
         self.assertNotEqual(row["onec_password"], "onec-secret")
-        self.assertTrue(str(row["onec_password"]).startswith("dpapi:"))
+        prefix = "dpapi:" if database_module._is_windows() else "fernet:"
+        self.assertTrue(str(row["onec_password"]).startswith(prefix))
+        self.assertEqual(database_module._unprotect_onec_password(row["onec_password"]), "onec-secret")
 
 
 class ImportResilienceTest(unittest.TestCase):

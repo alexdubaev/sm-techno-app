@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,7 @@ from types import ModuleType
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.support.isolated_environment import create_test_environment
 
 
 INITIAL_ADMIN_PASSWORD = "admin-test-password"
@@ -38,7 +40,11 @@ class AuthApiHarness:
 
 @pytest.fixture
 def auth_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    monkeypatch.setenv("SM_TECHNO_DATA_DIR", str(tmp_path))
+    environment = create_test_environment(os.environ, tmp_path)
+    for key in set(os.environ) - set(environment):
+        monkeypatch.delenv(key)
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
     monkeypatch.setenv("SM_TECHNO_INITIAL_ADMIN_PASSWORD", INITIAL_ADMIN_PASSWORD)
 
     sys.modules.pop("stock_sync_api", None)

@@ -17,11 +17,11 @@
 ## 2. Где находится логика
 
 ### Frontend
-- [components/auth-provider.tsx](D:/codex/SEO_Gen/sm-techno-web/components/auth-provider.tsx)
-- [app/settings/page.tsx](D:/codex/SEO_Gen/sm-techno-web/app/settings/page.tsx)
-- [lib/storage.ts](D:/codex/SEO_Gen/sm-techno-web/lib/storage.ts)
-- [lib/api.ts](D:/codex/SEO_Gen/sm-techno-web/lib/api.ts)
-- [lib/types.ts](D:/codex/SEO_Gen/sm-techno-web/lib/types.ts)
+- [components/auth-provider.tsx](../../sm-techno-web/components/auth-provider.tsx)
+- [app/settings/page.tsx](../../sm-techno-web/app/settings/page.tsx)
+- [lib/storage.ts](../../sm-techno-web/lib/storage.ts)
+- [lib/api.ts](../../sm-techno-web/lib/api.ts)
+- [lib/types.ts](../../sm-techno-web/lib/types.ts)
 
 ### API
 - `POST /api/auth/login`
@@ -32,11 +32,11 @@
 - `PATCH /api/users/{id}`
 - `DELETE /api/users/{id}`
 
-Маршруты объявлены в [stock_sync_api.py](D:/codex/SEO_Gen/stock_sync_api.py).
+Маршруты объявлены в [stock_sync_api.py](../../stock_sync_api.py).
 
 ### Backend / БД
-- [stock_sync_web/service.py](D:/codex/SEO_Gen/stock_sync_web/service.py)
-- [stock_sync_web/database.py](D:/codex/SEO_Gen/stock_sync_web/database.py)
+- [stock_sync_web/service.py](../../stock_sync_web/service.py)
+- [stock_sync_web/database.py](../../stock_sync_web/database.py)
 
 Ключевые методы:
 
@@ -200,12 +200,12 @@
 
 ## 10. Рискованные места
 
-- [components/auth-provider.tsx](D:/codex/SEO_Gen/sm-techno-web/components/auth-provider.tsx)
-- [lib/storage.ts](D:/codex/SEO_Gen/sm-techno-web/lib/storage.ts)
-- [app/settings/page.tsx](D:/codex/SEO_Gen/sm-techno-web/app/settings/page.tsx)
-- [stock_sync_api.py](D:/codex/SEO_Gen/stock_sync_api.py)
-- [stock_sync_web/service.py](D:/codex/SEO_Gen/stock_sync_web/service.py)
-- [stock_sync_web/database.py](D:/codex/SEO_Gen/stock_sync_web/database.py)
+- [components/auth-provider.tsx](../../sm-techno-web/components/auth-provider.tsx)
+- [lib/storage.ts](../../sm-techno-web/lib/storage.ts)
+- [app/settings/page.tsx](../../sm-techno-web/app/settings/page.tsx)
+- [stock_sync_api.py](../../stock_sync_api.py)
+- [stock_sync_web/service.py](../../stock_sync_web/service.py)
+- [stock_sync_web/database.py](../../stock_sync_web/database.py)
 
 Отдельно опасны:
 

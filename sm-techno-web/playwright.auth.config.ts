@@ -37,14 +37,14 @@ export default defineConfig({
       },
     },
     {
-      name: "Vinext frontend",
+      name: "Next.js frontend",
       command: `npm run dev -- --hostname 127.0.0.1 --port ${frontendPort}`,
       cwd: frontendDir,
       url: `http://127.0.0.1:${frontendPort}`,
       reuseExistingServer: false,
       timeout: 120_000,
       env: {
-        SM_TECHNO_AUTH_E2E_BACKEND_URL: `http://127.0.0.1:${backendPort}`,
+        BACKEND_API_BASE_URL: `http://127.0.0.1:${backendPort}`,
       },
     },
   ],

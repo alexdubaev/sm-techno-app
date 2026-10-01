@@ -12,6 +12,7 @@ vi.mock('@/lib/api', async (importOriginal) => ({
   archivePrimaryCrmClient: vi.fn(),
   fetchCrmAudit: vi.fn(),
   fetchCrmContacts: vi.fn(),
+  fetchCrmClientNote: vi.fn(),
   fetchCrmEvents: vi.fn(),
   fetchCrmLinkCandidates: vi.fn(),
   fetchCrmReminders: vi.fn(),
@@ -144,6 +145,7 @@ beforeEach(() => {
   vi.mocked(api.archivePrimaryCrmClient).mockResolvedValue({ ok: true });
   vi.mocked(api.restorePrimaryCrmClient).mockResolvedValue({ ok: true });
   vi.mocked(api.fetchCrmContacts).mockResolvedValue([]);
+  vi.mocked(api.fetchCrmClientNote).mockResolvedValue(null);
   vi.mocked(api.fetchCrmEvents).mockResolvedValue([]);
   vi.mocked(api.fetchCrmReminders).mockResolvedValue([]);
   vi.mocked(api.fetchCrmAudit).mockResolvedValue([]);

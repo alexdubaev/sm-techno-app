@@ -1,0 +1,162 @@
+{
+  "status": "dry-run; no tags published or branches removed",
+  "main": "063ddbca7eda5cb62f3205d0ebba8acaad9e1ea1",
+  "branches": [
+    {
+      "branch": "backup/pre-commercial-offers-2026-07-09",
+      "sha": "de87b63a5e80ef37d3f40fe5d80a640b2cff2d58",
+      "date_subject": "2026-07-08T08:46:33+03:00 fix: keep warehouse editor inside sidebar",
+      "ahead": 0,
+      "behind": 408,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/backup/pre-commercial-offers-2026-07-09",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "backup/pre-storage-locations-2026-07-07",
+      "sha": "7deaaff09407a8492f9778f65a44a639c5b6f081",
+      "date_subject": "2026-07-07T14:25:18+03:00 chore: backup before storage locations",
+      "ahead": 0,
+      "behind": 414,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/backup/pre-storage-locations-2026-07-07",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "codex/crm-client-cache",
+      "sha": "1fb6edf541a4c74750f897e13290e71b9d422fca",
+      "date_subject": "2026-09-04T21:02:17+03:00 fix(crm): preserve clients across navigation",
+      "ahead": 0,
+      "behind": 247,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/codex/crm-client-cache",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "codex/crm-contact-person-display",
+      "sha": "44a1a805fca4b63272805f21cbc91bf663cc9265",
+      "date_subject": "2026-09-08T10:00:22+03:00 feat: manage local CRM contacts",
+      "ahead": 0,
+      "behind": 128,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/codex/crm-contact-person-display",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "codex/crm-contact-selector-position",
+      "sha": "c0ceb03cbe337482c22ebf496dfb29d5d5ab9417",
+      "date_subject": "2026-09-08T12:06:06+03:00 feat(crm): show selectable contacts with positions",
+      "ahead": 0,
+      "behind": 125,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/codex/crm-contact-selector-position",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "codex/crm-mobile-contact-delete",
+      "sha": "6e7cba58fb46276bdaba1976fc05ef9ebe699850",
+      "date_subject": "2026-09-08T13:10:00+03:00 feat(crm): manage contacts on mobile",
+      "ahead": 0,
+      "behind": 16,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/codex/crm-mobile-contact-delete",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "codex/crm-mobile-delete-label",
+      "sha": "2d8bba6b97d0019fd0d754dbbfd42111b4388ae2",
+      "date_subject": "2026-09-08T13:23:14+03:00 fix(crm): keep mobile delete action legible",
+      "ahead": 0,
+      "behind": 14,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/codex/crm-mobile-delete-label",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "codex/retire-legacy-ui",
+      "sha": "aa765758df6b67405cee2929bbb4794868bc0bc0",
+      "date_subject": "2026-09-05T13:07:19+03:00 feat: harden authentication sessions and roles",
+      "ahead": 0,
+      "behind": 241,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/codex/retire-legacy-ui",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "codex/storage-location",
+      "sha": "48c473379550938ed7619d0c82288ec31b16a560",
+      "date_subject": "2026-09-02T14:25:15+03:00 fix: scope funnel recovery cooldown",
+      "ahead": 0,
+      "behind": 382,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/codex/storage-location",
+      "decision": "keep",
+      "reason": "original active user worktree contains unpublished local work"
+    },
+    {
+      "branch": "codex/vps-self-hosting",
+      "sha": "dff06d285e9d5a60afb89a3e83cb0e1a648379a9",
+      "date_subject": "2026-09-08T15:14:49+03:00 merge: CRM call results and client note",
+      "ahead": 0,
+      "behind": 11,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/codex/vps-self-hosting",
+      "decision": "keep",
+      "reason": "server/mirror dependency and deployed SHA not yet verified"
+    },
+    {
+      "branch": "codex/warehouse-prices",
+      "sha": "109176cd2cb84e0264a1445b576c260152324a4d",
+      "date_subject": "2026-09-11T14:26:25+03:00 feat: allow renaming local warehouses",
+      "ahead": 0,
+      "behind": 2,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/codex/warehouse-prices",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "feature/settings-redesign",
+      "sha": "78e7892249748dcb6dfc48aba6365deaa0db66bc",
+      "date_subject": "2026-09-07T22:24:21+03:00 fix(users): validate app password length",
+      "ahead": 0,
+      "behind": 227,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/feature/settings-redesign",
+      "decision": "archive-delete-proposed",
+      "reason": "tip is an ancestor of frozen main; no open PR; pending human confirmation and final dependency checks"
+    },
+    {
+      "branch": "main",
+      "sha": "063ddbca7eda5cb62f3205d0ebba8acaad9e1ea1",
+      "date_subject": "2026-09-16T10:05:50+03:00 merge: integrate settings 1C controls",
+      "ahead": 0,
+      "behind": 0,
+      "ancestor": true,
+      "open_prs": [],
+      "archive_tag": "archive/2026-10-01/main-before-cleanup",
+      "decision": "keep",
+      "reason": "sole permanent development/integration branch"
+    }
+  ]
+}
