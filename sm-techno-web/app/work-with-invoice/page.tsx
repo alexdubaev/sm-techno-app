@@ -749,7 +749,7 @@ export default function WorkWithInvoicePage() {
                             <td className="px-3 py-1.5">
                               {warehouseOptions.length > 0 ? (
                                 <select
-                                  aria-label={`Склад для ${line.name}`}
+                                  aria-label={`Строка ${index + 1}: склад для ${line.name}, выбран склад ${line.warehouseName}`}
                                   value={line.warehouseId}
                                   onChange={(event) =>
                                     changeLineWarehouse(line.lineId, Number(event.target.value))
@@ -789,7 +789,7 @@ export default function WorkWithInvoicePage() {
                             <td className="px-3 py-1.5">
                               <div className="flex items-center justify-center gap-1 rounded-[9px] border border-[var(--border-color)] bg-[var(--panel-muted)] p-1">
                                 <QuantityButton
-                                  label={`Уменьшить количество для ${line.name}`}
+                                  label={`Строка ${index + 1}: уменьшить количество для ${line.name}, склад ${line.warehouseName}`}
                                   onClick={() => updateLineQuantity(lineKey, Math.max(1, line.quantity - 1))}
                                   disabled={line.quantity <= 1}
                                 >
@@ -797,7 +797,7 @@ export default function WorkWithInvoicePage() {
                                 </QuantityButton>
                                 <input
                                   type="text"
-                                  aria-label={`Количество для ${line.name}`}
+                                  aria-label={`Строка ${index + 1}: количество для ${line.name}, склад ${line.warehouseName}`}
                                   inputMode="numeric"
                                   pattern="[0-9]*"
                                   value={rawInput}
@@ -814,7 +814,7 @@ export default function WorkWithInvoicePage() {
                                   className="h-6 w-12 rounded-[7px] border border-transparent bg-white px-1 text-center text-[10px] font-semibold tabular-nums text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
                                 />
                                 <QuantityButton
-                                  label={`Увеличить количество для ${line.name}`}
+                                  label={`Строка ${index + 1}: увеличить количество для ${line.name}, склад ${line.warehouseName}`}
                                   onClick={() => updateLineQuantity(lineKey, line.quantity + 1)}
                                   disabled={line.quantity >= availableUnits}
                                 >
@@ -849,7 +849,7 @@ export default function WorkWithInvoicePage() {
                                 type="button"
                                 onClick={() => removeLine(line.lineId)}
                                 className="inline-flex h-6 w-6 items-center justify-center rounded-[7px] border border-[var(--border-color)] bg-white text-[12px] leading-none text-[var(--text-secondary)] transition-colors duration-200 hover:border-[rgba(239,68,68,0.35)] hover:text-[var(--stock-empty)]"
-                                aria-label={`Удалить ${line.name}`}
+                                aria-label={`Строка ${index + 1}: удалить ${line.name}`}
                               >
                                 ×
                               </button>

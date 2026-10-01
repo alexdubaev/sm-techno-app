@@ -185,7 +185,7 @@ export default function DocumentsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredDocuments.map((document) => (
+                    {filteredDocuments.map((document, index) => (
                       <tr key={document.id} className="border-t border-[var(--border-color)] text-[10px] text-[var(--text-primary)]">
                         <td className="px-3 py-1.5">
                           <TypeBadge type={document.documentType} />
@@ -217,6 +217,7 @@ export default function DocumentsPage() {
                             <button
                               type="button"
                               onClick={() => void handleDownload(document.id)}
+                              aria-label={`Строка ${index + 1}: скачать DOCX документа ${document.number}`}
                               disabled={downloadingId === document.id || deletingId === document.id}
                               className="app-action-button app-action-button--xs"
                             >
@@ -225,6 +226,7 @@ export default function DocumentsPage() {
                             <button
                               type="button"
                               onClick={() => void handleDelete(document)}
+                              aria-label={`Строка ${index + 1}: удалить документ ${document.number}`}
                               disabled={deletingId === document.id || downloadingId === document.id}
                               className="app-action-button app-action-button--xs"
                             >
