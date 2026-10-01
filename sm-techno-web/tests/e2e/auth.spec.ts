@@ -8,7 +8,7 @@ async function login(page: Page, username: string, password: string) {
   await page.goto("/");
   await page.getByLabel("Логин").fill(username);
   await page.getByLabel("Пароль").fill(password);
-  await page.getByRole("button", { name: "Войти в приложение" }).click();
+  await page.getByRole("button", { name: "Войти", exact: true }).click();
   await expect(page.getByRole("button", { name: "Выйти" }).first()).toBeVisible();
 }
 
@@ -31,7 +31,7 @@ test("login survives reload, logout revokes the captured server session", async 
   await page.reload();
   await expect(visibleUserName(page, "Administrator")).toBeVisible();
   await page.getByRole("button", { name: "Выйти" }).first().click();
-  await expect(page.getByRole("button", { name: "Войти в приложение" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Войти", exact: true })).toBeVisible();
 
   const rejected = await request.get("/api/auth/me", {
     headers: { Authorization: `Bearer ${token}` },
@@ -69,7 +69,7 @@ test("deactivation invalidates an active browser and reactivation needs a fresh 
   expect(disabled.status()).toBe(200);
 
   await page.reload();
-  await expect(page.getByRole("button", { name: "Войти в приложение" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Войти", exact: true })).toBeVisible();
 
   const reactivated = await request.patch(`/api/users/${operator.id}`, {
     headers: { Authorization: `Bearer ${admin.token}` },
@@ -86,7 +86,7 @@ test("logout and account switch synchronize across two tabs", async ({ context, 
   await expect(visibleUserName(secondPage, "E2E Operator")).toBeVisible();
 
   await page.getByRole("button", { name: "Выйти" }).first().click();
-  await expect(secondPage.getByRole("button", { name: "Войти в приложение" })).toBeVisible();
+  await expect(secondPage.getByRole("button", { name: "Войти", exact: true })).toBeVisible();
 
   await login(page, "admin", ADMIN_PASSWORD);
   await expect(visibleUserName(secondPage, "Administrator")).toBeVisible();
