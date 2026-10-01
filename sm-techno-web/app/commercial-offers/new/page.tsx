@@ -9,7 +9,7 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
-  type FormEvent,
+  type SyntheticEvent,
 } from "react";
 
 import { AppShell } from "@/components/app-shell";
@@ -63,7 +63,7 @@ export default function NewCommercialOfferPage() {
     return source.slice(0, 50);
   }, [clientSearch, clients]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 

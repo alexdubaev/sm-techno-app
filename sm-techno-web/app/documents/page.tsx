@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
 
 import { AppShell } from "@/components/app-shell";
 import {
@@ -169,7 +169,7 @@ export default function DocumentsPage() {
     setIsClientPickerOpen(false);
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 
