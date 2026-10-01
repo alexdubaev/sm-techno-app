@@ -171,6 +171,9 @@ export function CrmWorkspace() {
   const loadedSyncVersion = useRef<{ ownerId: number; tab: ActiveTab; lastSyncAt: number } | null>(null);
   const reminderRequestId = useRef(0);
   const primaryArchiveRequestId = useRef(0);
+  // Written during render on purpose: async workspace loads capture this ref to
+  // reject responses that arrive after the owner/tab changed. Do not move into
+  // an effect — that would open a race window at the start of every switch.
   const currentView = useRef({ activeTab, ownerId });
   currentView.current = { activeTab, ownerId };
   const isCurrentWorkspaceView = useCallback((requestTab: ActiveTab, requestOwnerId: number) => currentView.current.activeTab === requestTab && currentView.current.ownerId === requestOwnerId, []);
