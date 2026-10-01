@@ -588,6 +588,17 @@ describe('mobile detail daily actions', () => {
     ).toHaveAttribute('href', 'tel:+79991234567');
   });
 
+  it('keeps every required section reachable, including the dedicated client note', async () => {
+    await openDetail();
+    for (const name of ['Обзор', 'О клиенте', 'История', 'Напоминания', 'Ещё']) {
+      const tab = screen.getByRole('tab', { name });
+      fireEvent.click(tab);
+      expect(tab).toHaveAttribute('aria-selected', 'true');
+    }
+    fireEvent.click(screen.getByRole('tab', { name: 'О клиенте' }));
+    expect(screen.getByText('Покупает под проекты; согласовывать сроки заранее.')).toBeVisible();
+  });
+
   it('records a call result with a required description, showing newest calls first', async () => {
     vi.mocked(api.fetchCrmEvents).mockResolvedValue([
       {
