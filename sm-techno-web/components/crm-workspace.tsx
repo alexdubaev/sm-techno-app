@@ -486,6 +486,9 @@ export function CrmWorkspace() {
   };
 
   const chooseOwner = (nextOwnerId: number) => {
+    // An empty <select> value coerces to 0 while the owner list is loading;
+    // switching to it would load a workspace for a nonexistent owner.
+    if (!Number.isInteger(nextOwnerId) || nextOwnerId <= 0) return;
     localImportFreshness.current = null;
     const cachedWorkspace = readCrmWorkspaceCache(nextOwnerId, "primary");
     currentView.current = { activeTab: "primary", ownerId: nextOwnerId };

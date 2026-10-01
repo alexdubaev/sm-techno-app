@@ -96,6 +96,7 @@ describe('desktop workspace and shared write permissions', () => {
     vi.mocked(api.fetchPrimaryCrmClients).mockImplementationOnce(() => new Promise((resolve) => { finishOldRead = resolve; }));
     act(() => { oldCallbacks.onDetailChanged(7, 'primary'); });
     await waitFor(() => expect(finishOldRead).toBeTypeOf('function'));
+    await screen.findByRole('option', { name: 'Colleague' });
     fireEvent.change(screen.getByRole('combobox', { name: 'CRM сотрудника' }), { target: { value: '8' } });
     await waitFor(() => expect(harness.mobile!.ownerId).toBe(8));
     await waitFor(() => expect(api.fetchPrimaryCrmClients).toHaveBeenLastCalledWith(8, { bypassCache: true }));
@@ -107,6 +108,9 @@ describe('desktop workspace and shared write permissions', () => {
   it('switches to a foreign owner and blocks shared add, move, color and reorder callbacks', async () => {
     render(<CrmWorkspace />);
     await screen.findByRole('row', { name: /ООО Документ/ });
+    // Client rows settle before the owner list does; the switch below is only
+    // meaningful once the colleague option exists.
+    await screen.findByRole('option', { name: 'Colleague' });
     expect(screen.getByRole('button', { name: 'Добавить клиента' })).toBeVisible();
     fireEvent.change(screen.getByRole('combobox', { name: 'CRM сотрудника' }), { target: { value: '8' } });
     await waitFor(() => expect(api.fetchPrimaryCrmClients).toHaveBeenLastCalledWith(8, { bypassCache: true }));
@@ -131,6 +135,20 @@ describe('desktop workspace and shared write permissions', () => {
     expect(within(detail).queryByRole('button', { name: 'Сохранить результат звонка' })).not.toBeInTheDocument();
     // Lifecycle management is an intentional admin exception even for a foreign workspace.
     expect(within(detail).getByRole('button', { name: 'Архивировать локального клиента' })).toBeVisible();
+  });
+
+  it('ignores an owner switch while the owner list has not loaded instead of loading owner 0', async () => {
+    vi.mocked(api.fetchUsers).mockImplementation(() => new Promise(() => undefined));
+    const reads = vi.mocked(api.fetchPrimaryCrmClients).mock.calls.length;
+    render(<CrmWorkspace />);
+    await screen.findByRole('row', { name: /ООО Документ/ });
+    const ownerSelect = screen.getByRole('combobox', { name: 'CRM сотрудника' });
+    expect(ownerSelect.options).toHaveLength(0);
+    // jsdom coerces the missing option to an empty value, which Number() maps to 0.
+    fireEvent.change(ownerSelect, { target: { value: '8' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Добавить клиента' })).toBeVisible());
+    expect(vi.mocked(api.fetchPrimaryCrmClients).mock.calls.slice(reads).map((call) => call[0])).not.toContain(0);
+    expect(screen.getByRole('row', { name: /ООО Документ/ })).toBeInTheDocument();
   });
 
   it.each(['foreign', 'archive'] as const)('rejects normal controller writes in %s mode even if handlers are invoked', async (mode) => {
