@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode, type SVGProps } from "react";
+import { useEffect, useMemo, useState, type SyntheticEvent, type ReactNode, type SVGProps } from "react";
 
 import { AppShell } from "@/components/app-shell";
 import {
@@ -130,7 +130,7 @@ export default function ClientsPage() {
     }
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     const payload = normalizeFormForSubmit(form);
     const validationError = validateClientForm(payload);

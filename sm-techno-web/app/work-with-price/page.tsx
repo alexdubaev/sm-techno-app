@@ -170,6 +170,13 @@ function WorkWithPriceAdminPage() {
   const selectedRowKeyRef = useRef<string | null>(null);
   const catalogRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
+  const warehouseRenameInputRef = useRef<HTMLInputElement>(null);
+
+  // Refocusing an already focused input is a no-op, so tying this to the whole
+  // rename state keeps the caret stable while the name is being edited.
+  useEffect(() => {
+    if (warehouseBeingRenamed) warehouseRenameInputRef.current?.focus();
+  }, [warehouseBeingRenamed]);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -1147,10 +1154,14 @@ function WorkWithPriceAdminPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((item) => {
+                      {items.map((item, index) => {
                         const rowKey = getCatalogRowKey(item);
                         const rowQuantity = getCatalogRowQuantity(item);
                         const rowLocationLabel = formatRowLocationLabel(item);
+                        const rowWarehouseLabel = rowLocationLabel
+                          ? `${formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)} · ${rowLocationLabel}`
+                          : item.warehouseSummary ||
+                            formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId);
                         const isSelected = selectedRowKey === rowKey;
                         const hasStock = getIntegerQuantity(rowQuantity) > 0;
 
@@ -1188,11 +1199,7 @@ function WorkWithPriceAdminPage() {
                                   handleSelectItem(item);
                                 }}
                                 className="block max-w-full text-left transition hover:text-[var(--brand-dark)]"
-                                title={
-                                  rowLocationLabel
-                                    ? `${formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)} · ${rowLocationLabel}`
-                                    : item.warehouseSummary || formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)
-                                }
+                                title={rowWarehouseLabel}
                               >
                                 <span className="line-clamp-1">
                                   {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
@@ -1230,6 +1237,7 @@ function WorkWithPriceAdminPage() {
                                     handleToggleRowMenu(rowKey, event.currentTarget);
                                   }}
                                   className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--text-secondary)] transition hover:border-[var(--brand-yellow)] hover:text-[var(--brand-dark)]"
+                                  aria-label={`Строка ${index + 1}: быстрые действия для ${item.name}, склад ${rowWarehouseLabel}`}
                                   title="Быстрые действия"
                                 >
                                   <MoreIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -1295,7 +1303,6 @@ function WorkWithPriceAdminPage() {
                     right: activeRowMenu.right,
                     transform: activeRowMenu.openUpward ? "translateY(-100%)" : undefined,
                   }}
-                  onClick={(event) => event.stopPropagation()}
                 >
                   <ActionMenuButton
                     label="Изменить карточку"
@@ -1557,7 +1564,7 @@ function WorkWithPriceAdminPage() {
                             {warehouseBeingRenamed?.id === warehouse.id ? (
                               <div className="flex min-w-0 flex-1 items-center gap-1.5">
                                 <input
-                                  autoFocus
+                                  ref={warehouseRenameInputRef}
                                   value={warehouseBeingRenamed.name}
                                   onChange={(event) => setWarehouseBeingRenamed((current) => current ? { ...current, name: event.target.value } : current)}
                                   onKeyDown={(event) => {
@@ -1709,12 +1716,12 @@ function WorkWithPriceAdminPage() {
                     />
                     <datalist id="create-item-category-options">
                       {categories.map((option) => (
-                        <option key={option} value={option} />
+                        <option key={option} value={option}>{option}</option>
                       ))}
                     </datalist>
                     <datalist id="create-item-group-options">
                       {groups.map((option) => (
-                        <option key={option} value={option} />
+                        <option key={option} value={option}>{option}</option>
                       ))}
                     </datalist>
                   </div>

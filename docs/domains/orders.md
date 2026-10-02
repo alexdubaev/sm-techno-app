@@ -52,25 +52,25 @@
 ## 3. Где находится логика
 
 ### Frontend
-- [work-with-invoice/page.tsx](D:/codex/SEO_Gen/sm-techno-web/app/work-with-invoice/page.tsx)
-- [orders/page.tsx](D:/codex/SEO_Gen/sm-techno-web/app/orders/page.tsx)
-- [orders/[id]/page.tsx](D:/codex/SEO_Gen/sm-techno-web/app/orders/[id]/page.tsx)
-- [storage.ts](D:/codex/SEO_Gen/sm-techno-web/lib/storage.ts)
-- [api.ts](D:/codex/SEO_Gen/sm-techno-web/lib/api.ts)
-- [types.ts](D:/codex/SEO_Gen/sm-techno-web/lib/types.ts)
-- [vat.ts](D:/codex/SEO_Gen/sm-techno-web/lib/vat.ts)
+- [work-with-invoice/page.tsx](../../sm-techno-web/app/work-with-invoice/page.tsx)
+- [orders/page.tsx](../../sm-techno-web/app/orders/page.tsx)
+- [orders/[id]/page.tsx](../../sm-techno-web/app/orders/[id]/page.tsx)
+- [storage.ts](../../sm-techno-web/lib/storage.ts)
+- [api.ts](../../sm-techno-web/lib/api.ts)
+- [types.ts](../../sm-techno-web/lib/types.ts)
+- [vat.ts](../../sm-techno-web/lib/vat.ts)
 
 ### API
 - `POST /api/orders/send`
 - `GET /api/orders`
 - `GET /api/orders/{id}`
 
-Маршруты объявлены в [stock_sync_api.py](D:/codex/SEO_Gen/stock_sync_api.py).
+Маршруты объявлены в [stock_sync_api.py](../../stock_sync_api.py).
 
 ### Backend / домен
-- [stock_sync_web/service.py](D:/codex/SEO_Gen/stock_sync_web/service.py)
-- [stock_sync_desktop/database.py](D:/codex/SEO_Gen/stock_sync_desktop/database.py)
-- [stock_sync_desktop/onec_api.py](D:/codex/SEO_Gen/stock_sync_desktop/onec_api.py)
+- [stock_sync_web/service.py](../../stock_sync_web/service.py)
+- [stock_sync_desktop/database.py](../../stock_sync_desktop/database.py)
+- [stock_sync_desktop/onec_api.py](../../stock_sync_desktop/onec_api.py)
 
 Критичные методы:
 
@@ -237,22 +237,22 @@ UI в истории заказов отображает их как:
 
 ## 9. Самые рискованные места
 
-- [stock_sync_web/service.py](D:/codex/SEO_Gen/stock_sync_web/service.py)  
+- [stock_sync_web/service.py](../../stock_sync_web/service.py)
   Функции:
   - `create_and_sync_order`
   - `_ensure_order_items_ready`
   - `_build_order_payload`
 
-- [stock_sync_desktop/database.py](D:/codex/SEO_Gen/stock_sync_desktop/database.py)  
+- [stock_sync_desktop/database.py](../../stock_sync_desktop/database.py)
   Функции:
   - `create_order`
   - `get_order_bundle`
   - `finalize_order_sync`
   - `mark_order_error`
 
-- [work-with-invoice/page.tsx](D:/codex/SEO_Gen/sm-techno-web/app/work-with-invoice/page.tsx)
-- [types.ts](D:/codex/SEO_Gen/sm-techno-web/lib/types.ts)
-- [api.ts](D:/codex/SEO_Gen/sm-techno-web/lib/api.ts)
+- [work-with-invoice/page.tsx](../../sm-techno-web/app/work-with-invoice/page.tsx)
+- [types.ts](../../sm-techno-web/lib/types.ts)
+- [api.ts](../../sm-techno-web/lib/api.ts)
 
 Любое изменение здесь без отдельного плана может привести к:
 
@@ -281,4 +281,3 @@ UI в истории заказов отображает их как:
 - проверить статус ошибки при искусственном сбое 1С;
 - убедиться, что при ошибке остатки не списались;
 - убедиться, что при успехе остатки списались именно по нужным складам.
-

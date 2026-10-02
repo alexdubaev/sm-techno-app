@@ -19,6 +19,13 @@ class OrderBusinessValidationTest(unittest.TestCase):
         self.counterparty_id = int(self.db.list_counterparties()[0]["id"])
         self.warehouse = self.db.create_warehouse(name="Активный")
         self.item = self.db.create_local_item(sku="SKU", name="Товар", print_name="Товар", category_name="Кат", group_name="Группа", price=100, warehouses=[{"warehouse_id": self.warehouse["id"], "warehouse_name": self.warehouse["name"], "quantity": 10}])
+        # Orders use the selected warehouse price, not the item's common price.
+        # Seed that server-side price explicitly; the browser still sends 1.
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE item_warehouse_balances SET price = ? WHERE item_id = ? AND warehouse_id = ?",
+                (100, self.item["id"], self.warehouse["id"]),
+            )
 
     def tearDown(self) -> None:
         self.temp.cleanup()

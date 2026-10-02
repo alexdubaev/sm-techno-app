@@ -9,7 +9,7 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
-  type FormEvent,
+  type SyntheticEvent,
 } from "react";
 
 import { AppShell } from "@/components/app-shell";
@@ -63,7 +63,7 @@ export default function NewCommercialOfferPage() {
     return source.slice(0, 50);
   }, [clientSearch, clients]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 
@@ -177,7 +177,14 @@ export default function NewCommercialOfferPage() {
         <section className="grid gap-2 lg:grid-cols-[minmax(260px,0.85fr)_minmax(0,1.15fr)]">
           <div className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
             <div className="grid gap-2">
-              <div className="relative">
+              <div
+                className="relative"
+                onBlur={(event) => {
+                  // Keep the picker open while focus moves inside it (clear
+                  // button, suggestions) so keyboard users can Tab into it.
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsClientPickerOpen(false);
+                }}
+              >
                 <span className="mb-1 block text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
                   Клиент
                 </span>
@@ -187,7 +194,6 @@ export default function NewCommercialOfferPage() {
                     value={clientSearch}
                     onChange={(event) => handleClientSearchChange(event.target.value)}
                     onFocus={() => setIsClientPickerOpen(true)}
-                    onBlur={() => setIsClientPickerOpen(false)}
                     disabled={isLoadingClients}
                     placeholder="Поиск по названию, ИНН или КПП"
                     className="h-[34px] w-full rounded-[10px] border border-[var(--border-color)] bg-white px-2.5 pr-8 text-[11px] text-[var(--text-primary)] outline-none transition focus:border-[var(--brand-yellow)]"
@@ -206,11 +212,11 @@ export default function NewCommercialOfferPage() {
                 </div>
                 {isClientPickerOpen ? (
                   <div
-                    onMouseDown={(event) => event.preventDefault()}
                     className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-[214px] overflow-x-hidden overflow-y-auto rounded-[10px] border border-[var(--border-color)] bg-white p-1 shadow-[0_14px_30px_rgba(15,23,42,0.18)]"
                   >
                     <button
                       type="button"
+                      onMouseDown={(event) => event.preventDefault()}
                       onClick={handleManualClientSelect}
                       className={`mb-1 w-full rounded-[8px] border px-2.5 py-1.5 text-left text-[10px] transition ${
                         clientValue === MANUAL_CLIENT_VALUE
@@ -229,6 +235,7 @@ export default function NewCommercialOfferPage() {
                             <button
                               key={value}
                               type="button"
+                              onMouseDown={(event) => event.preventDefault()}
                               onClick={() => handleClientSelect(client)}
                               className={`min-w-0 w-full overflow-hidden rounded-[8px] border px-2.5 py-1.5 text-left text-[10px] transition ${
                                 isSelected

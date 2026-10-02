@@ -11,6 +11,9 @@ concurrency:
   group: auth-tests-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   SM_TECHNO_INITIAL_ADMIN_PASSWORD: ci-initial-admin-password
 
@@ -30,14 +33,20 @@ jobs:
       - name: Install backend test dependencies
         run: python -m pip install -r requirements-dev.txt
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: sm-techno-web/package-lock.json
+
+      - name: Install frontend dependencies for transport runtime tests
+        working-directory: sm-techno-web
+        run: npm ci
+
+      # Full isolated suite includes migration registry, sessions, stock invariants,
+      # Excel import/item identity, documents, CRM and mocked 1C transport tests.
       - name: Critical SQLite and 1C reliability smoke tests
-        run: >-
-          python -m pytest -q
-          tests/test_web_migration_registry.py
-          tests/test_auth_session_persistence.py
-          tests/test_stock_excel_import_safety.py
-          tests/test_stock_item_identity.py
-          tests/test_onec_transport_reliability.py
+        run: python -m pytest tests -q --strict-markers
 
   auth:
     runs-on: ubuntu-latest
@@ -75,17 +84,35 @@ jobs:
         working-directory: sm-techno-web
         run: npm run test:auth
 
-      - name: Auth lint and typecheck
+      - name: Settings integration tests
+        if: ${{ !cancelled() }}
         working-directory: sm-techno-web
-        run: |
-          npm run test:auth:lint
-          npm exec tsc -- --noEmit --incremental false
+        run: npm run test:settings
+
+      - name: Test launcher and proxy isolation
+        if: ${{ !cancelled() }}
+        working-directory: sm-techno-web
+        run: node --test tests/*.test.mjs
+
+      # Strict gate: passes only when react-compiler diagnostics match the
+      # versioned baseline exactly and no other lint errors exist.
+      - name: Frontend lint baseline gate
+        if: ${{ !cancelled() }}
+        working-directory: sm-techno-web
+        run: npm run lint:ci
+
+      - name: Frontend typecheck
+        if: ${{ !cancelled() }}
+        working-directory: sm-techno-web
+        run: npm exec tsc -- --noEmit --incremental false
 
       - name: Production frontend build
+        if: ${{ !cancelled() }}
         working-directory: sm-techno-web
         run: npm run build
 
       - name: Full-stack auth browser tests
+        if: ${{ !cancelled() }}
         working-directory: sm-techno-web
         run: npm run test:auth:e2e
 

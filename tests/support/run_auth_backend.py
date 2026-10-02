@@ -15,11 +15,15 @@ OPERATOR_PASSWORD = "operator-e2e-password"
 def main() -> None:
     repository_dir = Path(__file__).resolve().parents[2]
     sys.path.insert(0, str(repository_dir))
-    host = os.environ.get("SM_TECHNO_E2E_BACKEND_HOST", "127.0.0.1")
+    from tests.support.isolated_environment import create_test_environment
+
+    host = "127.0.0.1"
     port = int(os.environ.get("SM_TECHNO_E2E_BACKEND_PORT", "18000"))
 
     with tempfile.TemporaryDirectory(prefix="sm-techno-auth-e2e-") as data_dir:
-        os.environ["SM_TECHNO_DATA_DIR"] = data_dir
+        environment = create_test_environment(os.environ, Path(data_dir))
+        os.environ.clear()
+        os.environ.update(environment)
         os.environ["SM_TECHNO_INITIAL_ADMIN_PASSWORD"] = ADMIN_PASSWORD
 
         import stock_sync_api

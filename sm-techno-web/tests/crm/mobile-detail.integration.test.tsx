@@ -1,5 +1,6 @@
 import { useState, type ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import {
   fireEvent,
   render,
@@ -269,17 +270,23 @@ describe('mobile detail daily actions', () => {
     expect(api.fetchCrmContacts).not.toHaveBeenCalled();
   });
 
-  it('keeps one client action menu open and closes it from its backdrop', () => {
+  it('keeps one client action menu open and closes it from its backdrop', async () => {
+    const user = userEvent.setup();
     render(<ClientActionsHarness />);
 
-    fireEvent.click(screen.getByLabelText('Ещё действия: Первый клиент'));
+    await user.click(screen.getByLabelText('Ещё действия: Первый клиент'));
     expect(screen.getByRole('dialog', { name: 'Действия клиента' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('Ещё действия: Второй клиент'));
+    await user.click(screen.getByLabelText('Ещё действия: Второй клиент'));
     expect(screen.getAllByRole('dialog', { name: 'Действия клиента' })).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Закрыть меню действий' }));
-    expect(screen.queryByRole('dialog', { name: 'Действия клиента' })).not.toBeInTheDocument();
+    // The Base UI backdrop sits below the sheet and dismisses it on click.
+    const sheet = screen.getByRole('dialog', { name: 'Действия клиента' });
+    const backdrop = document.querySelector('[data-slot="dialog-backdrop"]');
+    expect(backdrop).not.toBeNull();
+    expect(sheet.compareDocumentPosition(backdrop!) & Node.DOCUMENT_POSITION_PRECEDING).not.toBe(0);
+    await user.click(backdrop!);
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Действия клиента' })).not.toBeInTheDocument());
   });
 
   it('does not request link candidates for a client already linked to 1C', async () => {
@@ -586,6 +593,17 @@ describe('mobile detail daily actions', () => {
     expect(
       screen.getAllByRole('link', { name: /Позвонить/ })[0],
     ).toHaveAttribute('href', 'tel:+79991234567');
+  });
+
+  it('keeps every required section reachable, including the dedicated client note', async () => {
+    await openDetail();
+    for (const name of ['Обзор', 'О клиенте', 'История', 'Напоминания', 'Ещё']) {
+      const tab = screen.getByRole('tab', { name });
+      fireEvent.click(tab);
+      expect(tab).toHaveAttribute('aria-selected', 'true');
+    }
+    fireEvent.click(screen.getByRole('tab', { name: 'О клиенте' }));
+    expect(screen.getByText('Покупает под проекты; согласовывать сроки заранее.')).toBeVisible();
   });
 
   it('records a call result with a required description, showing newest calls first', async () => {

@@ -80,6 +80,7 @@ class RaisingApiService:
     test_user_onec_access = _raise
     sync_counterparties = _raise
     sync_crm_counterparties_for_user = _raise
+    sync_recent_counterparties_for_user = _raise
     create_and_sync_order = _raise
     recover_order_sync_for_admin = _raise
 

@@ -312,6 +312,10 @@ export function ResizableTableHeader({
       : "justify-start";
 
   return (
+    // The visible label sits inside the flex layout wrapper, one level deeper
+    // than the rule's default label search, and the header is not interactive;
+    // resizing stays a pointer affordance by design.
+    // oxlint-disable-next-line jsx-a11y/control-has-associated-label
     <th className={`relative ${className}`}>
       <div className={`relative flex min-h-[30px] items-center pr-3 ${alignmentClass}`}>
         <span>{label}</span>

@@ -33,7 +33,7 @@ web-приложением общий слой. Старые Streamlit- и deskt
 ### Вариант 1. Через общий launcher
 
 ```powershell
-cd D:\codex\sm-techno-app
+# Из корня вашей рабочей копии
 start_all.bat
 ```
 
@@ -48,21 +48,21 @@ start_all.bat
 #### Backend
 
 ```powershell
-cd D:\codex\sm-techno-app
+# Из корня вашей рабочей копии
 .\.venv\Scripts\python.exe -m uvicorn stock_sync_api:app --host 127.0.0.1 --port 8000
 ```
 
 #### Frontend
 
 ```powershell
-cd D:\codex\sm-techno-app\sm-techno-web
+cd sm-techno-web
 npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
 ## Проверка production-like frontend
 
 ```powershell
-cd D:\codex\sm-techno-app\sm-techno-web
+cd sm-techno-web
 npm run build
 npm run start -- --hostname 127.0.0.1 --port 3000
 ```
@@ -74,6 +74,7 @@ Backend-интеграции используют настоящие FastAPI-м�
 ```powershell
 python -m pip install -r requirements-dev.txt
 python -m pytest tests/auth -q --strict-markers
+python -m pytest tests -q --strict-markers
 ```
 
 Frontend-интеграции и проверки качества:
@@ -82,7 +83,10 @@ Frontend-интеграции и проверки качества:
 cd sm-techno-web
 npm ci
 npm run test:auth
-npm run test:auth:lint
+npm run test:settings
+npm run lint
+node --test tests/*.test.mjs
+npm run build
 npx tsc --noEmit --incremental false
 ```
 
@@ -91,22 +95,14 @@ npx tsc --noEmit --incremental false
 данные во временный каталог. Обязательный запуск этого сценария настроен в
 GitHub Actions на поддерживаемом Linux runner; рабочая база и 1С не используются.
 
-Production-прокси получает `BACKEND_API_BASE_URL` из secret runtime value проекта
-Sites. Адрес backend нельзя добавлять в Git, `.openai/hosting.json` или
-сгенерированный `dist/server/wrangler.json`. После изменения runtime value нужно
-развернуть новую версию Sites и проверить реальный прокси:
-
-```powershell
-cd sm-techno-web
-npm run test:deployment:auth-smoke -- https://<домен-сайта>
-```
+Production-конфигурация и публикация требуют отдельного согласования по SHA: [контуры deployment](docs/deployment-source-of-truth.md). Merge не является командой на деплой.
 
 ## Настройки frontend
 
 Создайте `sm-techno-web/.env.local` по образцу:
 
 ```text
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+BACKEND_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 ## Локальная база и перенос между ПК
@@ -118,39 +114,30 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
 ### Backup
 
 ```powershell
-cd D:\codex\sm-techno-app
+# Из корня вашей рабочей копии
 backup_db.bat
 ```
 
 ### Restore
 
 ```powershell
-cd D:\codex\sm-techno-app
+# Из корня вашей рабочей копии
 restore_db.bat
 ```
 
 Подробные инструкции:
-- [README_HOME_OFFICE_SYNC.md](D:\codex\sm-techno-app\README_HOME_OFFICE_SYNC.md)
-- [README_TAILSCALE_SETUP.md](D:\codex\sm-techno-app\README_TAILSCALE_SETUP.md)
+- [README_HOME_OFFICE_SYNC.md](README_HOME_OFFICE_SYNC.md)
+- [README_TAILSCALE_SETUP.md](README_TAILSCALE_SETUP.md)
 
 ## Полезные документы
 
-- [README_NEXT_STOCK_WEB.md](D:\codex\sm-techno-app\README_NEXT_STOCK_WEB.md) — описание текущего web-контура
+- [README_NEXT_STOCK_WEB.md](README_NEXT_STOCK_WEB.md) — описание текущего web-контура
 
-## Первый push в GitHub
 
-После создания пустого репозитория на GitHub привяжите его как `origin` и отправьте код:
+## Разработка и инструкции
 
-```powershell
-cd D:\codex\sm-techno-app
-git remote add origin https://github.com/ВАШ-ЛОГИН/ВАШ-РЕПО.git
-git push -u origin main
-```
+Единственная постоянная линия — main. Новая задача — отдельная короткоживущая codex-ветка от свежей origin/main и отдельный worktree/клон; включение только через PR и фактические проверки. Завершённые ветки удаляются после проверки зависимостей и архивирования согласованного SHA. Архивные теги не являются релизами. Подробно: [release-workflow](docs/release-workflow.md), [AGENTS](AGENTS.md), [frontend](docs/FRONTEND_WORKFLOW.md).
 
-Если `origin` уже существует, обновите адрес:
+Тесты используют временные данные и свежий синтетический Fernet-ключ, не рабочие БД/1С. Для E2E нужен Python с requirements-dev.txt (при необходимости путь задаётся SM_TECHNO_TEST_PYTHON) и `npx playwright install chromium`. Не запускать приложение с production-настройками для smoke-тестов.
 
-```powershell
-cd D:\codex\sm-techno-app
-git remote set-url origin https://github.com/ВАШ-ЛОГИН/ВАШ-РЕПО.git
-git push -u origin main
-```
+Исторические планы и отчёты docs/superpowers, sm-techno-web/docs/superpowers и .superpowers не входят в маршрут текущих инструкций. VPS runbook используется только при отдельно согласованном обслуживании; Sites и VPS не объявлены отключёнными.

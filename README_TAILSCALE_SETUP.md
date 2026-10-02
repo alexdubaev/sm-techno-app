@@ -33,7 +33,7 @@
 Откройте PowerShell от имени администратора и один раз выполните:
 
 ```powershell
-cd D:\codex\sm-techno-app
+# Из корня рабочей копии
 .\scripts\install_backend_autostart.ps1
 ```
 
@@ -41,7 +41,7 @@ cd D:\codex\sm-techno-app
 
 ```powershell
 Get-ScheduledTask -TaskName "SM Techno Server"
-Get-Content D:\codex\sm-techno-app\logs\sm-techno-server.log -Tail 50
+Get-Content logs\sm-techno-server.log -Tail 50
 ```
 
 Удаление задания автозапуска:
@@ -82,6 +82,6 @@ backend слушает только `127.0.0.1`, наружу его публи�
 На компьютере-сервере запустите:
 
 ```powershell
-cd D:\codex\sm-techno-app
+# Из корня рабочей копии
 stop_all.bat
 ```

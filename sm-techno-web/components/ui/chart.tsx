@@ -152,7 +152,10 @@ function ChartTooltipContent({
     }
 
     const [item] = payload;
-    const key = `${labelKey ?? item?.dataKey ?? item?.name ?? 'value'}`;
+    const key = chartKeyToString(
+      labelKey ?? item?.dataKey ?? item?.name,
+      'value',
+    );
     const itemConfig = getPayloadConfigFromPayload(config, item, key);
     const value =
       !labelKey && typeof label === 'string'
@@ -200,7 +203,10 @@ function ChartTooltipContent({
         {payload
           .filter((item) => item.type !== 'none')
           .map((item, index) => {
-            const key = `${nameKey ?? item.name ?? item.dataKey ?? 'value'}`;
+            const key = chartKeyToString(
+              nameKey ?? item.name ?? item.dataKey,
+              'value',
+            );
             const itemConfig = getPayloadConfigFromPayload(config, item, key);
             const indicatorColor = color ?? item.payload?.fill ?? item.color;
 
@@ -272,6 +278,24 @@ function ChartTooltipContent({
 
 const ChartLegend = RechartsPrimitive.Legend;
 
+type ChartDataKey =
+  | string
+  | number
+  | ((...args: never[]) => unknown);
+
+// Resolves a tooltip/legend lookup key the same way the previous template
+// literals did: strings and numbers coerce naturally, while function dataKeys
+// keep their string form — which never matches a ChartConfig key, exactly like
+// the coercion that preceded this helper.
+function chartKeyToString(
+  value: ChartDataKey | undefined,
+  fallback: string,
+): string {
+  if (value === undefined) return fallback;
+  if (typeof value === 'function') return value.toString();
+  return `${value}`;
+}
+
 function ChartLegendContent({
   className,
   hideIcon = false,
@@ -299,7 +323,7 @@ function ChartLegendContent({
       {payload
         .filter((item) => item.type !== 'none')
         .map((item, index) => {
-          const key = `${nameKey ?? item.dataKey ?? 'value'}`;
+          const key = chartKeyToString(nameKey ?? item.dataKey, 'value');
           const itemConfig = getPayloadConfigFromPayload(config, item, key);
 
           return (
@@ -370,4 +394,5 @@ export {
   ChartLegend,
   ChartLegendContent,
   ChartStyle,
+  chartKeyToString,
 };

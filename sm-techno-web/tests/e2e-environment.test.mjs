@@ -15,6 +15,10 @@ test("the Playwright launcher scrubs production-sensitive values before spawning
       BACKEND_API_BASE_URL: "https://production-backend.example",
       CLOUDFLARE_INCLUDE_PROCESS_ENV: "true",
       UNRELATED_SECRET: "must-not-cross-boundary",
+      SM_TECHNO_DB_PATH: "/production/stock_sync.db",
+      SM_TECHNO_STORAGE_ROOT: "/production/storage",
+      SM_TECHNO_CRM_SYNC_USER_ID: "123",
+      SM_TECHNO_CREDENTIAL_KEY: "must-be-replaced",
     },
   });
 
@@ -24,5 +28,9 @@ test("the Playwright launcher scrubs production-sensitive values before spawning
     BACKEND_API_BASE_URL: null,
     CLOUDFLARE_INCLUDE_PROCESS_ENV: null,
     UNRELATED_SECRET: null,
+    SM_TECHNO_DB_PATH: null,
+    SM_TECHNO_STORAGE_ROOT: null,
+    SM_TECHNO_CRM_SYNC_USER_ID: null,
+    testCredentialKeyValid: true,
   });
 });

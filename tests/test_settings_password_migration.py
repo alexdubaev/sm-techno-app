@@ -16,7 +16,8 @@ def test_fresh_schema_stores_recoverable_password_encrypted(tmp_path: Path) -> N
         row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         assert conn.execute("SELECT COUNT(*) FROM user_secret_reveal_audit").fetchone()[0] == 0
     assert row["app_password"] is None
-    assert row["app_password_encrypted"].startswith("dpapi:")
+    expected_prefix = "dpapi:" if database_module._is_windows() else "fernet:"
+    assert row["app_password_encrypted"].startswith(expected_prefix)
     assert _unprotect_onec_password(row["app_password_encrypted"]) == "пароль-app-123"
     assert row["password_hash"].startswith("pbkdf2_sha256$")
     assert db.authenticate("operator", "пароль-app-123") is not None

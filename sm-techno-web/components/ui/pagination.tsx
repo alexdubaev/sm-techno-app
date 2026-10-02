@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { buttonVariants, type Button } from '@/components/ui/button';
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -45,24 +45,20 @@ type PaginationLinkProps = {
 function PaginationLink({
   className,
   isActive,
+  children,
   size = 'icon',
   ...props
 }: PaginationLinkProps) {
   return (
-    <Button
-      variant={isActive ? 'outline' : 'ghost'}
-      size={size}
-      className={cn(className)}
-      nativeButton={false}
-      render={
-        <a
-          aria-current={isActive ? 'page' : undefined}
-          data-slot="pagination-link"
-          data-active={isActive}
-          {...props}
-        />
-      }
-    />
+    <a
+      aria-current={isActive ? 'page' : undefined}
+      data-slot="pagination-link"
+      data-active={isActive}
+      className={cn(buttonVariants({ variant: isActive ? 'outline' : 'ghost', size }), className)}
+      {...props}
+    >
+      {children}
+    </a>
   );
 }
 
@@ -73,7 +69,7 @@ function PaginationPrevious({
 }: React.ComponentProps<typeof PaginationLink> & { text?: string }) {
   return (
     <PaginationLink
-      aria-label="Go to previous page"
+      aria-label="Предыдущая страница"
       size="default"
       className={cn('pl-1.5!', className)}
       {...props}
@@ -91,7 +87,7 @@ function PaginationNext({
 }: React.ComponentProps<typeof PaginationLink> & { text?: string }) {
   return (
     <PaginationLink
-      aria-label="Go to next page"
+      aria-label="Следующая страница"
       size="default"
       className={cn('pr-1.5!', className)}
       {...props}

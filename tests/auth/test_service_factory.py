@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 import stock_sync_web.service as service_module
+from tests.support.isolated_environment import create_test_environment
 
 
 def test_default_service_keeps_all_mutable_data_under_configured_directory(
@@ -48,10 +49,15 @@ def test_default_service_preserves_constructor_defaults_without_touching_disk(mo
     assert calls == [{}]
 
 
-def test_api_import_in_fresh_process_uses_only_the_isolated_data_directory(tmp_path: Path) -> None:
+def test_api_import_in_fresh_process_uses_only_the_isolated_data_directory(tmp_path: Path, monkeypatch) -> None:
     repository_root = Path(__file__).resolve().parents[2]
     isolated_data_dir = tmp_path / "e2e-data"
-    environment = os.environ.copy()
+    production_db = tmp_path / "must-not-be-used.db"
+    production_storage = tmp_path / "must-not-be-used-storage"
+    monkeypatch.setenv("SM_TECHNO_DB_PATH", str(production_db))
+    monkeypatch.setenv("SM_TECHNO_STORAGE_ROOT", str(production_storage))
+    monkeypatch.setenv("SM_TECHNO_CRM_SYNC_USER_ID", "123")
+    environment = create_test_environment(os.environ, isolated_data_dir)
     environment.update(
         {
             "PYTHONPATH": str(repository_root),
@@ -84,3 +90,5 @@ def test_api_import_in_fresh_process_uses_only_the_isolated_data_directory(tmp_p
     assert Path(paths["offers"]) == isolated_data_dir / "commercial_offers"
     assert Path(paths["documents"]) == isolated_data_dir / "documents"
     assert (isolated_data_dir / "stock_sync.db").is_file()
+    assert not production_db.exists()
+    assert not production_storage.exists()

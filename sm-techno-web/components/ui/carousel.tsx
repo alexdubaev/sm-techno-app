@@ -49,8 +49,9 @@ function Carousel({
   plugins,
   className,
   children,
+  'aria-label': ariaLabel = 'Карусель',
   ...props
-}: React.ComponentProps<'div'> & CarouselProps) {
+}: React.ComponentProps<'section'> & CarouselProps) {
   const [carouselRef, api] = useEmblaCarousel(
     {
       ...opts,
@@ -76,7 +77,7 @@ function Carousel({
   }, [api]);
 
   const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
+    (event: React.KeyboardEvent<HTMLElement>) => {
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
         scrollPrev();
@@ -118,16 +119,16 @@ function Carousel({
         canScrollNext,
       }}
     >
-      <div
+      <section
         onKeyDownCapture={handleKeyDown}
         className={cn('relative', className)}
-        role="region"
+        aria-label={ariaLabel}
         aria-roledescription="carousel"
         data-slot="carousel"
         {...props}
       >
         {children}
-      </div>
+      </section>
     </CarouselContext.Provider>
   );
 }
@@ -153,16 +154,18 @@ function CarouselContent({ className, ...props }: React.ComponentProps<'div'>) {
   );
 }
 
-function CarouselItem({ className, ...props }: React.ComponentProps<'div'>) {
+function CarouselItem({
+  className,
+  ...props
+}: React.ComponentProps<'fieldset'>) {
   const { orientation } = useCarousel();
 
   return (
-    <div
-      role="group"
+    <fieldset
       aria-roledescription="slide"
       data-slot="carousel-item"
       className={cn(
-        'min-w-0 shrink-0 grow-0 basis-full',
+        'm-0 min-w-0 border-0 p-0 shrink-0 grow-0 basis-full',
         orientation === 'horizontal' ? 'pl-4' : 'pt-4',
         className,
       )}
@@ -196,7 +199,7 @@ function CarouselPrevious({
       {...props}
     >
       <ChevronLeftIcon className="cn-rtl-flip" />
-      <span className="sr-only">Previous slide</span>
+      <span className="sr-only">Предыдущий слайд</span>
     </Button>
   );
 }
@@ -226,7 +229,7 @@ function CarouselNext({
       {...props}
     >
       <ChevronRightIcon className="cn-rtl-flip" />
-      <span className="sr-only">Next slide</span>
+      <span className="sr-only">Следующий слайд</span>
     </Button>
   );
 }

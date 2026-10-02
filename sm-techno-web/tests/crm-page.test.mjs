@@ -116,7 +116,9 @@ test("mobile detail exposes daily workflows and routes changes through the share
   assert.match(mobileDetail, /useCrmClientDetailController/);
   assert.match(mobileDetail, /onChanged: onDetailChanged/);
   assert.match(mobileOverview, /\+ Контакт/);
-  assert.match(mobileHistory, /\+ Добавить событие/);
+  // Call-result entry point remains wired to the shared controller (rendered contract in mobile-detail).
+  assert.match(mobileHistory, /\+ Результат звонка/);
+  assert.match(mobileHistory, /onClick=\{onAddEvent\}/);
   assert.match(mobileReminders, /Завтра утром/);
   assert.doesNotMatch(mobileReminders, /window\.prompt/);
   assert.match(mobileWorkspace, /<MobileClientDetail/);
@@ -149,7 +151,12 @@ test("mobile CRM contracts expose detail sections and reminder helpers", async (
     readFile(mobileUtilsUrl, "utf8"),
   ]);
 
-  assert.match(mobileTypes, /MobileDetailSection = "overview" \| "history" \| "reminders" \| "more"/);
+  // Required sections are an extensible contract, not an ordered, closed text union.
+  const parsed = ts.createSourceFile("mobile-types.ts", mobileTypes, ts.ScriptTarget.Latest, true);
+  const sectionType = parsed.statements.find((node) => ts.isTypeAliasDeclaration(node) && node.name.text === "MobileDetailSection");
+  assert.ok(sectionType && ts.isUnionTypeNode(sectionType.type));
+  const sections = sectionType.type.types.map((node) => ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal) ? node.literal.text : null);
+  for (const section of ["overview", "note", "history", "reminders", "more"]) assert.ok(sections.includes(section), `Missing required detail section: ${section}`);
   assert.match(mobileUtils, /export function getImportantReminders/);
   assert.match(mobileUtils, /export function getNearestActiveReminderByClient/);
 });
@@ -1108,13 +1115,13 @@ test("foreign administrator workspace is read-only while lifecycle and conflict 
 
   assert.match(workspace, /const canEditWorkspace = ownerId === user\.id;/);
   assert.match(workspace, /if \(!canEditWorkspace\) return;/);
-  assert.match(workspace, /canEditWorkspace \? <button type="button" onClick=\{\(\) => setIsAdding\(true\)\}/);
+  assert.match(workspace, /canEditWorkspace && !isPrimaryArchiveView \? <button type="button" onClick=\{\(\) => setIsAdding\(true\)\}/);
   assert.match(workspace, /canEditWorkspace \? <button type="button" onClick=\{\(\) => openTabEditor\("new"\)\}/);
   assert.match(workspace, /const isManualOrderAvailable = canEditWorkspace && sortMode === "manual" && !search\.trim\(\) && syncFilter === "all" && phoneFilter === "all" && emailFilter === "all";/);
   assert.match(workspace, /canEditWorkspace=\{canEditWorkspace\}/);
   assert.match(controller, /canEditWorkspace && currentClient\.linkedCounterpartyId === null/);
-  assert.match(controller, /canManageLocalClient = isAdmin/);
-  assert.match(controller, /canRemoveAssignment = isAdmin/);
+  assert.match(controller, /canManageLocalClient = !primaryArchiveMode && isAdmin/);
+  assert.match(controller, /canRemoveAssignment = !primaryArchiveMode && isAdmin/);
   assert.match(workspace, /canResolveSyncConflicts=\{isAdmin \|\| canEditWorkspace\}/);
 });
 

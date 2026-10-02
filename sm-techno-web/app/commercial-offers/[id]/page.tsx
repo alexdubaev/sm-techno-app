@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type SyntheticEvent } from "react";
 
 import { AppShell } from "@/components/app-shell";
 import {
@@ -89,7 +89,7 @@ export default function CommercialOfferDetailsPage() {
     }
   }
 
-  async function handleMarkSent(event: FormEvent<HTMLFormElement>) {
+  async function handleMarkSent(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!details || invalidOfferId) {
       return;
