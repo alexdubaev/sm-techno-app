@@ -15,6 +15,7 @@
     "test:auth:lint": "oxlint components/auth-provider.tsx lib/api.ts lib/storage.ts tests/auth tests/e2e tests/deployment-auth-smoke.test.mjs tests/support playwright.auth.config.ts vitest.auth.config.ts",
     "test:deployment:auth-smoke": "node tests/support/verify-deployed-auth-proxy.mjs",
     "lint": "oxlint",
+    "lint:ci": "node scripts/check-lint-baseline.mjs",
     "format": "oxfmt"
   },
   "dependencies": {

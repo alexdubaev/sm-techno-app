@@ -1,0 +1,247 @@
+{
+  "description": "Exact versioned baseline of the known react(react-compiler) diagnostics. lint:ci passes only when the actual compiler diagnostics match this multiset precisely; any new, changed, duplicated, or removed diagnostic fails the gate. Update this file deliberately (with justification) when a known issue is fixed or refactored.",
+  "toolchain": {
+    "oxlint": "1.76.0",
+    "node": "v24.15.0"
+  },
+  "fingerprint": "rule + subtype + repo-relative file + normalized source anchor (window around the diagnostic column; line numbers excluded on purpose) + occurrence index within identical anchors",
+  "counts": {
+    "Invariant": 5,
+    "EffectSetState": 23,
+    "Refs": 1
+  },
+  "diagnostics": [
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "Invariant",
+      "file": "app/clients/page.tsx",
+      "anchor": "async function loadClients() {",
+      "occurrence": 1,
+      "reason": "Proven react-compiler internal bug (react/react#35633), not a code defect."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/commercial-offers/[id]/page.tsx",
+      "anchor": "void loadDetails(offerId);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "Invariant",
+      "file": "app/commercial-offers/page.tsx",
+      "anchor": "async function loadOffers() {",
+      "occurrence": 1,
+      "reason": "Proven react-compiler internal bug (react/react#35633), not a code defect."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "Invariant",
+      "file": "app/documents/journal/page.tsx",
+      "anchor": "async function loadDocuments() {",
+      "occurrence": 1,
+      "reason": "Proven react-compiler internal bug (react/react#35633), not a code defect."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/orders/[id]/page.tsx",
+      "anchor": "void loadOrderDetails(orderId);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "Invariant",
+      "file": "app/orders/page.tsx",
+      "anchor": "async function loadOrders() {",
+      "occurrence": 1,
+      "reason": "Proven react-compiler internal bug (react/react#35633), not a code defect."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-invoice/page.tsx",
+      "anchor": "setDraftLines(sanitizeDraftLines(savedDr",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-invoice/page.tsx",
+      "anchor": "setQuantityInputs((prev) => {",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-invoice/page.tsx",
+      "anchor": "setContracts([]);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-invoice/page.tsx",
+      "anchor": "setCounterpartyInput(selectedCounterpart",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "Invariant",
+      "file": "app/work-with-invoice/page.tsx",
+      "anchor": "async function loadReferences() {",
+      "occurrence": 1,
+      "reason": "Proven react-compiler internal bug (react/react#35633), not a code defect."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-price/page.tsx",
+      "anchor": "setActiveRowMenu(null);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-price/page.tsx",
+      "anchor": "void loadCatalog()",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-price/page.tsx",
+      "anchor": "void loadWarehouses().catch((requestError: un",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-price/page.tsx",
+      "anchor": "setEditForm(EMPTY_FORM);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-price/page.tsx",
+      "anchor": "setStockActionForm((current) => ({",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-price/page.tsx",
+      "anchor": "setCreateForm(buildItemForm(activeWareho",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "app/work-with-price/page.tsx",
+      "anchor": "setActiveWarehouseId(null);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "Refs",
+      "file": "components/crm-workspace.tsx",
+      "anchor": "currentView.current = { activeTab, owner",
+      "occurrence": 1,
+      "reason": "Intentional render-time guard ref against stale async responses; removal forbidden by plan."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "components/crm-workspace.tsx",
+      "anchor": "setOwners([user]);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "components/crm-workspace.tsx",
+      "anchor": "const request = loadLocalWorkspace(activeTab, { silent:",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "components/stock-page.tsx",
+      "anchor": "setDraftLines(sanitizeDraftLines(savedDr",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "components/stock-page.tsx",
+      "anchor": "setActiveWarehouseId(null);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "components/stock-page.tsx",
+      "anchor": "setIsLoading(true);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "components/stock-page.tsx",
+      "anchor": "setSelectedWarehouseId(null);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "components/stock-page.tsx",
+      "anchor": "setSelectedQuantityInput('1');",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "components/stock-page.tsx",
+      "anchor": "setPage(pageCount);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "components/ui/carousel.tsx",
+      "anchor": "onSelect(api);",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    },
+    {
+      "rule": "react(react-compiler)",
+      "subtype": "EffectSetState",
+      "file": "hooks/use-mobile.ts",
+      "anchor": "setIsMobile(window.innerWidth < MOBILE_B",
+      "occurrence": 1,
+      "reason": "Known load/reset setState pattern; covered by green domain tests."
+    }
+  ]
+}
