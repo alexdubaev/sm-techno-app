@@ -1,0 +1,41 @@
+# TEMPORARY DIAGNOSTIC WORKFLOW — PR #2 focus containment investigation.
+# Manual dispatch only; runs the two failing CRM focus test files plus the
+# temporary trace instrumentation on Linux and prints per-Tab activeElement
+# traces. NOT part of the required CI gates. Remove after diagnosis.
+name: Focus diagnostics (temporary)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focus-trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: sm-techno-web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: sm-techno-web
+        run: npm ci
+
+      - name: Diagnostic focus traces (repeat 3x to capture scheduling variance)
+        working-directory: sm-techno-web
+        run: |
+          for i in 1 2 3; do
+            echo "===== FOCUS DIAG RUN $i ====="
+            npx vitest run --config vitest.auth.config.ts \
+              tests/crm/focus-diagnostics.integration.test.tsx \
+              tests/crm/crm-dialog-focus.integration.test.tsx \
+              tests/crm/desktop-import.integration.test.tsx \
+              --reporter=verbose --silent=false || true
+          done
