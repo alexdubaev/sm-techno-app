@@ -11,7 +11,9 @@ def test_ci_has_reproducible_critical_backend_smoke_gate() -> None:
     assert "critical-backend" in workflow
     assert "python -m pytest tests -q --strict-markers" in workflow
     assert "npm run test:settings" in workflow
-    assert "npm run lint" in workflow
+    # The lint gate must be the strict baseline checker, not the raw lint run
+    # that exits non-zero on the documented react-compiler diagnostics.
+    assert "npm run lint:ci" in workflow
     assert "npm exec tsc -- --noEmit --incremental false" in workflow
 
 

@@ -94,10 +94,12 @@ jobs:
         working-directory: sm-techno-web
         run: node --test tests/*.test.mjs
 
-      - name: Frontend lint
+      # Strict gate: passes only when react-compiler diagnostics match the
+      # versioned baseline exactly and no other lint errors exist.
+      - name: Frontend lint baseline gate
         if: ${{ !cancelled() }}
         working-directory: sm-techno-web
-        run: npm run lint
+        run: npm run lint:ci
 
       - name: Frontend typecheck
         if: ${{ !cancelled() }}
