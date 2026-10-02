@@ -7,6 +7,7 @@ import { CrmWorkspace } from "@/components/crm-workspace";
 import { MobileClientActions } from "@/components/crm/mobile/mobile-client-actions";
 import * as api from "@/lib/api";
 import type { AppUser, CrmTab, CrmWorkspaceClient } from "@/lib/types";
+import { sweepTabsWithinDialog } from "./dialog-focus-helpers";
 
 const admin: AppUser = { id: 7, username: "admin", fullName: "Admin", role: "admin", isActive: true, onecUsername: "", hasOnecPassword: false, hasRecoverableAppPassword: false, createdAt: "", updatedAt: "" };
 
@@ -70,8 +71,7 @@ describe("CRM manual dialogs focus contract", () => {
     const dialog = screen.getByRole("dialog", { name: "Новая вкладка" });
     const nameInput = within(dialog).getByLabelText("Название");
     await waitFor(() => expect(nameInput).toHaveFocus());
-    for (let index = 0; index < 8; index += 1) await user.tab();
-    expect(dialog.contains(document.activeElement)).toBe(true);
+    await sweepTabsWithinDialog(user, dialog);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Новая вкладка" })).not.toBeInTheDocument());
     await waitFor(() => expect(launcher).toHaveFocus());
@@ -97,8 +97,7 @@ describe("CRM manual dialogs focus contract", () => {
     const companyInput = within(dialog).getByLabelText("Наименование компании *");
     await waitFor(() => expect(companyInput).toHaveFocus());
     await user.type(companyInput, "ООО Черновик");
-    for (let index = 0; index < 12; index += 1) await user.tab();
-    expect(dialog.contains(document.activeElement)).toBe(true);
+    await sweepTabsWithinDialog(user, dialog);
     expect(companyInput).toHaveValue("ООО Черновик");
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Новый локальный клиент" })).not.toBeInTheDocument());

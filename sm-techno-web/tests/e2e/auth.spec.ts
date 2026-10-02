@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Page, test } from "@playwright/test";
+import { expect, type APIRequestContext, type Locator, type Page, test } from "@playwright/test";
 
 
 const ADMIN_PASSWORD = "admin-e2e-password";
@@ -132,4 +132,86 @@ test("logout and account switch synchronize across two tabs", async ({ context, 
   await login(page, "admin", ADMIN_PASSWORD);
   await expect(visibleUserName(secondPage, "Administrator")).toBeVisible();
   await expect(secondPage.getByText("E2E Operator", { exact: true })).toHaveCount(0);
+});
+
+const CRM_FOCUSABLE_SELECTOR = [
+  "input:not([type=hidden]):not([disabled])",
+  "button:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "a[href]",
+  "[tabindex]:not([disabled])",
+].join(", ");
+
+// The desktop CRM workspace renders at desktop widths only; at 390px the
+// mobile workspace replaces it and these launchers do not exist.
+function skipNonDesktopProject(testInfo: { project: { name: string } }) {
+  const name = testInfo.project.name;
+  test.skip(!name.includes("1280") && !name.includes("1600"), "desktop CRM focus contract");
+}
+
+async function dialogTabbableCount(dialog: Locator): Promise<number> {
+  return dialog.evaluate((root, selector) => {
+    return Array.from(root.querySelectorAll<HTMLElement>(selector)).filter((el) => {
+      return el.getAttribute("tabindex") !== "-1";
+    }).length;
+  }, CRM_FOCUSABLE_SELECTOR);
+}
+
+async function activeElementInsideDialog(dialog: Locator): Promise<boolean> {
+  return dialog.evaluate((root) => root.contains(root.ownerDocument.activeElement));
+}
+
+// Press Tab more times than the dialog has tabbable elements and require the
+// focus to stay inside the dialog after every press. The assertion polls, so
+// the focus guard's frame-scheduled refocus is observed after it runs; only a
+// real escape (focus leaving the dialog for good) fails a step.
+async function tabCycleWithinDialog(page: Page, dialog: Locator, tabbableCount: number) {
+  const presses = tabbableCount + 2;
+  for (let index = 0; index < presses; index += 1) {
+    await page.keyboard.press("Tab");
+    await expect.poll(() => activeElementInsideDialog(dialog), { message: `focus escaped the dialog on forward Tab #${index + 1}` }).toBe(true);
+  }
+  for (let index = 0; index < presses; index += 1) {
+    await page.keyboard.press("Shift+Tab");
+    await expect.poll(() => activeElementInsideDialog(dialog), { message: `focus escaped the dialog on Shift+Tab #${index + 1}` }).toBe(true);
+  }
+}
+
+test("CRM tab editor dialog traps focus in a cycle and restores the launcher after Escape", async ({ page }, testInfo) => {
+  skipNonDesktopProject(testInfo);
+  await login(page, "admin", ADMIN_PASSWORD);
+  await page.goto("/crm");
+  const launcher = page.getByRole("button", { name: "+ Новая вкладка" });
+  await expect(launcher).toBeVisible();
+  await launcher.click();
+
+  const dialog = page.getByRole("dialog", { name: "Новая вкладка" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Название")).toBeFocused();
+
+  await tabCycleWithinDialog(page, dialog, await dialogTabbableCount(dialog));
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Новая вкладка" })).toHaveCount(0);
+  await expect(launcher).toBeFocused();
+});
+
+test("CRM import dialog traps focus in a cycle and restores the launcher after Escape", async ({ page }, testInfo) => {
+  skipNonDesktopProject(testInfo);
+  await login(page, "admin", ADMIN_PASSWORD);
+  await page.goto("/crm");
+  const launcher = page.getByRole("button", { name: "Загрузить клиентов" });
+  await expect(launcher).toBeVisible();
+  await launcher.click();
+
+  const dialog = page.getByRole("dialog", { name: "Загрузка клиентов из Excel" });
+  await expect(dialog).toBeVisible();
+  await expect.poll(() => activeElementInsideDialog(dialog), { message: "initial focus must be inside the import dialog" }).toBe(true);
+
+  await tabCycleWithinDialog(page, dialog, await dialogTabbableCount(dialog));
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Загрузка клиентов из Excel" })).toHaveCount(0);
+  await expect(launcher).toBeFocused();
 });

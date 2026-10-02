@@ -7,6 +7,7 @@ import { CrmWorkspace } from "@/components/crm-workspace";
 import { DesktopCrmImportDialog } from "@/components/crm/import/desktop-crm-import-dialog";
 import * as api from "@/lib/api";
 import type { CrmImportPreview, CrmImportResult, CrmTab } from "@/lib/types";
+import { sweepTabsWithinDialog, tabStopsIn } from "./dialog-focus-helpers";
 
 const auth = vi.hoisted(() => ({
   user: { id: 7, username: "operator", role: "user" as const, fullName: "Оператор", onecUsername: "", hasOnecPassword: false, isActive: true, createdAt: "", updatedAt: "" },
@@ -294,9 +295,10 @@ describe("desktop CRM Excel import", () => {
     const launcher = await screen.findByRole("button", { name: "Загрузить клиентов" });
     await user.click(launcher);
     const dialog = screen.getByRole("dialog", { name: "Загрузка клиентов из Excel" });
-    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
-    for (let index = 0; index < 8; index += 1) await user.tab();
-    expect(dialog.contains(document.activeElement)).toBe(true);
+    // Strict initial focus on a real control (not the tabindex=-1 container),
+    // so the sweep below starts from a deterministic position.
+    await waitFor(() => expect(tabStopsIn(dialog, document.activeElement)).toContain(document.activeElement));
+    await sweepTabsWithinDialog(user, dialog);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Загрузка клиентов из Excel" })).not.toBeInTheDocument());
     expect(launcher).toHaveFocus();
