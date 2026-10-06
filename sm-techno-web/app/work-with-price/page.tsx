@@ -1184,10 +1184,12 @@ function WorkWithPriceAdminPage() {
                                   : "text-[var(--text-primary)]",
                               ].join(" ")}
                             >
-                              {item.sku || "-"}
+                              <span className="max-w-full line-clamp-3 [overflow-wrap:anywhere]" title={item.sku || "-"}>
+                                {item.sku || "-"}
+                              </span>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-primary)]">
-                              <div className="max-w-[320px] line-clamp-2 text-[11px] font-medium leading-[15px]">
+                              <div className="max-w-full line-clamp-3 [overflow-wrap:anywhere] text-[11px] font-medium leading-[15px]" title={item.name || "-"}>
                                 {item.name}
                               </div>
                             </td>
@@ -1201,7 +1203,7 @@ function WorkWithPriceAdminPage() {
                                 className="block max-w-full text-left transition hover:text-[var(--brand-dark)]"
                                 title={rowWarehouseLabel}
                               >
-                                <span className="line-clamp-1">
+                                <span className={rowLocationLabel ? "max-w-full line-clamp-2 [overflow-wrap:anywhere]" : "max-w-full line-clamp-3 [overflow-wrap:anywhere]"}>
                                   {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
                                 </span>
                                 {rowLocationLabel ? (
@@ -1212,10 +1214,14 @@ function WorkWithPriceAdminPage() {
                               </button>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-secondary)]">
-                              {item.categoryName || "-"}
+                              <span className="max-w-full line-clamp-3 [overflow-wrap:anywhere]" title={item.categoryName || "-"}>
+                                {item.categoryName || "-"}
+                              </span>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-secondary)]">
-                              {item.groupName || "-"}
+                              <span className="max-w-full line-clamp-3 [overflow-wrap:anywhere]" title={item.groupName || "-"}>
+                                {item.groupName || "-"}
+                              </span>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] font-semibold tabular-nums">
                               <span className={hasStock ? "text-[var(--stock-ok)]" : "text-[var(--stock-empty)]"}>
