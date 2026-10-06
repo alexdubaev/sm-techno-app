@@ -140,4 +140,4 @@ restore_db.bat
 
 Тесты используют временные данные и свежий синтетический Fernet-ключ, не рабочие БД/1С. Для E2E нужен Python с requirements-dev.txt (при необходимости путь задаётся SM_TECHNO_TEST_PYTHON) и `npx playwright install chromium`. Не запускать приложение с production-настройками для smoke-тестов.
 
-Исторические планы и отчёты docs/superpowers, sm-techno-web/docs/superpowers и .superpowers не входят в маршрут текущих инструкций. VPS runbook используется только при отдельно согласованном обслуживании; Sites и VPS не объявлены отключёнными.
+Исторические планы и отчёты docs/superpowers, sm-techno-web/docs/superpowers и .superpowers не входят в маршрут текущих инструкций. Sites и Vercel исключены из контуров публикации. VPS runbook используется только при отдельно согласованном обслуживании; доступность и runtime SHA VPS требуют проверки.
