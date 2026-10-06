@@ -17,7 +17,7 @@ def test_ci_has_reproducible_critical_backend_smoke_gate() -> None:
     assert "npm exec tsc -- --noEmit --incremental false" in workflow
 
 
-def test_preparation_branch_cannot_trigger_vercel_for_either_project_root():
+def test_vercel_deployments_are_disabled_for_either_project_root_on_all_branches():
     for file in (Path("vercel.json"), Path("sm-techno-web/vercel.json")):
         settings = json.loads(file.read_text(encoding="utf-8"))
-        assert settings["git"]["deploymentEnabled"] == {"codex/repository-cleanup-2026-10-01": False}
+        assert settings["git"]["deploymentEnabled"] is False
