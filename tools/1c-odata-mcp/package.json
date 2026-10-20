@@ -1,0 +1,14 @@
+{
+  "name": "sm-techno-1c-odata-mcp-runtime",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "npm audit --omit=dev --audit-level=high && node check.mjs"
+  },
+  "dependencies": {
+    "1c-odata-mcp": "0.8.0"
+  }
+}
