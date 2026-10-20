@@ -1,0 +1,31 @@
+[mcp_servers.onec-odata]
+command = "node"
+args = ["tools/1c-odata-mcp/run.mjs"]
+startup_timeout_sec = 30
+tool_timeout_sec = 90
+enabled_tools = [
+  "read.system.list_databases",
+  "read.system.health_check",
+  "read.system.list_organizations",
+  "read.schema.list_entities",
+  "read.schema.describe_entity",
+  "read.counterparty.find_counterparty",
+  "read.counterparty.get_counterparty",
+  "read.counterparty.get_customer_history",
+  "read.counterparty.get_supplier_history",
+  "read.document.search_documents",
+  "read.document.get_document",
+  "read.analytics.get_sales",
+  "read.analytics.get_cashflow",
+  "read.analytics.get_debtors",
+  "read.accounting.get_account_turnover",
+  "read.accounting.get_document_postings",
+  "read.analytics.get_inventory",
+  "read.analytics.get_payments_breakdown",
+  "read.analytics.get_deal_history",
+  "read.analytics.get_taxes_paid",
+  "read.analytics.get_sales_breakdown",
+  "read.analytics.get_purchases_breakdown",
+  "read.organization.get_organization_card",
+  "read.audit.get_document_history",
+]
