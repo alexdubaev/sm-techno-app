@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import calendar
+from contextlib import contextmanager
 import json
 import re
 import sqlite3
@@ -11,6 +12,10 @@ from typing import Any
 MAX_MONEY = 10**12
 MAX_MONTH_TOTAL = 10**14
 PAGE_SIZE = 20
+
+
+class ManagerNotFound(LookupError):
+    pass
 
 
 class ManagerConflict(ValueError):
@@ -122,8 +127,21 @@ class ManagerRepository:
         conn.execute('''UPDATE manager_accounts SET display_name=(SELECT COALESCE(NULLIF(full_name,''), username) FROM users WHERE id=user_id)
             WHERE user_id IS NOT NULL AND display_name IS NOT (SELECT COALESCE(NULLIF(full_name,''), username) FROM users WHERE id=user_id)''')
 
+    @contextmanager
+    def _read(self):
+        # Account creation/name synchronization is exceptional, not a write on every GET.
+        with self.db.transaction() as conn:
+            needs_sync = conn.execute("""SELECT 1 FROM users u LEFT JOIN manager_accounts a ON a.user_id=u.id
+                WHERE a.id IS NULL OR a.display_name IS NOT COALESCE(NULLIF(u.full_name,''),u.username)
+                LIMIT 1""").fetchone()
+        if needs_sync:
+            with self.db.transaction(immediate=True) as conn:
+                self._sync_accounts(conn)
+        with self.db.transaction() as conn:
+            conn.execute('BEGIN')
+            yield conn
+
     def _account(self, conn, actor, manager_id):
-        self._sync_accounts(conn)
         if manager_id is None:
             row = conn.execute('SELECT id,user_id,display_name,avatar_version,avatar IS NOT NULL AS has_avatar FROM manager_accounts WHERE user_id=?', (actor['id'],)).fetchone()
         else:
@@ -136,8 +154,7 @@ class ManagerRepository:
 
     def managers(self, actor):
         self._admin(actor)
-        with self.db.transaction(immediate=True) as conn:
-            self._sync_accounts(conn)
+        with self._read() as conn:
             return [dict(id=r['id'], userId=r['user_id'], name=r['display_name'],
                          archived=r['user_id'] is None, active=bool(r['is_active']))
                     for r in conn.execute('''SELECT a.id, a.user_id, a.display_name, u.is_active
@@ -175,7 +192,7 @@ class ManagerRepository:
 
     def dashboard(self, actor, manager_id, month, query='', page=1):
         month_key(month)
-        with self.db.transaction(immediate=True) as conn:
+        with self._read() as conn:
             account = self._account(conn, actor, manager_id)
             return self._data(conn, account, month, query[:300], page)
 
@@ -186,6 +203,7 @@ class ManagerRepository:
         reason = text(payload.get('reason'), 'Причина', 500)
         kind = payload.get('kind')
         with self.db.transaction(immediate=True) as conn:
+            self._sync_accounts(conn)
             account = self._account(conn, actor, manager_id)
             manager_id = account['id']
             before = self._data(conn, account, month)
@@ -273,7 +291,7 @@ class ManagerRepository:
     def history(self, actor, manager_id, month, page=1):
         self._admin(actor)
         month_key(month)
-        with self.db.transaction(immediate=True) as conn:
+        with self._read() as conn:
             account = self._account(conn, actor, manager_id)
             args = (account['id'], month)
             total = conn.execute('SELECT COUNT(*) FROM manager_audit WHERE manager_id=? AND month=?', args).fetchone()[0]
@@ -288,13 +306,28 @@ class ManagerRepository:
     def snapshots(self, actor, manager_id, month):
         self._admin(actor)
         month_key(month)
-        with self.db.transaction(immediate=True) as conn:
+        with self._read() as conn:
             account = self._account(conn, actor, manager_id)
-            return [dict(id=r['id'], at=r['at'], actor=r['actor_name'], version=r['version'], data=json.loads(r['data_json']))
-                    for r in conn.execute('SELECT * FROM manager_snapshots WHERE manager_id=? AND month=? ORDER BY id DESC LIMIT 30', (account['id'], month))]
+            return [dict(id=r['id'], at=r['at'], actor=r['actor_name'], version=r['version'])
+                    for r in conn.execute('SELECT id,at,actor_name,version FROM manager_snapshots WHERE manager_id=? AND month=? ORDER BY id DESC LIMIT 30', (account['id'], month))]
+
+    def snapshot(self, actor, snapshot_id, page=1):
+        self._admin(actor)
+        with self._read() as conn:
+            row = conn.execute('SELECT * FROM manager_snapshots WHERE id=?', (snapshot_id,)).fetchone()
+            if row is None:
+                raise ManagerNotFound('Снимок не найден.')
+            self._account(conn, actor, row['manager_id'])
+            data = json.loads(row['data_json'])
+            sales = data['sales']
+            total = len(sales)
+            pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+            page = min(max(1, page), pages)
+            data.update(sales=sales[(page-1)*PAGE_SIZE:page*PAGE_SIZE], total=total, page=page, pages=pages)
+            return dict(id=row['id'], at=row['at'], actor=row['actor_name'], version=row['version'], data=data)
 
     def avatar(self, actor, manager_id):
-        with self.db.transaction(immediate=True) as conn:
+        with self._read() as conn:
             account = self._account(conn, actor, manager_id)
             row = conn.execute('SELECT avatar FROM manager_accounts WHERE id=?', (account['id'],)).fetchone()
             return row['avatar']
@@ -303,6 +336,7 @@ class ManagerRepository:
         self._admin(actor)
         integer(expected_version, 'Версия фото', 2**31-1)
         with self.db.transaction(immediate=True) as conn:
+            self._sync_accounts(conn)
             account = self._account(conn, actor, manager_id)
             if account['avatarVersion'] != expected_version:
                 raise ManagerConflict('Фото уже изменено. Обновите кабинет.')

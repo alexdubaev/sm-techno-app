@@ -1,11 +1,16 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { fetchManagerHistory, fetchManagerSnapshots } from '@/lib/api';
+import {
+  fetchManagerHistory,
+  fetchManagerSnapshots,
+  fetchManagerSnapshot,
+} from '@/lib/api';
 import type {
   ManagerAuditState,
   ManagerDashboard,
   ManagerHistory as History,
   ManagerSnapshot,
+  ManagerSnapshotSummary,
 } from '@/lib/manager-types';
 import { errorMessage, money, percent, timestamp } from './format';
 import { ManagerModal } from './manager-modal';
@@ -71,9 +76,10 @@ function HistoryPage({
 }) {
   const [result, setResult] = useState<{
     history: History;
-    snapshots: ManagerSnapshot[];
+    snapshots: ManagerSnapshotSummary[];
   } | null>(null);
   const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true;
     Promise.all([
@@ -89,11 +95,20 @@ function HistoryPage({
     return () => {
       active = false;
     };
-  }, [data.account.id, data.month, page]);
+  }, [data.account.id, data.month, page, retry]);
   if (error)
     return (
       <p role="alert" className={styles.error}>
         {error}
+        <button
+          className={styles.secondary}
+          onClick={() => {
+            setError('');
+            setRetry((r) => r + 1);
+          }}
+        >
+          Повторить загрузку
+        </button>
       </p>
     );
   if (!result) return <output>Загрузка истории…</output>;
@@ -137,22 +152,104 @@ function HistoryPage({
       {!result.snapshots.length && (
         <p className={styles.hint}>Месяц ещё не закрывали.</p>
       )}
-      {result.snapshots.map((s) => (
-        <details key={s.id}>
-          <summary>
-            {timestamp(s.at)} · {money(s.data.summary.income)}
-            <small>
-              {s.actor} · версия {s.version}
-            </small>
-          </summary>
-          <p>
-            План {money(s.data.terms?.plan ?? null)} · Фикс{' '}
-            {money(s.data.summary.fixed)} · Комиссия{' '}
-            {money(s.data.summary.commission)}
-          </p>
-          <ManagerSales sales={s.data.sales} />
-        </details>
+      {result.snapshots.map((snapshot) => (
+        <Snapshot key={snapshot.id} snapshot={snapshot} />
       ))}
     </div>
+  );
+}
+
+function Snapshot({ snapshot }: { snapshot: ManagerSnapshotSummary }) {
+  const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  return (
+    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>
+        {timestamp(snapshot.at)}
+        <small>
+          {snapshot.actor} · версия {snapshot.version}
+        </small>
+      </summary>
+      {open && (
+        <SnapshotPage
+          key={page}
+          id={snapshot.id}
+          page={page}
+          setPage={setPage}
+        />
+      )}
+    </details>
+  );
+}
+function SnapshotPage({
+  id,
+  page,
+  setPage,
+}: {
+  id: number;
+  page: number;
+  setPage: (page: number) => void;
+}) {
+  const [result, setResult] = useState<ManagerSnapshot | null>(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    let active = true;
+    fetchManagerSnapshot(id, page)
+      .then((value) => {
+        if (active) setResult(value);
+      })
+      .catch((e) => {
+        if (active) setError(errorMessage(e));
+      });
+    return () => {
+      active = false;
+    };
+  }, [id, page, retry]);
+  if (error)
+    return (
+      <p role="alert" className={styles.error}>
+        {error}
+        <button
+          className={styles.secondary}
+          onClick={() => {
+            setError('');
+            setRetry((r) => r + 1);
+          }}
+        >
+          Повторить загрузку снимка
+        </button>
+      </p>
+    );
+  if (!result) return <output>Загрузка снимка…</output>;
+  const data = result.data;
+  return (
+    <>
+      <p>
+        План {money(data.terms?.plan ?? null)} · Фикс{' '}
+        {money(data.summary.fixed)} · Комиссия {money(data.summary.commission)}{' '}
+        · Итого {money(data.summary.income)}
+      </p>
+      <ManagerSales sales={data.sales} />
+      <div className={styles.pagination}>
+        <button
+          className={styles.secondary}
+          disabled={data.page === 1}
+          onClick={() => setPage(data.page - 1)}
+        >
+          Предыдущие продажи
+        </button>
+        <span>
+          {data.page} / {data.pages}
+        </span>
+        <button
+          className={styles.secondary}
+          disabled={data.page === data.pages}
+          onClick={() => setPage(data.page + 1)}
+        >
+          Следующие продажи
+        </button>
+      </div>
+    </>
   );
 }

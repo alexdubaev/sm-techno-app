@@ -24,6 +24,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -31,7 +33,9 @@ jobs:
           cache: pip
 
       - name: Install backend test dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: |
+          python -m pip install --upgrade "pip>=26.2,<27"
+          python -m pip install -r requirements-dev.txt
 
       - uses: actions/setup-node@v4
         with:
@@ -61,7 +65,9 @@ jobs:
           cache: pip
 
       - name: Install backend test dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: |
+          python -m pip install --upgrade "pip>=26.2,<27"
+          python -m pip install -r requirements-dev.txt
 
       - uses: actions/setup-node@v4
         with:
@@ -73,9 +79,9 @@ jobs:
         working-directory: sm-techno-web
         run: npm ci
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright Chromium and WebKit
         working-directory: sm-techno-web
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Backend auth integration tests
         run: python -m pytest tests/auth -q --strict-markers
@@ -111,6 +117,11 @@ jobs:
         working-directory: sm-techno-web
         run: npm run build
 
+      - name: Production manager browser tests (Chromium and WebKit)
+        if: ${{ !cancelled() }}
+        working-directory: sm-techno-web
+        run: npm run test:manager:e2e
+
       - name: Full-stack auth browser tests
         if: ${{ !cancelled() }}
         working-directory: sm-techno-web
@@ -124,5 +135,16 @@ jobs:
           path: |
             sm-techno-web/playwright-report/auth
             sm-techno-web/test-results/auth
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload manager browser review evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manager-production-browser-report
+          path: |
+            sm-techno-web/playwright-report/manager-production
+            sm-techno-web/test-results/manager-production
           if-no-files-found: ignore
           retention-days: 7

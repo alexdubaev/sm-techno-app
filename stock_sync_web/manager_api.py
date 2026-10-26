@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Respon
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.concurrency import run_in_threadpool
 
-from stock_sync_web.manager_repository import ManagerConflict, ManagerRepository, integer
+from stock_sync_web.manager_repository import ManagerConflict, ManagerNotFound, ManagerRepository, integer
 
 MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
@@ -39,6 +39,8 @@ def create_manager_router(get_current_user, get_db):
             return method(*args, **kwargs)
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
+        except ManagerNotFound as exc:
+            raise HTTPException(404, str(exc)) from exc
         except ManagerConflict as exc:
             raise HTTPException(409, str(exc)) from exc
         except ValueError as exc:
@@ -77,6 +79,10 @@ def create_manager_router(get_current_user, get_db):
     @router.get('/snapshots')
     def snapshots(month: str, managerId: int, actor=Depends(get_current_user)):
         return invoke(repository().snapshots, actor, managerId, month)
+
+    @router.get('/snapshots/{snapshot_id}')
+    def snapshot(snapshot_id: int, page: int = Query(1, ge=1, le=100000), actor=Depends(get_current_user)):
+        return invoke(repository().snapshot, actor, snapshot_id, page)
 
     @router.get('/avatar/{manager_id}')
     def avatar(manager_id: int, actor=Depends(get_current_user)):

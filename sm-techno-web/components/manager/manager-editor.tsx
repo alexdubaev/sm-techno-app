@@ -82,6 +82,8 @@ export function ManagerEditor({
         version: data.version,
         reason: reason.trim(),
       };
+      if ((kind === 'terms' || kind === 'sale') && minorUnits(rate) > 10000)
+        throw new Error('Процент должен быть от 0 до 100.');
       let payload: ManagerChange;
       if (kind === 'terms')
         payload = {

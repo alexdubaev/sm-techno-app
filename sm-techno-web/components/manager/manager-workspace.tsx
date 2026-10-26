@@ -35,6 +35,7 @@ export function ManagerWorkspace() {
   const [managerId, setManagerId] = useState<number | undefined>();
   const [managers, setManagers] = useState<ManagerChoice[]>([]);
   const [managerError, setManagerError] = useState('');
+  const [managerRetry, setManagerRetry] = useState(0);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     if (!isAdmin) return;
@@ -49,7 +50,7 @@ export function ManagerWorkspace() {
     return () => {
       active = false;
     };
-  }, [isAdmin]);
+  }, [isAdmin, user.id, managerRetry]);
   return (
     <div className={styles.workspace}>
       <div className={styles.pageHeading}>
@@ -117,6 +118,15 @@ export function ManagerWorkspace() {
           {managerError && (
             <p role="alert" className={styles.error}>
               {managerError}
+              <button
+                className={styles.secondary}
+                onClick={() => {
+                  setManagerError('');
+                  setManagerRetry((r) => r + 1);
+                }}
+              >
+                Повторить загрузку сотрудников
+              </button>
             </p>
           )}
         </div>
@@ -276,6 +286,7 @@ function Cabinet({
         ].map(([title, value, hint], i) => (
           <article
             className={`${styles.metric} ${i === 3 ? styles.total : ''}`}
+            data-long-amount={value.length > 14 || undefined}
             key={title}
           >
             <h2>{title}</h2>

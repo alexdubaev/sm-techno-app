@@ -57,7 +57,7 @@ def test_revisions_preview_and_snapshots(repo):
     history = repository.history(actors[0], account, '2026-10')
     assert history['total'] == 5
     snapshots = repository.snapshots(actors[0], account, '2026-10')
-    assert snapshots[0]['data']['summary']['commission'] == 1000000
+    assert repository.snapshot(actors[0], snapshots[0]['id'])['data']['summary']['commission'] == 1000000
 
 
 def test_identity_permissions_and_deletion(repo):

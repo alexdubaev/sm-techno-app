@@ -84,10 +84,12 @@ export type ManagerAudit = {
   after: ManagerAuditState;
 };
 export type ManagerHistory = { items: ManagerAudit[]; total: number };
-export type ManagerSnapshot = {
+export type ManagerSnapshotSummary = {
   id: number;
   at: string;
   actor: string;
   version: number;
+};
+export type ManagerSnapshot = ManagerSnapshotSummary & {
   data: ManagerDashboard;
 };

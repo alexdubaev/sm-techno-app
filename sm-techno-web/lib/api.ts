@@ -1705,7 +1705,7 @@ export function fetchManagerHistory(managerId: number, month: string, page = 1) 
   return requestJson<import('./manager-types').ManagerHistory>(`/api/manager/history?${new URLSearchParams({managerId: String(managerId), month, page: String(page)})}`, { bypassCache: true });
 }
 export function fetchManagerSnapshots(managerId: number, month: string) {
-  return requestJson<import('./manager-types').ManagerSnapshot[]>(`/api/manager/snapshots?${new URLSearchParams({managerId: String(managerId), month})}`, { bypassCache: true });
+  return requestJson<import('./manager-types').ManagerSnapshotSummary[]>(`/api/manager/snapshots?${new URLSearchParams({managerId: String(managerId), month})}`, { bypassCache: true });
 }
 export async function fetchManagerAvatar(managerId: number): Promise<Blob> {
   const response = await fetchWithRetry(buildApiUrl(`/api/manager/avatar/${managerId}`), { headers: createHeaders(), cache: 'no-store' });
@@ -1715,4 +1715,8 @@ export async function fetchManagerAvatar(managerId: number): Promise<Blob> {
 export function uploadManagerAvatar(managerId: number, version: number, file: File) {
   const body = new FormData(); body.set('file', file); body.set('version', String(version));
   return requestJsonWithInit<{ ok: boolean }>(`/api/manager/avatar/${managerId}`, { method: 'POST', body }, 'Не удалось сохранить фото.');
+}
+
+export function fetchManagerSnapshot(id: number, page = 1) {
+  return requestJson<import('./manager-types').ManagerSnapshot>(`/api/manager/snapshots/${id}?page=${page}`, { bypassCache: true });
 }
