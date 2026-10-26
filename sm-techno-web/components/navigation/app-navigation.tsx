@@ -20,7 +20,7 @@ export const navigationGroups: AppNavGroup[] = [
     label: 'Прайсы',
     items: [
       {
-        href: '/',
+        href: '/stock',
         label: 'Остатки',
         mobileIcon: '/mobile-icons/stock.webp',
         Icon: BoxIcon,

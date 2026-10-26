@@ -58,18 +58,18 @@ describe('responsive AppShell navigation', () => {
     state.logout.mockClear();
   });
 
-  it('shows four primary items for an administrator and marks CRM current', () => {
+  it('shows five primary items for an administrator and marks CRM current', () => {
     renderShell({ isAdmin: true }, '/crm');
 
     const navigation = screen.getByLabelText('Основная навигация');
-    expect(within(navigation).getAllByRole('link')).toHaveLength(3);
+    expect(within(navigation).getAllByRole('link')).toHaveLength(4);
     expect(
       within(navigation).getByRole('button', { name: 'Ещё' }),
     ).toBeInTheDocument();
     expect(
       within(navigation).getByRole('link', { name: 'CRM' }),
     ).toHaveAttribute('aria-current', 'page');
-    expect(navigation).toHaveAttribute('data-item-count', '4');
+    expect(navigation).toHaveAttribute('data-item-count', '5');
   });
 
   it('omits settings instead of leaving an empty primary slot for a user', () => {
@@ -79,7 +79,7 @@ describe('responsive AppShell navigation', () => {
     expect(
       within(navigation).queryByRole('link', { name: 'Настройки' }),
     ).not.toBeInTheDocument();
-    expect(navigation).toHaveAttribute('data-item-count', '3');
+    expect(navigation).toHaveAttribute('data-item-count', '4');
   });
 
   it('does not duplicate the administrator settings link in the More drawer', async () => {
@@ -93,13 +93,14 @@ describe('responsive AppShell navigation', () => {
 
     await user.click(within(navigation).getByRole('button', { name: 'Ещё' }));
     const drawer = screen.getByRole('dialog', { name: 'Ещё' });
-    expect(
-      within(drawer).queryByRole('link', { name: 'Настройки' }),
-    ).not.toBeInTheDocument();
+    for (const label of ['Настройки', 'Мой кабинет', 'Остатки']) {
+      expect(within(drawer).queryByRole('link', { name: label })).not.toBeInTheDocument();
+    }
   });
 
   it.each([
-    ['/', 'Остатки'],
+    ['/manager', 'Мой кабинет'],
+    ['/stock', 'Остатки'],
     ['/crm', 'CRM'],
     ['/settings', 'Настройки'],
     ['/orders/42', 'Ещё'],

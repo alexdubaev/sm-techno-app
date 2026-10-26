@@ -61,3 +61,30 @@ test('manager cabinet saves manual sales, previews excess commission and protect
   expect(forbidden.status()).toBe(403);
   expect(errors).toEqual([]);
 });
+
+test('startup opens personal cabinet and menu keeps stock available', async ({ page, request }) => {
+  const response = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin-e2e-password' } });
+  expect(response.ok()).toBeTruthy();
+  const session = await response.json();
+  await page.addInitScript(value => window.localStorage.setItem('sm-techno-auth-session', JSON.stringify(value)), session);
+  await page.goto('/');
+  await expect(page).toHaveURL(/\/manager$/);
+  await expect(page.getByRole('heading', { name: 'Продажи и вознаграждение' })).toBeVisible();
+  const stock = page.getByRole('link', { name: 'Остатки', exact: true }).filter({ visible: true });
+  if (!(await stock.count())) await page.getByRole('button', { name: 'Прайсы', exact: true }).click();
+  await stock.click();
+  await expect(page).toHaveURL(/\/stock$/);
+  await expect(page.getByRole('main')).toBeVisible();
+  const cabinet = page.getByRole('link', { name: 'Мой кабинет', exact: true }).filter({ visible: true });
+  if (!(await cabinet.count())) await page.getByRole('button', { name: 'Личный кабинет', exact: true }).click();
+  // Exercise keyboard activation; Next's development toolbar overlaps the first mobile tab.
+  await cabinet.focus();
+  await cabinet.press('Enter');
+  await expect(page).toHaveURL(/\/manager$/);
+  await expect(page.getByRole('heading', { name: 'Продажи и вознаграждение' })).toBeVisible();
+  if (page.viewportSize()!.width < 600) {
+    await page.setViewportSize({ width: 360, height: 800 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await expect(page.getByRole('navigation', { name: 'Основная навигация' }).getByRole('link', { name: 'Мой кабинет' })).toHaveAttribute('aria-current', 'page');
+  }
+});

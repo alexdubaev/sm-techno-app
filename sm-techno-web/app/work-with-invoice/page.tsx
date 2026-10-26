@@ -941,7 +941,7 @@ export default function WorkWithInvoicePage() {
               История заказов
             </Link>
             <Link
-              href="/"
+              href="/stock"
               className="app-action-button app-action-button--sm mt-1.5 w-full"
             >
               Вернуться в остатки

@@ -1,5 +1,5 @@
-﻿import { StockPage } from "@/components/stock-page";
+import { redirect } from 'next/navigation';
 
 export default function HomePage() {
-  return <StockPage />;
+  redirect('/manager');
 }

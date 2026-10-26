@@ -15,7 +15,8 @@ async function login(page: Page, username: string, password: string) {
 }
 
 function visibleUserName(page: Page, name: string) {
-  return page.getByText(name, { exact: true }).filter({ visible: true });
+  // The personal cabinet also displays the signed-in employee name.
+  return page.getByText(name, { exact: true }).filter({ visible: true }).first();
 }
 
 // Choose the actual visible navigation, including the collapsed sidebar at 1280px.
@@ -131,7 +132,7 @@ test("logout and account switch synchronize across two tabs", async ({ context, 
 
   await login(page, "admin", ADMIN_PASSWORD);
   await expect(visibleUserName(secondPage, "Administrator")).toBeVisible();
-  await expect(secondPage.getByText("E2E Operator", { exact: true })).toHaveCount(0);
+  await expect(secondPage.getByRole("heading", { name: "E2E Operator", exact: true })).toHaveCount(0);
 });
 
 const CRM_FOCUSABLE_SELECTOR = [

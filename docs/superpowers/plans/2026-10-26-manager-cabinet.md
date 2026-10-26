@@ -26,29 +26,35 @@
 ### Task 1: Repository and calculations
 Files: stock_sync_web/manager_repository.py, stock_sync_web/database.py, tests/test_manager_repository.py.
 Interfaces: ManagerRepository(db).dashboard(actor, manager_id, month, query='', page=1); .mutate(actor, manager_id, month, payload, preview=False); .managers(actor); .avatar(actor, manager_id); .set_avatar(actor, manager_id, image, expected_version).
-- [ ] Write failing tests for crossing/rates/rounding, missing/zero plan, revision conflict, preview rollback, close/reopen, audit and deleted-user identity separation.
-- [ ] Run tests (module missing), implement isolated migration and repository, rerun to green.
-- [ ] Money cap 10^12 kopecks per field and 10^14 per month, rate 0..10000; return 400 on invalid values, 409 on stale version/closed mutation.
-- [ ] Commit repository/tests.
+- [x] Write failing tests for crossing/rates/rounding, missing/zero plan, revision conflict, preview rollback, close/reopen, audit and deleted-user identity separation.
+- [x] Run tests (module missing), implement isolated migration and repository, rerun to green.
+- [x] Money cap 10^12 kopecks per field and 10^14 per month, rate 0..10000; return 400 on invalid values, 409 on stale version/closed mutation.
+- [x] Commit repository/tests.
 
 ### Task 2: Authenticated API
 Files: stock_sync_web/manager_api.py, stock_sync_api.py, tests/auth/test_manager_api.py.
 Interfaces: router factory receives existing current-user dependency and db getter. Routes under /api/manager: managers, dashboard, preview, changes, history, snapshots, avatar.
-- [ ] Write API tests for unauthenticated/foreign reads, user writes, admin persistence and protected raster avatar; run red.
-- [ ] Implement router with cache-control no-store, bounded uploads and safe exceptions; use same auth/error contracts. Include router after existing dependencies.
-- [ ] Run API and repository tests to green; commit.
+- [x] Write API tests for unauthenticated/foreign reads, user writes, admin persistence and protected raster avatar; run red.
+- [x] Implement router with cache-control no-store, bounded uploads and safe exceptions; use same auth/error contracts. Include router after existing dependencies.
+- [x] Run API and repository tests to green; commit.
 
 ### Task 3: Responsive workspace
 Files: sm-techno-web/lib/manager-types.ts, lib/api.ts, components/manager/*, app/manager/page.tsx, components/navigation/app-navigation.tsx, tests/settings/manager.test.tsx.
 Interfaces: typed manager fetch/preview/mutate/history/avatar helpers reuse existing auth transport; dashboard has account, terms, version, closed, summary, daily, paged sales.
-- [ ] Add failing component tests: loading/error/empty states, accessible metrics, admin-only mutations, preview before commit.
-- [ ] Implement workspace, route/navigation, lazy chart, mobile list, forms and protected avatar; period identity keys discard stale requests. Dirty forms use existing navigation protection.
-- [ ] Include conditions copy from previous month, sales edit/cancel with reasons, preview result before commit, close/reopen and audit/snapshot inspection.
-- [ ] Run component tests and types; commit.
+- [x] Add failing component tests: loading/error/empty states, accessible metrics, admin-only mutations, preview before commit.
+- [x] Implement workspace, route/navigation, lazy chart, mobile list, forms and protected avatar; period identity keys discard stale requests. Dirty forms use existing navigation protection.
+- [x] Include conditions copy from previous month, sales edit/cancel with reasons, preview result before commit, close/reopen and audit/snapshot inspection.
+- [x] Run component tests and types; commit.
 
 ### Task 4: Integrated verification and review
 Files: sm-techno-web/tests/e2e/manager.spec.ts, docs/domains/manager-cabinet.md.
-- [ ] Add isolated browser test for manual sales, crossing commission, manager privacy, month closure, mobile layout and persisted changes.
-- [ ] Run backend auth/full, frontend auth/settings/node tests, raw lint + baseline, typecheck, build and isolated E2E. Capture screenshots outside repo.
-- [ ] Luna 6 whole-branch review; fix material findings with regression tests.
-- [ ] Document usage and verified limitations; commit and prepare PR following repository workflow. Do not deploy.
+- [x] Add isolated browser test for manual sales, crossing commission, manager privacy, month closure, mobile layout and persisted changes.
+- [x] Run backend auth/full, frontend auth/settings/node tests, raw lint + baseline, typecheck, build and isolated E2E. Capture screenshots outside repo.
+- [x] Luna 6 whole-branch review; fix material findings with regression tests.
+- [x] Document usage and verified limitations; commit and prepare PR following repository workflow. Do not deploy.
+
+### User-approved follow-up: startup and navigation
+- [x] Root `/` redirects to `/manager`; preserve stock implementation at `/stock`.
+- [x] Add cabinet to existing desktop menu and mobile primary navigation; eliminate duplicate primary links in More.
+- [x] Update invoice return-to-stock link and auth/navigation tests for the new landing page.
+- [x] Verify startup, stock/back navigation and 360 px layout through isolated browser tests; repeat final build.
