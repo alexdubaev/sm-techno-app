@@ -501,6 +501,7 @@ class WebDatabase(Database):
         ("2026-09-08-crm-contact-position-v1", "_add_crm_contact_position"),
         ("2026-09-08-retire-crm-outbox-v1", "_retire_crm_outbox"),
         ("2026-09-08-call-history-and-client-note-v1", "_migrate_call_history_and_client_note"),
+        ("2026-10-26-manager-cabinet-v1", "_add_manager_cabinet"),
     )
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
@@ -547,7 +548,15 @@ class WebDatabase(Database):
             )
 
     @staticmethod
+    def _add_manager_cabinet(conn: sqlite3.Connection) -> None:
+        from stock_sync_web.manager_repository import migrate
+        migrate(conn)
+
+    @staticmethod
     def _migration_target_is_present(conn: sqlite3.Connection, version: str) -> bool:
+        if version == "2026-10-26-manager-cabinet-v1":
+            from stock_sync_web.manager_repository import migration_present
+            return migration_present(conn)
         if version == "2026-09-08-crm-contact-position-v1":
             columns = {
                 str(row["name"])
