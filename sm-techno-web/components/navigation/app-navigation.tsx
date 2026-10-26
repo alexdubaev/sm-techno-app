@@ -15,6 +15,7 @@ export type AppNavGroup = {
 };
 
 export const navigationGroups: AppNavGroup[] = [
+  { label: 'Личный кабинет', items: [{ href: '/manager', label: 'Мой кабинет', mobileIcon: '/mobile-icons/settings-users.webp', Icon: UsersIcon }] },
   {
     label: 'Прайсы',
     items: [

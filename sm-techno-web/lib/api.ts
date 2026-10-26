@@ -1685,3 +1685,34 @@ export async function clearCatalog(): Promise<{ deleted: number; hidden: number 
 }
 
 export type { LocalItemPayload };
+
+// Compensation reads deliberately bypass the general GET cache.
+export function fetchManagerDashboard(month: string, managerId?: number, query = '', page = 1) {
+  const params = new URLSearchParams({ month, query, page: String(page) });
+  if (managerId !== undefined) params.set('managerId', String(managerId));
+  return requestJson<import('./manager-types').ManagerDashboard>(`/api/manager/dashboard?${params}`, { bypassCache: true });
+}
+export function fetchManagers() {
+  return requestJson<import('./manager-types').ManagerChoice[]>('/api/manager/managers', { bypassCache: true });
+}
+export function previewManagerChange(payload: import('./manager-types').ManagerChange) {
+  return requestJsonWithInit<import('./manager-types').ManagerDashboard>('/api/manager/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось рассчитать изменения.');
+}
+export function saveManagerChange(payload: import('./manager-types').ManagerChange) {
+  return requestJsonWithInit<import('./manager-types').ManagerDashboard>('/api/manager/changes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось сохранить изменения.');
+}
+export function fetchManagerHistory(managerId: number, month: string, page = 1) {
+  return requestJson<import('./manager-types').ManagerHistory>(`/api/manager/history?${new URLSearchParams({managerId: String(managerId), month, page: String(page)})}`, { bypassCache: true });
+}
+export function fetchManagerSnapshots(managerId: number, month: string) {
+  return requestJson<import('./manager-types').ManagerSnapshot[]>(`/api/manager/snapshots?${new URLSearchParams({managerId: String(managerId), month})}`, { bypassCache: true });
+}
+export async function fetchManagerAvatar(managerId: number): Promise<Blob> {
+  const response = await fetchWithRetry(buildApiUrl(`/api/manager/avatar/${managerId}`), { headers: createHeaders(), cache: 'no-store' });
+  if (!response.ok) await parseJsonResponse(response, 'Не удалось загрузить фото.');
+  return response.blob();
+}
+export function uploadManagerAvatar(managerId: number, version: number, file: File) {
+  const body = new FormData(); body.set('file', file); body.set('version', String(version));
+  return requestJsonWithInit<{ ok: boolean }>(`/api/manager/avatar/${managerId}`, { method: 'POST', body }, 'Не удалось сохранить фото.');
+}
