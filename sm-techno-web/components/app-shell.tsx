@@ -115,7 +115,7 @@ export function AppShell({ children }: ShellProps) {
   const mobilePrimaryItems = visibleNavGroups.flatMap((group) =>
     group.items.filter(
       (item) =>
-        item.href === '/' || item.href === '/crm' || item.href === '/settings',
+        item.href === '/manager' || item.href === '/stock' || item.href === '/crm' || item.href === '/settings',
     ),
   );
 

@@ -31,6 +31,7 @@ from stock_sync_web.service import CRM_LOCAL_ONLY_POLICY_MESSAGE, WebStockSyncSe
 from stock_sync_web.crm_export import build_crm_export_xlsx
 from stock_sync_web.crm_import import ImportValidationError
 from stock_sync_web.crm_repository import CrmRepository
+from stock_sync_web.manager_api import create_manager_router
 
 
 APP_TITLE = "SM Techno Stock Sync API"
@@ -553,6 +554,9 @@ def _get_admin_user(current_user: dict[str, Any] = Depends(_get_current_user)) -
     if str(current_user.get("role") or "") != "admin":
         raise HTTPException(status_code=403, detail="Доступно только администратору.")
     return current_user
+
+
+app.include_router(create_manager_router(_get_current_user, lambda: SERVICE.db))
 
 
 def _crm_error(exc: Exception) -> None:
