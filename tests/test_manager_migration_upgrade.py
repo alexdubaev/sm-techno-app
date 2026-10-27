@@ -22,6 +22,7 @@ from stock_sync_web.manager_repository import ManagerRepository, MAX_MONEY
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = "2026-10-26-manager-cabinet-v1"
+INVOICE_MIGRATION = "2026-10-27-manager-invoice-details-v1"
 
 
 def _run_baseline_initializer(db_path: Path, base_root: Path) -> None:
@@ -142,6 +143,44 @@ def test_concurrent_first_initialization_creates_single_migration_and_tables(tmp
     with WebDatabase(db_path).connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM web_schema_migrations WHERE version=?", (MIGRATION,)).fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE 'manager_%'").fetchone()[0] == 5
+
+
+def test_invoice_migration_adds_optional_columns_without_changing_existing_sales(tmp_path: Path):
+    db = WebDatabase(tmp_path / "invoice-upgrade.db")
+    admin_id = db.create_user(username="admin", password="synthetic-pass", role="admin")
+    user_id = db.create_user(username="manager", password="synthetic-pass", role="user")
+    admin = db.get_user_by_id(admin_id)
+    repository = ManagerRepository(db)
+    manager_id = repository.dashboard(db.get_user_by_id(user_id), None, "2026-10")["account"]["id"]
+    repository.mutate(admin, manager_id, "2026-10", {
+        "kind": "terms", "version": 0, "reason": "synthetic setup",
+        "plan": 0, "fixed": 0, "rate": 500, "mode": "plan",
+    })
+    repository.mutate(admin, manager_id, "2026-10", {
+        "kind": "sale", "version": 1, "reason": "synthetic existing sale",
+        "date": "2026-10-04", "client": "Existing client", "amount": 1620000, "rate": 500,
+    })
+    with db.transaction() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(manager_sales)")}
+        for column in ("invoice_date", "invoice_number"):
+            if column in columns:
+                conn.execute(f"ALTER TABLE manager_sales DROP COLUMN {column}")
+        conn.execute("DELETE FROM web_schema_migrations WHERE version=?", (INVOICE_MIGRATION,))
+
+    db.initialize()
+    upgraded = repository.dashboard(admin, manager_id, "2026-10")
+    sale = upgraded["sales"][0]
+    assert (sale["client"], sale["amount"], sale["invoiceNumber"], sale["invoiceDate"]) == (
+        "Existing client", 1620000, None, None,
+    )
+    assert upgraded["summary"]["salesTotal"] == 1620000
+    db.initialize()
+    with db.connect() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM web_schema_migrations WHERE version=?", (INVOICE_MIGRATION,),
+        ).fetchone()[0] == 1
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(manager_sales)")}
+        assert {"invoice_number", "invoice_date"} <= columns
 
 
 def test_deleted_account_history_does_not_attach_to_reused_user_id(tmp_path: Path):

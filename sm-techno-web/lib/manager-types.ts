@@ -14,7 +14,7 @@ export type ManagerTerms = {
   plan: number;
   fixed: number;
   rate: number;
-  mode: 'plan' | 'always';
+  mode: 'plan' | 'always' | 'minimum';
 };
 export type ManagerSale = {
   id: number;
@@ -24,6 +24,8 @@ export type ManagerSale = {
   rate: number;
   cancelled: boolean;
   source: 'manual' | 'onec';
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
   base: number | null;
   commission: number | null;
 };
@@ -53,7 +55,7 @@ export type ManagerChange = {
   managerId: number;
   month: string;
   version: number;
-  reason: string;
+  reason?: string;
 } & (
   | ({ kind: 'terms' } & ManagerTerms)
   | {
@@ -63,6 +65,8 @@ export type ManagerChange = {
       client: string;
       amount: number;
       rate: number;
+      invoiceNumber?: string | null;
+      invoiceDate?: string | null;
     }
   | { kind: 'cancel'; saleId: number }
   | { kind: 'close' | 'reopen' }

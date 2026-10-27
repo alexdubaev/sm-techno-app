@@ -200,12 +200,13 @@ function Cabinet({
   const [page, setPage] = useState(1);
   const summary = data.summary,
     terms = data.terms;
-  const achieved = terms !== null && summary.salesTotal >= terms.plan;
+  const noPlan = terms !== null && terms.plan === 0;
+  const achieved = terms !== null && !noPlan && summary.salesTotal >= terms.plan;
   const progress =
     terms === null
       ? null
       : terms.plan === 0
-        ? 100
+        ? null
         : (summary.salesTotal / terms.plan) * 100;
   return (
     <>
@@ -233,6 +234,8 @@ function Cabinet({
               ? 'Месяц закрыт'
               : !terms
                 ? 'Условия не заданы'
+                : noPlan
+                  ? terms?.mode === 'minimum' ? 'Минимальная зарплата' : 'Без плана'
                 : achieved
                   ? 'План выполнен'
                   : 'План в работе'}
@@ -250,7 +253,7 @@ function Cabinet({
       {!terms && (
         <p className={styles.notice}>
           {admin
-            ? 'Задайте план и условия начисления. Продажи можно вносить уже сейчас.'
+            ? 'Задайте условия начисления. Продажи можно вносить уже сейчас.'
             : 'Администратор ещё не установил условия этого месяца. Начисления появятся после настройки.'}
         </p>
       )}
@@ -262,10 +265,16 @@ function Cabinet({
             `${summary.count} продаж за месяц`,
           ],
           [
-            'Фиксированная часть',
+            terms?.mode === 'minimum' ? 'Минимальная зарплата' : 'Фиксированная часть',
             money(summary.fixed),
             terms
-              ? terms.mode === 'always'
+              ? noPlan
+                ? terms.mode === 'minimum'
+                  ? 'Гарантированный минимум'
+                  : terms.fixed > 0
+                  ? 'Независимо от плана'
+                  : 'Фиксированная часть не задана'
+                : terms.mode === 'always'
                 ? 'Независимо от плана'
                 : achieved
                   ? 'Начислено за выполнение плана'
@@ -273,14 +282,16 @@ function Cabinet({
               : 'Условия не заданы',
           ],
           [
-            'Комиссия сверх плана',
+            noPlan ? 'Комиссия с продаж' : 'Комиссия сверх плана',
             money(summary.commission),
-            `База: ${money(summary.above)}`,
+            `База: ${money(noPlan ? summary.salesTotal : summary.above)}`,
           ],
           [
             'Итого начислено',
             money(summary.income),
-            'Фикс + комиссия · до налогов',
+            terms?.mode === 'minimum'
+              ? 'Не меньше минимальной зарплаты · до налогов'
+              : 'Фикс + комиссия · до налогов',
           ],
         ].map(([title, value, hint], i) => (
           <article
@@ -296,7 +307,19 @@ function Cabinet({
       </section>
       <div className={styles.dashboardGrid}>
         <ManagerChart data={data} />
-        <section className={styles.panel}>
+        {noPlan ? (
+          <section className={styles.panel}>
+            <div className={styles.panelHeading}><h2>Вознаграждение без плана</h2><span className={styles.hint}>{monthLabel(data.month)}</span></div>
+            <p className={styles.hint}>{terms.mode === 'minimum'
+              ? 'Начисляется большая сумма: минимальная зарплата или проценты с продаж. Процент рассчитывается по ставке каждой продажи.'
+              : 'Процент начисляется со всей суммы продаж, по ставке каждой продажи.'}</p>
+            <details className={styles.conditions}>
+              <summary>Условия начисления</summary>
+              <p>{terms.mode === 'minimum' ? 'Гарантированная минимальная зарплата' : 'Фиксированная часть'}: {money(terms.fixed)}. Процент с продаж: {terms.rate / 100}%.</p>
+              <p>Ставки уже внесённых продаж сохраняются. Начисления не подтверждают выплату денег.</p>
+            </details>
+          </section>
+        ) : <section className={styles.panel}>
           <div className={styles.panelHeading}>
             <h2>План на месяц</h2>
             <span className={styles.hint}>{monthLabel(data.month)}</span>
@@ -354,7 +377,7 @@ function Cabinet({
               выплату денег.
             </p>
           </details>
-        </section>
+        </section>}
       </div>
       <section className={`${styles.panel} ${styles.salesPanel}`}>
         <div className={styles.salesHeading}>

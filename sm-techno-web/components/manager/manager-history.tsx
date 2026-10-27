@@ -12,7 +12,7 @@ import type {
   ManagerSnapshot,
   ManagerSnapshotSummary,
 } from '@/lib/manager-types';
-import { errorMessage, money, percent, timestamp } from './format';
+import { dateLabel, errorMessage, money, percent, timestamp } from './format';
 import { ManagerModal } from './manager-modal';
 import { ManagerSales } from './manager-sales';
 import styles from './manager.module.css';
@@ -32,15 +32,25 @@ function AuditState({ state }: { state: ManagerAuditState }) {
       </p>
       {state.terms && (
         <p>
-          План: {money(state.terms.plan)} · Фикс: {money(state.terms.fixed)} (
-          {state.terms.mode === 'plan' ? 'при выполнении плана' : 'без условия'}
-          ) · Ставка новых продаж: {percent(state.terms.rate)}
+          {state.terms.mode === 'minimum'
+            ? `Гарантированный минимум: ${money(state.terms.fixed)} · начисляется большая сумма: минимум или комиссия`
+            : state.terms.plan > 0
+              ? `План: ${money(state.terms.plan)} · Фикс: ${money(state.terms.fixed)} (${state.terms.mode === 'plan' ? 'при выполнении плана' : 'без условия'})`
+              : `Процент без плана${state.terms.fixed > 0 ? ` · фикс: ${money(state.terms.fixed)}` : ''}`}
+          {' '}· Ставка новых продаж: {percent(state.terms.rate)}
         </p>
       )}
       {state.sale && (
         <p>
           Продажа № {state.sale.id}: {state.sale.client} · {state.sale.date} ·{' '}
           {money(state.sale.amount)} · {percent(state.sale.rate)}
+          {(state.sale.invoiceNumber || state.sale.invoiceDate) && (
+            <>
+              {' '}· Счёт
+              {state.sale.invoiceNumber ? ` № ${state.sale.invoiceNumber}` : ''}
+              {state.sale.invoiceDate ? ` от ${dateLabel(state.sale.invoiceDate)}` : ''}
+            </>
+          )}
           {state.sale.cancelled ? ' · Отменена' : ''}
         </p>
       )}
