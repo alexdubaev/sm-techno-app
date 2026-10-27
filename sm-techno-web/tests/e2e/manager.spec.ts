@@ -51,6 +51,10 @@ test('manager cabinet saves manual sales, previews excess commission and protect
   await expect(
     page.getByText('Задайте план и условия начисления.', { exact: false }),
   ).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('compact-cabinet.png'),
+    fullPage: false,
+  });
   await page.getByRole('button', { name: 'Настроить условия' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('План продаж, ₽').fill('1000000');
@@ -133,6 +137,11 @@ test('startup opens personal cabinet and menu keeps stock available', async ({
   });
   expect(response.ok()).toBeTruthy();
   const session = await response.json();
+  const dashboard = await request.get('/api/manager/dashboard?month=2026-10', {
+    headers: { Authorization: `Bearer ${session.token}` },
+  });
+  expect(dashboard.ok()).toBeTruthy();
+  const profileName = (await dashboard.json()).account.name as string;
   await page.addInitScript(
     (value) =>
       window.localStorage.setItem(
@@ -144,8 +153,10 @@ test('startup opens personal cabinet and menu keeps stock available', async ({
   await page.goto('/');
   await expect(page).toHaveURL(/\/manager$/);
   await expect(
-    page.getByRole('heading', { name: 'Продажи и вознаграждение' }),
+    page.getByRole('heading', { name: profileName, exact: true }),
   ).toBeVisible();
+  await expect(page.getByLabel('Месяц', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Кабинет сотрудника')).toBeVisible();
   const stock = page
     .getByRole('link', { name: 'Остатки', exact: true })
     .filter({ visible: true });
@@ -170,8 +181,14 @@ test('startup opens personal cabinet and menu keeps stock available', async ({
   }
   await expect(page).toHaveURL(/\/manager$/);
   await expect(
-    page.getByRole('heading', { name: 'Продажи и вознаграждение' }),
+    page.getByRole('heading', { name: profileName, exact: true }),
   ).toBeVisible();
+  await expect(page.getByLabel('Месяц', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Кабинет сотрудника')).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('compact-return-cabinet.png'),
+    fullPage: false,
+  });
   if (page.viewportSize()!.width < 600) {
     await page.setViewportSize({ width: 360, height: 800 });
     expect(
