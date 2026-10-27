@@ -44,6 +44,33 @@ def text(value: Any, label: str, maximum: int = 300) -> str:
     return value.strip()
 
 
+def optional_invoice_number(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError('Номер счёта: введите текст до 100 символов.')
+    value = value.strip()
+    if len(value) > 100:
+        raise ValueError('Номер счёта: введите текст до 100 символов.')
+    return value or None
+
+
+def optional_invoice_date(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError('Дата счёта должна быть корректной датой.')
+    if not value:
+        return None
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+        raise ValueError('Дата счёта должна быть корректной датой.')
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError('Дата счёта должна быть корректной датой.') from exc
+    return value
+
+
 def calculate(rows: list[dict], terms: dict | None) -> dict:
     total = 0
     commission = 0
@@ -60,9 +87,14 @@ def calculate(rows: list[dict], terms: dict | None) -> dict:
         item['commission'] = (base * row['rate'] + 5000) // 10000 if terms is not None else None
         commission += item['commission'] or 0
         calculated.append(item)
-    fixed = None if terms is None else (terms['fixed'] if terms['mode'] == 'always' or total >= terms['plan'] else 0)
+    fixed = None if terms is None else (
+        terms['fixed'] if terms['mode'] in ('always', 'minimum') or total >= terms['plan'] else 0
+    )
+    income = None if terms is None else (
+        max(fixed, commission) if terms['mode'] == 'minimum' else fixed + commission
+    )
     return dict(salesTotal=total, commission=commission if terms is not None else None, fixed=fixed,
-                income=None if terms is None else fixed + commission,
+                income=income,
                 above=None if terms is None else max(0, total - terms['plan']),
                 remaining=None if terms is None else max(0, terms['plan'] - total),
                 count=sum(not row['cancelled'] for row in rows), sales=calculated)
@@ -169,7 +201,8 @@ class ManagerRepository:
     def _data(self, conn, account, month, query='', page=1):
         period = self._period(conn, account['id'], month)
         terms = None if period['plan'] is None else {k: period[k] for k in ('plan', 'fixed', 'rate', 'mode')}
-        rows = [dict(r) for r in conn.execute('''SELECT id, date, client, amount, rate, cancelled, source
+        rows = [dict(r) for r in conn.execute('''SELECT id, date, client, amount, rate, cancelled, source,
+                invoice_number AS invoiceNumber, invoice_date AS invoiceDate
             FROM manager_sales WHERE manager_id=? AND month=? ORDER BY date,id''', (account['id'], month))]
         result = calculate(rows, terms)
         sales = result.pop('sales')
@@ -200,8 +233,13 @@ class ManagerRepository:
         self._admin(actor)
         month_key(month)
         version = integer(payload.get('version'), 'Версия', 2**31-1)
-        reason = text(payload.get('reason'), 'Причина', 500)
         kind = payload.get('kind')
+        reason_value = payload.get('reason')
+        creating_sale = kind == 'sale' and payload.get('saleId') is None
+        if creating_sale and (reason_value is None or isinstance(reason_value, str) and not reason_value.strip()):
+            reason = 'Создание продажи'
+        else:
+            reason = text(reason_value, 'Причина', 500)
         with self.db.transaction(immediate=True) as conn:
             self._sync_accounts(conn)
             account = self._account(conn, actor, manager_id)
@@ -216,12 +254,15 @@ class ManagerRepository:
             if kind == 'terms':
                 terms = {key: integer(payload.get(key), key, 10000 if key == 'rate' else MAX_MONEY)
                          for key in ('plan', 'fixed', 'rate')}
-                if payload.get('mode') not in ('plan', 'always'):
+                if payload.get('mode') not in ('plan', 'always', 'minimum'):
                     raise ValueError('Выберите правило начисления фикса.')
+                if payload['mode'] == 'minimum' and terms['plan'] != 0:
+                    raise ValueError('Для гарантированной минимальной зарплаты план должен быть равен нулю.')
                 conn.execute('''UPDATE manager_periods SET plan=?,fixed=?,rate=?,mode=? WHERE manager_id=? AND month=?''',
                              (terms['plan'], terms['fixed'], terms['rate'], payload['mode'], manager_id, month))
             elif kind in ('sale', 'cancel'):
                 sale_id = payload.get('saleId')
+                row = None
                 if sale_id is not None:
                     integer(sale_id, 'Продажа', 2**53-1)
                     row = conn.execute('SELECT * FROM manager_sales WHERE id=? AND manager_id=? AND month=?',
@@ -245,16 +286,27 @@ class ManagerRepository:
                     if amount == 0:
                         raise ValueError('Сумма продажи должна быть больше нуля.')
                     rate = integer(payload.get('rate'), 'Процент', 10000)
+                    if 'invoiceNumber' in payload:
+                        invoice_number = optional_invoice_number(payload.get('invoiceNumber'))
+                    else:
+                        invoice_number = row['invoice_number'] if row else None
+                    if 'invoiceDate' in payload:
+                        invoice_date = optional_invoice_date(payload.get('invoiceDate'))
+                    else:
+                        invoice_date = row['invoice_date'] if row else None
                     if sale_id is None:
                         count = conn.execute('SELECT COUNT(*) FROM manager_sales WHERE manager_id=? AND month=?', (manager_id, month)).fetchone()[0]
                         if count >= 10000:
                             raise ValueError('Достигнут лимит 10 000 записей в месяце.')
-                        cursor = conn.execute('''INSERT INTO manager_sales(manager_id,month,date,client,amount,rate,created_by,updated_at)
-                            VALUES(?,?,?,?,?,?,?,?)''', (manager_id, month, date_value, client, amount, rate, actor['id'], now()))
+                        cursor = conn.execute('''INSERT INTO manager_sales(manager_id,month,date,client,amount,rate,
+                            invoice_number,invoice_date,created_by,updated_at)
+                            VALUES(?,?,?,?,?,?,?,?,?,?)''',
+                            (manager_id, month, date_value, client, amount, rate, invoice_number, invoice_date, actor['id'], now()))
                         sale_id = cursor.lastrowid
                     else:
-                        conn.execute('UPDATE manager_sales SET date=?,client=?,amount=?,rate=?,updated_at=? WHERE id=?',
-                                     (date_value, client, amount, rate, now(), sale_id))
+                        conn.execute('''UPDATE manager_sales SET date=?,client=?,amount=?,rate=?,
+                            invoice_number=?,invoice_date=?,updated_at=? WHERE id=?''',
+                                     (date_value, client, amount, rate, invoice_number, invoice_date, now(), sale_id))
             elif kind in ('close', 'reopen'):
                 if kind == 'close' and before['terms'] is None:
                     raise ValueError('Перед закрытием задайте условия месяца.')
@@ -276,13 +328,20 @@ class ManagerRepository:
             details_after = None
             if kind in ('sale', 'cancel'):
                 details_after = dict(conn.execute('SELECT * FROM manager_sales WHERE id=?', (sale_id,)).fetchone())
+                details_after['invoiceNumber'] = details_after['invoice_number']
+                details_after['invoiceDate'] = details_after['invoice_date']
+            if details_before is not None:
+                details_before['invoiceNumber'] = details_before['invoice_number']
+                details_before['invoiceDate'] = details_before['invoice_date']
             after_record = dict(terms=after['terms'], summary=after['summary'], closed=after['closed'], version=version+1, sale=details_after)
             conn.execute('''INSERT INTO manager_audit(manager_id,month,actor_id,actor_name,at,kind,reason,before_json,after_json)
                 VALUES(?,?,?,?,?,?,?,?,?)''', (manager_id, month, actor['id'], actor_name, now(), kind, reason,
                                              json.dumps(before_record, ensure_ascii=False), json.dumps(after_record, ensure_ascii=False)))
             if kind == 'close':
                 snapshot = dict(after)
-                all_rows = [dict(r) for r in conn.execute('SELECT id,date,client,amount,rate,cancelled,source FROM manager_sales WHERE manager_id=? AND month=?', (manager_id, month))]
+                all_rows = [dict(r) for r in conn.execute('''SELECT id,date,client,amount,rate,cancelled,source,
+                    invoice_number AS invoiceNumber, invoice_date AS invoiceDate
+                    FROM manager_sales WHERE manager_id=? AND month=?''', (manager_id, month))]
                 snapshot['sales'] = calculate(all_rows, after['terms'])['sales']
                 conn.execute('INSERT INTO manager_snapshots(manager_id,month,at,actor_name,version,data_json) VALUES(?,?,?,?,?,?)',
                              (manager_id, month, now(), actor_name, version+1, json.dumps(snapshot, ensure_ascii=False)))

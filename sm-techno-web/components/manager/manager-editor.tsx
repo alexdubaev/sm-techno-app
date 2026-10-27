@@ -43,23 +43,25 @@ export function ManagerEditor({
   onSaved: () => void;
 }) {
   const [plan, setPlan] = useState(String((data.terms?.plan ?? 0) / 100));
+  const [planMode, setPlanMode] = useState<'plan' | 'percent' | 'legacy' | 'minimum'>(
+    data.terms?.mode === 'minimum' ? 'minimum' : (data.terms?.plan ?? 0) > 0 ? 'plan' : data.terms ? (data.terms.fixed > 0 ? 'legacy' : 'percent') : 'minimum',
+  );
+  const hasPlan = planMode === 'plan';
   const [fixed, setFixed] = useState(String((data.terms?.fixed ?? 0) / 100));
   const [rate, setRate] = useState(
     String((sale?.rate ?? data.terms?.rate ?? 0) / 100),
   );
   const [mode, setMode] = useState<'plan' | 'always'>(
-    data.terms?.mode ?? 'plan',
+    data.terms?.mode === 'always' ? 'always' : 'plan',
   );
   const [date, setDate] = useState(sale?.date ?? `${data.month}-01`);
   const [client, setClient] = useState(sale?.client ?? '');
   const [amount, setAmount] = useState(sale ? String(sale.amount / 100) : '');
   const [reason, setReason] = useState(
-    kind === 'sale' && !sale
-      ? 'Ручной ввод продажи'
-      : kind === 'terms' && !data.terms
-        ? 'Условия месяца'
-        : '',
+    kind === 'terms' && !data.terms ? 'Условия месяца' : '',
   );
+  const [invoiceNumber, setInvoiceNumber] = useState(sale?.invoiceNumber ?? '');
+  const [invoiceDate, setInvoiceDate] = useState(sale?.invoiceDate ?? '');
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -73,6 +75,7 @@ export function ManagerEditor({
   }
   async function calculate(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    const creatingSale = kind === 'sale' && !sale;
     setBusy(true);
     setError('');
     try {
@@ -80,19 +83,21 @@ export function ManagerEditor({
         managerId: data.account.id,
         month: data.month,
         version: data.version,
-        reason: reason.trim(),
+        ...(creatingSale ? {} : { reason: reason.trim() }),
       };
-      if ((kind === 'terms' || kind === 'sale') && minorUnits(rate) > 10000)
+      const effectiveRate = kind === 'terms' && !hasPlan && !rate.trim() ? '0' : rate;
+      const effectiveFixed = kind === 'terms' && !fixed.trim() ? '0' : fixed;
+      if ((kind === 'terms' || kind === 'sale') && minorUnits(effectiveRate) > 10000)
         throw new Error('Процент должен быть от 0 до 100.');
       let payload: ManagerChange;
       if (kind === 'terms')
         payload = {
           ...base,
           kind,
-          plan: minorUnits(plan),
-          fixed: minorUnits(fixed),
-          rate: minorUnits(rate),
-          mode,
+          plan: hasPlan ? minorUnits(plan) : 0,
+          fixed: planMode === 'minimum' || planMode === 'legacy' || hasPlan ? minorUnits(effectiveFixed) : 0,
+          rate: minorUnits(effectiveRate),
+          mode: planMode === 'minimum' ? 'minimum' : hasPlan ? mode : 'always',
         };
       else if (kind === 'sale')
         payload = {
@@ -103,9 +108,17 @@ export function ManagerEditor({
           client: client.trim(),
           amount: minorUnits(amount),
           rate: minorUnits(rate),
+          invoiceNumber,
+          invoiceDate,
         };
       else if (kind === 'cancel') payload = { ...base, kind, saleId: sale!.id };
       else payload = { ...base, kind };
+      if (creatingSale) {
+        await saveManagerChange(payload);
+        setDirty(false);
+        onSaved();
+        return;
+      }
       const result = await previewManagerChange(payload);
       setPreview({ result, payload });
     } catch (e) {
@@ -140,9 +153,10 @@ export function ManagerEditor({
       if (!previous.terms)
         throw new Error('В предыдущем месяце условия не заданы.');
       setPlan(String(previous.terms.plan / 100));
+      setPlanMode(previous.terms.mode === 'minimum' ? 'minimum' : previous.terms.plan > 0 ? 'plan' : previous.terms.fixed > 0 ? 'legacy' : 'percent');
       setFixed(String(previous.terms.fixed / 100));
       setRate(String(previous.terms.rate / 100));
-      setMode(previous.terms.mode);
+      setMode(previous.terms.mode === 'always' ? 'always' : 'plan');
       setDirty(true);
       setPreview(null);
     } catch (e) {
@@ -176,24 +190,28 @@ export function ManagerEditor({
                   Скопировать из предыдущего месяца
                 </button>
                 <label>
-                  План продаж, ₽
-                  <input
-                    inputMode="decimal"
-                    value={plan}
-                    onChange={(e) => setPlan(e.target.value)}
-                    required
-                  />
+                  План начисления
+                  <select aria-label="План начисления" value={planMode} onChange={(e) => setPlanMode(e.target.value as 'plan' | 'percent' | 'legacy' | 'minimum')}>
+                    <option value="percent">Только процент с продаж</option>
+                    <option value="minimum">Гарантированная минимальная зарплата</option>
+                    <option value="plan">С планом</option>
+                    {(planMode === 'legacy' || (data.terms && data.terms.plan === 0 && data.terms.fixed > 0)) && <option value="legacy">Фикс + процент без плана</option>}
+                  </select>
                 </label>
-                <label>
-                  Фиксированная часть, ₽
+                {hasPlan && <label>
+                  План продаж, ₽
+                  <input inputMode="decimal" value={plan} onChange={(e) => setPlan(e.target.value)} required />
+                </label>}
+                {(hasPlan || planMode === 'legacy' || planMode === 'minimum') && <label>
+                  {planMode === 'minimum' ? 'Минимальная зарплата, ₽' : 'Фиксированная часть, ₽'}
                   <input
                     inputMode="decimal"
                     value={fixed}
                     onChange={(e) => setFixed(e.target.value)}
-                    required
+                    required={hasPlan || planMode === 'minimum'}
                   />
-                </label>
-                <label>
+                </label>}
+                {hasPlan && <label>
                   Когда начислять фикс
                   <select
                     value={mode}
@@ -206,7 +224,7 @@ export function ManagerEditor({
                       Независимо от выполнения плана
                     </option>
                   </select>
-                </label>
+                </label>}
               </>
             )}
             {kind === 'sale' && (
@@ -231,6 +249,25 @@ export function ManagerEditor({
                     required
                   />
                 </label>
+                <div className={styles.invoiceFields}>
+                  <b>Счёт</b>
+                  <label>
+                    Номер счёта
+                    <input
+                      maxLength={100}
+                      value={invoiceNumber}
+                      onChange={(e) => setInvoiceNumber(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Дата счёта
+                    <input
+                      type="date"
+                      value={invoiceDate}
+                      onChange={(e) => setInvoiceDate(e.target.value)}
+                    />
+                  </label>
+                </div>
                 <label>
                   Сумма продажи, ₽
                   <input
@@ -248,14 +285,18 @@ export function ManagerEditor({
                   ? 'Ставка для новых продаж, %'
                   : 'Ставка продажи, %'}
                 <input
+                  aria-label={kind === 'terms' ? 'Ставка для новых продаж, %' : 'Ставка продажи, %'}
                   inputMode="decimal"
                   value={rate}
                   onChange={(e) => setRate(e.target.value)}
-                  required
+                  required={kind === 'sale' || kind === 'terms'}
                 />
                 <small>
-                  Процент только с суммы сверх плана. Ставки существующих продаж
-                  не меняются автоматически.
+                    {kind === 'terms' && planMode === 'minimum'
+                      ? 'Начисляется большая сумма: минимальная зарплата или проценты с продаж.'
+                      : ((kind === 'terms' && !hasPlan) || (kind === 'sale' && data.terms?.plan === 0))
+                    ? 'Процент начисляется со всей суммы продаж. Ставки существующих продаж не меняются автоматически.'
+                    : 'Процент только с суммы сверх плана. Ставки существующих продаж не меняются автоматически.'}
                 </small>
               </label>
             )}
@@ -272,15 +313,17 @@ export function ManagerEditor({
                   : 'Месяц снова станет доступен для исправлений. Предыдущий снимок начислений сохранится.'}
               </p>
             )}
-            <label>
-              Причина изменения
-              <input
-                maxLength={500}
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                required
-              />
-            </label>
+            {(kind !== 'sale' || sale) && (
+              <label>
+                Причина изменения
+                <input
+                  maxLength={500}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  required
+                />
+              </label>
+            )}
           </fieldset>
           {error && (
             <p role="alert" className={styles.error}>
@@ -332,11 +375,17 @@ export function ManagerEditor({
                 disabled={busy}
                 onClick={() => void save()}
               >
-                {busy ? 'Сохранение…' : 'Сохранить изменения'}
+                {busy ? 'Сохранение…' : kind === 'sale' ? 'Сохранить' : 'Сохранить изменения'}
               </button>
             ) : (
               <button type="submit" className={styles.primary} disabled={busy}>
-                {busy ? 'Расчёт…' : 'Рассчитать изменения'}
+                {busy
+                  ? kind === 'sale' && !sale
+                    ? 'Сохранение…'
+                    : 'Расчёт…'
+                  : kind === 'sale' && !sale
+                    ? 'Сохранить'
+                    : 'Рассчитать изменения'}
               </button>
             )}
           </div>

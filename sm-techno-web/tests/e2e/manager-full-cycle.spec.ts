@@ -2,12 +2,24 @@ import { expect, test, type Page } from '@playwright/test';
 
 async function saveDialog(page: Page, reason?: string) {
   const dialog = page.getByRole('dialog');
+  const reasonField = dialog.getByLabel('Причина изменения');
+  if ((await reasonField.count()) === 0) {
+    await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    return;
+  }
   if (reason) await dialog.getByLabel('Причина изменения').fill(reason);
   await dialog.getByRole('button', { name: 'Рассчитать изменения' }).click();
   await expect(
     dialog.getByRole('heading', { name: 'После изменения' }),
   ).toBeVisible();
-  await dialog.getByRole('button', { name: 'Сохранить изменения' }).click();
+  const saleEdit = (await dialog.getByLabel('Дата продажи').count()) > 0;
+  await dialog
+    .getByRole('button', {
+      name: saleEdit ? 'Сохранить' : 'Сохранить изменения',
+      exact: true,
+    })
+    .click();
   await expect(dialog).toHaveCount(0);
 }
 

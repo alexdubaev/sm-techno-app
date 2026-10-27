@@ -49,7 +49,7 @@ test('manager cabinet saves manual sales, previews excess commission and protect
     page.getByRole('heading', { name: 'Тестовый менеджер', exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText('Задайте план и условия начисления.', { exact: false }),
+    page.getByText('Задайте условия начисления.', { exact: false }),
   ).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath('compact-cabinet.png'),
@@ -57,6 +57,7 @@ test('manager cabinet saves manual sales, previews excess commission and protect
   });
   await page.getByRole('button', { name: 'Настроить условия' }).click();
   const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('План начисления').selectOption('plan');
   await dialog.getByLabel('План продаж, ₽').fill('1000000');
   await dialog.getByLabel('Фиксированная часть, ₽').fill('50000');
   await dialog.getByLabel('Ставка для новых продаж, %').fill('5');
@@ -71,9 +72,17 @@ test('manager cabinet saves manual sales, previews excess commission and protect
     .getByLabel('Наименование клиента для документов')
     .fill('ООО «Промснаб»');
   await dialog.getByLabel('Сумма продажи, ₽').fill('1200000');
-  await dialog.getByRole('button', { name: 'Рассчитать изменения' }).click();
-  await expect(dialog.getByText(/10\s000/).first()).toBeVisible();
-  await dialog.getByRole('button', { name: 'Сохранить изменения' }).click();
+  await dialog.getByLabel('Номер счёта').fill('001/26');
+  await dialog.getByLabel('Дата счёта').fill('2026-10-20');
+  await expect(dialog.getByLabel('Причина изменения')).toHaveCount(0);
+  await dialog
+    .getByRole('button', { name: 'Сохранить', exact: true })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: testInfo.outputPath('new-sale-invoice.png'),
+    fullPage: false,
+  });
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(
     page
@@ -85,6 +94,52 @@ test('manager cabinet saves manual sales, previews excess commission and protect
   await page.reload();
   await page.getByLabel('Кабинет сотрудника').selectOption(String(account));
   await expect(page.getByText('ООО «Промснаб»', { exact: true })).toBeVisible();
+  await expect(page.getByText('Счёт № 001/26 от 20.10.2026', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /Изменить продажу №/ }).click();
+  await dialog.getByLabel('Номер счёта').fill('002/26');
+  await dialog.getByLabel('Дата счёта').fill('2026-10-21');
+  await dialog.getByLabel('Причина изменения').fill('Исправлен номер счёта');
+  await dialog.getByRole('button', { name: 'Рассчитать изменения' }).click();
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText('Счёт № 002/26 от 21.10.2026', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Настроить условия' }).click();
+  await dialog.getByLabel('План начисления').selectOption('percent');
+  await dialog.getByLabel('Ставка для новых продаж, %').fill('8');
+  await dialog.getByLabel('Причина изменения').fill('Удалённые продажи без плана');
+  await dialog.getByRole('button', { name: 'Рассчитать изменения' }).click();
+  await dialog.getByRole('button', { name: 'Сохранить изменения' }).click();
+  await expect(page.getByText('Без плана', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Комиссия с продаж' })).toBeVisible();
+  await page.getByRole('button', { name: 'Добавить продажу' }).click();
+  await dialog.getByLabel('Наименование клиента для документов').fill('ООО «Без плана»');
+  await dialog.getByLabel('Сумма продажи, ₽').fill('16200');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Итого начислено' }) })).toContainText(/61\s?296/);
+  await page.getByLabel('Месяц', { exact: true }).fill('2026-09');
+  await expect(page.getByRole('heading', { name: 'Тестовый менеджер', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Настроить условия' }).click();
+  await dialog.getByLabel('Минимальная зарплата, ₽').fill('25000');
+  await dialog.getByLabel('Ставка для новых продаж, %').fill('5');
+  await dialog.getByLabel('Причина изменения').fill('Минимальная зарплата');
+  await page.screenshot({ path: testInfo.outputPath('minimum-terms.png'), fullPage: false });
+  await dialog.getByRole('button', { name: 'Рассчитать изменения' }).click();
+  await dialog.getByRole('button', { name: 'Сохранить изменения' }).click();
+  await page.getByRole('button', { name: 'Добавить продажу' }).click();
+  await dialog.getByLabel('Наименование клиента для документов').fill('ООО «Порог 600»');
+  await dialog.getByLabel('Сумма продажи, ₽').fill('600000');
+  await dialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const incomeCard = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Итого начислено' }) });
+  await expect(incomeCard).toContainText(/30\s?000/);
+  await page.screenshot({ path: testInfo.outputPath('minimum-dashboard.png'), fullPage: false });
+  await page.reload();
+  await page.getByLabel('Месяц', { exact: true }).fill('2026-09');
+  await page.getByLabel('Кабинет сотрудника').selectOption(String(account));
+  await expect(page.getByRole('heading', { name: 'Минимальная зарплата', exact: true })).toBeVisible();
+  await expect(page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Комиссия с продаж' }) })).toContainText(/30\s?000/);
+  await expect(incomeCard).toContainText(/30\s?000/);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,

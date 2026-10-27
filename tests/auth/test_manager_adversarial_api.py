@@ -211,3 +211,125 @@ def test_http_numeric_and_date_rejections_do_not_leave_partial_sales(auth_api):
     assert response.status_code == 400
     data = c.get(f'/api/manager/dashboard?month={MONTH}&managerId={account}', headers=admin).json()
     assert data['version'] == 1 and data['total'] == 0
+
+
+def test_new_sale_needs_no_correction_reason_and_persists_invoice_details(auth_api):
+    c = auth_api.client
+    admin, _alice, _alice_id, account, *_ = _setup(auth_api)
+    terms = dict(managerId=account, month=MONTH, version=0, reason='conditions',
+                 kind='terms', plan=1000, fixed=100, rate=500, mode='plan')
+    assert c.post('/api/manager/changes', headers=admin, json=terms).status_code == 200
+    sale = dict(managerId=account, month=MONTH, version=1, kind='sale',
+                date='2026-10-20', client='Customer', amount=1620000, rate=500,
+                invoiceNumber='001/26', invoiceDate='2026-09-30')
+    response = c.post('/api/manager/changes', headers=admin, json=sale)
+    assert response.status_code == 200, response.text
+    saved_sale = response.json()['sales'][0]
+    assert (saved_sale['invoiceNumber'], saved_sale['invoiceDate']) == ('001/26', '2026-09-30')
+    assert response.json()['summary']['salesTotal'] == 1620000
+    audit = c.get(f'/api/manager/history?month={MONTH}&managerId={account}', headers=admin).json()
+    sale_audit = next(item for item in audit['items'] if item['kind'] == 'sale')
+    assert sale_audit['reason']
+    assert sale_audit['after']['sale']['invoice_number'] == '001/26'
+    assert sale_audit['after']['sale']['invoice_date'] == '2026-09-30'
+    edit = {key: value for key, value in sale.items() if key not in ('invoiceNumber', 'invoiceDate')}
+    assert c.post('/api/manager/changes', headers=admin,
+                  json={**edit, 'version': 2, 'saleId': saved_sale['id']}).status_code == 400
+    saved_edit = c.post('/api/manager/changes', headers=admin,
+                        json={**edit, 'version': 2, 'saleId': saved_sale['id'], 'reason': 'corrected amount',
+                              'amount': 1630000})
+    assert saved_edit.status_code == 200, saved_edit.text
+    retained = saved_edit.json()['sales'][0]
+    assert (retained['invoiceNumber'], retained['invoiceDate']) == ('001/26', '2026-09-30')
+    invalid_invoice = c.post('/api/manager/changes', headers=admin,
+                              json={**edit, 'version': 3, 'saleId': saved_sale['id'],
+                                    'reason': 'invalid invoice', 'invoiceNumber': True,
+                                    'invoiceDate': '2026-02-30'})
+    assert invalid_invoice.status_code == 400
+    invalid_invoice_date = c.post('/api/manager/changes', headers=admin,
+                                  json={**edit, 'version': 3, 'saleId': saved_sale['id'],
+                                        'reason': 'invalid invoice date', 'invoiceNumber': '001/26',
+                                        'invoiceDate': '2026-02-30'})
+    assert invalid_invoice_date.status_code == 400
+    data = c.get(f'/api/manager/dashboard?month={MONTH}&managerId={account}', headers=admin).json()
+    assert data['version'] == 3 and data['sales'][0]['amount'] == 1630000
+
+    closed = c.post('/api/manager/changes', headers=admin,
+                    json=dict(managerId=account, month=MONTH, version=3, reason='close', kind='close'))
+    assert closed.status_code == 200, closed.text
+    snapshot_id = c.get(f'/api/manager/snapshots?month={MONTH}&managerId={account}', headers=admin).json()[0]['id']
+    snapshot = c.get(f'/api/manager/snapshots/{snapshot_id}', headers=admin).json()
+    assert (snapshot['data']['sales'][0]['invoiceNumber'], snapshot['data']['sales'][0]['invoiceDate']) == ('001/26', '2026-09-30')
+    reopened = c.post('/api/manager/changes', headers=admin,
+                      json=dict(managerId=account, month=MONTH, version=4, reason='reopen', kind='reopen'))
+    assert reopened.status_code == 200, reopened.text
+    cleared = c.post('/api/manager/changes', headers=admin,
+                     json={**edit, 'version': 5, 'saleId': saved_sale['id'], 'reason': 'invoice not yet known',
+                           'invoiceNumber': '', 'invoiceDate': ''})
+    assert cleared.status_code == 200, cleared.text
+    cleared_sale = cleared.json()['sales'][0]
+    assert (cleared_sale['invoiceNumber'], cleared_sale['invoiceDate']) == (None, None)
+
+
+def test_minimum_mode_uses_guarantee_floor_for_sales_preview_cancellation_and_snapshot(auth_api):
+    c = auth_api.client
+    admin, _alice, _alice_id, account, *_ = _setup(auth_api)
+    base = dict(managerId=account, month=MONTH, reason='minimum terms')
+    initial = c.get(f'/api/manager/dashboard?month={MONTH}&managerId={account}', headers=admin).json()
+    conditions = {**base, 'version': initial['version'], 'kind': 'terms',
+                  'plan': 0, 'fixed': 2_500_000, 'rate': 500, 'mode': 'minimum'}
+    preview = c.post('/api/manager/preview', headers=admin, json=conditions)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['summary']['fixed'] == 2_500_000
+    assert preview.json()['summary']['income'] == 2_500_000
+    unchanged = c.get(f'/api/manager/dashboard?month={MONTH}&managerId={account}', headers=admin).json()
+    assert unchanged['version'] == initial['version'] and unchanged['terms'] is None
+
+    saved = c.post('/api/manager/changes', headers=admin, json=conditions)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()['terms']['mode'] == 'minimum'
+
+    def add_sale(version, amount):
+        response = c.post('/api/manager/changes', headers=admin, json={
+            **base, 'version': version, 'kind': 'sale', 'date': '2026-10-15',
+            'client': f'Synthetic {amount}', 'amount': amount, 'rate': 500,
+        })
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    hundred = add_sale(1, 10_000_000)
+    assert hundred['summary']['commission'] == 500_000
+    assert hundred['summary']['fixed'] == 2_500_000
+    assert hundred['summary']['income'] == 2_500_000
+    five_hundred = add_sale(2, 40_000_000)
+    assert five_hundred['summary']['salesTotal'] == 50_000_000
+    assert five_hundred['summary']['commission'] == 2_500_000
+    assert five_hundred['summary']['income'] == 2_500_000
+    six_hundred = add_sale(3, 10_000_000)
+    assert six_hundred['summary']['salesTotal'] == 60_000_000
+    assert six_hundred['summary']['commission'] == 3_000_000
+    assert six_hundred['summary']['income'] == 3_000_000
+
+    rejected = c.post('/api/manager/changes', headers=admin, json={
+        **base, 'version': 4, 'kind': 'terms', 'plan': 1, 'fixed': 2_500_000,
+        'rate': 500, 'mode': 'minimum',
+    })
+    assert rejected.status_code == 400
+    still_minimum = c.get(f'/api/manager/dashboard?month={MONTH}&managerId={account}', headers=admin).json()
+    assert still_minimum['version'] == 4 and still_minimum['terms']['mode'] == 'minimum'
+    assert still_minimum['terms']['plan'] == 0
+
+    cancelled = c.post('/api/manager/changes', headers=admin, json={
+        **base, 'version': 4, 'kind': 'cancel', 'saleId': six_hundred['sales'][-1]['id'],
+    })
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()['summary']['commission'] == 2_500_000
+    assert cancelled.json()['summary']['income'] == 2_500_000
+    closed = c.post('/api/manager/changes', headers=admin,
+                    json={**base, 'version': 5, 'kind': 'close'})
+    assert closed.status_code == 200, closed.text
+    snapshot_id = c.get(f'/api/manager/snapshots?month={MONTH}&managerId={account}', headers=admin).json()[0]['id']
+    snapshot = c.get(f'/api/manager/snapshots/{snapshot_id}', headers=admin).json()['data']
+    assert snapshot['terms']['mode'] == 'minimum'
+    assert snapshot['summary']['fixed'] == snapshot['summary']['income'] == 2_500_000
+    assert snapshot['summary']['commission'] == 2_500_000

@@ -35,6 +35,12 @@ export function ManagerSales({
               № {sale.id} · {sale.source === 'manual' ? 'Ручной ввод' : '1С'}
               {sale.cancelled ? ' · Отменена' : ''}
             </small>
+            {(sale.invoiceNumber || sale.invoiceDate) && (
+              <small>
+                Счёт{sale.invoiceNumber ? ` № ${sale.invoiceNumber}` : ''}
+                {sale.invoiceDate ? ` от ${dateLabel(sale.invoiceDate)}` : ''}
+              </small>
+            )}
           </div>
           <div className={styles.numeric}>
             <span className={styles.mobileLabel}>Сумма</span>

@@ -62,7 +62,9 @@ export default function ManagerChart({ data }: { data: ManagerDashboard }) {
       <p className={styles.hint}>
         {daily
           ? 'Сумма продаж за каждый день'
-          : 'Накопительные продажи и план месяца'}
+          : data.terms?.plan === 0
+            ? 'Накопительные продажи за месяц'
+            : 'Накопительные продажи и план месяца'}
       </p>
       <div className={styles.chart}>
         <ResponsiveContainer
@@ -93,7 +95,7 @@ export default function ManagerChart({ data }: { data: ManagerDashboard }) {
                 fill="#fff6d7"
                 isAnimationActive={false}
               />
-              {data.terms && (
+              {data.terms && data.terms.plan > 0 && (
                 <ReferenceLine
                   y={data.terms.plan / 100}
                   stroke="#8996aa"
@@ -123,7 +125,8 @@ export default function ManagerChart({ data }: { data: ManagerDashboard }) {
           </b>
         </span>
         <span>
-          Сверх плана <b>{money(data.summary.above)}</b>
+          {data.terms?.plan === 0 ? 'Продажи для расчёта комиссии' : 'Сверх плана'}{' '}
+          <b>{money(data.terms?.plan === 0 ? data.summary.salesTotal : data.summary.above)}</b>
         </span>
       </div>
       <details className={styles.chartData}>
