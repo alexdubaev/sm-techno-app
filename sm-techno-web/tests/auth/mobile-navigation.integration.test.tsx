@@ -93,13 +93,13 @@ describe('responsive AppShell navigation', () => {
 
     await user.click(within(navigation).getByRole('button', { name: 'Ещё' }));
     const drawer = screen.getByRole('dialog', { name: 'Ещё' });
-    for (const label of ['Настройки', 'Мой кабинет', 'Остатки']) {
+    for (const label of ['Настройки', 'Кабинет', 'Остатки']) {
       expect(within(drawer).queryByRole('link', { name: label })).not.toBeInTheDocument();
     }
   });
 
   it.each([
-    ['/manager', 'Мой кабинет'],
+    ['/manager', 'Кабинет'],
     ['/stock', 'Остатки'],
     ['/crm', 'CRM'],
     ['/settings', 'Настройки'],
