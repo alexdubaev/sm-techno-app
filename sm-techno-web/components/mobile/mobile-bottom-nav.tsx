@@ -44,7 +44,7 @@ export function MobileBottomNav({
         onClick={onMoreClick}
         type="button"
       >
-        <span className={navIconClass(moreActive)}>
+        <span className={navIconClass()}>
           <Image
             alt=""
             className="h-6 w-6 object-contain"
@@ -74,10 +74,10 @@ function PrimaryLink({
       className={navItemClass(active)}
       href={item.href}
     >
-      <span className={navIconClass(active)}>
+      <span className={navIconClass()}>
         <Image
           alt=""
-          className="h-6 w-6 object-contain"
+          className={`h-6 w-6 object-contain ${item.href === '/manager' ? 'scale-[1.25]' : ''}`}
           height={64}
           src={item.mobileIcon}
           width={64}
@@ -96,8 +96,6 @@ function navItemClass(active: boolean) {
   }`;
 }
 
-function navIconClass(active: boolean) {
-  return `relative flex h-7 w-7 items-center justify-center after:absolute after:-bottom-1 after:h-0.5 after:w-3 after:rounded-full ${
-    active ? 'after:bg-[var(--brand-dark)]' : 'after:bg-transparent'
-  }`;
+function navIconClass() {
+  return 'relative flex h-7 w-7 items-center justify-center';
 }

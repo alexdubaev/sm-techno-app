@@ -221,7 +221,7 @@ test('startup opens personal cabinet and menu keeps stock available', async ({
   await expect(page).toHaveURL(/\/stock$/);
   await expect(page.getByRole('main')).toBeVisible();
   const cabinet = page
-    .getByRole('link', { name: 'Мой кабинет', exact: true })
+    .getByRole('link', { name: 'Кабинет', exact: true })
     .filter({ visible: true });
   if (!(await cabinet.count()))
     await page
@@ -254,7 +254,7 @@ test('startup opens personal cabinet and menu keeps stock available', async ({
     await expect(
       page
         .getByRole('navigation', { name: 'Основная навигация' })
-        .getByRole('link', { name: 'Мой кабинет' }),
+        .getByRole('link', { name: 'Кабинет' }),
     ).toHaveAttribute('aria-current', 'page');
   }
 });
