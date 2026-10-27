@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
+  UserRound,
   Plus,
   LockKeyhole,
   History,
@@ -53,12 +54,7 @@ export function ManagerWorkspace() {
   }, [isAdmin, user.id, managerRetry]);
   return (
     <div className={styles.workspace}>
-      <div className={styles.pageHeading}>
-        <div>
-          <p className={styles.eyebrow}>Личный кабинет</p>
-          <h1>Продажи и вознаграждение</h1>
-          <p className={styles.hint}>План, начисления и результат за месяц</p>
-        </div>
+      <div className={styles.toolbar}>
         <div className={styles.period}>
           <button
             aria-label="Предыдущий месяц"
@@ -90,12 +86,15 @@ export function ManagerWorkspace() {
             <ChevronRight size={18} />
           </button>
         </div>
-      </div>
       {isAdmin && (
-        <div className={styles.adminBar}>
-          <label>
-            Кабинет сотрудника
+        <div className={styles.employeeFilter}>
+          <label title="Выбрать сотрудника">
+            <span className={styles.employeeIcon} aria-hidden="true">
+              <UserRound size={18} />
+            </span>
             <select
+              aria-label="Кабинет сотрудника"
+              title="Выбрать сотрудника"
               value={managerId ?? ''}
               onChange={(e) =>
                 setManagerId(
@@ -114,7 +113,6 @@ export function ManagerWorkspace() {
                 ))}
             </select>
           </label>
-          <span>Вы можете управлять продажами и условиями сотрудников.</span>
           {managerError && (
             <p role="alert" className={styles.error}>
               {managerError}
@@ -131,6 +129,7 @@ export function ManagerWorkspace() {
           )}
         </div>
       )}
+      </div>
       <CabinetLoader
         key={`${user.id}:${managerId ?? 'self'}:${month}:${revision}`}
         month={month}
@@ -218,7 +217,7 @@ function Cabinet({
           onSaved={onRefresh}
         />
         <div className={styles.person}>
-          <h2>{data.account.name}</h2>
+          <h1>{data.account.name}</h1>
           <p>
             {data.account.archived
               ? 'Архив сотрудника'
