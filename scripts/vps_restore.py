@@ -149,7 +149,13 @@ def _target_is_empty(target_root: Path) -> bool:
     return not target_root.exists() or (target_root.is_dir() and not target_root.is_symlink() and not any(target_root.iterdir()))
 
 
-def restore_backup(archive: Path, target_root: Path, *, verify_only: bool = False) -> None:
+def restore_backup(
+    archive: Path,
+    target_root: Path,
+    *,
+    verify_only: bool = False,
+    stored_storage_root: str | None = None,
+) -> None:
     """Verify an archive, then atomically materialize it only into an empty root."""
     archive = archive.expanduser().resolve()
     target_root = target_root.expanduser().resolve()
@@ -158,7 +164,11 @@ def restore_backup(archive: Path, target_root: Path, *, verify_only: bool = Fals
     with tempfile.TemporaryDirectory(prefix="sm-techno-restore-verify-") as verification_dir:
         extracted = Path(verification_dir)
         _extract_verified(archive, extracted)
-        validate_database_storage_pair(extracted / DATABASE_NAME, extracted / "storage")
+        validate_database_storage_pair(
+            extracted / DATABASE_NAME,
+            extracted / "storage",
+            stored_storage_root=stored_storage_root,
+        )
         if verify_only:
             return
         target_root.parent.mkdir(parents=True, exist_ok=True)
@@ -170,7 +180,11 @@ def restore_backup(archive: Path, target_root: Path, *, verify_only: bool = Fals
                 (staging / "data").mkdir()
                 shutil.copyfile(extracted / DATABASE_NAME, staging / "data" / DATABASE_NAME)
                 shutil.copytree(extracted / "storage", staging / "storage")
-                validate_database_storage_pair(staging / "data" / DATABASE_NAME, staging / "storage")
+                validate_database_storage_pair(
+                    staging / "data" / DATABASE_NAME,
+                    staging / "storage",
+                    stored_storage_root=stored_storage_root,
+                )
                 if target_root.exists():
                     target_root.rmdir()
                 staging.replace(target_root)
@@ -185,8 +199,14 @@ def main() -> int:
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--target-root", required=True, type=Path)
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--stored-storage-root", help="Explicit POSIX absolute prefix used by stored file paths, e.g. /storage.")
     args = parser.parse_args()
-    restore_backup(args.archive, args.target_root, verify_only=args.verify_only)
+    restore_backup(
+        args.archive,
+        args.target_root,
+        verify_only=args.verify_only,
+        stored_storage_root=args.stored_storage_root,
+    )
     return 0
 
 

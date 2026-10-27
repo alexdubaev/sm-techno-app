@@ -84,7 +84,7 @@ def _archive_files(snapshot_root: Path) -> list[Path]:
     return sorted(path for path in snapshot_root.rglob("*") if path.is_file())
 
 
-def create_backup(root: Path, backups_dir: Path) -> Path:
+def create_backup(root: Path, backups_dir: Path, *, stored_storage_root: str | None = None) -> Path:
     """Create a self-verifying snapshot of ``data/stock_sync.db`` and ``storage``."""
     root = root.expanduser().resolve()
     source_db = root / "data" / DATABASE_NAME
@@ -106,7 +106,7 @@ def create_backup(root: Path, backups_dir: Path) -> Path:
             with storage_operation_lock(source_storage):
                 _snapshot_database(source_db, snapshot_db)
                 _copy_storage_snapshot(source_storage, snapshot_storage)
-                validate_database_storage_pair(snapshot_db, snapshot_storage)
+                validate_database_storage_pair(snapshot_db, snapshot_storage, stored_storage_root=stored_storage_root)
             files = _archive_files(snapshot_root)
             manifest = {
                 "schema_version": MANIFEST_VERSION,
@@ -143,8 +143,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Create an SM Techno SQLite and storage backup.")
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--backups-dir", required=True, type=Path)
+    parser.add_argument("--stored-storage-root", help="Explicit POSIX absolute prefix used by stored file paths, e.g. /storage.")
     args = parser.parse_args()
-    print(create_backup(args.root, args.backups_dir))
+    print(create_backup(args.root, args.backups_dir, stored_storage_root=args.stored_storage_root))
     return 0
 
 

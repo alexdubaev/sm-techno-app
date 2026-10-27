@@ -100,8 +100,32 @@ def storage_operation_lock(storage_root: Path, *, timeout: float = 30.0):
             thread_lock.release()
 
 
-def validate_database_storage_pair(db_path: Path, storage_root: Path) -> None:
+def _stored_storage_prefix_parts(stored_storage_root: str | None) -> tuple[str, ...] | None:
+    if stored_storage_root is None:
+        return None
+    if (
+        not isinstance(stored_storage_root, str)
+        or not stored_storage_root.startswith("/")
+        or stored_storage_root == "/"
+        or "\\" in stored_storage_root
+        or "//" in stored_storage_root
+        or PureWindowsPath(stored_storage_root).drive
+    ):
+        raise ValueError("Stored storage root must be a non-root POSIX absolute path.")
+    parts = tuple(stored_storage_root[1:].split("/"))
+    if not parts or any(part in {"", ".", ".."} or PureWindowsPath(part).drive for part in parts):
+        raise ValueError("Stored storage root must be a normalized POSIX absolute path.")
+    return parts
+
+
+def validate_database_storage_pair(
+    db_path: Path,
+    storage_root: Path,
+    *,
+    stored_storage_root: str | None = None,
+) -> None:
     """Require a healthy SQLite database whose document rows point inside storage."""
+    external_prefix = _stored_storage_prefix_parts(stored_storage_root)
     connection: sqlite3.Connection | None = None
     try:
         connection = sqlite3.connect(f"{db_path.resolve().as_uri()}?mode=ro", uri=True)
@@ -117,10 +141,23 @@ def validate_database_storage_pair(db_path: Path, storage_root: Path) -> None:
                     continue
                 for (value,) in connection.execute(f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL AND trim({column}) != ''"):
                     stored = str(value)
-                    relative = PurePosixPath(stored.replace("\\", "/"))
-                    if Path(stored).is_absolute() or PureWindowsPath(stored).is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
-                        raise RuntimeError(f"{table}.{column} contains an unsafe storage path.")
-                    relative_parts = relative.parts[1:] if relative.parts[:1] == ("storage",) else relative.parts
+                    if stored.startswith("/"):
+                        parts = tuple(stored[1:].split("/"))
+                        if (
+                            external_prefix is None
+                            or "\\" in stored
+                            or "//" in stored
+                            or PureWindowsPath(stored).drive
+                            or any(part in {"", ".", ".."} or PureWindowsPath(part).drive for part in parts)
+                            or parts[:len(external_prefix)] != external_prefix
+                        ):
+                            raise RuntimeError(f"{table}.{column} contains an unsafe storage path.")
+                        relative_parts = parts[len(external_prefix):]
+                    else:
+                        relative = PurePosixPath(stored.replace("\\", "/"))
+                        if PureWindowsPath(stored).is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+                            raise RuntimeError(f"{table}.{column} contains an unsafe storage path.")
+                        relative_parts = relative.parts[1:] if relative.parts[:1] == ("storage",) else relative.parts
                     if not relative_parts:
                         raise RuntimeError(f"{table}.{column} contains an unsafe storage path.")
                     candidate = storage_root.joinpath(*relative_parts)

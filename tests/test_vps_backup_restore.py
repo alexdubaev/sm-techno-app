@@ -194,6 +194,57 @@ def test_backup_writes_complete_manifest_with_file_hashes(tmp_path: Path) -> Non
             assert hashlib.sha256(tar.extractfile(name).read()).hexdigest() == digest
 
 
+def test_backup_restore_supports_explicit_external_storage_prefix(tmp_path: Path) -> None:
+    root = _make_root(tmp_path)
+    database = root / "data" / "stock_sync.db"
+    absolute_offer = "/storage/commercial_offers/offer.xlsx"
+    with sqlite3.connect(database) as conn:
+        conn.execute("UPDATE commercial_offers SET output_path = ?", (absolute_offer,))
+
+    with pytest.raises(RuntimeError):
+        create_backup(root, tmp_path / "default-backups")
+
+    archive = create_backup(root, tmp_path / "backups", stored_storage_root="/storage")
+    with tarfile.open(archive, "r:gz") as tar:
+        saved_database = tmp_path / "saved-stock-sync.db"
+        saved_database.write_bytes(tar.extractfile("stock_sync.db").read())
+        saved_db = sqlite3.connect(saved_database)
+        assert saved_db.execute("SELECT output_path FROM commercial_offers").fetchone()[0] == absolute_offer
+        saved_db.close()
+        assert tar.extractfile("storage/commercial_offers/offer.xlsx").read() == b"offer"
+
+    restore_backup(archive, tmp_path / "verify", verify_only=True, stored_storage_root="/storage")
+    restored = tmp_path / "restore"
+    restore_backup(archive, restored, stored_storage_root="/storage")
+    with sqlite3.connect(restored / "data" / "stock_sync.db") as conn:
+        assert conn.execute("SELECT output_path FROM commercial_offers").fetchone()[0] == absolute_offer
+    assert (restored / "storage" / "commercial_offers" / "offer.xlsx").read_bytes() == b"offer"
+
+
+@pytest.mark.parametrize("bad_path", [
+    "/storage2/commercial_offers/offer.xlsx",
+    "/outside/offer.xlsx",
+    "/storage/../outside.txt",
+    "/storage/missing.txt",
+    "C:/storage/offer.xlsx",
+    "/storage/C:/offer.xlsx",
+])
+def test_external_storage_prefix_rejects_unsafe_or_missing_paths(tmp_path: Path, bad_path: str) -> None:
+    root = _make_root(tmp_path)
+    with sqlite3.connect(root / "data" / "stock_sync.db") as conn:
+        conn.execute("UPDATE commercial_offers SET output_path = ?", (bad_path,))
+
+    with pytest.raises(RuntimeError):
+        create_backup(root, tmp_path / "backups", stored_storage_root="/storage")
+
+
+@pytest.mark.parametrize("prefix", ["/", "/.", "/storage/../outside", "/storage//data", "C:/storage", "storage"])
+def test_external_storage_prefix_rejects_invalid_prefix(tmp_path: Path, prefix: str) -> None:
+    root = _make_root(tmp_path)
+    with pytest.raises(ValueError):
+        create_backup(root, tmp_path / "backups", stored_storage_root=prefix)
+
+
 def test_backup_excludes_only_reserved_storage_entries(tmp_path: Path) -> None:
     """Internal stage/lock entries must not leak into backups, unlike legitimate hidden files."""
     root = _make_root(tmp_path)
