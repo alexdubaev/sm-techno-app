@@ -160,6 +160,11 @@ export default function OrdersPage() {
                             <div className="line-clamp-2 text-[11px] font-medium leading-[15px]">
                               {sanitizeMetaValue(order.counterpartyName)}
                             </div>
+                            {order.crmClientId ? (
+                              <Link href={`/crm?documents=${order.crmClientId}`} className="text-[11px] underline">
+                                Документы клиента
+                              </Link>
+                            ) : null}
                             {createdBy ? (
                               <div className="mt-0.5 truncate text-[9px] text-[var(--text-secondary)]" title={createdBy}>
                                 Создал: {createdBy}

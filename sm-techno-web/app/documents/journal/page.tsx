@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+import { useAuth } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
 import {
   ResizableTableHeader,
@@ -25,6 +26,7 @@ const DOCUMENTS_TABLE_COLUMNS: ResizableColumnConfig[] = [
 ];
 
 export default function DocumentsPage() {
+  const { isAdmin } = useAuth();
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [documentSearch, setDocumentSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -194,6 +196,7 @@ export default function DocumentsPage() {
                         <td className="px-3 py-1.5 text-[var(--text-secondary)]">{formatShortDate(document.documentDate)}</td>
                         <td className="px-3 py-1.5">
                           <div className="line-clamp-2 text-[11px] font-medium leading-[15px]">{document.clientName || "-"}</div>
+                          {document.crmClientId ? <Link href={`/crm?documents=${document.crmClientId}`} className="text-[11px] underline">Документы клиента</Link> : null}
                           <div className="mt-0.5 text-[9px] text-[var(--text-secondary)]">
                             {document.clientSource === "onec" ? "Клиент из 1С" : "Локальный клиент"}
                           </div>
@@ -223,7 +226,7 @@ export default function DocumentsPage() {
                             >
                               {downloadingId === document.id ? "..." : "DOCX"}
                             </button>
-                            <button
+                            {isAdmin ? <button
                               type="button"
                               onClick={() => void handleDelete(document)}
                               aria-label={`Строка ${index + 1}: удалить документ ${document.number}`}
@@ -231,7 +234,7 @@ export default function DocumentsPage() {
                               className="app-action-button app-action-button--xs"
                             >
                               {deletingId === document.id ? "..." : "Удалить"}
-                            </button>
+                            </button> : null}
                           </div>
                         </td>
                       </tr>

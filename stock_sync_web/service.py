@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounterpartySyncError
+from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounterpartySyncError, OneCIdentityConflictError
 from stock_sync_desktop.database import resolve_db_path
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.settings import DEFAULT_SETTINGS
@@ -957,7 +957,17 @@ class WebStockSyncService:
         email: str = "",
         phone: str = "",
         notes: str = "",
+        on_local_created=None,
+        strict_identity: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        # Serialize the existing form and assistant creation paths against each other.
+        # Lock is reentrant and shared with document publication/backup operations.
+        with storage_operation_lock(self._storage_operation_root()):
+            return self._create_client_locked(actor_user_id=actor_user_id,payload=payload,name=name,
+                contact_person=contact_person,email=email,phone=phone,notes=notes,on_local_created=on_local_created,strict_identity=strict_identity)
+
+    def _create_client_locked(self, *, actor_user_id=None, payload=None, name='', contact_person='',
+                              email='', phone='', notes='', on_local_created=None,strict_identity=False):
         raw_payload = payload or {
             "name": name,
             "contactPerson": contact_person,
@@ -972,7 +982,10 @@ class WebStockSyncService:
         remote_check_error = ""
         try:
             onec_client = self.build_user_client(user_id=actor_user_id)
-            existing_counterparty = self._find_counterparty_by_identity(onec_client, card)
+            existing_counterparty = self._find_counterparty_by_identity(onec_client, card,strict_identity=strict_identity)
+        except OneCIdentityConflictError as exc:
+            from stock_sync_web.assistant_repository import DocumentConflict
+            raise DocumentConflict(str(exc)) from exc
         except Exception as exc:
             existing_counterparty = None
             remote_check_error = str(exc)
@@ -984,6 +997,8 @@ class WebStockSyncService:
             )
 
         row = self.db.create_crm_client_card(card)
+        if on_local_created is not None:
+            on_local_created(int(row['id']))
         if remote_check_error or onec_client is None:
             message = remote_check_error or "Не удалось подготовить подключение к 1С."
             row = self.db.update_crm_client_sync_state(
@@ -995,6 +1010,7 @@ class WebStockSyncService:
                 "status": "sync_error",
                 "message": message,
                 "onecRefKey": "",
+                "outcome": "not_sent",
             }
 
         return self._send_crm_client_to_onec(
@@ -1010,7 +1026,30 @@ class WebStockSyncService:
         *,
         actor_user_id: int | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        return self._send_crm_client_to_onec(client_id, actor_user_id=actor_user_id)
+        from stock_sync_web.assistant_repository import AssistantRepository
+        with storage_operation_lock(self._storage_operation_root()):
+            repository=AssistantRepository(self.db)
+            row=self.db.get_crm_client(client_id)
+            if not row: raise ValueError('Клиент не найден.')
+            self._require_legacy_client_access(row,actor_user_id=actor_user_id)
+            known_reference=bool(row.get('linked_counterparty_id'))
+            guard=repository.require_safe_client_retry(client_id,allow_known_reference=known_reference)
+            if not guard:
+                return self._send_crm_client_to_onec(client_id, actor_user_id=actor_user_id)
+            key=guard['operation_key'];write_started=False;previous_unknown=guard['status'] in {'pending','unknown'}
+            def before_write():
+                nonlocal write_started
+                write_started=True
+            repository.record_identity_outcome(key,client_id,'pending')
+            try:
+                client,sync=self._send_crm_client_to_onec(client_id,actor_user_id=actor_user_id,before_remote_write=before_write,
+                    forbid_create=previous_unknown or known_reference,strict_identity=True)
+            except Exception:
+                repository.record_identity_outcome(key,client_id,'unknown' if previous_unknown or write_started else 'failed')
+                raise
+            state='completed' if sync['status']=='synced' else 'unknown' if previous_unknown or write_started else 'failed'
+            repository.record_identity_outcome(key,client_id,state)
+            return client,sync
 
     @staticmethod
     def _payload_value(payload: dict[str, Any], *keys: str, default: Any = "") -> Any:
@@ -1110,6 +1149,7 @@ class WebStockSyncService:
     def _find_counterparty_by_identity(
         onec_client: OneCClient,
         card: dict[str, Any],
+        *,strict_identity: bool = False,
     ) -> dict[str, Any] | None:
         legal_type = str(card.get("legal_type") or "")
         inn = str(card.get("inn") or "").strip()
@@ -1118,6 +1158,7 @@ class WebStockSyncService:
             legal_type=legal_type,
             inn=inn,
             kpp=kpp,
+            **({'strict_identity':True} if strict_identity else {}),
         )
         if not counterparty or str(counterparty.get("ИНН") or "").strip() != inn:
             return None
@@ -1142,6 +1183,9 @@ class WebStockSyncService:
         actor_user_id: int | None,
         onec_client: OneCClient | None = None,
         remote_duplicate_checked: bool = False,
+        before_remote_write=None,
+        forbid_create: bool = False,
+        strict_identity: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         row = self.db.get_crm_client(client_id)
         if not row:
@@ -1156,7 +1200,14 @@ class WebStockSyncService:
             allowed_counterparty_id=linked_counterparty_id,
         )
         onec_client = onec_client or self.build_user_client(user_id=actor_user_id)
-        existing_counterparty = None if remote_duplicate_checked else self._find_counterparty_by_identity(onec_client, row)
+        try:
+            existing_counterparty = None if remote_duplicate_checked else self._find_counterparty_by_identity(onec_client, row,strict_identity=strict_identity or forbid_create)
+        except OneCIdentityConflictError as exc:
+            from stock_sync_web.assistant_repository import DocumentConflict
+            raise DocumentConflict(str(exc)) from exc
+        if forbid_create and not (existing_counterparty and self._remote_counterparty_matches_link(existing_counterparty,linked_counterparty_id)):
+            from stock_sync_web.assistant_repository import DocumentConflict
+            raise DocumentConflict('Не подтверждён ранее созданный контрагент 1С. Создание нового запрещено; проверьте ИНН/КПП и существующую связь.')
         if existing_counterparty and not self._remote_counterparty_matches_link(existing_counterparty, linked_counterparty_id):
             raise ValueError(
                 f"В 1С уже есть контрагент с ИНН {row.get('inn')}: "
@@ -1166,6 +1217,7 @@ class WebStockSyncService:
         if existing_counterparty and linked_counterparty_id is not None:
             ref_key = str(existing_counterparty.get("Ref_Key") or "").strip()
             try:
+                if before_remote_write is not None: before_remote_write()
                 updated = onec_client.update_counterparty_from_card(ref_key, row)
             except OneCClientError as exc:
                 row = self.db.update_crm_client_sync_state(client_id, sync_status="sync_error", sync_error=str(exc))
@@ -1186,6 +1238,7 @@ class WebStockSyncService:
             }
 
         try:
+            if before_remote_write is not None: before_remote_write()
             created = onec_client.create_counterparty(row)
         except OneCCounterpartySyncError as exc:
             ref_key = str(exc.created_counterparty.get("Ref_Key") or "").strip()
@@ -1489,21 +1542,18 @@ class WebStockSyncService:
         return path, filename
 
     def list_documents_for_user(self, *, user_id: int, is_admin: bool) -> list[dict[str, Any]]:
-        return self.db.list_documents(user_id=user_id, include_all=is_admin)
+        return self.db.list_documents(user_id=user_id, include_all=True)
 
     def get_document_for_user(self, *, document_id: int, user_id: int, is_admin: bool) -> dict[str, Any]:
         document = self.db.get_document(document_id)
-        owner_id = document.get("created_by_user_id")
-        if not is_admin and int(owner_id or 0) != int(user_id):
-            raise ValueError("Документ не найден.")
         return document
 
     def delete_document_for_user(self, *, document_id: int, user_id: int, is_admin: bool) -> None:
-        document = self.get_document_for_user(document_id=document_id, user_id=user_id, is_admin=is_admin)
-        output_path = self._resolve_document_stored_path(str(document.get("output_path") or ""))
-        with storage_operation_lock(self._storage_operation_root()):
-            self.db.delete_document(document_id)
-            self._delete_stored_document_file(output_path)
+        from stock_sync_web.assistant_service import DocumentAssistantService
+        from stock_sync_web.assistant_repository import DocumentPermissionError
+        if not is_admin:
+            raise DocumentPermissionError("Удалять документы и вложения может только администратор.")
+        DocumentAssistantService(self).delete_document({"id": user_id, "role": "admin"}, document_id)
 
     def create_document(
         self,
@@ -1612,6 +1662,16 @@ class WebStockSyncService:
                 context=context,
             )
             with storage_operation_lock(self._storage_operation_root()):
+                if normalized_type == "contract":
+                    from stock_sync_web.assistant_repository import AssistantRepository, DocumentConflict
+                    repository = AssistantRepository(self.db)
+                    resolved_client_id = repository.resolve_document_client_id(client)
+                    if resolved_client_id:
+                        state = repository.get_client_document_state(resolved_client_id)
+                        if state["contract_document_id"]:
+                            raise DocumentConflict("Конфликт: у клиента уже есть договор. Загрузите новую версию.")
+                    elif client["counterparty_id"] is not None and repository.has_counterparty_contract(client["counterparty_id"]):
+                        raise DocumentConflict("Конфликт: у клиента уже есть договор. Загрузите новую версию.")
                 document_id = self.db.create_document(
                     document_type=normalized_type,
                     number=document_number,
@@ -1655,6 +1715,15 @@ class WebStockSyncService:
         path = self._resolve_document_stored_path(str(document.get("output_path") or ""))
         if not path.exists():
             raise ValueError("Файл не найден на диске.")
+        from stock_sync_web.assistant_repository import AssistantRepository
+        from stock_sync_web.assistant_storage import LocalPrivateDocumentStore
+        store = LocalPrivateDocumentStore(self.document_storage_dir / "client_assets", self._storage_operation_root())
+        if document.get("crm_client_id"):
+            for asset in AssistantRepository(self.db).list_client_assets(document["crm_client_id"], document_id):
+                if store.path_for_key(asset["storage_key"]) == path:
+                    from stock_sync_web.assistant_service import DocumentAssistantService
+                    DocumentAssistantService(self).read_asset({"id": user_id, "role": "admin" if is_admin else "user"}, asset["id"])
+                    return path, asset["original_filename"]
         filename = self._build_document_filename(
             document_type=str(document.get("document_type") or ""),
             client_name=str(document.get("client_name") or document.get("client_name_snapshot") or ""),
@@ -1772,7 +1841,6 @@ class WebStockSyncService:
             target = self.db.get_crm_client(int(client_id))
             if not target:
                 raise ValueError("Локальный клиент не найден.")
-            self._require_legacy_client_access(target, actor_user_id=actor_user_id)
             self._require_legacy_client_active(target)
             return {
                 "client_source": "local",

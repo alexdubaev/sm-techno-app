@@ -20,6 +20,7 @@ import {
   type CrmClientDetailControllerOptions,
   type DetailController,
 } from '@/components/crm/use-crm-client-detail';
+import { ClientDocumentsPanel } from '@/components/crm/client-documents-panel';
 import { MobileClientOverview } from '@/components/crm/mobile/mobile-client-overview';
 import { MobileClientNote } from '@/components/crm/mobile/mobile-client-note';
 import {
@@ -64,6 +65,7 @@ const sections: [MobileDetailSection, string][] = [
   ['overview', 'Обзор'],
   ['history', 'История'],
   ['reminders', 'Напоминания'],
+  ['documents', 'Документы'],
   ['more', 'Ещё'],
 ];
 const statusLabels: Record<CrmWorkspaceClient['syncStatus'], string> = {
@@ -509,6 +511,7 @@ function MobileClientDetailContent({
             aria-labelledby={`mobile-detail-tab-${section}`}
             tabIndex={0}
           >
+            {section === 'documents' ? <ClientDocumentsPanel key={client.id} clientId={client.id} isAdmin={options.isAdmin} /> : null}
             {section === 'note' ? <MobileClientNote controller={controller} /> : null}
             {section === 'overview' ? (
               <MobileClientOverview

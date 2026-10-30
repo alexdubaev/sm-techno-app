@@ -11,9 +11,9 @@ window.STATE =
   "memoryFile": "AGENTS.md",
   "memoryOwner": "user",
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
-  "baseCommit": null,
+  "baseCommit": "a5f78ceb287823374f4bf60048d8d6dda0e42ea4",
   "startedAt": "2026-10-30T18:23:03+03:00",
-  "updatedAt": "2026-10-30T19:41:02+03:00",
+  "updatedAt": "2026-10-30T19:41:09+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -42,12 +42,14 @@ window.STATE =
     },
     {
       "id": "plan",
-      "status": "active",
-      "startedAt": "2026-10-30T19:40:23+03:00"
+      "status": "done",
+      "startedAt": "2026-10-30T19:40:23+03:00",
+      "finishedAt": "2026-10-30T19:41:09+03:00"
     },
     {
       "id": "build",
-      "status": "pending"
+      "status": "active",
+      "startedAt": "2026-10-30T19:41:09+03:00"
     },
     {
       "id": "review",
@@ -89,9 +91,10 @@ window.STATE =
       ],
       "review": "нет — один итоговый review по owner policy",
       "model": "сильная",
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "startedAt": "2026-10-30T19:41:09+03:00"
     },
     {
       "id": "02",
@@ -242,9 +245,11 @@ window.STATE =
     "2026-10-30T19:40:24+03:00",
     "2026-10-30T19:40:25+03:00",
     "2026-10-30T19:41:01+03:00",
-    "2026-10-30T19:41:02+03:00"
+    "2026-10-30T19:41:02+03:00",
+    "2026-10-30T19:41:08+03:00",
+    "2026-10-30T19:41:09+03:00"
   ],
-  "rev": 24,
+  "rev": 27,
   "waiting": null,
   "waits": [
     {
@@ -385,6 +390,20 @@ window.STATE =
       "g": "G3",
       "ok": true,
       "problems": 0
+    },
+    {
+      "t": "2026-10-30T19:41:09+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-10-30T19:41:09+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "start"
     }
   ],
   "reqList": [

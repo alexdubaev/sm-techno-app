@@ -1512,6 +1512,48 @@ class Database:
             facets = conn.execute(cte + "SELECT DISTINCT category_name, group_name FROM catalog", params).fetchall()
         return {"items": [self._attach_location_label(row, rack_key="row_rack", cell_key="row_cell", label_key="row_location_label") for row in self._rows_to_dicts(rows)], "total": int(total_row["total"]), "filtered_quantity": float(total_row["quantity"]), "categories": sorted({str(row["category_name"] or "").strip() for row in facets if str(row["category_name"] or "").strip()}, key=str.lower), "groups": sorted({str(row["group_name"] or "").strip() for row in facets if str(row["group_name"] or "").strip()}, key=str.lower)}
 
+    def lookup_stock_articles(self, articles: Iterable[str]) -> dict[str, list[dict[str, Any]]]:
+        """Read exact normalized SKU matches and active physical warehouse rows.
+
+        The result intentionally includes zero-stock items so callers can distinguish
+        an unavailable SKU from one absent from the catalog. No reservation/order data
+        is consulted and no stock mutation is performed.
+        """
+        normalized = {self._normalize_stock_sku(value) for value in articles if isinstance(value, str)}
+        normalized.discard("")
+        result: dict[str, list[dict[str, Any]]] = {sku: [] for sku in normalized}
+        if not normalized:
+            return result
+        placeholders = ",".join("?" for _ in normalized)
+        with self.connect() as conn:
+            rows = conn.execute(f"""
+                SELECT i.id AS item_id, i.sku, i.sku_normalized, i.name, i.print_name,
+                       i.category_name, i.price AS catalog_price,
+                       w.id AS warehouse_id, w.name AS warehouse_name,
+                       CASE WHEN w.id IS NOT NULL THEN iwb.quantity END AS physical_quantity,
+                       CASE WHEN w.id IS NOT NULL THEN iwb.price END AS warehouse_price
+                FROM items i
+                LEFT JOIN item_warehouse_balances iwb ON iwb.item_id=i.id
+                LEFT JOIN warehouses w ON w.id=iwb.warehouse_id AND w.is_active=1
+                WHERE i.is_local=1 AND (i.sku_normalized IN ({placeholders}) OR i.sku_normalized IS NULL OR i.sku_normalized='')
+                ORDER BY i.id, w.name COLLATE NOCASE
+            """, tuple(sorted(normalized))).fetchall()
+        for raw in rows:
+            row = dict(raw)
+            key = self._normalize_stock_sku(row.get("sku"))
+            if key not in result:
+                continue
+            result[key].append({
+                "item_id": int(row["item_id"]), "sku": str(row.get("sku") or ""),
+                "name": str(row.get("print_name") or row.get("name") or ""),
+                "category_name": str(row.get("category_name") or ""),
+                "warehouse_id": int(row["warehouse_id"]) if row.get("warehouse_id") is not None else None,
+                "warehouse_name": str(row.get("warehouse_name") or ""),
+                "quantity": float(row["physical_quantity"] or 0),
+                "price": float(row["warehouse_price"] if row.get("warehouse_price") is not None else row["catalog_price"] or 0),
+            })
+        return result
+
     def list_warehouses(self, *, active_only: bool = True) -> list[dict[str, Any]]:
         with self.connect() as conn:
             query = """

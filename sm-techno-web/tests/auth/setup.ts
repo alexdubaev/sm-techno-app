@@ -13,6 +13,7 @@ vi.mock("next/image", () => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(window.location.search),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 

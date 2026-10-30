@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -167,6 +168,22 @@ def validate_database_storage_pair(
                         raise RuntimeError(f"{table}.{column} escapes storage.") from exc
                     if not candidate.is_file() or candidate.is_symlink():
                         raise RuntimeError(f"{table}.{column} references a missing storage file.")
+        # Assets use opaque keys, not legacy stored paths. Missing optional tables remain
+        # compatible; an existing asset table must have complete, valid references.
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='client_document_assets'").fetchone():
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(client_document_assets)")}
+            if "storage_key" not in columns:
+                raise RuntimeError("client_document_assets contains an unsafe storage key schema.")
+            for (key,) in connection.execute("SELECT storage_key FROM client_document_assets"):
+                if not isinstance(key, str) or not re.fullmatch(r"[0-9a-f]{2}/[0-9a-f]{32}", key) or key[:2] != key[3:5]:
+                    raise RuntimeError("client_document_assets.storage_key contains an unsafe storage key.")
+                base = storage_root.resolve()
+                candidate = base.joinpath("documents", "client_assets", *key.split("/"))
+                resolved = candidate.resolve()
+                if not resolved.is_relative_to(base) or resolved != candidate:
+                    raise RuntimeError("client_document_assets.storage_key escapes storage or uses a symbolic link.")
+                if not candidate.is_file() or candidate.is_symlink():
+                    raise RuntimeError("client_document_assets.storage_key references a missing storage file.")
     except sqlite3.DatabaseError as exc:
         raise RuntimeError(f"SQLite validation failed: {exc}") from exc
     finally:

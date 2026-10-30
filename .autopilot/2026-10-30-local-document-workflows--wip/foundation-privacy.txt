@@ -1,0 +1,7 @@
+assets/templates/contract_template.docx: metadata authors cleared=True; all non-core ZIP parts byte-identical=True; parts=21
+assets/templates/specification_invoice_template.docx: metadata authors cleared=True; all non-core ZIP parts byte-identical=True; parts=15
+synthetic.doc: removed metadata author property 4; 2 occurrences; byte length retained
+synthetic.xls: removed metadata author property 4; 1 occurrences; byte length retained
+synthetic.rtf: author metadata removed; byte length retained
+synthetic.odt: creator metadata removed; all non-meta ZIP parts byte-identical
+ODT creator and initial-creator empty; fixture README documents synthetic customer, article and quantities. Contract buyer uses client placeholders; existing supplier legal content preserved. Pattern scan of text paths and OOXML finds identifier-like strings in source, fixtures and seller contract; no actual buyer sample established. This is targeted audit, not proof of absence of all personal data.

@@ -390,6 +390,7 @@ export default function DocumentsPage() {
           <aside className="rounded-[14px] border border-[var(--border-color)] bg-white p-2">
             <div className="grid gap-1.5 text-[10px] text-[var(--text-secondary)]">
               <MetaRow label="Клиент" value={selectedClient ? formatClientDisplayName(selectedClient) : "-"} />
+              {selectedClient && (selectedClient.crmClientId || selectedClient.source === "local") ? <Link href={`/crm?documents=${selectedClient.crmClientId ?? selectedClient.id}`} className="text-sm underline">Документы клиента</Link> : null}
               <MetaRow label="ИНН / КПП" value={selectedClient ? `${selectedClient.inn || "-"} / ${selectedClient.kpp || "-"}` : "-"} />
               <MetaRow label="Адрес" value={selectedClient?.legalAddress || "-"} />
               <MetaRow label="Название банка" value={selectedClient?.bankName || (isBik(selectedClient?.bankNameOrBik) ? "-" : (selectedClient?.bankNameOrBik ?? "-"))} />

@@ -1,6 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject, type SetStateAction, type SubmitEvent } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject, type SetStateAction, type SubmitEvent } from "react";
 
 import {
   downloadCrmExportFile,
@@ -26,6 +28,7 @@ import {
   type CrmSyncStatus,
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { ClientDocumentsPanel } from "@/components/crm/client-documents-panel";
 import { MobileCrmWorkspace } from "@/components/crm/mobile/mobile-crm-workspace";
 import { filterAndSortCrmClients, type CrmSortMode, type PresenceFilter } from "@/components/crm/crm-client-list-controls";
 import { getCrmContactSelectionRevision, getCrmDisplayContacts, resolveCrmDisplayContact, type CrmDisplayContact } from "@/components/crm/crm-contact-selection";
@@ -110,6 +113,24 @@ function emptyClientForm() {
 }
 
 export function CrmWorkspace() {
+  return <Suspense fallback={<p>Загрузка карточки…</p>}><CrmWorkspaceEntry /></Suspense>;
+}
+
+function CrmWorkspaceEntry() {
+  const search = useSearchParams();
+  const { isAdmin } = useAuth();
+  // Do not mount the private detail controller while resolving a documents-only deep link.
+  if (search === null) return <p>Загрузка карточки…</p>;
+  const rawId = search.get("documents");
+  if (rawId !== null) {
+    const clientId = Number(rawId);
+    if (!/^[1-9][0-9]*$/.test(rawId) || !Number.isSafeInteger(clientId)) return <p role="alert">Некорректная карточка клиента.</p>;
+    return <div className="mx-auto grid w-full max-w-5xl gap-3"><Link href="/crm" className="text-sm underline">К списку клиентов</Link><ClientDocumentsPanel key={clientId} clientId={clientId} isAdmin={isAdmin} /></div>;
+  }
+  return <CrmWorkspaceFull />;
+}
+
+function CrmWorkspaceFull() {
   const { user, isAdmin } = useAuth();
   const [initialWorkspaceCache] = useState(() => readCrmWorkspaceCache(user.id, "primary"));
   const [owners, setOwners] = useState<AppUser[]>([]);
@@ -1125,6 +1146,7 @@ function ReadonlyCompanyRequisites({ client }: { client: CrmWorkspaceClient }) {
 type ClientDetailDialogProps = CrmClientDetailControllerOptions & { onClose: () => void };
 
 function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialogProps) {
+  const [documentsOpen, setDocumentsOpen] = useState(false);
   const {
     currentClient,
     contacts,
@@ -1214,6 +1236,7 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
         </div>
         {error ? <Message tone="error">{error}</Message> : null}
         {notice ? <Message tone="success">{notice}</Message> : null}
+        <div className="mt-4"><button type="button" aria-expanded={documentsOpen} className="min-h-10 rounded-lg border border-[var(--border-color)] px-3 text-sm font-semibold" onClick={() => setDocumentsOpen((open) => !open)}>Документы клиента</button>{documentsOpen ? <div className="mt-3"><ClientDocumentsPanel key={currentClient.id} clientId={currentClient.id} isAdmin={controllerOptions.isAdmin} /></div> : null}</div>
         {isLoading ? <div className="mt-5"><LoadingRows /></div> : (
           <div className="mt-5 grid gap-4 lg:grid-cols-3">
             <DetailSection title="Реквизиты компании">

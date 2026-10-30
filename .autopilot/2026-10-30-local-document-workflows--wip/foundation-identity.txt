@@ -1,0 +1,13 @@
+source=182bc62070f508ccb425b910cc0cbdad07a61d5d
+baseline=52ccb3957c37b42f951feec86449d9b2f3a08d5f
+exact source blobs=50/58
+intentional exceptions:
+assets/templates/contract_template.docx
+assets/templates/specification_invoice_template.docx
+sm-techno-web/lib/api.ts
+stock_sync_api.py
+tests/document_assistant/fixtures/synthetic.doc
+tests/document_assistant/fixtures/synthetic.odt
+tests/document_assistant/fixtures/synthetic.rtf
+tests/document_assistant/fixtures/synthetic.xls
+new factories: stock_sync_web/stock_valuation.py, stock_sync_web/document_workflows.py

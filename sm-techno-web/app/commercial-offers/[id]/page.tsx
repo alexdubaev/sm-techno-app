@@ -146,6 +146,11 @@ export default function CommercialOfferDetailsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-1">
+            {offer?.crmClientId ? (
+              <Link href={`/crm?documents=${offer.crmClientId}`} className="app-action-button app-action-button--xs">
+                Документы клиента
+              </Link>
+            ) : null}
             <MetricChip label="Строк" value={String(totals.lines)} />
             <MetricChip label="Кол-во" value={formatNumber(totals.qty)} />
             <MetricChip label="Сумма" value={formatMoney(totals.amount)} />

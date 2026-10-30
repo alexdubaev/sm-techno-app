@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import math
+import mimetypes
 import os
 import sqlite3
 import tempfile
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -32,6 +33,8 @@ from stock_sync_web.crm_export import build_crm_export_xlsx
 from stock_sync_web.crm_import import ImportValidationError
 from stock_sync_web.crm_repository import CrmRepository
 from stock_sync_web.manager_api import create_manager_router
+from stock_sync_web.stock_valuation import create_stock_valuation_router
+from stock_sync_web.document_workflows import create_document_workflows_router
 
 
 APP_TITLE = "SM Techno Stock Sync API"
@@ -364,13 +367,36 @@ def _serialize_client(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _navigation_crm_client_id(
+    row: dict[str, Any], cache: dict[int, int | None] | None = None,
+) -> int | None:
+    from stock_sync_web.assistant_repository import AssistantRepository, DocumentConflict
+
+    if row.get("crm_client_id") is not None:
+        return int(row["crm_client_id"])
+    counterparty_id = row.get("counterparty_id")
+    if row.get("client_source") != "onec" or counterparty_id is None:
+        return None
+    counterparty_id = int(counterparty_id)
+    if cache is not None and counterparty_id in cache:
+        return cache[counterparty_id]
+    try:
+        client_id = AssistantRepository(SERVICE.db).resolve_document_client_id(row)
+    except DocumentConflict:
+        # An ambiguous legacy link must not make its order or quote unreadable.
+        client_id = None
+    if cache is not None:
+        cache[counterparty_id] = client_id
+    return client_id
+
+
 def _serialize_commercial_offer(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
         "number": row.get("number") or "",
         "clientSource": row.get("client_source") or "local",
         "counterpartyId": int(row["counterparty_id"]) if row.get("counterparty_id") else None,
-        "crmClientId": int(row["crm_client_id"]) if row.get("crm_client_id") else None,
+        "crmClientId": _navigation_crm_client_id(row),
         "clientName": row.get("client_name_snapshot") or "",
         "offerDate": row.get("offer_date") or "",
         "status": row.get("status") or "",
@@ -429,13 +455,18 @@ def _parse_missing_fields(value: Any) -> list[str]:
 
 
 def _serialize_document(row: dict[str, Any]) -> dict[str, Any]:
+    from stock_sync_web.assistant_repository import AssistantRepository, DocumentConflict
+    try:
+        crm_client_id = AssistantRepository(SERVICE.db).resolve_document_client_id(row)
+    except DocumentConflict as exc:
+        _document_error(exc)
     return {
         "id": int(row["id"]),
         "documentType": row.get("document_type") or "",
         "number": row.get("number") or "",
         "clientSource": row.get("client_source") or "local",
         "counterpartyId": int(row["counterparty_id"]) if row.get("counterparty_id") else None,
-        "crmClientId": int(row["crm_client_id"]) if row.get("crm_client_id") else None,
+        "crmClientId": int(crm_client_id) if crm_client_id else None,
         "commercialOfferId": int(row["commercial_offer_id"]) if row.get("commercial_offer_id") else None,
         "clientName": row.get("client_name_snapshot") or "",
         "documentDate": row.get("document_date") or "",
@@ -449,7 +480,7 @@ def _serialize_document(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _serialize_order(row: dict[str, Any]) -> dict[str, Any]:
+def _serialize_order(row: dict[str, Any], client_ids: dict[int, int | None] | None = None) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
         "localNumber": row.get("local_number") or "",
@@ -460,6 +491,9 @@ def _serialize_order(row: dict[str, Any]) -> dict[str, Any]:
         "totalAmount": float(row.get("total_amount") or 0),
         "errorMessage": row.get("error_message") or "",
         "counterpartyName": row.get("counterparty_name") or "",
+        "crmClientId": _navigation_crm_client_id(
+            {"client_source": "onec", "counterparty_id": row.get("counterparty_id")}, client_ids,
+        ),
         "createdByName": row.get("created_by_name") or "",
         "createdByUsername": row.get("created_by_username") or "",
         "warehouseSummary": row.get("warehouse_summary") or "",
@@ -557,10 +591,15 @@ def _get_admin_user(current_user: dict[str, Any] = Depends(_get_current_user)) -
 
 
 app.include_router(create_manager_router(_get_current_user, lambda: SERVICE.db))
+app.include_router(create_stock_valuation_router(_get_current_user, lambda: SERVICE))
+app.include_router(create_document_workflows_router(_get_current_user, lambda: SERVICE))
 
 
 def _crm_error(exc: Exception) -> None:
     """Translate the repository's deliberate domain errors at the HTTP edge."""
+    from stock_sync_web.assistant_repository import DocumentConflict
+    if isinstance(exc, DocumentConflict):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if isinstance(exc, HTTPException):
         raise exc
     if isinstance(exc, PermissionError):
@@ -2227,6 +2266,144 @@ def download_commercial_offer_file(
     )
 
 
+def _document_assistant():
+    from stock_sync_web.assistant_service import DocumentAssistantService
+    return DocumentAssistantService(SERVICE)
+
+
+def _document_error(exc: Exception):
+    from stock_sync_web.assistant_repository import DocumentConflict, DocumentNotFound, DocumentPermissionError
+    from stock_sync_web.assistant_storage import UploadLimitError
+    if isinstance(exc, HTTPException):
+        raise exc
+    if isinstance(exc, DocumentPermissionError):
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if isinstance(exc, DocumentNotFound):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, DocumentConflict):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, UploadLimitError):
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Converter, filesystem and database diagnostics must never become public paths/secrets.
+    raise HTTPException(status_code=503, detail="Не удалось завершить работу с документом. Повторите после проверки хранилища администратором.") from exc
+
+
+@app.post('/api/document-assistant/intake')
+def document_assistant_intake(file: UploadFile=File(...),kind: str=Form(...),current_user: dict[str,Any]=Depends(_get_current_user)):
+    try: return _document_assistant().intake(current_user,kind,file)
+    except Exception as exc: _document_error(exc)
+
+
+@app.post('/api/document-assistant/jobs')
+def create_document_assistant_job(payload: dict[str,Any],background_tasks: BackgroundTasks,current_user: dict[str,Any]=Depends(_get_current_user)):
+    try:
+        assistant=_document_assistant()
+        job=assistant.start_extraction(current_user,payload.get('kind'),payload.get('clientId'),payload.get('assetIds'))
+        background_tasks.add_task(assistant.run_extraction,job['id'])
+        return job
+    except Exception as exc: _document_error(exc)
+
+
+@app.get('/api/document-assistant/jobs')
+def list_document_assistant_jobs(client_id: int|None=Query(None,alias='clientId'),current_user: dict[str,Any]=Depends(_get_current_user)):
+    try: return {'items':_document_assistant().list_extractions(current_user,client_id)}
+    except Exception as exc: _document_error(exc)
+
+
+@app.get('/api/document-assistant/jobs/{job_id}')
+def get_document_assistant_job(job_id: str,background_tasks: BackgroundTasks,current_user: dict[str,Any]=Depends(_get_current_user)):
+    try:
+        assistant=_document_assistant(); job=assistant.get_extraction(current_user,job_id)
+        if job['status']=='queued': background_tasks.add_task(assistant.run_extraction,job_id)
+        return job
+    except Exception as exc: _document_error(exc)
+
+
+@app.post('/api/document-assistant/jobs/{job_id}/confirm')
+def confirm_document_assistant_job(job_id: str,payload: dict[str,Any],current_user: dict[str,Any]=Depends(_get_current_user)):
+    try: return _document_assistant().confirm_extraction(current_user,job_id,payload.get('version'),payload.get('fields'),payload.get('operationKey'),payload.get('action'))
+    except Exception as exc: _document_error(exc)
+
+
+@app.post('/api/crm/clients/{client_id}/specifications')
+def generate_client_specification(client_id: int,payload: dict[str,Any],current_user: dict[str,Any]=Depends(_get_current_user)):
+    try:
+        if set(payload)-{'invoiceJobId','operationKey'}:raise ValueError('Неизвестные поля запроса спецификации.')
+        return _document_assistant().generate_specification(current_user,client_id,payload.get('invoiceJobId'),payload.get('operationKey'))
+    except Exception as exc:_document_error(exc)
+
+
+@app.post('/api/crm/clients/{client_id}/article-offers')
+def generate_client_article_offer(client_id: int,payload: dict[str,Any],current_user: dict[str,Any]=Depends(_get_current_user)):
+    try:
+        if set(payload)-{'articlesJobId','operationKey'}:raise ValueError('Неизвестные поля запроса коммерческого предложения.')
+        result=_document_assistant().generate_article_offer(current_user,client_id,payload.get('articlesJobId'),payload.get('operationKey'))
+        return {'offer':_serialize_commercial_offer(result['offer']) if result['offer'] else None,
+            'lines':[_serialize_commercial_offer_line(line) for line in result['lines']],
+            'articleResolution':result['articleResolution'],'replayed':result['replayed']}
+    except Exception as exc:_document_error(exc)
+
+
+@app.get("/api/crm/clients/{client_id}/documents")
+def list_client_documents(client_id: int, current_user: dict[str, Any] = Depends(_get_current_user)):
+    try:
+        return _document_assistant().list_documents(current_user, client_id)
+    except Exception as exc:
+        _document_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/document-assets")
+def upload_client_document_asset(client_id: int, file: UploadFile = File(...), role: str = Form(...),
+    document_id: int | None = Form(None, alias="documentId"), expected_version: int | None = Form(None, alias="expectedVersion"),
+    current_user: dict[str, Any] = Depends(_get_current_user)):
+    try:
+        return _document_assistant().upload_asset(current_user, client_id, role, file, document_id, expected_version)
+    except Exception as exc:
+        _document_error(exc)
+
+
+@app.get("/api/document-assets/{asset_id}/download")
+def download_client_document_asset(asset_id: int, current_user: dict[str, Any] = Depends(_get_current_user)):
+    try:
+        content, asset = _document_assistant().read_asset(current_user, asset_id)
+    except Exception as exc:
+        _document_error(exc)
+    return StreamingResponse(iter([content]), media_type=asset['mediaType'], headers={
+        **_download_headers(asset['originalFilename']), 'X-Content-Type-Options':'nosniff', 'Cache-Control':'private, no-store'})
+
+
+@app.delete("/api/document-assets/{asset_id}")
+def delete_client_document_asset(asset_id: int, current_user: dict[str, Any] = Depends(_get_current_user)):
+    try:
+        _document_assistant().delete_asset(current_user, asset_id)
+        return {"ok":True}
+    except Exception as exc:
+        _document_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/documents/import")
+def import_client_document(client_id: int, payload: dict[str, Any], current_user: dict[str, Any] = Depends(_get_current_user)):
+    try:
+        asset_id=payload.get('assetId'); contract_id=payload.get('contractId'); version=payload.get('expectedVersion')
+        if type(asset_id) is not int or asset_id<1 or (contract_id is not None and (type(contract_id) is not int or contract_id<1)) or (version is not None and (type(version) is not int or version<1)):
+            raise ValueError('Некорректный файл, договор или версия.')
+        return _document_assistant().import_document(current_user, client_id, payload.get('type'), asset_id,
+            payload.get('number'), payload.get('date'), contract_id, version)
+    except Exception as exc:
+        _document_error(exc)
+
+
+@app.post("/api/crm/clients/{client_id}/documents/{document_id}/versions")
+def upload_client_document_version(client_id: int, document_id: int, file: UploadFile = File(...), role: str = Form(...),
+    expected_version: int = Form(..., alias="expectedVersion"), current_user: dict[str, Any] = Depends(_get_current_user)):
+    try:
+        return _document_assistant().upload_version(current_user, client_id, document_id, role, file, expected_version)
+    except Exception as exc:
+        _document_error(exc)
+
+
 @app.get("/api/documents")
 def list_documents(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
     return {
@@ -2263,6 +2440,8 @@ def create_document(
             created_by_user_id=int(current_user["id"]),
             is_admin=str(current_user.get("role") or "") == "admin",
         )
+    except (OSError, sqlite3.Error) as exc:
+        _document_error(exc)
     except Exception as exc:
         _crm_error(exc)
     return {"document": _serialize_document(document)}
@@ -2289,18 +2468,26 @@ def download_document_file(
     document_id: int,
     current_user: dict[str, Any] = Depends(_get_current_user),
 ) -> StreamingResponse:
+    from stock_sync_web.vps_integrity import storage_operation_lock
     try:
-        path, filename = SERVICE.resolve_document_file_for_user(
-            document_id=document_id,
-            user_id=int(current_user["id"]),
-            is_admin=str(current_user.get("role") or "") == "admin",
-        )
+        with storage_operation_lock(SERVICE._storage_operation_root()):
+            path, filename = SERVICE.resolve_document_file_for_user(
+                document_id=document_id,
+                user_id=int(current_user["id"]),
+                is_admin=str(current_user.get("role") or "") == "admin",
+            )
+            content = path.read_bytes()
+    except OSError as exc:
+        _document_error(exc)
     except ValueError as exc:
+        from stock_sync_web.assistant_repository import DocumentConflict
+        if isinstance(exc, DocumentConflict):
+            _document_error(exc)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return StreamingResponse(
-        iter([path.read_bytes()]),
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers=_download_headers(filename),
+        iter([content]),
+        media_type=mimetypes.guess_type(filename)[0] or "application/octet-stream",
+        headers={**_download_headers(filename), "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"},
     )
 
 
@@ -2315,8 +2502,8 @@ def delete_document(
             user_id=int(current_user["id"]),
             is_admin=str(current_user.get("role") or "") == "admin",
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        _document_error(exc)
     return {"ok": True}
 
 
@@ -2624,9 +2811,10 @@ def clear_price_catalog(current_user: dict[str, Any] = Depends(_get_admin_user))
 
 @app.get("/api/orders")
 def list_orders(current_user: dict[str, Any] = Depends(_get_current_user)) -> dict[str, Any]:
+    client_ids: dict[int, int | None] = {}
     return {
         "items": [
-            _serialize_order(row)
+            _serialize_order(row, client_ids)
             for row in SERVICE.list_orders_for_user(
                 user_id=int(current_user["id"]),
                 is_admin=str(current_user.get("role") or "") == "admin",
@@ -2726,4 +2914,3 @@ def create_and_send_order(
             "date": onec_document.get("Date") or "",
         },
     }
-

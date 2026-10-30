@@ -35,3 +35,9 @@
 См. plan.md § Explicit shared API and test seams: factories create_stock_valuation_router/current_user+get_service, create_document_workflows_router/current_user+get_service; routes /api/stock/valuation/intake, /resolve; document jobs /client-match, /bind-client; frontend requestJsonWithInit exported unchanged. Stock DTO camelCase requestedQty/sourceRow, workbook base64. Backend extractor snake_case rows are adapted only at this boundary. Only one stock lookup snapshot supplies visible results and workbook. No additional dependency or migration. Shared stock_sync_api.py / lib/api.ts touched once by01;02/03 own independent modules and cannot alter these shared files without lead sequencing.
 
 Checks/environment/runbook constraints in plan.md apply to all executors. Owner authorizes commit/push/PR/merge after checks, but publication requires privacy and external-trigger verification; live deploy remains paused. One whole-change independent review replaces skill point review ritual under owner policy.
+
+## Подготовленные rollback anchors
+Точные local-only tags/bundle и privacy/triggerfacts в rollback-anchors.md.04 использует существующий verifiedbundle C:/Users/Alexandr/.codex/artifacts/local-document-workflows-20261030/old-local-feature.bundle, не создаёт новый ненужный архив/не публикует старую privatehistory. Старый demo15000/19000 untouched; новый15100/19100 толькоsynthetic. Это code backup, не доказанный data restore.
+
+01 landed interfaces: create_stock_valuation_router(current_user,get_service), create_document_workflows_router(current_user,get_service), exported requestJsonWithInit<T> existing4argumentshape/auth/cache semantics unchanged. Foundation identity50/58 exact;6metadata-onlysanitizations and2sharedwiring files. Evidence132isolatedbackendPASS, tscPASS,16narrowextractionaftermetadataPASS. Finalpublicprivacy assessment remains part of singlewhole-change review.
+
