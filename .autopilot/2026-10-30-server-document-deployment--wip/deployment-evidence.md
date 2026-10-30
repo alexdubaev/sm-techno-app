@@ -20,6 +20,10 @@ Exact OLD52 запустился на этой обновлённой копии
 
 Закрытое evidence: `/srv/sm-techno-test/releases/20261030-document-workflows/rehearsal-agent-20261030/`; не публиковать дампы или customer filenames.
 
+Observed `manager_periods.mode=minimum` проверен отдельно: фактический старый image4129… содержит поддержку minimum и max(fixed, commission); обе ветви расчёта прошли на синтетических параметрах без DB mutation. SHA256 manager_repository.py внутри образа совпал с source52: ce378d96224cc50a67369092055eb3396494c5764fb59dc3388c2d0b325c0f3f. Ограничение на реально pre-minimum backend не обходилось. Полный startup старой пары измерен6,81с, не только одного backend.
+
+Actual lifecycle probe нового образа с полностью синтетическим invalid API key и network=none довёл реальный CodexDocumentExtractor до runtime_timeout15с; через3с после возврата не осталось Codex/code-mode-host процессов. Это проверка timeout/cleanup, не успешного model inference.
+
 ## Оставшееся условие
 
 Авторизация выбранного ChatGPT аккаунта настроена через официальный защищённый auth-cache fallback; account identity сопоставлена без вывода значения, auth.json0600 отдельно от app/Git/image context. Локальный реальный gpt-6.1-terra вызов с тем же аккаунтом PASS.
