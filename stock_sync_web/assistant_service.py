@@ -201,6 +201,27 @@ class DocumentAssistantService:
         row=self.repository.confirm_review(job_id,int(actor['id']),expected_version,result,operation_key)
         return {'job':self.serialize_job(row),'resultType':'job','resultId':job_id,'clientId':row['crm_client_id']}
 
+    def preview_client_match(self, actor, job_id, version, fields):
+        from stock_sync_web.assistant_extraction import validate_payload
+        require_document_reader(actor)
+        raw=self.repository.get_job(job_id)
+        if raw['actor_user_id']!=int(actor['id']): raise DocumentPermissionError('Задание доступно только автору.')
+        job=self.serialize_job(raw)
+        if job['clientId'] is not None or job['kind'] not in {'requisites','invoice'} or job['status'] not in {'review','confirmed'} or type(version) is not int or version!=job['version']:
+            raise DocumentConflict('Обновите актуальное непривязанное задание.')
+        if type(fields) is not dict: raise ValueError('Проверьте поля документа.')
+        validate_payload(job['kind'],fields,partial=True)
+        inn=str(fields.get('inn' if job['kind']=='requisites' else 'buyer_inn') or '').strip()
+        kpp=str(fields.get('kpp' if job['kind']=='requisites' else 'buyer_kpp') or '').strip()
+        if not inn: return {'status':'not_found','candidates':[]}
+        candidates=self.repository.preview_document_candidates(inn,kpp)
+        return {'status':'matched' if len(candidates)==1 else 'ambiguous' if candidates else 'not_found','candidates':candidates}
+
+    def bind_client(self, actor, job_id, version, client_id, operation_key):
+        require_document_reader(actor)
+        if type(version) is not int or type(client_id) is not int or client_id<1: raise ValueError('Проверьте клиента и версию задания.')
+        return self.serialize_job(self.repository.bind_document_job(job_id,int(actor['id']),client_id,version,operation_key))
+
     def confirm_requisites(self,actor,job,expected_version,fields,operation_key,action):
         from stock_sync_web.assistant_extraction import validate_payload
         if job['kind']!='requisites': raise ValueError('Для этого действия подтвердите реквизиты клиента.')

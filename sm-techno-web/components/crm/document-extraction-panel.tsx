@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { confirmDocumentAssistantJob, fetchDocumentAssistantJob, fetchDocumentAssistantJobs, startDocumentAssistantJob,
   uploadClientDocumentAsset, uploadDocumentAssistantIntake } from '@/lib/api';
+import { matchDocumentClient, type ClientMatch } from '@/lib/document-workflows-api';
 import type { DocumentAssistantJob, DocumentAssistantKind, DocumentAssistantPayload } from '@/lib/types';
 
 const control='min-h-10 w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm';
@@ -14,8 +15,8 @@ const message=(failure: unknown) => failure instanceof Error ? failure.message :
 const scalar=(value: unknown) => typeof value==='string' || typeof value==='number' ? String(value) : '';
 
 /** Reusable intake for the same client card and for a not-yet-created client. */
-export function DocumentExtractionPanel({clientId,onConfirmed}: {clientId?: number;onConfirmed?: (job: DocumentAssistantJob) => void}) {
-  const [kind,setKind]=useState<DocumentAssistantKind>('requisites');
+export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJob}: {clientId?: number;onConfirmed?: (job: DocumentAssistantJob) => void;purpose?: "requisites" | "invoice";restoredJob?: DocumentAssistantJob | null}) {
+  const [kind,setKind]=useState<DocumentAssistantKind>(purpose ?? 'requisites');
   const [file,setFile]=useState<File | null>(null);
   const [assetId,setAssetId]=useState<number | null>(null);
   const [jobs,setJobs]=useState<DocumentAssistantJob[]>([]);
@@ -27,9 +28,9 @@ export function DocumentExtractionPanel({clientId,onConfirmed}: {clientId?: numb
   function update(next: DocumentAssistantJob) { setJobs((current) => [next,...current.filter((item) => item.id!==next.id)]); }
   useEffect(() => {
     let active=true;
-    fetchDocumentAssistantJobs(clientId).then((data) => {if(active) {setJobs(data.items); setSelected(data.items[0]?.id ?? null);}},(failure: unknown) => {if(active) setError(message(failure));});
+    fetchDocumentAssistantJobs(clientId).then((data) => {if(active) {const items=purpose ? data.items.filter((item) => item.kind===purpose) : data.items; const merged=restoredJob ? [restoredJob,...items.filter((item) => item.id!==restoredJob.id)] : items; setJobs(merged); setSelected(restoredJob?.id ?? merged[0]?.id ?? null);}},(failure: unknown) => {if(active) setError(message(failure));});
     return () => {active=false;};
-  },[clientId]);
+  },[clientId,purpose,restoredJob]);
   useEffect(() => {
     if(!job || !['queued','running'].includes(job.status)) return;
     let active=true;
@@ -50,11 +51,11 @@ export function DocumentExtractionPanel({clientId,onConfirmed}: {clientId?: numb
     finally {setBusy(false);}
   }
   return <section aria-label="Распознавание документов" className="grid min-w-0 gap-3 rounded-lg border border-[var(--border-color)] p-3">
-    <div><h3 className="font-semibold">Распознать документ клиента</h3><p className="mt-1 text-sm text-[var(--text-secondary)]">Загрузите документ или фото. Проверьте результат и исправьте поля перед использованием.</p></div>
-    <form className="grid gap-3 sm:grid-cols-2" onSubmit={(event) => {event.preventDefault(); void start();}}>
-      <label className="grid gap-1 text-sm">Что распознать<select className={control} value={kind} disabled={busy || assetId!==null} onChange={(event) => setKind(event.target.value as DocumentAssistantKind)}>{Object.entries(kinds).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-      <label className="grid gap-1 text-sm">Документ или фото для распознавания<input key={revision} className={control} type="file" required={assetId===null} disabled={busy} accept={kind==='invoice' ? '.docx' : '.docx,.doc,.rtf,.odt,.xlsx,.xls,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.heic,.heif'} onChange={(event) => {setFile(event.target.files?.[0] ?? null);setAssetId(null);}} /></label>
-      <p className="text-xs text-[var(--text-secondary)] sm:col-span-2">{kind==='invoice' ? 'Исходный счёт — DOCX.' : 'Word, OpenDocument, Excel, CSV/TSV, текст, PDF или фото.'} До 25 МБ; до 100 страниц и 40 млн пикселей. Оригинал сохраняется.</p>
+    <div><h3 className="font-semibold">{purpose==='invoice' ? 'Счёт для спецификации' : purpose==='requisites' ? 'Реквизиты для договора' : 'Распознать документ клиента'}</h3><p className="mt-1 text-sm text-[var(--text-secondary)]">Загрузите документ или фото. Проверьте результат и исправьте поля перед использованием.</p></div>
+    <form role="presentation" className="grid gap-3 sm:grid-cols-2" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {event.preventDefault(); const next=event.dataTransfer.files[0]; if(next) {setFile(next);setAssetId(null);}}} onSubmit={(event) => {event.preventDefault(); void start();}}>
+      {!purpose ? <label className="grid gap-1 text-sm">Что распознать<select className={control} value={kind} disabled={busy || assetId!==null} onChange={(event) => setKind(event.target.value as DocumentAssistantKind)}>{Object.entries(kinds).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label> : null}
+      <label className="grid gap-1 text-sm">Документ или фото для распознавания<input key={revision} className={control} type="file" required={assetId===null && !file} disabled={busy} accept={kind==='invoice' ? '.docx' : '.docx,.doc,.rtf,.odt,.xlsx,.xls,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.heic,.heif'} onChange={(event) => {setFile(event.target.files?.[0] ?? null);setAssetId(null);}} /></label>
+      <p className="text-xs text-[var(--text-secondary)] sm:col-span-2">{file ? `Выбран: ${file.name}. ` : 'Перетащите файл сюда или выберите кнопкой. '}{kind==='invoice' ? 'Исходный счёт — DOCX.' : 'Word, OpenDocument, Excel, CSV/TSV, текст, PDF или фото.'} До 25 МБ; до 100 страниц и 40 млн пикселей. Оригинал сохраняется.</p>
       <button type="submit" className={`${button} sm:col-span-2`} disabled={busy}>{busy ? 'Загружаем…' : assetId!==null ? 'Повторить запуск из сохранённого файла' : 'Загрузить и распознать'}</button>
     </form>
     {error ? <p role="alert" className="break-words rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}
@@ -75,6 +76,7 @@ export function ExtractionReview({job,onSaved}: {job: DocumentAssistantJob;onSav
   const [fields,setFields]=useState<DocumentAssistantPayload>(() => structuredClone(job.result?.payload ?? {}));
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string | null>(null);
+  const [preview,setPreview]=useState<ClientMatch | null>(null);
   const operationKey=useRef<string | null>(null);
   const confirmed=job.status==='confirmed';
   const legal=job.kind==='contract' ? (fields.legal_fields as Record<string,unknown> ?? {}) : fields;
@@ -83,7 +85,7 @@ export function ExtractionReview({job,onSaved}: {job: DocumentAssistantJob;onSav
   const rowsKey=job.kind==='articles' ? 'rows' : 'lines';
   const rows=Array.isArray(fields[rowsKey]) ? fields[rowsKey] as Record<string,unknown>[] : [];
   const columns=job.kind==='articles' ? ['article','requested_qty','source_row'] : ['row_no','article','name','qty','unit','unit_price_incl_vat','unit_price_excl_vat','vat_amount','total_amount'];
-  const edit=(key: string,value: string) => {operationKey.current=null;setFields((current) => ({...current,[key]:value || null}));};
+  const edit=(key: string,value: string) => {setPreview(null);operationKey.current=null;setFields((current) => ({...current,[key]:value || null}));};
   async function save() {
     setBusy(true);setError(null); operationKey.current ??= crypto.randomUUID();
     try {const result=await confirmDocumentAssistantJob(job.id,{version:job.version,operationKey:operationKey.current,action:'review',fields});onSaved(result.job);}
@@ -100,6 +102,7 @@ export function ExtractionReview({job,onSaved}: {job: DocumentAssistantJob;onSav
     }} /></td>)}<td><button type="button" className={button} disabled={busy || confirmed} onClick={() => {operationKey.current=null;setFields((current) => ({...current,[rowsKey]:rows.filter((_,i) => i!==index)}));}}>Удалить строку {index+1}</button></td></tr>)}</tbody></table>
       {!confirmed ? <button type="button" className={button} disabled={busy} onClick={() => {operationKey.current=null;setFields((current) => ({...current,[rowsKey]:[...rows,Object.fromEntries(columns.map((key) => [key,['row_no','source_row'].includes(key) ? rows.length+1 : null]))]}));}}>Добавить строку</button> : null}
     </div> : null}
+    {!confirmed && job.clientId===null && ['requisites','invoice'].includes(job.kind) ? <div className="grid gap-2"><button type="button" className={button} disabled={busy} onClick={() => {setBusy(true);setError(null);void matchDocumentClient(job.id,job.version,fields).then(setPreview,(failure:unknown) => setError(message(failure))).finally(() => setBusy(false));}}>Найти клиента по указанным ИНН и КПП</button>{preview ? <p className="text-sm">{preview.candidates.length ? preview.candidates.map((candidate) => `${candidate.documentName} · ИНН ${candidate.inn} · КПП ${candidate.kpp || '—'}`).join('; ') : 'Совпадений не найдено.'} После проверки полей подтвердите клиента отдельно.</p> : null}</div> : null}
     {job.result?.provenance.length ? <p className="text-xs text-[var(--text-secondary)]">Источники: {job.result.provenance.map((item) => `файл #${item.assetId}${item.reviewed ? ' — проверен' : ''}`).join(', ')}.</p> : null}
     {error ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}
     {!confirmed ? <button type="submit" className={`${button} app-action-button`} disabled={busy}>{busy ? 'Сохраняем проверку…' : 'Подтвердить проверенные поля'}</button> : <output className="text-sm">Проверенный результат сохранён. Его можно использовать в следующем действии.</output>}

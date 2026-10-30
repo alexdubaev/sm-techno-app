@@ -1,13 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useRef, useState, type SubmitEvent } from 'react';
 import {
   deleteDocument, deleteDocumentAsset, downloadDocumentAsset, downloadDocumentFile,
-  fetchClientDocuments, generateClientArticleOffer, generateClientSpecification, importClientDocument, uploadClientDocumentAsset, uploadClientDocumentVersion,
+  fetchClientDocuments, generateClientSpecification, importClientDocument, uploadClientDocumentAsset, uploadClientDocumentVersion,
 } from '@/lib/api';
-import type { ArticleOfferResult, ClientDocumentAsset, ClientDocumentsSummary, ClientStoredDocument, DocumentAssistantJob } from '@/lib/types';
-import { DocumentExtractionPanel } from '@/components/crm/document-extraction-panel';
-import { RequisitesContractForm } from '@/components/crm/requisites-contract-form';
+import type { ClientDocumentAsset, ClientDocumentsSummary, ClientStoredDocument, DocumentAssistantJob } from '@/lib/types';
 
 const control = 'min-h-10 w-full rounded-lg border border-[var(--border-color)] bg-white px-3 py-2 text-sm';
 const button = 'min-h-10 rounded-lg border border-[var(--border-color)] px-3 py-2 text-sm font-semibold disabled:opacity-50';
@@ -20,7 +19,7 @@ const formatDate = (value: string) => new Date(value).toLocaleString('ru-RU');
 const fieldLabels: Record<string,string>={document_name:'Наименование для документов',inn:'ИНН',kpp:'КПП',ogrn:'ОГРН',legal_address:'Юридический адрес',bank_account:'Расчётный счёт',correspondent_account:'Корреспондентский счёт',signer_name:'ФИО подписанта',signer_basis:'Основание полномочий',signer_position:'Должность подписанта'};
 
 /** Shared desktop/mobile panel. It reads only the public document summary for this clientId. */
-export function ClientDocumentsPanel({clientId, isAdmin}: {clientId: number; isAdmin: boolean}) {
+export function ClientDocumentsPanel({clientId, isAdmin, manage=false}: {clientId: number; isAdmin: boolean; manage?: boolean}) {
   const [data,setData] = useState<ClientDocumentsSummary | null>(null);
   const [error,setError] = useState<string | null>(null);
   const [notice,setNotice] = useState<string | null>(null);
@@ -31,9 +30,6 @@ export function ClientDocumentsPanel({clientId, isAdmin}: {clientId: number; isA
   const [documentDate,setDocumentDate] = useState('');
   const [pendingAsset,setPendingAsset] = useState<ClientDocumentAsset | null>(null);
   const [inputRevision,setInputRevision] = useState(0);
-  const [reviewedInvoice,setReviewedInvoice]=useState<DocumentAssistantJob | null>(null);
-  const [reviewedArticles,setReviewedArticles]=useState<DocumentAssistantJob | null>(null);
-  const [reviewedRequisites,setReviewedRequisites]=useState<DocumentAssistantJob | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -71,15 +67,8 @@ export function ClientDocumentsPanel({clientId, isAdmin}: {clientId: number; isA
     {error ? <p role="alert" className="break-words rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}
     {notice ? <output className="rounded-lg bg-green-50 p-3 text-sm text-green-900">{notice}</output> : null}
     {!data && !error ? <output>Загрузка документов…</output> : null}
-    <DocumentExtractionPanel clientId={clientId} onConfirmed={(job) => {if(job.kind==='requisites') setReviewedRequisites(job);if(job.kind==='invoice') setReviewedInvoice(job);if(job.kind==='articles') setReviewedArticles(job);}} />
-    {reviewedRequisites && data ? <RequisitesContractForm key={`${reviewedRequisites.id}-${reviewedRequisites.version}`} job={reviewedRequisites} contract={data.contract} onGenerated={async () => {
-      await refresh();setReviewedRequisites(null);setNotice('Договор сформирован. Скачайте Word и проверьте реквизиты и условия.');
-    }} /> : null}
-    {reviewedInvoice && data ? <SpecificationGeneration key={`${reviewedInvoice.id}-${reviewedInvoice.version}`} job={reviewedInvoice} clientId={clientId} hasContract={Boolean(data.contract)} onGenerated={async () => {
-      await refresh();setReviewedInvoice(null);setNotice('Спецификация сформирована. Скачайте Word, дополните условия и загрузите финальную версию этой же записи.');
-    }} /> : null}
-    {reviewedArticles ? <ArticleOfferGeneration key={`${reviewedArticles.id}-${reviewedArticles.version}`} job={reviewedArticles} clientId={clientId} /> : null}
-    <form onSubmit={(event) => void submit(event)} className="grid gap-3 rounded-lg bg-[#F7F9FC] p-3 sm:grid-cols-2">
+    {!manage ? <Link href={`/documents?clientId=${clientId}`} className="text-sm font-semibold underline">Открыть в разделе документов</Link> : null}
+    {manage ? <form onSubmit={(event) => void submit(event)} className="grid gap-3 rounded-lg bg-[#F7F9FC] p-3 sm:grid-cols-2">
       <label className="grid gap-1 text-sm">Назначение файла<select className={control} value={purpose} disabled={busy} onChange={(event) => setPurpose(event.target.value)}>
         <option value="attachment">Вложение</option><option value="requisites">Реквизиты</option><option value="source_invoice">Исходный счёт DOCX</option>
         <option value="contract">Готовый договор</option><option value="specification">Архивная спецификация</option>
@@ -92,7 +81,7 @@ export function ClientDocumentsPanel({clientId, isAdmin}: {clientId: number; isA
         {purpose==='specification' ? <p className="text-xs text-[var(--text-secondary)] sm:col-span-2">Укажите подтверждённый целый номер без префикса. Спецификация будет связана с договором клиента; следующий номер продолжит архивную последовательность.</p> : null}
       </> : null}
       <button type="submit" disabled={busy} className={`${button} app-action-button sm:col-span-2`}>{busy ? 'Сохраняем…' : 'Загрузить файл'}</button>
-    </form>
+    </form> : null}
     {data?.documents.length===0 && data.attachments.length===0 ? <p className="text-sm text-[var(--text-secondary)]">Документов пока нет. Загрузите готовый договор, спецификацию или вложение.</p> : null}
     {data?.documents.map((document) => <article key={document.id} className="grid min-w-0 gap-3 rounded-lg border border-[var(--border-color)] p-3">
       <div><h3 className="break-words font-semibold">{document.documentType==='contract' ? 'Договор' : 'Спецификация'} № {document.number} от {document.documentDate}</h3>
@@ -101,19 +90,19 @@ export function ClientDocumentsPanel({clientId, isAdmin}: {clientId: number; isA
       </div>
       {document.missingFields?.length ? <p className="break-words rounded-lg bg-amber-50 p-3 text-sm">В документе остались пустые реквизиты: {document.missingFields.map((field) => fieldLabels[field] ?? field).join(', ')}. Дополните их перед подписанием.</p> : null}
       <div className="flex flex-wrap gap-2"><button type="button" className={button} disabled={busy} onClick={() => void run(() => downloadDocumentFile(document.id))}>Скачать актуальный файл № {document.number}</button>
-        {isAdmin ? <button type="button" className={button} disabled={busy} onClick={() => {if(window.confirm(`Удалить документ № ${document.number} и его версии?`)) void run(async () => {await deleteDocument(document.id); await refresh();});}}>Удалить документ № {document.number}</button> : null}
+        {isAdmin && manage ? <button type="button" className={button} disabled={busy} onClick={() => {if(window.confirm(`Удалить документ № ${document.number} и его версии?`)) void run(async () => {await deleteDocument(document.id); await refresh();});}}>Удалить документ № {document.number}</button> : null}
       </div>
       {document.assets.map((asset) => <AssetRow key={asset.id} asset={asset} busy={busy} download={() => void run(() => downloadDocumentAsset(asset.id))} />)}
-      <VersionUpload document={document} busy={busy} upload={(nextFile) => run(async () => {
+      {manage ? <VersionUpload document={document} busy={busy} upload={(nextFile) => run(async () => {
         await uploadClientDocumentVersion(clientId,document.id,{file:nextFile,role:document.documentType==='contract' ? 'contract_version':'final',expectedVersion:document.version});
         await refresh(); setNotice('Новая версия сохранена. Исходные файлы доступны ниже.');
-      })} />
+      })} /> : null}
     </article>)}
     {data?.attachments.length ? <section aria-label="Исходные файлы и вложения" className="grid gap-3"><h3 className="font-semibold">Исходные файлы и вложения</h3>
       {data.attachments.map((asset) => <div key={asset.id} className="grid gap-2 rounded-lg border border-[var(--border-color)] p-3">
         <AssetRow asset={asset} busy={busy} download={() => void run(() => downloadDocumentAsset(asset.id))} />
-        <div className="flex flex-wrap gap-2">{asset.role==='archive' ? <button type="button" className={button} disabled={busy} onClick={() => {setPendingAsset(asset); setPurpose(data.contract ? 'specification':'contract');}}>Оформить сохранённый документ</button> : null}
-          {isAdmin ? <button type="button" className={button} disabled={busy} onClick={() => {if(window.confirm(`Удалить вложение «${asset.originalFilename}»?`)) void run(async () => {await deleteDocumentAsset(asset.id); await refresh();});}}>Удалить вложение {asset.originalFilename}</button> : null}</div>
+        <div className="flex flex-wrap gap-2">{manage && asset.role==='archive' ? <button type="button" className={button} disabled={busy} onClick={() => {setPendingAsset(asset); setPurpose(data.contract ? 'specification':'contract');}}>Оформить сохранённый документ</button> : null}
+          {isAdmin && manage ? <button type="button" className={button} disabled={busy} onClick={() => {if(window.confirm(`Удалить вложение «${asset.originalFilename}»?`)) void run(async () => {await deleteDocumentAsset(asset.id); await refresh();});}}>Удалить вложение {asset.originalFilename}</button> : null}</div>
       </div>)}
     </section> : null}
   </section>;
@@ -136,7 +125,7 @@ function VersionUpload({document,busy,upload}: {document: ClientStoredDocument; 
 }
 
 
-function SpecificationGeneration({job,clientId,hasContract,onGenerated}: {job: DocumentAssistantJob;clientId: number;hasContract: boolean;onGenerated: () => Promise<void>}) {
+export function SpecificationGeneration({job,clientId,hasContract,onGenerated}: {job: DocumentAssistantJob;clientId: number;hasContract: boolean;onGenerated: () => Promise<void>}) {
   const operationKey=useRef<string | null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string | null>(null);
@@ -155,26 +144,3 @@ function SpecificationGeneration({job,clientId,hasContract,onGenerated}: {job: D
   </section>;
 }
 
-function ArticleOfferGeneration({job,clientId}: {job: DocumentAssistantJob;clientId: number}) {
-  const operationKey=useRef<string | null>(null);
-  const [busy,setBusy]=useState(false);
-  const [error,setError]=useState<string | null>(null);
-  const [result,setResult]=useState<ArticleOfferResult | null>(null);
-  async function generate() {
-    setBusy(true);setError(null);operationKey.current ??= crypto.randomUUID();
-    try {setResult(await generateClientArticleOffer(clientId,{articlesJobId:job.id,operationKey:operationKey.current}));}
-    catch(failure: unknown) {setError(errorMessage(failure));}
-    finally {setBusy(false);}
-  }
-  const labels={matched:'Найдено',not_found:'Не найден',ambiguous:'Неоднозначный артикул',zero_stock:'Нет положительного остатка',duplicate:'Повторная строка, объединена с первой',not_evaluated:'Не проверено: исправьте конфликт количества'};
-  return <section aria-label="КП по артикулам" className="grid gap-3 rounded-lg bg-[#F7F9FC] p-3">
-    <h3 className="font-semibold">Коммерческое предложение по проверенным артикулам</h3>
-    <p className="text-sm">Для каждого артикула проверяются все активные склады с физическим остатком. Резервы не вычитаются; КП остаётся доступно автору и администраторам.</p>
-    {error ? <p role="alert" className="break-words rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}
-    <button type="button" className={`${button} app-action-button`} disabled={busy || job.status!=='confirmed'} onClick={() => void generate()}>{busy ? 'Проверяем остатки и формируем КП…' : 'Сформировать КП по всем складам'}</button>
-    {result ? <div className="grid gap-2" aria-live="polite">
-      {result.offer ? <p className="text-sm">{result.articleResolution.some((row) => !['matched','duplicate'].includes(row.status)) ? 'КП сформировано частично: строки без найденного однозначного остатка не включены. ' : 'КП сформировано. '}№ {result.offer.number}. <a className="font-semibold underline" href={`/commercial-offers/${result.offer.id}`}>Открыть коммерческое предложение</a>{result.replayed ? ' · повторный запрос вернул сохранённый результат' : ''}</p> : <p className="text-sm">Подходящих однозначных складских остатков нет или запрос требует исправления; КП не создано.</p>}
-      <ul className="grid gap-1 text-sm">{result.articleResolution.map((row,index) => <li key={`${row.sourceRow}-${index}`} className="break-words">Строка {row.sourceRow}: {row.article} — {labels[row.status]}{row.variants.length ? ` (${row.variants.map((variant) => `${variant.warehouseName}: ${variant.offerQty} из ${variant.physicalStock}, ${variant.price} ₽`).join('; ')})` : ''}</li>)}</ul>
-    </div> : null}
-  </section>;
-}

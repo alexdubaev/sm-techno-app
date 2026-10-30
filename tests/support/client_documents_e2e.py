@@ -27,7 +27,11 @@ class FixedArticleExtractor:
     timeout = 5
 
     def extract(self, request):
-        # Fail closed if another test accidentally relies on this fixture.
+        # Fail closed except for the exact synthetic documents in this harness.
+        if request.kind == "requisites" and any("SYNTHETIC REQUISITES 7701234560" in text for text in request.texts):
+            return ExtractionResult("requisites", {"document_name":DOCUMENT_CLIENT_NAME,
+                "full_name":DOCUMENT_CLIENT_NAME,"inn":"7701234560","kpp":"770101001"},
+                provenance=[{"assetId":aid} for aid in request.source_asset_ids])
         if request.kind != "articles" or not any("00123 4" in text for text in request.texts):
             raise ValueError("The browser fixture only accepts its synthetic article request.")
         return ExtractionResult("articles", {"rows": [

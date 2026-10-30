@@ -374,6 +374,53 @@ class AssistantRepository:
             conn.execute("INSERT INTO document_assistant_operations(operation_key,actor_user_id,job_id,action,status,result_type,result_id,created_at,updated_at) VALUES(?,?,?,'review','completed','job',?,?,?)",(operation_key,actor_user_id,job_id,job_id,now,now))
         return self.get_job(job_id)
 
+    def preview_document_candidates(self, inn, kpp):
+        with self.db.connect() as conn:
+            rows=conn.execute("""SELECT c.id,c.document_name,c.full_name,c.name,
+                COALESCE(NULLIF(c.inn,''),p.inn,'') AS inn,COALESCE(NULLIF(c.kpp,''),p.kpp,'') AS kpp
+                FROM crm_clients c LEFT JOIN counterparties p ON p.id=c.linked_counterparty_id
+                WHERE c.crm_archived_at IS NULL AND COALESCE(NULLIF(c.inn,''),p.inn,'')=?
+                AND (?='' OR COALESCE(NULLIF(c.kpp,''),p.kpp,'')=?) ORDER BY c.id""",(inn,kpp,kpp)).fetchall()
+            candidates=[]
+            for row in rows:
+                docs=conn.execute("""SELECT d.id,d.number,s.contract_version_asset_id FROM documents d
+                    LEFT JOIN client_document_state s ON s.crm_client_id=? AND s.contract_document_id=d.id
+                    WHERE d.document_type='contract' AND (d.crm_client_id=? OR
+                      (d.crm_client_id IS NULL AND d.client_source='onec' AND d.counterparty_id=(SELECT linked_counterparty_id FROM crm_clients WHERE id=?)))""",(row['id'],row['id'],row['id'])).fetchall()
+                if len(docs)>1: raise DocumentConflict('У клиента несколько договоров; требуется согласование.')
+                contract={'documentId':docs[0]['id'],'number':docs[0]['number'],'versionId':docs[0]['contract_version_asset_id']} if docs else None
+                candidates.append({'clientId':row['id'],'documentName':row['document_name'] or row['full_name'] or row['name'] or '', 'inn':row['inn'],'kpp':row['kpp'],'contract':contract})
+            return candidates
+
+    def bind_document_job(self, job_id, actor_user_id, client_id, expected_version, operation_key):
+        if not isinstance(operation_key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,128}',operation_key): raise ValueError('Некорректный ключ операции.')
+        with self.db.transaction(immediate=True) as conn:
+            job=self._row(conn.execute('SELECT * FROM document_assistant_jobs WHERE id=?',(job_id,)).fetchone(),'Задание не найдено.')
+            if job['actor_user_id']!=actor_user_id: raise DocumentPermissionError('Привязать задание может только автор.')
+            op=conn.execute('SELECT * FROM document_assistant_operations WHERE operation_key=?',(operation_key,)).fetchone()
+            if op:
+                if (op['actor_user_id'],op['job_id'],op['action'],op['status'],op['result_id'])!=(actor_user_id,job_id,'bind_client','completed',str(client_id)) or job['crm_client_id']!=client_id:
+                    raise DocumentConflict('Ключ операции уже использован.')
+                if expected_version!=job['version']-1: raise DocumentConflict('Конфликт версии задания.')
+                return self.get_job(job_id)
+            if job['kind'] not in {'requisites','invoice'} or job['status']!='confirmed' or job['crm_client_id'] is not None or job['version']!=expected_version:
+                raise DocumentConflict('Сначала подтвердите актуальный результат проверки.')
+            fields=json.loads(job['result_json'] or '{}').get('payload',{})
+            inn=str(fields.get('inn' if job['kind']=='requisites' else 'buyer_inn') or '').strip()
+            kpp=str(fields.get('kpp' if job['kind']=='requisites' else 'buyer_kpp') or '').strip()
+            client=conn.execute("""SELECT c.crm_archived_at,COALESCE(NULLIF(c.inn,''),p.inn,'') AS inn,COALESCE(NULLIF(c.kpp,''),p.kpp,'') AS kpp
+                FROM crm_clients c LEFT JOIN counterparties p ON p.id=c.linked_counterparty_id WHERE c.id=?""",(client_id,)).fetchone()
+            if not client: raise DocumentNotFound('Клиент не найден.')
+            if client['crm_archived_at'] or not inn or inn!=client['inn'] or (kpp and kpp!=client['kpp']): raise DocumentConflict('ИНН/КПП документа не совпадают с клиентом.')
+            for aid in json.loads(job['input_asset_ids']):
+                asset=conn.execute('SELECT * FROM client_document_assets WHERE id=?',(aid,)).fetchone()
+                if not asset or asset['created_by_user_id']!=actor_user_id or asset['crm_client_id'] is not None: raise DocumentConflict('Исходный файл уже привязан.')
+                conn.execute('UPDATE client_document_assets SET crm_client_id=? WHERE id=?',(client_id,aid))
+            now=utc_now()
+            conn.execute('UPDATE document_assistant_jobs SET crm_client_id=?,version=version+1,updated_at=? WHERE id=?',(client_id,now,job_id))
+            conn.execute("INSERT INTO document_assistant_operations(operation_key,actor_user_id,job_id,action,status,result_type,result_id,created_at,updated_at) VALUES(?,?,?,'bind_client','completed','client',?,?,?)",(operation_key,actor_user_id,job_id,str(client_id),now,now))
+        return self.get_job(job_id)
+
     def bind_reviewed_job(self, job_id, actor_user_id, client_id, expected_version):
         """Explicit post-review binding; atomically moves only this actor's unbound inputs."""
         self.get_client_display(client_id)
