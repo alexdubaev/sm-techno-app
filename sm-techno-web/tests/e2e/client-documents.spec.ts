@@ -69,7 +69,7 @@ test('documents: review requisites, explicitly bind a client and download the ge
   await page.getByLabel('Номер формируемого договора').fill('Д-E2E');
   await page.getByLabel('Дата формируемого договора').fill('2026-10-30');
   await page.getByRole('button',{name:'Сформировать договор',exact:true}).click();
-  await expect(page.getByText('Договор № Д-E2E', {exact:false})).toBeVisible();
+  await expect(page.getByRole('heading', {name:'Договор № Д-E2E от 2026-10-30',exact:true})).toBeVisible();
   const download=page.waitForEvent('download');
   await page.getByRole('button',{name:'Скачать актуальный файл № Д-E2E'}).click();
   const file=await download;
