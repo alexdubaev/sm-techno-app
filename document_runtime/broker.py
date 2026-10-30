@@ -106,13 +106,28 @@ def _private_directory(path, uid):
 
 
 def _safe_remove_tree(path, uid):
-    """Only remove an owned tree with no links or foreign entries."""
+    """Remove own job trees and only the fixed UID-65534 converter output."""
     try:
         _private_directory(path, uid)
         for root, dirs, files in os.walk(path, followlinks=False):
             for name in dirs + files:
-                st = (Path(root) / name).lstat()
-                if st.st_uid != uid or not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)):
+                entry = Path(root) / name
+                st = entry.lstat()
+                relative = entry.relative_to(path).parts
+                if stat.S_ISDIR(st.st_mode):
+                    if st.st_uid != uid:
+                        return False
+                    continue
+                if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                    return False
+                if st.st_uid == uid:
+                    continue
+                if not (st.st_uid == 65534 and len(relative) == 3
+                        and re.fullmatch(r'office-[0-9a-f]{32}', relative[0])
+                        and relative[1:] == ('output', 'source.pdf')):
+                    return False
+                # The writable converter output directory must contain only this file.
+                if set(os.listdir(entry.parent)) != {'source.pdf'}:
                     return False
         shutil.rmtree(path)
         return True
@@ -200,7 +215,7 @@ class ConverterBroker:
             job.mkdir(mode=0o700)
             source = job / ('source' + FORMATS[fmt])
             source.write_bytes(data)
-            output = self.converter.convert(source, job)
+            output = self.converter.convert(source, job, deadline=deadline)
             # Never trust a converter output symlink or an oversized output.
             st = output.lstat()
             if not stat.S_ISREG(st.st_mode) or st.st_size <= 0 or st.st_size > OUTPUT_MAX:
@@ -211,13 +226,6 @@ class ConverterBroker:
                 if not stat.S_ISREG(actual.st_mode) or actual.st_ino != st.st_ino or actual.st_dev != st.st_dev:
                     raise ExtractionError('conversion_failed')
                 result = file.read(OUTPUT_MAX + 1)
-            # Docker's fixed unprivileged converter creates exactly this output as UID 65534.
-            # Only unlink that known output in a freshly created own job tree.
-            relative = output.relative_to(job)
-            parts = relative.parts
-            if (len(parts) == 3 and re.fullmatch(r'office-[0-9a-f]{32}', parts[0])
-                    and parts[1:] == ('output', 'source.pdf') and actual.st_uid == 65534):
-                output.unlink()
             if len(result) > OUTPUT_MAX:
                 raise ExtractionError('conversion_failed')
             _send(conn, RESPONSE.pack(0, len(result)) + result, deadline)

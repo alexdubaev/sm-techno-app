@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import time
 import uuid
 
 from document_runtime.errors import ExtractionError
@@ -16,7 +17,18 @@ class IsolatedOfficeConverter:
         self.timeout=timeout
         self.broker_access=broker_access
 
-    def convert(self, source: Path, workspace: Path) -> Path:
+    def convert(self, source: Path, workspace: Path, *, deadline=None) -> Path:
+        # The broker reserves two eight-second Docker cleanup operations.
+        def budget(limit, reserve=0):
+            if deadline is None:
+                return limit
+            remaining = deadline - time.monotonic() - reserve
+            if remaining <= 0:
+                raise ExtractionError('converter_timeout', 'Документ не преобразован за допустимое время.')
+            return min(limit, remaining)
+
+        if deadline is not None and deadline - time.monotonic() <= 17:
+            raise ExtractionError('converter_timeout', 'Документ не преобразован за допустимое время.')
         if not self.binary or not re.fullmatch(r'sha256:[0-9a-f]{64}',self.image):
             raise ExtractionError('converter_unavailable','Изолированный конвертер DOC/RTF/ODT не настроен. Администратору нужно подключить проверенный образ.')
         suffix=source.suffix.lower()
@@ -35,9 +47,9 @@ class IsolatedOfficeConverter:
         docker=[self.binary,'--context','default']
         # Never route selected customer materials to a configured remote Docker context.
         try:
-            endpoint=subprocess.run(docker+['context','inspect','default','--format','{{.Endpoints.docker.Host}}'],env=env,capture_output=True,timeout=8,shell=False)
+            endpoint=subprocess.run(docker+['context','inspect','default','--format','{{.Endpoints.docker.Host}}'],env=env,capture_output=True,timeout=budget(8, 16),shell=False)
             host=endpoint.stdout.decode().strip()
-            image_check=subprocess.run(docker+['image','inspect','--format','{{ index .Config.Labels "org.sm-techno.document-converter" }}',self.image],env=env,capture_output=True,timeout=8,shell=False)
+            image_check=subprocess.run(docker+['image','inspect','--format','{{ index .Config.Labels "org.sm-techno.document-converter" }}',self.image],env=env,capture_output=True,timeout=budget(8, 16),shell=False)
             local_endpoint=host.startswith('unix:///') or host.startswith('npipe:////./pipe/')
             if endpoint.returncode or not local_endpoint or image_check.returncode or image_check.stdout.decode().strip()!='v1':
                 raise ExtractionError('converter_unavailable','Подключите локальный Docker и проверенный образ конвертера v1.')
@@ -49,7 +61,7 @@ class IsolatedOfficeConverter:
             '--mount',f'type=bind,src={input_dir.resolve()},dst=/input,readonly',
             '--mount',f'type=bind,src={output_dir.resolve()},dst=/output',self.image,suffix]
         try:
-            completed=subprocess.run(args,env=env,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=self.timeout,shell=False)
+            completed=subprocess.run(args,env=env,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=budget(self.timeout, 16),shell=False)
             output=output_dir/'source.pdf'
             if completed.returncode or not output.is_file() or output.is_symlink() or output.stat().st_size>50*1024*1024:
                 raise ExtractionError('conversion_failed','Не удалось преобразовать документ. Проверьте файл и доступность изолированного конвертера.')
@@ -61,7 +73,7 @@ class IsolatedOfficeConverter:
         finally:
             # The daemon may outlive a timed-out client. Remove only our exact labelled container.
             try:
-                check=subprocess.run(docker+['inspect','--format','{{ index .Config.Labels "org.sm-techno.document-job" }}',name],env=env,capture_output=True,timeout=8,shell=False)
+                check=subprocess.run(docker+['inspect','--format','{{ index .Config.Labels "org.sm-techno.document-job" }}',name],env=env,capture_output=True,timeout=budget(8),shell=False)
                 if check.returncode==0 and check.stdout.decode().strip()==name:
-                    subprocess.run(docker+['rm','--force',name],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=8,shell=False)
-            except (OSError,subprocess.TimeoutExpired): pass
+                    subprocess.run(docker+['rm','--force',name],env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=budget(8),shell=False)
+            except (OSError,subprocess.TimeoutExpired,ExtractionError): pass

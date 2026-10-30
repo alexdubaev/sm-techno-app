@@ -25,7 +25,7 @@ class BrokerIntegration(unittest.TestCase):
         self.started = threading.Event()
         outer = self
         class Converter:
-            def convert(self, source, workspace):
+            def convert(self, source, workspace, *, deadline=None):
                 data = source.read_bytes()
                 if data == b'wait':
                     outer.started.set()
@@ -91,6 +91,69 @@ class BrokerIntegration(unittest.TestCase):
                 self.assertEqual(converter.convert(self.source, self.workspace).read_bytes(), b'%PDF-test')
         finally:
             os.umask(old_umask)
+
+    @unittest.skipUnless(os.geteuid() == 0, 'requires chown to simulate converter UID')
+    def test_failed_and_orphaned_converter_output_cleanup(self):
+        def create_foreign(job):
+            output = job / ('office-' + 'a'*32) / 'output'
+            output.mkdir(parents=True)
+            pdf = output / 'source.pdf'
+            pdf.write_bytes(b'private')
+            os.chown(pdf, 65534, 65534)
+        class Failure:
+            def convert(self, source, workspace, *, deadline=None):
+                create_foreign(workspace)
+                raise ExtractionError('conversion_failed')
+        self.broker.converter = Failure()
+        self.source.write_bytes(b'private')
+        with self.assertRaises(ExtractionError):
+            self.client.convert(self.source, self.workspace)
+        time.sleep(.05)
+        self.assertEqual(list(self.broker.work_dir.iterdir()), [])
+        orphan = self.broker.work_dir / ('job-' + 'b'*32)
+        orphan.mkdir(mode=0o700)
+        (orphan / 'source.doc').write_bytes(b'private')
+        create_foreign(orphan)
+        self.broker.listener.close()
+        self.broker.lease.close()
+        self.broker = ConverterBroker(self.root, '', client_uid=os.getuid(), converter=Failure(), deadline=1)
+        self.broker.start()
+        self.assertFalse(orphan.exists())
+
+        guarded = self.broker.work_dir / ('job-' + 'c'*32)
+        guarded.mkdir(mode=0o700)
+        create_foreign(guarded)
+        output = guarded / ('office-' + 'a'*32) / 'output'
+        (output / 'unexpected').write_text('keep')
+        self.assertFalse(_safe_remove_tree(guarded, os.getuid()))
+        (output / 'unexpected').unlink()
+        os.link(output / 'source.pdf', output / 'hardlink')
+        self.assertFalse(_safe_remove_tree(guarded, os.getuid()))
+        (output / 'hardlink').unlink()
+        self.assertTrue(_safe_remove_tree(guarded, os.getuid()))
+
+    def test_deadline_is_shared_and_reserves_cleanup(self):
+        self.source.write_bytes(b'x')
+        converter = IsolatedOfficeConverter(image='sha256:'+'a'*64, binary='docker', broker_access=True)
+        with mock.patch('document_runtime.office.subprocess.run') as run:
+            with self.assertRaises(ExtractionError) as caught:
+                converter.convert(self.source, self.workspace, deadline=time.monotonic()+1)
+            self.assertEqual(caught.exception.code, 'converter_timeout')
+            run.assert_not_called()
+        calls = []
+        now = [100.0]
+        def runner(args, **kwargs):
+            calls.append((args, kwargs['timeout']))
+            now[0] += 1
+            if 'context' in args: return SimpleNamespace(returncode=0, stdout=b'unix:///var/run/docker.sock')
+            if 'image' in args: return SimpleNamespace(returncode=0, stdout=b'v1')
+            if 'run' in args: raise __import__('subprocess').TimeoutExpired(args, kwargs['timeout'])
+            if 'inspect' in args: return SimpleNamespace(returncode=1, stdout=b'')
+            return SimpleNamespace(returncode=1, stdout=b'')
+        with mock.patch('document_runtime.office.subprocess.run', side_effect=runner), mock.patch('document_runtime.office.time.monotonic', side_effect=lambda: now[0]):
+            with self.assertRaises(ExtractionError):
+                converter.convert(self.source, self.workspace, deadline=120)
+        self.assertEqual([timeout for _, timeout in calls], [4, 3, 2, 8])
 
     def test_peer_uid_on_both_ends(self):
         self.source.write_bytes(b'x')
