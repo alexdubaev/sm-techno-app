@@ -31,3 +31,7 @@ $out
 ~$*.docx
 # локальный MCP коннектор 1С, секреты не хранить в Git
 .env.onec-mcp
+.autopilot/serve.*
+
+# Local browser QA artifacts
+.playwright-mcp/

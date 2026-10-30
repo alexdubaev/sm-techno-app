@@ -241,6 +241,11 @@ export default function OrderDetailsPage() {
               >
                 Назад к истории
               </Link>
+              {order?.crmClientId ? (
+                <Link href={`/crm?documents=${order.crmClientId}`} className="app-action-button app-action-button--xs">
+                  Документы клиента
+                </Link>
+              ) : null}
               <Link
                 href="/work-with-invoice"
                 className="app-action-button app-action-button--xs"

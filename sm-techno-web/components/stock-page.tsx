@@ -14,6 +14,7 @@ import {
 import { useRouter } from 'next/navigation';
 
 import { AppShell } from '@/components/app-shell';
+import { StockValuationPanel } from '@/components/stock/stock-valuation-panel';
 import {
   ResizableTableHeader,
   useResizableColumns,
@@ -1128,6 +1129,8 @@ export function StockPage() {
             </div>
           </div>
         </header>
+
+        <StockValuationPanel />
 
         <div className="md:hidden">
           <section className="rounded-[18px] bg-white p-3 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">

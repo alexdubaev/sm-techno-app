@@ -166,6 +166,7 @@ export default function CommercialOffersPage() {
                         <td className="px-3 py-1.5 text-[var(--text-secondary)]">{formatShortDate(offer.offerDate)}</td>
                         <td className="px-3 py-1.5">
                           <div className="line-clamp-2 text-[11px] font-medium leading-[15px]">{offer.clientName || "-"}</div>
+                          {offer.crmClientId ? <Link href={`/crm?documents=${offer.crmClientId}`} className="text-[11px] underline">Документы клиента</Link> : null}
                           <div className="mt-0.5 text-[9px] text-[var(--text-secondary)]">
                             {offer.clientSource === "onec" ? "Клиент из 1С" : "Локальный клиент"}
                           </div>

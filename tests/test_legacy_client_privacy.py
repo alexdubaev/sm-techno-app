@@ -166,7 +166,7 @@ class LegacyClientPrivacyTest(unittest.TestCase):
         self.assertEqual(403, response.status_code, response.text)
         self.assertEqual(0, fake.calls)
 
-    def test_legacy_document_cannot_resolve_another_users_private_lead(self) -> None:
+    def test_legacy_document_can_use_another_users_client_without_private_detail(self) -> None:
         response = self.client.post(
             "/api/documents",
             json={
@@ -176,7 +176,9 @@ class LegacyClientPrivacyTest(unittest.TestCase):
             },
         )
 
-        self.assertEqual(403, response.status_code, response.text)
+        self.assertEqual(200, response.status_code, response.text)
         with self.service.db.connect() as conn:
-            self.assertEqual(0, conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
+            self.assertEqual(1, conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0])
+        private = self.client.get(f"/api/crm/clients/{self.private_client['id']}?ownerId={self.other_id}")
+        self.assertEqual(403, private.status_code, private.text)
 

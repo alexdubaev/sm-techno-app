@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from io import BytesIO
 import json
 from pathlib import Path
@@ -313,13 +314,27 @@ class DocumentGenerationTest(unittest.TestCase):
 class DocumentDatabaseMigrationTest(unittest.TestCase):
     def setUp(self) -> None:
         self._temp_dir = tempfile.TemporaryDirectory()
+        self._connections = []
+        original_connect = WebDatabase.connect
+
+        def connect(database):
+            connection = original_connect(database)
+            self._connections.append(connection)
+            return connection
+
+        self._connect_patch = patch.object(WebDatabase, "connect", connect)
+        self._connect_patch.start()
 
     def tearDown(self) -> None:
+        # SQLite's transaction context does not close its OS file handle.
+        for connection in self._connections:
+            connection.close()
+        self._connect_patch.stop()
         self._temp_dir.cleanup()
 
     def test_migration_adds_document_fields_and_documents_table(self) -> None:
         old_db_path = Path(self._temp_dir.name) / "old_stock_sync.db"
-        with sqlite3.connect(old_db_path) as conn:
+        with closing(sqlite3.connect(old_db_path)) as conn, conn:
             conn.execute(
                 """
                 CREATE TABLE crm_clients (
@@ -355,7 +370,7 @@ class DocumentDatabaseMigrationTest(unittest.TestCase):
         self.assertEqual(row["signer_name"], "")
         self.assertEqual(row["signer_basis"], "")
 
-        with migrated.connect() as conn:
+        with closing(migrated.connect()) as conn:
             document_columns = {
                 item["name"] for item in conn.execute("PRAGMA table_info(documents)").fetchall()
             }

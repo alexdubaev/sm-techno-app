@@ -36,6 +36,9 @@ def main() -> None:
                 full_name="E2E Operator",
             )
 
+        from tests.support.client_documents_e2e import install_document_browser_fixture
+        install_document_browser_fixture(stock_sync_api)
+
         uvicorn.run(stock_sync_api.app, host=host, port=port, log_level="warning")
 
 

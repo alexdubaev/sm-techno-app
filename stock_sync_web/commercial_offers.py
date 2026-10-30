@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import math
-from math import ceil
+from textwrap import wrap
 from copy import copy
 from dataclasses import dataclass
 from datetime import date
@@ -257,18 +257,26 @@ def _estimate_wrapped_line_count(value: str | None, column_width: float | None) 
     if not value:
         return 1
 
-    chars_per_line = max(int((column_width or 23) * 1.15), 18)
-    return max(1, sum(max(1, ceil(len(part) / chars_per_line)) for part in str(value).splitlines()))
+    # Excel widths use average character units. Reserve a little room for the
+    # cell padding and word-boundary wrapping, especially in narrow note cells.
+    chars_per_line = max(int((column_width or 23) - 1), 1)
+    return max(1, sum(max(1, len(wrap(part, width=chars_per_line))) for part in str(value).splitlines()))
 
 
-def _fit_name_row_height(ws: Worksheet, row: int, name: str | None, base_height: float | None) -> None:
-    line_count = _estimate_wrapped_line_count(name, ws.column_dimensions["C"].width)
+def _fit_name_row_height(ws: Worksheet, row: int, name: str | None, base_height: float | None, note: str | None = None) -> None:
+    line_count = max(
+        _estimate_wrapped_line_count(name, ws.column_dimensions["C"].width),
+        _estimate_wrapped_line_count(note, ws.column_dimensions["I"].width),
+    )
     if line_count <= 1:
         return
 
     row_height = base_height or DEFAULT_OFFER_ROW_HEIGHT
     current_height = ws.row_dimensions[row].height or row_height
-    ws.row_dimensions[row].height = min(max(current_height, row_height * line_count), MAX_OFFER_ROW_HEIGHT)
+    # Warehouse notes must not inherit the legacy 90 pt name-only limit.
+    # 409.5 pt is the native Excel row-height limit.
+    max_height = 409.5 if note else MAX_OFFER_ROW_HEIGHT
+    ws.row_dimensions[row].height = min(max(current_height, row_height * line_count), max_height)
 
 
 def _client_cell_value(client_name: str) -> CellRichText:
@@ -328,7 +336,6 @@ def generate_commercial_offer_workbook(
         ws[_cell(columns["article"], row)] = line.article
         ws[_cell(columns["name"], row)] = line.name
         _set_cell_alignment(ws[_cell(columns["name"], row)], wrap_text=True, vertical="top")
-        _fit_name_row_height(ws, row, line.name, row_height)
         ws[_cell(columns["brand"], row)] = line.brand
         ws[_cell(columns["qty"], row)] = _quantity_cell_value(line.qty)
         ws[_cell(columns["price_vat"], row)] = line.price_vat
@@ -338,6 +345,8 @@ def generate_commercial_offer_workbook(
         )
         ws[_cell(columns["delivery_time"], row)] = line.delivery_time
         ws[_cell(columns["note"], row)] = line.note
+        _set_cell_alignment(ws[_cell(columns["note"], row)], wrap_text=True, vertical="top")
+        _fit_name_row_height(ws, row, line.name, row_height, line.note)
 
     total_row = first_row + len(lines)
     ws[_cell(columns["amount_vat"], total_row)] = (

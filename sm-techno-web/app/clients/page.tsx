@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type SyntheticEvent, type ReactNode, type SVGProps } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent, type ReactNode, type SVGProps } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { DocumentExtractionPanel } from '@/components/crm/document-extraction-panel';
+import { populateClientForm,clientFormToReviewedFields } from '@/lib/reviewed-requisites';
 import {
   ResizableTableHeader,
   useResizableColumns,
@@ -10,13 +13,14 @@ import {
 } from "@/components/resizable-table";
 import {
   createClient,
+  confirmDocumentAssistantJob,
   fetchClients,
   sendClientToOneC,
   syncCrmWorkspace,
   type ClientSyncResult,
   type CreateClientPayload,
 } from "@/lib/api";
-import type { CrmClient } from "@/lib/types";
+import type { CrmClient, DocumentAssistantJob } from "@/lib/types";
 
 const CLIENTS_TABLE_COLUMNS: ResizableColumnConfig[] = [
   { key: "status", width: 128, minWidth: 112, maxWidth: 170 },
@@ -75,6 +79,9 @@ export default function ClientsPage() {
   const [retryingClientId, setRetryingClientId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [reviewedSource,setReviewedSource]=useState<DocumentAssistantJob | null>(null);
+  const [documentClientId,setDocumentClientId]=useState<number | null>(null);
+  const assistedSubmission=useRef<{payload: string;key: string} | null>(null);
   const { containerRef, getWidth, onResizeStart, tableWidth } = useResizableColumns(
     "sm-techno-crm-clients-table-widths-v2",
     CLIENTS_TABLE_COLUMNS,
@@ -144,9 +151,22 @@ export default function ClientsPage() {
     setNotice(null);
 
     try {
-      const result = await createClient(payload);
+      if(reviewedSource) {
+        const fields=clientFormToReviewedFields(payload,reviewedSource.result?.payload ?? {});
+        const serialized=JSON.stringify(fields);
+        if(assistedSubmission.current?.payload!==serialized) assistedSubmission.current={payload:serialized,key:crypto.randomUUID()};
+        const result=await confirmDocumentAssistantJob(reviewedSource.id,{version:reviewedSource.version,
+          operationKey:assistedSubmission.current.key,action:'create_client',fields});
+        setDocumentClientId(result.clientId);
+        setNotice(result.syncStatus==='synced' ? 'Клиент создан и отправлен в 1С.' : result.syncStatus==='existing'
+          ? 'Найден существующий клиент. Документы привязаны к его карточке.'
+          : 'Карточка и реквизиты сохранены. Проверьте ошибку обмена с 1С в списке клиентов. Не повторяйте отправку, если её результат неизвестен.');
+        setReviewedSource(null);assistedSubmission.current=null;
+      } else {
+        const result = await createClient(payload);
+        setNotice(formatSyncNotice(result.sync));
+      }
       setForm(createEmptyForm());
-      setNotice(formatSyncNotice(result.sync));
       await loadClients();
     } catch (requestError: unknown) {
       setError(getErrorMessage(requestError, "Не удалось создать клиента."));
@@ -217,6 +237,13 @@ export default function ClientsPage() {
 
         {error ? <Alert tone="error">{error}</Alert> : null}
         {notice ? <Alert tone="success">{notice}</Alert> : null}
+        {documentClientId ? <Link className="text-sm font-semibold underline" href={`/crm?documents=${documentClientId}`}>Открыть документы клиента</Link> : null}
+        <DocumentExtractionPanel purpose="requisites" onConfirmed={(job) => {
+          if(job.kind!=='requisites') return;
+          setReviewedSource(job);setForm(populateClientForm(createEmptyForm(),job.result?.payload ?? {}));
+          assistedSubmission.current=null;setDocumentClientId(null);
+          setNotice('Проверенные реквизиты перенесены в форму. Проверьте поля и нажмите «Создать в 1С».');
+        }} />
 
         <form
           onSubmit={(event) => void handleSubmit(event)}
@@ -535,6 +562,7 @@ export default function ClientsPage() {
                           <div className="line-clamp-2 text-[11px] font-semibold leading-[15px]">
                             {formatClientDisplayName(client)}
                           </div>
+                          {(client.crmClientId || client.source === "local") ? <Link href={`/crm?documents=${localClientId}`} className="mt-1 inline-block text-[11px] underline">Документы клиента</Link> : null}
                           {client.fullName && client.fullName !== client.documentName ? (
                             <div className="mt-0.5 line-clamp-1 text-[9px] text-[var(--text-secondary)]">
                               {client.fullName}

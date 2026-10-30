@@ -1,6 +1,8 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject, type SetStateAction, type SubmitEvent } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject, type SetStateAction, type SubmitEvent } from "react";
 
 import {
   downloadCrmExportFile,
@@ -26,7 +28,10 @@ import {
   type CrmSyncStatus,
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { ClientDocumentsPanel } from "@/components/crm/client-documents-panel";
 import { MobileCrmWorkspace } from "@/components/crm/mobile/mobile-crm-workspace";
+import { MobileClientDetail } from "@/components/crm/mobile/mobile-client-detail";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { filterAndSortCrmClients, type CrmSortMode, type PresenceFilter } from "@/components/crm/crm-client-list-controls";
 import { getCrmContactSelectionRevision, getCrmDisplayContacts, resolveCrmDisplayContact, type CrmDisplayContact } from "@/components/crm/crm-contact-selection";
 import { MessengerLinks } from "@/components/crm/messenger-links";
@@ -110,6 +115,41 @@ function emptyClientForm() {
 }
 
 export function CrmWorkspace() {
+  return <Suspense fallback={<p>Загрузка карточки…</p>}><CrmWorkspaceEntry /></Suspense>;
+}
+
+function CrmWorkspaceEntry() {
+  const search = useSearchParams();
+  // Resolve personal access before mounting the private detail controller.
+  if (search === null) return <p>Загрузка карточки…</p>;
+  const rawId = search.get("documents");
+  if (rawId !== null) {
+    const clientId = Number(rawId);
+    if (!/^[1-9][0-9]*$/.test(rawId) || !Number.isSafeInteger(clientId)) return <p role="alert">Некорректная карточка клиента.</p>;
+    return <DocumentClientEntry key={clientId} clientId={clientId} />;
+  }
+  return <CrmWorkspaceFull />;
+}
+
+function DocumentClientEntry({clientId}: {clientId: number}) {
+  const {user,isAdmin}=useAuth();
+  const router=useRouter();
+  const isMobile=useIsMobile();
+  const [resolved,setResolved]=useState<{client:CrmWorkspaceClient | null} | null>(null);
+  useEffect(() => {
+    let active=true;
+    void fetchCrmClient(clientId,user.id).then((client) => {if(active)setResolved({client});},() => {if(active)setResolved({client:null});});
+    return () => {active=false;};
+  },[clientId,user.id]);
+  if(!resolved) return <p>Проверяем доступ к карточке клиента…</p>;
+  if(!resolved.client) return <div className="mx-auto grid w-full max-w-5xl gap-3"><Link href="/crm" className="text-sm underline">К списку клиентов</Link><ClientDocumentsPanel clientId={clientId} isAdmin={isAdmin} /></div>;
+  const client=resolved.client;
+  const options={client,ownerId:user.id,activeTab:client.assignment?.tabId ?? 'primary' as const,ownerName:user.fullName || user.username,isAdmin,canEditWorkspace:true,canManageReminders:true,canResolveSyncConflicts:true};
+  const close=() => router.push('/crm');
+  return <div className="mx-auto grid w-full max-w-5xl gap-3"><Link href="/crm" className="text-sm underline">К списку клиентов</Link>{isMobile ? <MobileClientDetail {...options} initialSection="documents" onClose={close} onDetailChanged={() => {}} /> : <ClientDetailDialog {...options} initialDocumentsOpen onClose={close} onChanged={() => {}} />}</div>;
+}
+
+function CrmWorkspaceFull() {
   const { user, isAdmin } = useAuth();
   const [initialWorkspaceCache] = useState(() => readCrmWorkspaceCache(user.id, "primary"));
   const [owners, setOwners] = useState<AppUser[]>([]);
@@ -1122,9 +1162,10 @@ function ClientDialog({ form, isSaving, onChange, onClose, onSubmit }: { form: R
 
 function ReadonlyCompanyRequisites({ client }: { client: CrmWorkspaceClient }) { return <dl className="grid gap-1 text-[11px] text-[var(--text-secondary)]"><div><dt className="font-semibold">Наименование</dt><dd>{client.documentName || "—"}</dd></div><div><dt className="font-semibold">Полное наименование</dt><dd>{client.fullName || "—"}</dd></div><div><dt className="font-semibold">ИНН / КПП</dt><dd>{[client.inn, client.kpp].filter(Boolean).join(" / ") || "—"}</dd></div><div><dt className="font-semibold">Город</dt><dd>{client.city || "—"}</dd></div><div><dt className="font-semibold">Телефон / почта</dt><dd>{[client.phone, client.email].filter(Boolean).join(" / ") || "—"}</dd></div><div><dt className="font-semibold">Мессенджеры</dt><dd><MessengerLinks telegram={client.telegram} maxLink={client.maxLink} className="mt-1" /></dd></div></dl>; }
 
-type ClientDetailDialogProps = CrmClientDetailControllerOptions & { onClose: () => void };
+type ClientDetailDialogProps = CrmClientDetailControllerOptions & { onClose: () => void; initialDocumentsOpen?: boolean };
 
-function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialogProps) {
+function ClientDetailDialog({ onClose, initialDocumentsOpen=false, ...controllerOptions }: ClientDetailDialogProps) {
+  const [documentsOpen, setDocumentsOpen] = useState(initialDocumentsOpen);
   const {
     currentClient,
     contacts,
@@ -1214,6 +1255,7 @@ function ClientDetailDialog({ onClose, ...controllerOptions }: ClientDetailDialo
         </div>
         {error ? <Message tone="error">{error}</Message> : null}
         {notice ? <Message tone="success">{notice}</Message> : null}
+        <div className="mt-4"><button type="button" aria-expanded={documentsOpen} className="min-h-10 rounded-lg border border-[var(--border-color)] px-3 text-sm font-semibold" onClick={() => setDocumentsOpen((open) => !open)}>Документы клиента</button>{documentsOpen ? <div className="mt-3"><ClientDocumentsPanel key={currentClient.id} clientId={currentClient.id} isAdmin={controllerOptions.isAdmin} /></div> : null}</div>
         {isLoading ? <div className="mt-5"><LoadingRows /></div> : (
           <div className="mt-5 grid gap-4 lg:grid-cols-3">
             <DetailSection title="Реквизиты компании">

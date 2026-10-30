@@ -578,3 +578,42 @@ def test_restore_never_overwrites_a_nonempty_target(tmp_path: Path) -> None:
         restore_backup(archive, target)
 
     assert sentinel.read_text(encoding="utf-8") == "do not replace"
+
+ASSET_KEY = 'ab/' + 'ab' * 16
+
+def _add_asset_reference(root: Path, key: str = ASSET_KEY) -> Path:
+    with sqlite3.connect(root/'data/stock_sync.db') as conn:
+        conn.execute('CREATE TABLE client_document_assets(id INTEGER PRIMARY KEY, storage_key TEXT NOT NULL)')
+        conn.execute('INSERT INTO client_document_assets VALUES(1,?)',(key,))
+    path=root/'storage/documents/client_assets'/ASSET_KEY
+    path.parent.mkdir(parents=True,exist_ok=True); path.write_bytes(b'private original')
+    return path
+
+
+def test_private_asset_missing_blocks_backup_and_restore_before_target_mutation(tmp_path):
+    root=_make_root(tmp_path); path=_add_asset_reference(root)
+    archive=create_backup(root,tmp_path/'backups')
+    restore_backup(archive,tmp_path/'valid-check',verify_only=True)
+    _remove_archive_member_and_update_manifest(archive,'storage/documents/client_assets/'+ASSET_KEY)
+    target=tmp_path/'existing'; target.mkdir(); (target/'keep.txt').write_text('keep')
+    for verify_only in (True,False):
+        with pytest.raises(RuntimeError,match='missing storage file'):
+            restore_backup(archive,target,verify_only=verify_only)
+        assert (target/'keep.txt').read_text()=='keep' and not (target/'data').exists()
+    path.unlink()
+    before=set((tmp_path/'backups').glob('*.tar.gz'))
+    with pytest.raises(RuntimeError,match='missing storage file'):
+        create_backup(root,tmp_path/'backups')
+    assert set((tmp_path/'backups').glob('*.tar.gz'))==before
+
+
+@pytest.mark.parametrize('key',['../outside','/absolute','C:/absolute','ab\\'+'ab'*16,'',None,'aa/'+'bb'*16])
+def test_private_asset_unsafe_keys_block_backup(tmp_path,key):
+    root=_make_root(tmp_path)
+    # The nullable variant models a malformed old asset table, which must fail closed.
+    with sqlite3.connect(root/'data/stock_sync.db') as conn:
+        conn.execute('CREATE TABLE client_document_assets(id INTEGER PRIMARY KEY,storage_key TEXT)')
+        conn.execute('INSERT INTO client_document_assets VALUES(1,?)',(key,))
+    with pytest.raises(RuntimeError,match='unsafe storage key'):
+        create_backup(root,tmp_path/'backups')
+    assert not list((tmp_path/'backups').glob('*.tar.gz'))

@@ -395,7 +395,7 @@ async function requestJson<T>(path: string, { bypassCache = false }: GetRequestO
   return parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
 }
 
-async function requestJsonWithInit<T>(
+export async function requestJsonWithInit<T>(
   path: string,
   init: RequestInit,
   fallbackMessage: string,
@@ -1719,4 +1719,76 @@ export function uploadManagerAvatar(managerId: number, version: number, file: Fi
 
 export function fetchManagerSnapshot(id: number, page = 1) {
   return requestJson<import('./manager-types').ManagerSnapshot>(`/api/manager/snapshots/${id}?page=${page}`, { bypassCache: true });
+}
+
+export async function fetchClientDocuments(clientId: number): Promise<import('@/lib/types').ClientDocumentsSummary> {
+  return requestJson(`/api/crm/clients/${clientId}/documents`, {bypassCache: true});
+}
+
+async function uploadPrivateDocument(path: string, body: FormData): Promise<import('@/lib/types').ClientDocumentAsset> {
+  const response = await fetchWithRetry(buildApiUrl(path), {method: 'POST', body, headers: createHeaders()}, {timeoutMs: 90_000});
+  const result = await parseJsonResponse<import('@/lib/types').ClientDocumentAsset>(response, 'Не удалось загрузить файл.');
+  invalidateApiCache();
+  return result;
+}
+
+export function uploadClientDocumentAsset(clientId: number, payload: {file: File; role: import('@/lib/types').ClientDocumentAssetRole}) {
+  const body = new FormData(); body.set('file', payload.file); body.set('role', payload.role);
+  return uploadPrivateDocument(`/api/crm/clients/${clientId}/document-assets`, body);
+}
+
+export function importClientDocument(clientId: number, payload: {type: 'contract' | 'specification'; assetId: number; number: string; date: string; contractId?: number; expectedVersion?: number}) {
+  return requestJsonWithInit<import('@/lib/types').ClientStoredDocument>(`/api/crm/clients/${clientId}/documents/import`, {
+    method: 'POST', headers: createHeaders({'Content-Type':'application/json'}), body: JSON.stringify(payload),
+  }, 'Не удалось сохранить документ.');
+}
+
+export function uploadClientDocumentVersion(clientId: number, documentId: number, payload: {file: File; role: 'final' | 'contract_version'; expectedVersion: number}) {
+  const body = new FormData(); body.set('file', payload.file); body.set('role', payload.role); body.set('expectedVersion', String(payload.expectedVersion));
+  return uploadPrivateDocument(`/api/crm/clients/${clientId}/documents/${documentId}/versions`, body);
+}
+
+export function downloadDocumentAsset(assetId: number) {
+  return downloadApiFile(`/api/document-assets/${assetId}/download`, 'Не удалось скачать файл.', 'document');
+}
+
+export function deleteDocumentAsset(assetId: number) {
+  return requestJsonWithInit<{ok: boolean}>(`/api/document-assets/${assetId}`, {method:'DELETE',headers:createHeaders()}, 'Не удалось удалить вложение.');
+}
+
+export function uploadDocumentAssistantIntake(file: File, kind: import('@/lib/types').DocumentAssistantKind) {
+  const body = new FormData(); body.set('file',file); body.set('kind',kind);
+  return uploadPrivateDocument('/api/document-assistant/intake',body);
+}
+
+export function startDocumentAssistantJob(payload: {kind: import('@/lib/types').DocumentAssistantKind; clientId?: number; assetIds: number[]}) {
+  return requestJsonWithInit<import('@/lib/types').DocumentAssistantJob>('/api/document-assistant/jobs',{
+    method:'POST',headers:createHeaders({'Content-Type':'application/json'}),body:JSON.stringify(payload),
+  },'Не удалось запустить распознавание.');
+}
+
+export function fetchDocumentAssistantJob(jobId: string) {
+  return requestJson<import('@/lib/types').DocumentAssistantJob>(`/api/document-assistant/jobs/${encodeURIComponent(jobId)}`,{bypassCache:true});
+}
+
+export function fetchDocumentAssistantJobs(clientId?: number) {
+  return requestJson<{items: import('@/lib/types').DocumentAssistantJob[]}>(`/api/document-assistant/jobs${clientId===undefined ? '' : `?clientId=${clientId}`}`,{bypassCache:true});
+}
+
+export function confirmDocumentAssistantJob(jobId: string,payload: {version: number; operationKey: string; action: string; fields: import('@/lib/types').DocumentAssistantPayload}) {
+  return requestJsonWithInit<{job: import('@/lib/types').DocumentAssistantJob;resultType: string;resultId: string | number;clientId: number | null;syncStatus?: string}>(`/api/document-assistant/jobs/${encodeURIComponent(jobId)}/confirm`,{
+    method:'POST',headers:createHeaders({'Content-Type':'application/json'}),body:JSON.stringify(payload),
+  },'Не удалось подтвердить результат.');
+}
+
+export function generateClientSpecification(clientId: number,payload: {invoiceJobId: string;operationKey: string}) {
+  return requestJsonWithInit<import('@/lib/types').ClientStoredDocument>(`/api/crm/clients/${clientId}/specifications`,{
+    method:'POST',headers:createHeaders({'Content-Type':'application/json'}),body:JSON.stringify(payload),
+  },'Не удалось сформировать спецификацию.',{timeoutMs:420_000});
+}
+
+export function generateClientArticleOffer(clientId: number,payload: {articlesJobId: string;operationKey: string}) {
+  return requestJsonWithInit<import('@/lib/types').ArticleOfferResult>(`/api/crm/clients/${clientId}/article-offers`,{
+    method:'POST',headers:createHeaders({'Content-Type':'application/json'}),body:JSON.stringify(payload),
+  },'Не удалось сформировать коммерческое предложение.',{timeoutMs:420_000});
 }

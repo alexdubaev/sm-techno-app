@@ -26,6 +26,10 @@ class OneCClientError(RuntimeError):
     """Raised when 1C OData returns an error."""
 
 
+class OneCIdentityConflictError(OneCClientError):
+    """A strict identity lookup cannot safely choose a remote counterparty."""
+
+
 class OneCTransportError(OneCClientError):
     """A safely-described 1C transport failure, without request secrets."""
 
@@ -1459,6 +1463,7 @@ class OneCClient:
         legal_type: str,
         inn: str,
         kpp: str = "",
+        strict_identity: bool = False,
     ) -> dict[str, Any] | None:
         """Find an existing counterparty using the CRM duplicate identity rule."""
         normalized_inn = inn.strip()
@@ -1473,6 +1478,28 @@ class OneCClient:
         filters = [f"ИНН eq '{self._escape_odata_string(normalized_inn)}'"]
         if legal_type == "legal_entity":
             filters.append(f"КПП eq '{self._escape_odata_string(normalized_kpp)}'")
+        if strict_identity:
+            payload=self._request('GET',self._build_collection_url('Catalog_Контрагенты',
+                select_fields=['Ref_Key','Description','НаименованиеПолное','ИНН','КПП'],
+                filter_expr=' and '.join(filters),top=2))
+            try:
+                if not isinstance(payload,dict): raise ValueError('Invalid collection')
+                rows,next_link=self._decode_collection_envelope(payload)
+            except (OneCMalformedResponseError,ValueError,TypeError):
+                raise OneCIdentityConflictError('Не удалось подтвердить единственный результат поиска контрагента 1С.') from None
+            if len(rows)>2 or next_link:
+                raise OneCIdentityConflictError('Поиск контрагента 1С вернул неоднозначный результат. Требуется проверить ИНН/КПП.')
+            refs=set()
+            for row in rows:
+                ref=row.get('Ref_Key');remote_inn=row.get('ИНН');remote_kpp=row.get('КПП')
+                if not isinstance(ref,str) or not ref.strip() or not isinstance(remote_inn,str) or remote_inn.strip()!=normalized_inn:
+                    raise OneCIdentityConflictError('1С вернула некорректную идентичность контрагента. Проверьте ИНН/КПП и связь.')
+                if legal_type=='legal_entity' and (not isinstance(remote_kpp,str) or remote_kpp.strip()!=normalized_kpp):
+                    raise OneCIdentityConflictError('1С вернула контрагента с другим КПП. Автоматический выбор запрещён.')
+                refs.add(ref.strip())
+            if len(refs)>1:
+                raise OneCIdentityConflictError('В 1С найдено несколько контрагентов с этими ИНН/КПП. Автоматический выбор запрещён.')
+            return rows[0] if rows else None
         return self._fetch_first(
             "Catalog_Контрагенты",
             select_fields=["Ref_Key", "Description", "НаименованиеПолное", "ИНН", "КПП"],

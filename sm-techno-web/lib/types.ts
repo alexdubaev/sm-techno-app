@@ -419,6 +419,20 @@ export type CommercialOfferDetails = {
   lines: CommercialOfferLine[];
 };
 
+export type ArticleOfferResolution = {
+  sourceRow: number;
+  article: string;
+  status: 'matched' | 'not_found' | 'ambiguous' | 'zero_stock' | 'duplicate' | 'not_evaluated';
+  variants: {warehouseId: number; warehouseName: string; physicalStock: number; price: number; offerQty: number}[];
+};
+
+export type ArticleOfferResult = {
+  offer: CommercialOffer | null;
+  lines: CommercialOfferLine[];
+  articleResolution: ArticleOfferResolution[];
+  replayed: boolean;
+};
+
 export type OrderHistoryItem = {
   id: number;
   localNumber: string;
@@ -429,6 +443,7 @@ export type OrderHistoryItem = {
   totalAmount: number;
   errorMessage: string;
   counterpartyName: string;
+  crmClientId: number | null;
   createdByName: string;
   createdByUsername: string;
   warehouseSummary: string;
@@ -494,4 +509,36 @@ export type SystemSettings = {
   vat_included: string;
   sum_includes_vat: string;
   unit_type: string;
+};
+
+export type ClientDocumentAssetRole = 'requisites' | 'source_invoice' | 'attachment' | 'generated' | 'final' | 'archive' | 'contract_version';
+export type ClientDocumentAsset = {
+  id: number; clientId: number | null; documentId: number | null; role: ClientDocumentAssetRole;
+  originalFilename: string; mediaType: string; byteSize: number; sha256: string;
+  createdByUserId: number; createdByName: string; createdAt: string; version: number;
+};
+export type ClientStoredDocument = {
+  id: number; clientId: number; documentType: 'contract' | 'specification'; number: string; documentDate: string;
+  clientName: string; status: string; origin: 'legacy' | 'generated' | 'imported'; version: number;
+  contractId: number | null; contractVersionId: number | null; invoiceAssetId: number | null; specSequence: number | null;
+  createdAt: string; updatedAt: string; createdByUserId: number | null; createdByName: string; assets: ClientDocumentAsset[];
+  missingFields?: string[];
+};
+export type ClientDocumentsSummary = {
+  clientId: number; documentDisplayName: string; contract: ClientStoredDocument | null;
+  documents: ClientStoredDocument[]; attachments: ClientDocumentAsset[]; stateVersion: number; nextSpecNumber: number;
+};
+
+export type DocumentAssistantKind = 'requisites' | 'contract' | 'invoice' | 'articles';
+export type DocumentAssistantPayload = Record<string, unknown>;
+export type DocumentAssistantJob = {
+  id: string; kind: DocumentAssistantKind; clientId: number | null; assetIds: number[];
+  status: 'queued' | 'running' | 'review' | 'failed' | 'confirmed'; version: number;
+  result: {kind: DocumentAssistantKind; payload: DocumentAssistantPayload;
+    extracted_payload?: DocumentAssistantPayload;
+    provenance: {assetId: number; method: string; reviewed: boolean; reviewedByUserId?: number}[];
+    missing_fields: string[]; warnings: string[];
+  } | null;
+  missingFields: string[]; warnings: string[]; error: {code: string; message: string} | null;
+  createdAt: string; updatedAt: string;
 };
