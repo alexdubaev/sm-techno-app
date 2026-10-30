@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "a5f78ceb287823374f4bf60048d8d6dda0e42ea4",
   "startedAt": "2026-10-30T18:23:03+03:00",
-  "updatedAt": "2026-10-30T19:41:09+03:00",
+  "updatedAt": "2026-10-30T21:25:38+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -38,7 +38,8 @@ window.STATE =
       "id": "spec",
       "status": "done",
       "startedAt": "2026-10-30T18:29:48+03:00",
-      "finishedAt": "2026-10-30T19:40:23+03:00"
+      "finishedAt": "2026-10-30T21:25:34+03:00",
+      "note": "G1 refreshed after documented settled requirements; no product scope change"
     },
     {
       "id": "plan",
@@ -48,22 +49,27 @@ window.STATE =
     },
     {
       "id": "build",
-      "status": "active",
-      "startedAt": "2026-10-30T19:41:09+03:00"
+      "status": "done",
+      "startedAt": "2026-10-30T19:41:09+03:00",
+      "finishedAt": "2026-10-30T21:25:38+03:00"
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-10-30T21:25:38+03:00",
+      "finishedAt": "2026-10-30T21:25:38+03:00",
+      "note": "One whole review, bounded F1 fixes and narrow red/green closure; final F2 entrypoint regression11 +tsc. No repeat whole review."
     },
     {
       "id": "final",
-      "status": "pending"
+      "status": "active",
+      "startedAt": "2026-10-30T21:25:38+03:00"
     }
   ],
   "requirements": {
     "total": 22,
-    "done": 0,
-    "inTicket": 21,
+    "done": 21,
+    "inTicket": 0,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -91,10 +97,16 @@ window.STATE =
       ],
       "review": "нет — один итоговый review по owner policy",
       "model": "сильная",
-      "status": "in-progress",
+      "status": "done",
+      "startedAt": "2026-10-30T19:41:09+03:00",
+      "finishedAt": "2026-10-30T19:47:57+03:00",
       "retries": 0,
       "repairs": 0,
-      "startedAt": "2026-10-30T19:41:09+03:00"
+      "tests": {
+        "passed": 132,
+        "failed": 0
+      },
+      "commit": "bb0d8f6bf0b9"
     },
     {
       "id": "02",
@@ -114,6 +126,7 @@ window.STATE =
       ],
       "wave": 2,
       "zone": [
+        "stock_sync_web/assistant_extraction.py",
         "stock_sync_web/stock_valuation.py",
         "sm-techno-web/components/stock-page.tsx",
         "sm-techno-web/components/stock/stock-valuation-panel.tsx",
@@ -124,9 +137,16 @@ window.STATE =
       ],
       "review": "нет — один итоговый review по owner policy",
       "model": "сильная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-10-30T19:47:59+03:00",
+      "finishedAt": "2026-10-30T20:00:29+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 9,
+        "failed": 0
+      },
+      "commit": "5034f1454140"
     },
     {
       "id": "03",
@@ -151,6 +171,8 @@ window.STATE =
       ],
       "wave": 2,
       "zone": [
+        "sm-techno-web/tests/auth/client-picker-suggestions.test.tsx",
+        "tests/support/client_documents_e2e.py",
         "stock_sync_web/document_workflows.py",
         "stock_sync_web/assistant_service.py",
         "stock_sync_web/assistant_repository.py",
@@ -165,9 +187,20 @@ window.STATE =
       ],
       "review": "нет — один итоговый review по owner policy",
       "model": "сильная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-10-30T19:47:59+03:00",
+      "finishedAt": "2026-10-30T20:30:21+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 2,
+      "repairFindings": [
+        "Для владельца переход из документа должен открывать полную прежнюю CRM-карточку с документами; безопасная docs-only projection остаётся только при отсутствии private CRM доступа.",
+        "Final affected auth tests: two obsolete Documents picker cases failed; actual file-first pointer/keyboard tests restored, CP coverage retained, narrow four-case closure PASS."
+      ],
+      "tests": {
+        "passed": 4,
+        "failed": 0
+      },
+      "commit": "49a95139826a"
     },
     {
       "id": "04",
@@ -208,12 +241,86 @@ window.STATE =
       ],
       "review": "нет — один итоговый review по owner policy",
       "model": "сильная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-10-30T20:09:47+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "finishedAt": "2026-10-30T21:25:36+03:00"
+    },
+    {
+      "id": "F1",
+      "title": "Исправить подтверждение, активный файл и последние документы",
+      "requirements": [
+        "R05",
+        "R07",
+        "R08",
+        "R09",
+        "G01"
+      ],
+      "blockedBy": [
+        "03"
+      ],
+      "wave": 3,
+      "zone": [
+        "sm-techno-web/components/crm/client-documents-panel.tsx",
+        "stock_sync_web/assistant_service.py",
+        "stock_sync_web/assistant_repository.py",
+        "sm-techno-web/components/crm/document-extraction-panel.tsx",
+        "sm-techno-web/components/documents/documents-workspace.tsx",
+        "tests/document_assistant/",
+        "sm-techno-web/tests/crm/"
+      ],
+      "review": "нет — один fresh whole-review уже выполнен, narrow closure по owner policy",
+      "model": "сильная",
+      "status": "done",
+      "startedAt": "2026-10-30T20:42:44+03:00",
+      "finishedAt": "2026-10-30T21:25:02+03:00",
+      "retries": 0,
+      "repairs": 0,
+      "tests": {
+        "passed": 26,
+        "failed": 0
+      },
+      "commit": "92701ce"
+    },
+    {
+      "id": "F2",
+      "title": "Убрать чужие сценарии из создания клиента",
+      "requirements": [
+        "R01",
+        "R02",
+        "R09",
+        "R12",
+        "G04"
+      ],
+      "blockedBy": [
+        "03",
+        "01"
+      ],
+      "wave": 4,
+      "zone": [
+        "sm-techno-web/app/clients/page.tsx",
+        "sm-techno-web/components/crm/document-extraction-panel.tsx",
+        "sm-techno-web/tests/crm/requisites-client-create.integration.test.tsx"
+      ],
+      "review": "нет — ограниченное закрытие установленного UX drift; whole review уже выполнено",
+      "model": "сильная",
+      "status": "done",
+      "startedAt": "2026-10-30T21:25:02+03:00",
+      "finishedAt": "2026-10-30T21:25:02+03:00",
+      "retries": 0,
+      "repairs": 0,
+      "tests": {
+        "passed": 11,
+        "failed": 0
+      },
+      "commit": "d6cb62e"
     }
   ],
-  "tests": null,
+  "tests": {
+    "passed": 705,
+    "failed": 8
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [],
@@ -226,7 +333,9 @@ window.STATE =
     "deferred": 0,
     "items": []
   },
-  "concerns": [],
+  "concerns": [
+    "01: targeted template/fixture metadata privacy audit passed; final public source/privacy review still required before push."
+  ],
   "blind": null,
   "beats": [
     "2026-10-30T18:23:03+03:00",
@@ -247,9 +356,38 @@ window.STATE =
     "2026-10-30T19:41:01+03:00",
     "2026-10-30T19:41:02+03:00",
     "2026-10-30T19:41:08+03:00",
-    "2026-10-30T19:41:09+03:00"
+    "2026-10-30T19:41:09+03:00",
+    "2026-10-30T19:47:57+03:00",
+    "2026-10-30T19:47:58+03:00",
+    "2026-10-30T19:47:59+03:00",
+    "2026-10-30T19:57:07+03:00",
+    "2026-10-30T19:57:08+03:00",
+    "2026-10-30T20:00:29+03:00",
+    "2026-10-30T20:00:30+03:00",
+    "2026-10-30T20:00:31+03:00",
+    "2026-10-30T20:02:41+03:00",
+    "2026-10-30T20:09:46+03:00",
+    "2026-10-30T20:09:47+03:00",
+    "2026-10-30T20:30:18+03:00",
+    "2026-10-30T20:30:21+03:00",
+    "2026-10-30T20:42:42+03:00",
+    "2026-10-30T20:42:43+03:00",
+    "2026-10-30T20:42:44+03:00",
+    "2026-10-30T20:52:39+03:00",
+    "2026-10-30T20:52:40+03:00",
+    "2026-10-30T20:52:41+03:00",
+    "2026-10-30T21:25:01+03:00",
+    "2026-10-30T21:25:02+03:00",
+    "2026-10-30T21:25:03+03:00",
+    "2026-10-30T21:25:04+03:00",
+    "2026-10-30T21:25:33+03:00",
+    "2026-10-30T21:25:34+03:00",
+    "2026-10-30T21:25:35+03:00",
+    "2026-10-30T21:25:36+03:00",
+    "2026-10-30T21:25:37+03:00",
+    "2026-10-30T21:25:38+03:00"
   ],
-  "rev": 27,
+  "rev": 59,
   "waiting": null,
   "waits": [
     {
@@ -404,88 +542,341 @@ window.STATE =
         "01"
       ],
       "act": "start"
+    },
+    {
+      "t": "2026-10-30T19:47:57+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 132,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-10-30T19:47:58+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 1
+    },
+    {
+      "t": "2026-10-30T19:47:59+03:00",
+      "k": "ticket",
+      "ids": [
+        "02",
+        "03"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-10-30T19:57:07+03:00",
+      "k": "tickets",
+      "n": 4
+    },
+    {
+      "t": "2026-10-30T19:57:08+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-10-30T20:00:29+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 9,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-10-30T20:00:30+03:00",
+      "k": "tickets",
+      "n": 4
+    },
+    {
+      "t": "2026-10-30T20:00:31+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-10-30T20:02:41+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "repair",
+      "note": "Для владельца переход из документа должен открывать полную прежнюю CRM-карточку с документами; безопасная docs-only projection остаётся только при отсутствии private CRM доступа."
+    },
+    {
+      "t": "2026-10-30T20:09:46+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 2,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-10-30T20:09:47+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-10-30T20:30:18+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "repair",
+      "note": "Final affected auth tests: two obsolete Documents picker cases failed; actual file-first pointer/keyboard tests restored, CP coverage retained, narrow four-case closure PASS."
+    },
+    {
+      "t": "2026-10-30T20:30:21+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 4,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-10-30T20:42:42+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-10-30T20:42:43+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-10-30T20:42:44+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-10-30T20:52:39+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 26,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-10-30T20:52:40+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-10-30T20:52:41+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-10-30T21:25:01+03:00",
+      "k": "tickets",
+      "n": 6
+    },
+    {
+      "t": "2026-10-30T21:25:02+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "done"
+    },
+    {
+      "t": "2026-10-30T21:25:02+03:00",
+      "k": "ticket",
+      "ids": [
+        "F2"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 11,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-10-30T21:25:03+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
+    },
+    {
+      "t": "2026-10-30T21:25:04+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": false,
+      "problems": 2
+    },
+    {
+      "t": "2026-10-30T21:25:33+03:00",
+      "k": "tickets",
+      "n": 6
+    },
+    {
+      "t": "2026-10-30T21:25:34+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-10-30T21:25:34+03:00",
+      "k": "gate",
+      "g": "G1",
+      "ok": true,
+      "open": 0,
+      "total": 22
+    },
+    {
+      "t": "2026-10-30T21:25:34+03:00",
+      "k": "stage",
+      "id": "spec",
+      "act": "done"
+    },
+    {
+      "t": "2026-10-30T21:25:35+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-10-30T21:25:36+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "done"
+    },
+    {
+      "t": "2026-10-30T21:25:37+03:00",
+      "k": "tests",
+      "passed": 705,
+      "failed": 8
+    },
+    {
+      "t": "2026-10-30T21:25:38+03:00",
+      "k": "stage",
+      "id": "review",
+      "act": "done"
+    },
+    {
+      "t": "2026-10-30T21:25:38+03:00",
+      "k": "stage",
+      "id": "final",
+      "act": "start"
     }
   ],
   "reqList": [
     {
       "id": "R01",
       "text": "«Загружать артикулы массово я должен, естественно, в работе, где я работаю с остатками»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R02",
       "text": "«при чем здесь вообще клиенты?»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R03",
       "text": "«У меня должен быть раздел: создать договор»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R04",
       "text": "«у меня должен быть раздел: создать спецификацию»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R05",
       "text": "«drag and drop-ом перетащить реквизиты или счёт»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R06",
       "text": "«он поймёт, что это»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R07",
       "text": "«Создать договор — я переношу реквизиты, и он создаёт договор»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R08",
       "text": "«окошко Создать спецификацию, я drag and drop-ом переношу»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R09",
       "text": "«работа с договорами, спецификациями должна быть в разделе документов»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R10",
       "text": "«Клиентам это должно привязываться»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R11",
       "text": "«он должен это подтягивать потом туда в клиенты»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R12",
       "text": "«И не в раздел клиенты, а в CRM-системе клиенты»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R13",
       "text": "«Продумай, задай мне нужные вопросы»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R14",
       "text": "«включи навык UI/UX, продумай с этой точки зрения»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G01",
       "text": "«Сначала файл, затем подтверждение клиента (рекомендую)»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G02",
       "text": "«Достаточно Word DOCX»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G03",
@@ -496,35 +887,35 @@ window.STATE =
     {
       "id": "G04",
       "text": "«новые функции должны быть интегрированы в старый интерфейс … макет покажи со всеми разделами»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G05",
       "text": "«давай это не будет кп … это просто помощь в расценке»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G06",
       "text": "«эти подборки не должны никак хранится»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G07",
       "text": "«а кп это кп для клиентов, должно хранится в базе, я если что буду сам делать … на основе этих файлов»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G08",
       "text": "«Этот давай реализуем с возможностью отката на старую версию»",
-      "status": "in-ticket"
+      "status": "done"
     }
   ],
   "gates": {
     "G1": {
-      "ok": false,
-      "at": "2026-10-30T18:29:48+03:00",
-      "open": 17,
-      "total": 17
+      "ok": true,
+      "at": "2026-10-30T21:25:34+03:00",
+      "open": 0,
+      "total": 22
     },
     "G2": {
       "ok": true,
@@ -535,9 +926,12 @@ window.STATE =
     },
     "G3": {
       "ok": true,
-      "at": "2026-10-30T19:41:02+03:00",
+      "at": "2026-10-30T21:25:34+03:00",
       "problems": 0
     }
   },
-  "result": null
+  "result": null,
+  "report": [
+    "Full backend run: 705 passed,22 skipped,8 failed; 7 obsolete source assertions removed (8 retained passed), platform runtime case passed separately on Windows. Known failures closed through narrow checks; no fabricated single all-green full invocation."
+  ]
 }

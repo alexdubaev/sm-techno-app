@@ -1,7 +1,7 @@
 # 03 — Документы по действию и связь с полной CRM-карточкой
 **Требования:** R03, R04, R05, R06, R07, R08, R09, R10, R11, R12, G01, G02, G04
 **Зависит от:** 01
-**Зона:** `stock_sync_web/document_workflows.py` · `stock_sync_web/assistant_service.py` · `stock_sync_web/assistant_repository.py` · `sm-techno-web/app/documents/` · `sm-techno-web/components/documents/` · `sm-techno-web/components/crm/` · `sm-techno-web/components/crm-workspace.tsx` · `sm-techno-web/lib/document-workflows-api.ts` · `tests/document_assistant/` · `sm-techno-web/tests/crm/` · `sm-techno-web/tests/e2e/client-documents.spec.ts`
+**Зона:** `sm-techno-web/tests/auth/client-picker-suggestions.test.tsx` · `tests/support/client_documents_e2e.py` · `stock_sync_web/document_workflows.py` · `stock_sync_web/assistant_service.py` · `stock_sync_web/assistant_repository.py` · `sm-techno-web/app/documents/` · `sm-techno-web/components/documents/` · `sm-techno-web/components/crm/` · `sm-techno-web/components/crm-workspace.tsx` · `sm-techno-web/lib/document-workflows-api.ts` · `tests/document_assistant/` · `sm-techno-web/tests/crm/` · `sm-techno-web/tests/e2e/client-documents.spec.ts`
 **Волна:** 2
 **Ревью:** нет — один итоговый review по owner policy
 **Модель:** сильная
@@ -20,4 +20,3 @@
 - [ ] Normal CRM fullcard preserves contacts/notes/history/reminders/actions and formermenu; only linkedfiles/projection and contextualDocumentslink added. Preserve shared doc/privateCRM limits and legacyfallback entry points; no pretendwidenedaccess. /clients unchanged.
 - [ ] Valuable isolated integration tests for preview-no-write/bindACL/identity/version and purposegeneration, frontend fullflow/drop/review/missingcontract/resume/versionupload. Update obsolete generic-UI tests by retaining their business coverage; no deleting critical flow tohidefailure. Existing relevant contract/spec/storage tests run once narrow.
 - [ ] Dedicated module/UI zones only, shared stock_sync_api.py/lib/api.ts and02 stocksource unchanged. No dependency/migration changes, no commit/push/deploy. Do not write .autopilot state/interfaces; return contract/evidence.
-

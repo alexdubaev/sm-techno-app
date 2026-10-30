@@ -1,7 +1,7 @@
 # 02 — Временная расценка в Остатках
 **Требования:** R01, R02, R05, R06, G04, G05, G06, G07
 **Зависит от:** 01
-**Зона:** `stock_sync_web/stock_valuation.py` · `sm-techno-web/components/stock-page.tsx` · `sm-techno-web/components/stock/stock-valuation-panel.tsx` · `sm-techno-web/lib/stock-valuation-api.ts` · `tests/stock_valuation/` · `sm-techno-web/tests/stock/stock-valuation.integration.test.tsx` · `sm-techno-web/tests/e2e/stock-valuation.spec.ts`
+**Зона:** `stock_sync_web/assistant_extraction.py` · `stock_sync_web/stock_valuation.py` · `sm-techno-web/components/stock-page.tsx` · `sm-techno-web/components/stock/stock-valuation-panel.tsx` · `sm-techno-web/lib/stock-valuation-api.ts` · `tests/stock_valuation/` · `sm-techno-web/tests/stock/stock-valuation.integration.test.tsx` · `sm-techno-web/tests/e2e/stock-valuation.spec.ts`
 **Волна:** 2
 **Ревью:** нет — один итоговый review по owner policy
 **Модель:** сильная
@@ -20,4 +20,3 @@
 - [ ] Dragdrop+filepicker at real stock search context, error/retry/file replacement, editable recognitionreview, result+download. Existing stock UX/actions kept, useful accessible focus. Do not replace real UI with screenshot/placeholder.
 - [ ] Valuable isolated API/integration tests prove no durable sideeffects, cleanup on error, owner/auth denial, optionalqty/zeros/warehouses/formulas/template leakage. Frontend integration+one critical allowlisted E2E case. Run narrow affected checks once and report REDPROOF for new seams, not implementationtexttests.
 - [ ] Shared stock_sync_api.py/lib/api.ts untouched;01 alreadymounted/exported. Need changed seam? asklead/directcoordination before editing neighbour. No dependency/migration changes, no commit/push/deploy.
-
