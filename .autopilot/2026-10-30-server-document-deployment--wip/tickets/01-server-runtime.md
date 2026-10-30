@@ -1,7 +1,7 @@
 # 01 — Рабочая Linux среда Terra и безопасный конвертер
 **Требования:** R01, R02, R03, R04, R05, R06, R07, R08
 **Зависит от:** —
-**Зона:** `stock_sync_web/assistant_extraction.py` · `stock_sync_web/assistant_errors.py` · `stock_sync_web/assistant_environment.py` · `stock_sync_web/assistant_office.py` · `stock_sync_web/assistant_converter_broker.py` · `tests/document_assistant/` · `Dockerfile.backend` · `compose.document-runtime.yaml` · `scripts/document_runtime/` · `docs/server-document-runtime.md` · `.env.example`
+**Зона:** `stock_sync_web/assistant_extraction.py` · `document_runtime/` · `tests/document_assistant/` · `Dockerfile.backend` · `compose.document-runtime.yaml` · `scripts/document_runtime/` · `docs/server-document-runtime.md` · `.env.example`
 **Волна:** 1
 **Ревью:** нет — один fresh independent security review всей runtime delta
 **Модель:** сильная

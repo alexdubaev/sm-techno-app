@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "1d7dd9be7f733e6af37ede3c58a8ae0f488cb8fc",
   "startedAt": "2026-10-30T22:00:17+03:00",
-  "updatedAt": "2026-10-30T22:07:48+03:00",
+  "updatedAt": "2026-10-30T22:54:13+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -43,12 +43,14 @@ window.STATE =
     },
     {
       "id": "plan",
-      "status": "active",
-      "startedAt": "2026-10-30T22:07:47+03:00"
+      "status": "done",
+      "startedAt": "2026-10-30T22:07:47+03:00",
+      "finishedAt": "2026-10-30T22:07:50+03:00"
     },
     {
       "id": "build",
-      "status": "pending"
+      "status": "active",
+      "startedAt": "2026-10-30T22:07:50+03:00"
     },
     {
       "id": "review",
@@ -61,8 +63,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 9,
-    "done": 0,
-    "inTicket": 8,
+    "done": 6,
+    "inTicket": 2,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 1,
@@ -99,12 +101,16 @@ window.STATE =
       ],
       "review": "нет — один fresh independent security review всей runtime delta",
       "model": "сильная",
-      "status": "pending",
+      "status": "in-progress",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "startedAt": "2026-10-30T22:07:51+03:00"
     }
   ],
-  "tests": null,
+  "tests": {
+    "passed": 8,
+    "failed": 0
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [],
@@ -119,7 +125,9 @@ window.STATE =
       "Independent reader missing0/half0. Broker/security specifics are technical children of R05 supporting already-agreed formats; no new user capability or public API."
     ]
   },
-  "concerns": [],
+  "concerns": [
+    "External resource: VPS OpenAI403 unsupported_country_region_territory; same-account local actual Terra PASS. Need owner-provided permitted egress/host; no app proxy configured. Preparation/rollback complete, no protected runtime guard weakened."
+  ],
   "blind": null,
   "beats": [
     "2026-10-30T22:00:17+03:00",
@@ -130,10 +138,20 @@ window.STATE =
     "2026-10-30T22:07:45+03:00",
     "2026-10-30T22:07:46+03:00",
     "2026-10-30T22:07:47+03:00",
-    "2026-10-30T22:07:48+03:00"
+    "2026-10-30T22:07:48+03:00",
+    "2026-10-30T22:07:50+03:00",
+    "2026-10-30T22:07:51+03:00",
+    "2026-10-30T22:54:10+03:00",
+    "2026-10-30T22:54:11+03:00",
+    "2026-10-30T22:54:12+03:00",
+    "2026-10-30T22:54:13+03:00"
   ],
-  "rev": 11,
-  "waiting": null,
+  "rev": 17,
+  "waiting": {
+    "kind": "action",
+    "since": "2026-10-30T22:54:13+03:00",
+    "note": "Нужен разрешённый маршрут OpenAI: VPS403 unsupported_country_region_territory. Backups/images и 6.81s stage rollback готовы; рабочий сервер52 не переключён."
+  },
   "waits": [],
   "log": [
     {
@@ -203,6 +221,44 @@ window.STATE =
       "g": "G3",
       "ok": true,
       "problems": 0
+    },
+    {
+      "t": "2026-10-30T22:07:50+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-10-30T22:07:51+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-10-30T22:54:10+03:00",
+      "k": "tests",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "t": "2026-10-30T22:54:11+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
+    },
+    {
+      "t": "2026-10-30T22:54:12+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 1
+    },
+    {
+      "t": "2026-10-30T22:54:13+03:00",
+      "k": "ask",
+      "kind": "action",
+      "note": "Нужен разрешённый маршрут OpenAI: VPS403 unsupported_country_region_territory. Backups/images и 6.81s stage rollback готовы; рабочий сервер52 не переключён."
     }
   ],
   "reqList": [
@@ -214,17 +270,17 @@ window.STATE =
     {
       "id": "R02",
       "text": "«сохранив старую версию»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R03",
       "text": "«быстро откатить на старую»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R04",
       "text": "«резервная копия базы и файлов»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R05",
@@ -234,17 +290,17 @@ window.STATE =
     {
       "id": "R06",
       "text": "«Тот же аккаунт (рекомендую)»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R07",
       "text": "«Проверь сразу место на сервере»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R08",
       "text": "«подготовление не удаляй»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G01",
@@ -273,5 +329,8 @@ window.STATE =
       "deferred": 0
     }
   },
-  "result": null
+  "result": null,
+  "report": [
+    "One fresh runtime security review: two confirmed cleanup/deadline findings fixed with red→green Linux regressions. Native UID1000 broker→real isolated RTF conversion passed; startup companion package corrected. Exact server inference still FAIL403; no live switch."
+  ]
 }
