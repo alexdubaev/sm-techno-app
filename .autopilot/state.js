@@ -2,7 +2,7 @@ window.STATE =
 {
   "version": 2,
   "slug": "local-document-workflows",
-  "dir": "2026-10-30-local-document-workflows--wip",
+  "dir": "2026-10-30-local-document-workflows",
   "title": "СМ ТЕХНО: остатки, договор и спецификация по действию",
   "mode": "semi",
   "depth": "normal",
@@ -13,8 +13,8 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "a5f78ceb287823374f4bf60048d8d6dda0e42ea4",
   "startedAt": "2026-10-30T18:23:03+03:00",
-  "updatedAt": "2026-10-30T21:25:38+03:00",
-  "finishedAt": null,
+  "updatedAt": "2026-10-30T21:37:13+03:00",
+  "finishedAt": "2026-10-30T21:37:13+03:00",
   "stages": [
     {
       "id": "preflight",
@@ -62,8 +62,9 @@ window.STATE =
     },
     {
       "id": "final",
-      "status": "active",
-      "startedAt": "2026-10-30T21:25:38+03:00"
+      "status": "done",
+      "startedAt": "2026-10-30T21:25:38+03:00",
+      "finishedAt": "2026-10-30T21:37:13+03:00"
     }
   ],
   "requirements": {
@@ -243,9 +244,10 @@ window.STATE =
       "model": "сильная",
       "status": "done",
       "startedAt": "2026-10-30T20:09:47+03:00",
+      "finishedAt": "2026-10-30T21:27:23+03:00",
       "retries": 0,
       "repairs": 0,
-      "finishedAt": "2026-10-30T21:25:36+03:00"
+      "commit": "560a50d"
     },
     {
       "id": "F1",
@@ -294,8 +296,7 @@ window.STATE =
         "G04"
       ],
       "blockedBy": [
-        "03",
-        "01"
+        "03"
       ],
       "wave": 4,
       "zone": [
@@ -336,7 +337,11 @@ window.STATE =
   "concerns": [
     "01: targeted template/fixture metadata privacy audit passed; final public source/privacy review still required before push."
   ],
-  "blind": null,
+  "blind": {
+    "checked": 19,
+    "matched": 19,
+    "mismatches": []
+  },
   "beats": [
     "2026-10-30T18:23:03+03:00",
     "2026-10-30T18:23:04+03:00",
@@ -385,9 +390,16 @@ window.STATE =
     "2026-10-30T21:25:35+03:00",
     "2026-10-30T21:25:36+03:00",
     "2026-10-30T21:25:37+03:00",
-    "2026-10-30T21:25:38+03:00"
+    "2026-10-30T21:25:38+03:00",
+    "2026-10-30T21:27:23+03:00",
+    "2026-10-30T21:31:59+03:00",
+    "2026-10-30T21:32:00+03:00",
+    "2026-10-30T21:32:01+03:00",
+    "2026-10-30T21:37:11+03:00",
+    "2026-10-30T21:37:12+03:00",
+    "2026-10-30T21:37:13+03:00"
   ],
-  "rev": 59,
+  "rev": 67,
   "waiting": null,
   "waits": [
     {
@@ -795,6 +807,57 @@ window.STATE =
       "k": "stage",
       "id": "final",
       "act": "start"
+    },
+    {
+      "t": "2026-10-30T21:27:23+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "done"
+    },
+    {
+      "t": "2026-10-30T21:31:59+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
+    },
+    {
+      "t": "2026-10-30T21:32:00+03:00",
+      "k": "tickets",
+      "n": 6
+    },
+    {
+      "t": "2026-10-30T21:32:01+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-10-30T21:37:11+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": true,
+      "checked": 19,
+      "matched": 19
+    },
+    {
+      "t": "2026-10-30T21:37:12+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
+    },
+    {
+      "t": "2026-10-30T21:37:13+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
+    },
+    {
+      "t": "2026-10-30T21:37:13+03:00",
+      "k": "finish",
+      "result": "Локальная реализация полного интерфейса: временная расценка в Остатках, документы и CRM, проверенный возврат на синтетических данных. VPS на паузе."
     }
   ],
   "reqList": [
@@ -926,12 +989,21 @@ window.STATE =
     },
     "G3": {
       "ok": true,
-      "at": "2026-10-30T21:25:34+03:00",
+      "at": "2026-10-30T21:32:01+03:00",
       "problems": 0
+    },
+    "G4": {
+      "ok": true,
+      "at": "2026-10-30T21:37:11+03:00",
+      "checked": 19,
+      "matched": 19
     }
   },
-  "result": null,
+  "result": "Локальная реализация полного интерфейса: временная расценка в Остатках, документы и CRM, проверенный возврат на синтетических данных. VPS на паузе.",
   "report": [
-    "Full backend run: 705 passed,22 skipped,8 failed; 7 obsolete source assertions removed (8 retained passed), platform runtime case passed separately on Windows. Known failures closed through narrow checks; no fabricated single all-green full invocation."
+    "Full backend run: 705 passed,22 skipped,8 failed; 7 obsolete source assertions removed (8 retained passed), platform runtime case passed separately on Windows. Known failures closed through narrow checks; no fabricated single all-green full invocation.",
+    "Fresh npm ci reports existing dev-only dependency advisories (3 low,1 high). package.json/lock identical to origin/main; systeminformation5.33.7 is solely shadcn→dotenvx dev chain; no application services() usage found. GHSA-3f7j-7jwc-fxfj verified from GitHub advisory, maintenance kept separate; npm audit is not clean.",
+    "G4: clean clone launched;19 brief groups implemented,0 confirmed functional mismatches. Runtime coverage limited: photo/all formats, live1C/newclient, real model auth, true drop and rollback not independently rerun; earlier dedicated evidence remains distinct.",
+    "One fresh source/privacy review completed before publication; no confirmed private customer leak. Target audit not a proof of every byte. Original private ancestry explicitly excluded; bundle verify passed again."
   ]
 }

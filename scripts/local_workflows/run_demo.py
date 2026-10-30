@@ -121,6 +121,3 @@ else:
                 child.terminate()
         for log in logs:
             log.close()
-
-
-

@@ -19,4 +19,3 @@
 - [ ] Newlocaldemo from persistent ownedisolatedclone, ownports15100/19100/data with known syntheticlogin, realTerra6.1 extraction + DOCX generation + XLSX valuation check (single smallsource each, no real1С), independentoldfallbacklinkready. Rootsafety controlledforegroundlauncher no detachedStartProcess/retryblockedaction.
 - [ ] Runbook makes exact rollbackcommands/backupconditions/no data loss explicit. Source/localdemocopy SHA consistent with tests. Do not assumeVPScompatible orrestart/deployserver; no paidinfra/privileges.
 - [ ] Return commands/logs/counts/proofs/URLs/ownership tolead; do not commit/push/merge/deploy or modify.neighbourcode. Requiredcheckfailure→investigatealternatives, notsyntaxPASS ordelete criticaltests.
-

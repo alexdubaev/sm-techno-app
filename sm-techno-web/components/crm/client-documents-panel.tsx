@@ -143,4 +143,3 @@ export function SpecificationGeneration({job,clientId,hasContract,onGenerated}: 
     <button type="button" className={`${button} app-action-button`} disabled={busy} onClick={() => void generate()}>{busy ? 'Формируем спецификацию…' : 'Сформировать спецификацию из счёта'}</button>
   </section>;
 }
-

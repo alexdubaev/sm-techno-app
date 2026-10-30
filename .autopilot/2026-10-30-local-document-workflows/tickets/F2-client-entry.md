@@ -1,6 +1,6 @@
 # F2 — Убрать чужие сценарии из создания клиента
 **Требования:** R01, R02, R09, R12, G04
-**Зависит от:** 03, F1
+**Зависит от:** 03
 **Зона:** `sm-techno-web/app/clients/page.tsx` · `sm-techno-web/components/crm/document-extraction-panel.tsx` · `sm-techno-web/tests/crm/requisites-client-create.integration.test.tsx`
 **Волна:** 4
 **Ревью:** нет — ограниченное закрытие установленного UX drift; whole review уже выполнено

@@ -21,4 +21,3 @@ test('stock valuation review is temporary and produces a download', async ({ pag
   await expect(page.getByRole('button', { name: 'Расценить список артикулов' })).toBeVisible();
   await expect(page.getByLabel('Артикул строки 1')).toHaveCount(0);
 });
-

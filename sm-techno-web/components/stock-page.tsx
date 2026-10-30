@@ -2432,4 +2432,3 @@ function DocumentIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
-

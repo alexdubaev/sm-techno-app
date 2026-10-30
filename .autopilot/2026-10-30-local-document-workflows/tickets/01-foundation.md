@@ -19,4 +19,3 @@
 - [ ] Ready Python3.12 and frontend env reused/cache, dependency installation per existing pinned requirements only if missing. No owncopies inside frontend scan roots. Required scripts/config include next testfiles without weakeningallowlist/baseline.
 - [ ] Run meaningful existing isolated document assistant/backup boundarycheck once; keep evidence. Port is previously checked code, no fake redproof required for identical lines. Ensure foundation no out-of-zone writes or privateenv copies.
 - [ ] Return exact changedpaths/SHAs/env/checkcommands/logpaths +26linecontract. Do not commit: lead commits exact zone after evidence. No push/merge/deploy.
-
