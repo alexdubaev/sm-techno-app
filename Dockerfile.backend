@@ -1,7 +1,15 @@
+FROM debian:bookworm-slim AS codex-download
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.166.0/codex-x86_64-unknown-linux-musl.tar.gz -o /tmp/codex.tar.gz \
+    && echo 'a0bf572d2f93f056c6712a6da348e96078dc84f3885fd7be67807ef389cb3978  /tmp/codex.tar.gz' | sha256sum -c - \
+    && tar -xzf /tmp/codex.tar.gz -C /tmp \
+    && install -m 755 /tmp/codex-x86_64-unknown-linux-musl /codex
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+COPY --from=codex-download /codex /usr/local/bin/codex
 WORKDIR /app
 
 COPY requirements.txt ./
@@ -10,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY stock_sync_api.py ./
 COPY stock_sync_desktop ./stock_sync_desktop
 COPY stock_sync_web ./stock_sync_web
+COPY document_runtime ./document_runtime
 COPY assets/templates ./assets/templates
 
 EXPOSE 8000
