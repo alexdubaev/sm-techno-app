@@ -14,6 +14,8 @@ it('populates the full existing client form and explicitly creates from the revi
   vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[job]});
   vi.mocked(api.confirmDocumentAssistantJob).mockRejectedValueOnce(new Error('Проверьте подключение')).mockResolvedValueOnce({job:{...job,clientId:42},resultType:'client',resultId:42,clientId:42,syncStatus:'synced'});
   render(<ClientsPage />);
+  expect(screen.queryByLabelText('Что распознать')).not.toBeInTheDocument();
+  expect(screen.getByRole('heading',{name:'Реквизиты клиента'})).toBeVisible();
   fireEvent.click(await screen.findByRole('button',{name:'Использовать проверенные реквизиты'}));
   const submit=screen.getByRole('button',{name:'Создать в 1С'});
   const form=submit.closest('form')!;const client=within(form);

@@ -238,7 +238,7 @@ export default function ClientsPage() {
         {error ? <Alert tone="error">{error}</Alert> : null}
         {notice ? <Alert tone="success">{notice}</Alert> : null}
         {documentClientId ? <Link className="text-sm font-semibold underline" href={`/crm?documents=${documentClientId}`}>Открыть документы клиента</Link> : null}
-        <DocumentExtractionPanel onConfirmed={(job) => {
+        <DocumentExtractionPanel purpose="requisites" onConfirmed={(job) => {
           if(job.kind!=='requisites') return;
           setReviewedSource(job);setForm(populateClientForm(createEmptyForm(),job.result?.payload ?? {}));
           assistedSubmission.current=null;setDocumentClientId(null);
