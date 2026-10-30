@@ -1,0 +1,17 @@
+# G2 и проверка макета
+
+Независимый reader local_ux_coverage видел только brief+spec. Missing0, half-covered0. Выделил5групп деталей сверх короткого нового брифа. Выполнена ограниченная правка трассировки: в brief добавлены реальные более ранние слова владельца (без подмены авторства/времени), spec сохраняет новые размещения и три последних ответа. Остальные детали — нормальная проработка ошибок/доступности/целостности со своими Rxx.n/Gxx.n и действующие ограничения AGENTS; новых capability без родительского требования нет. Второе ревью не запускалось.
+
+Макет ux-preview.html: реальный Chromium переходил file-first contract→review→generate→CRM; DOCX validation; spec absentcontract block→createcontract→return retainedinvoice; stockreview→allwarehouseresults→CPwithoutclient→latebind; archive→existingcontractversion.10 контрольных утверждений на макете PASS. После уточнения clientpicker узко проверены новыйклиент→нетдоговора→счётсохранён PASS. Ошибки harness: первый locator «Документы» был неоднозначным (nav+CRMtab), исправлен scoping; client select getByLabel exact дал timeout, getByRole combobox по реально осмотренному snapshot сработал. Это не failures продукта. После favicondata patch browserconsole0errors. Продуктовые тесты не запускались: productcode ещё не изменён. Mock download намеренно сообщает, что это макет; фактические Word/Excel не создаются.
+
+## Итерация полного интерфейса и расценки G04–G07
+
+Владелец потребовал full existing interface и отменил КП из stockflow. Executor full_interface_mock изменил только автономный prototype и companionassets в этой .autopilot папке. Исходный ux-preview-v1.html сохранён.
+
+Root read-only browser capture в отдельном synthetic admincontext:13 реальных mainснимков иfullварианты (price,invoice,manager,orders,clients,references,settings,settings-users,settings-onec,stock,offer-create,offer-journal,crm). Они показаны с явным сообщением, что снимки неинтерактивны. Контекст закрыт. Данные исключительноtask-owned synthetic, пользовательский браузерный логин/рабочаяБД не менялись. CRM demo имеет globaldocumentclient, но личные вкладки demo пусты: read-onlycapture реальной открытойкарточки не получился, assignment не добавлялся/ACL не обходился. Поэтому заполненная CRMкарточка в макете воспроизведена по desktop source, а workspace — реальныйснимок; это не фотография рабочейклиентскойбазы.
+
+Executor проверил браузером13 меню, поднастройкиusers/1С, расценка→review→результаты→кнопкаExcel (честныйtoast, нетфальшивогоCSV/XLSX), отсутствиеКП вstockresults, очистку stockstate при уходе/возврате, invoiceDOCX→missingcontract→createcontract→returntosameinvoice→generate→CRMdocs, удержаниепользовательскихправокреквизитов/qty. node --check PASS. Это проверкимакета, не product tests.
+
+Root closure: открыл updatedURL; actual AX содержит все13 пунктовnavigationGroups; снял и визуальноосмотрел ux-full-interface.png; imgcompletecheck missingImages=[]; price.png визуальноосмотрен как реальныйдвухколоночныйэкрантаблицы/складов/редактора, неgenericuploadplaceholder. Эти narrowchecks дополняют executor, broadreview/tests не повторялись. Продуктовые файлы, API, schema и сервер не менялись. Word/XLSX/OCR макетомнепроизводятся.
+
+Первые наблюдения этого prototype revision:2026-10-30T18:49:09+03:00; reviewableupdatedartifact rootоткрыл2026-10-30T19:01:16+03:00. Общая локальнаяUXзадача остаётся в обсуждении до подтверждения владельца, это не request-to-working-appcompletion. Серверныхопераций этойитерации0. Позднейшее оформление evidence относится к reportingtail.
