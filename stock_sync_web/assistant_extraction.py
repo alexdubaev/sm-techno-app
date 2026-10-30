@@ -310,12 +310,12 @@ class CodexDocumentExtractor:
         self.timeout=timeout or min(300,max(15,int(os.getenv('DOCUMENT_ASSISTANT_TIMEOUT_SECONDS') or '120')))
         self.runner=runner or self._run
 
-    def extract(self,request):
+    def extract(self,request,*,temp_root=None):
         if request.kind not in KINDS: raise ValueError('Неизвестный тип распознавания.')
         if len(request.texts)>100 or sum(map(len,request.texts))>200000 or len(request.image_paths)>100:
             raise ExtractionError('input_limit','Превышен предел материалов задания.')
         cli=discover_codex_cli(self.cli)
-        with tempfile.TemporaryDirectory(prefix='sm-techno-terra-') as directory:
+        with tempfile.TemporaryDirectory(prefix='sm-techno-terra-', dir=temp_root) as directory:
             workspace=Path(directory)
             schema=workspace/'output.schema.json'; schema.write_text(json.dumps(extraction_schema(request.kind)),encoding='utf-8')
             images=[]
