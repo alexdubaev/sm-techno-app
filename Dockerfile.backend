@@ -5,11 +5,17 @@ RUN curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.166.0/c
     && tar -xzf /tmp/codex.tar.gz -C /tmp \
     && install -m 755 /tmp/codex-x86_64-unknown-linux-musl /codex
 
+RUN curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.166.0/codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz -o /tmp/codex-code-mode-host.tar.gz \
+    && echo '7588334fd47bc4003d970b70dfd4d1e4578491b1e9baa72976a4c2d7e97590da  /tmp/codex-code-mode-host.tar.gz' | sha256sum -c - \
+    && tar -xzf /tmp/codex-code-mode-host.tar.gz -C /tmp \
+    && install -m 755 /tmp/codex-code-mode-host-x86_64-unknown-linux-musl /codex-code-mode-host
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 COPY --from=codex-download /codex /usr/local/bin/codex
+COPY --from=codex-download /codex-code-mode-host /usr/local/bin/codex-code-mode-host
 WORKDIR /app
 
 COPY requirements.txt ./
