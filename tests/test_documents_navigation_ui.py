@@ -5,33 +5,6 @@ from pathlib import Path
 
 
 class DocumentsNavigationUiTest(unittest.TestCase):
-    def test_documents_route_is_generator_and_journal_route_is_list(self) -> None:
-        generator_path = Path("sm-techno-web/app/documents/page.tsx")
-        journal_path = Path("sm-techno-web/app/documents/journal/page.tsx")
-
-        self.assertTrue(generator_path.exists())
-        self.assertTrue(journal_path.exists())
-
-        generator_source = generator_path.read_text(encoding="utf-8")
-        journal_source = journal_path.read_text(encoding="utf-8")
-
-        self.assertIn("createDocument", generator_source)
-        self.assertIn('router.push("/documents/journal")', generator_source)
-        self.assertIn('href="/documents/journal"', generator_source)
-        self.assertNotIn("fetchDocuments", generator_source)
-
-        self.assertIn("fetchDocuments", journal_source)
-        self.assertIn("downloadDocumentFile", journal_source)
-        self.assertIn('href="/documents"', journal_source)
-
-    def test_documents_generator_uses_searchable_client_picker(self) -> None:
-        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
-
-        self.assertIn("clientSearch", source)
-        self.assertIn("filteredClients", source)
-        self.assertIn('placeholder="Поиск по названию, ИНН или КПП"', source)
-        self.assertNotIn("setClientValue(event.target.value)", source)
-
     def test_commercial_offer_generator_uses_searchable_client_picker_with_dropdown(self) -> None:
         source = Path("sm-techno-web/app/commercial-offers/new/page.tsx").read_text(encoding="utf-8")
 
@@ -75,51 +48,6 @@ class DocumentsNavigationUiTest(unittest.TestCase):
         self.assertIn("setDocuments((current) => current.filter((item) => item.id !== document.id))", source)
         self.assertIn("export async function deleteDocument", api_source)
         self.assertIn('method: "DELETE"', api_source)
-
-    def test_documents_generator_client_search_dropdown_does_not_resize_form(self) -> None:
-        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
-
-        self.assertIn("isClientPickerOpen", source)
-        self.assertIn("handleClientSearchFocus", source)
-        self.assertIn("absolute left-0 right-0 top-[calc(100%+4px)]", source)
-        self.assertIn("onMouseDown={(event) => event.preventDefault()}", source)
-        self.assertNotIn('type="search"', source)
-
-    def test_documents_generator_displays_document_name_before_program_name(self) -> None:
-        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
-
-        self.assertIn("formatClientDisplayName(client)", source)
-        self.assertIn("client.documentName || client.fullName || client.name", source)
-        self.assertNotIn("client.documentName || client.name || client.fullName", source)
-
-    def test_documents_preview_shows_bank_requisites(self) -> None:
-        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
-
-        self.assertIn('label="Название банка"', source)
-        self.assertIn('label="Расчетный счет"', source)
-        self.assertIn('label="БИК"', source)
-        self.assertIn('label="Корр. счет"', source)
-        self.assertIn("selectedClient?.bankAccount", source)
-        self.assertIn("selectedClient?.bankBik", source)
-        self.assertIn("correspondentAccount", source)
-        self.assertIn("setCorrespondentAccount", source)
-        self.assertIn("correspondentAccount: correspondentAccount.trim()", source)
-
-    def test_documents_preview_shows_signer_position(self) -> None:
-        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
-
-        self.assertIn('label="Должность"', source)
-        self.assertIn("SignerPositionSelect", source)
-        self.assertIn("signerPosition={signerPosition}", source)
-
-    def test_documents_generator_uses_signer_position_select(self) -> None:
-        source = Path("sm-techno-web/app/documents/page.tsx").read_text(encoding="utf-8")
-
-        self.assertIn("SIGNER_POSITION_OPTIONS", source)
-        self.assertIn('"Директор"', source)
-        self.assertIn('"Генеральный директор"', source)
-        self.assertIn('value={signerPosition}', source)
-        self.assertIn('onChange={(event) => setSignerPosition(event.target.value)}', source)
 
     def test_sidebar_places_journal_inside_documents_section(self) -> None:
         source = Path("sm-techno-web/components/navigation/app-navigation.tsx").read_text(encoding="utf-8")

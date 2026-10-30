@@ -18,12 +18,17 @@ it('restores a persisted review after refresh, retains corrections on error and 
   expect(screen.getByText(/Не найдено в источнике: ФИО подписанта/)).toBeVisible();
   fireEvent.change(name,{target:{value:'ООО Исправлено'}});
   fireEvent.change(screen.getByLabelText('ФИО подписанта'),{target:{value:'Тестовый Подписант'}});
+  fireEvent.change(screen.getByLabelText('Должность подписанта'),{target:{value:'Директор'}});
+  fireEvent.change(screen.getByLabelText('Банк'),{target:{value:'Тестовый банк'}});
+  fireEvent.change(screen.getByLabelText('БИК'),{target:{value:'044525225'}});
+  fireEvent.change(screen.getByLabelText('Расчётный счёт'),{target:{value:'40702810000000000001'}});
+  fireEvent.change(screen.getByLabelText('Корреспондентский счёт'),{target:{value:'30101810000000000001'}});
   fireEvent.click(screen.getByRole('button',{name:'Подтвердить проверенные поля'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('Проверьте реквизиты');
   expect(name).toHaveValue('ООО Исправлено');
   fireEvent.click(screen.getByRole('button',{name:'Подтвердить проверенные поля'}));
   await waitFor(() => expect(api.confirmDocumentAssistantJob).toHaveBeenCalledTimes(2));
-  expect(vi.mocked(api.confirmDocumentAssistantJob).mock.calls[0][1]).toEqual(expect.objectContaining({version:3,action:'review',fields:expect.objectContaining({document_name:'ООО Исправлено',signer_name:'Тестовый Подписант'})}));
+  expect(vi.mocked(api.confirmDocumentAssistantJob).mock.calls[0][1]).toEqual(expect.objectContaining({version:3,action:'review',fields:expect.objectContaining({document_name:'ООО Исправлено',signer_name:'Тестовый Подписант',signer_position:'Директор',bank_name:'Тестовый банк',bank_bik:'044525225',bank_account:'40702810000000000001',correspondent_account:'30101810000000000001'})}));
   expect(vi.mocked(api.confirmDocumentAssistantJob).mock.calls[0][1].operationKey).toBe(vi.mocked(api.confirmDocumentAssistantJob).mock.calls[1][1].operationKey);
 });
 
