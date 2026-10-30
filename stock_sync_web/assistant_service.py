@@ -415,7 +415,7 @@ class DocumentAssistantService:
         self.repository.get_client_display(client_id)
         job=self.get_extraction(actor,invoice_job_id)
         if job['clientId']!=client_id:raise DocumentNotFound('Счёт не найден у клиента.')
-        if job['kind']!='invoice' or job['status'] not in {'review','confirmed'} or len(job['assetIds'])!=1:
+        if job['kind']!='invoice' or job['status']!='confirmed' or len(job['assetIds'])!=1:
             raise ValueError('Сначала распознайте и проверьте один исходный счёт DOCX.')
         with storage_operation_lock(self.service._storage_operation_root()):
             # Existing receipt binds the server-owned job/actor/action. Replay survives later contract revisions.

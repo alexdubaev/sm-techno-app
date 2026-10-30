@@ -19,7 +19,7 @@ const formatDate = (value: string) => new Date(value).toLocaleString('ru-RU');
 const fieldLabels: Record<string,string>={document_name:'Наименование для документов',inn:'ИНН',kpp:'КПП',ogrn:'ОГРН',legal_address:'Юридический адрес',bank_account:'Расчётный счёт',correspondent_account:'Корреспондентский счёт',signer_name:'ФИО подписанта',signer_basis:'Основание полномочий',signer_position:'Должность подписанта'};
 
 /** Shared desktop/mobile panel. It reads only the public document summary for this clientId. */
-export function ClientDocumentsPanel({clientId, isAdmin, manage=false}: {clientId: number; isAdmin: boolean; manage?: boolean}) {
+export function ClientDocumentsPanel({clientId, isAdmin, manage=false, onChanged}: {clientId: number; isAdmin: boolean; manage?: boolean; onChanged?: () => void}) {
   const [data,setData] = useState<ClientDocumentsSummary | null>(null);
   const [error,setError] = useState<string | null>(null);
   const [notice,setNotice] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export function ClientDocumentsPanel({clientId, isAdmin, manage=false}: {clientI
       const isDocument = purpose === 'contract' || purpose === 'specification';
       const asset = pendingAsset ?? await uploadClientDocumentAsset(clientId,{file:file!,role:isDocument ? 'archive' : purpose as 'attachment' | 'requisites' | 'source_invoice'});
       setPendingAsset(asset);
-      if(isDocument) await importClientDocument(clientId,{type:purpose,assetId:asset.id,number,date:documentDate});
+      if(isDocument) {await importClientDocument(clientId,{type:purpose,assetId:asset.id,number,date:documentDate}); onChanged?.();}
       await refresh();
       setFile(null); setPendingAsset(null); setNumber(''); setDocumentDate(''); setInputRevision((value) => value+1);
       setNotice(isDocument ? 'Документ сохранён. Исходный файл доступен без изменений.' : 'Файл сохранён в карточке клиента.');
@@ -90,12 +90,12 @@ export function ClientDocumentsPanel({clientId, isAdmin, manage=false}: {clientI
       </div>
       {document.missingFields?.length ? <p className="break-words rounded-lg bg-amber-50 p-3 text-sm">В документе остались пустые реквизиты: {document.missingFields.map((field) => fieldLabels[field] ?? field).join(', ')}. Дополните их перед подписанием.</p> : null}
       <div className="flex flex-wrap gap-2"><button type="button" className={button} disabled={busy} onClick={() => void run(() => downloadDocumentFile(document.id))}>Скачать актуальный файл № {document.number}</button>
-        {isAdmin && manage ? <button type="button" className={button} disabled={busy} onClick={() => {if(window.confirm(`Удалить документ № ${document.number} и его версии?`)) void run(async () => {await deleteDocument(document.id); await refresh();});}}>Удалить документ № {document.number}</button> : null}
+        {isAdmin && manage ? <button type="button" className={button} disabled={busy} onClick={() => {if(window.confirm(`Удалить документ № ${document.number} и его версии?`)) void run(async () => {await deleteDocument(document.id); onChanged?.(); await refresh();});}}>Удалить документ № {document.number}</button> : null}
       </div>
       {document.assets.map((asset) => <AssetRow key={asset.id} asset={asset} busy={busy} download={() => void run(() => downloadDocumentAsset(asset.id))} />)}
       {manage ? <VersionUpload document={document} busy={busy} upload={(nextFile) => run(async () => {
         await uploadClientDocumentVersion(clientId,document.id,{file:nextFile,role:document.documentType==='contract' ? 'contract_version':'final',expectedVersion:document.version});
-        await refresh(); setNotice('Новая версия сохранена. Исходные файлы доступны ниже.');
+        onChanged?.(); await refresh(); setNotice('Новая версия сохранена. Исходные файлы доступны ниже.');
       })} /> : null}
     </article>)}
     {data?.attachments.length ? <section aria-label="Исходные файлы и вложения" className="grid gap-3"><h3 className="font-semibold">Исходные файлы и вложения</h3>

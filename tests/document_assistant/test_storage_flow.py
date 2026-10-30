@@ -205,6 +205,10 @@ def test_archive_sequence_allocation_is_concurrent_and_replay_bound_to_source(ap
     job=repo.create_job(users['alice']['id'],'invoice',cid,[invoice['id']]); job=repo.transition_job(job['id'],job['version'],'running'); job=repo.transition_job(job['id'],job['version'],'review',result={'synthetic':True})
     state=repo.get_client_document_state(cid)
     payload={'client_name':'ООО Тест документов','document_date':'2026-10-30','output_path':contract['assets'][0]['originalFilename'],'legal_snapshot':{'number':'17'}}
+    repo.begin_operation('unconfirmed-repository-test',users['alice']['id'],job['id'],'generate_specification')
+    with pytest.raises(DocumentConflict,match='проверенному'):
+        repo.allocate_specification(cid,contract['id'],state['contract_version_asset_id'],invoice['id'],'unconfirmed-repository-test',payload)
+    job=repo.confirm_review(job['id'],users['alice']['id'],job['version'],{'synthetic':True},'review-storage-invoice')
     def allocate(index):
         key=f'specification-{index}'
         repo.begin_operation(key,users['alice']['id'],job['id'],'generate_specification')

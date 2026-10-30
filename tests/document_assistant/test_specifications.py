@@ -40,7 +40,7 @@ def invoice_bytes(payload=None, extra_rows=False):
     b=BytesIO();d.save(b);return b.getvalue()
 
 
-def setup_invoice(api,monkeypatch,payload=None,source=None):
+def setup_invoice(api,monkeypatch,payload=None,source=None,review_only=False):
     http,service,users,cid=api
     with service.db.transaction(immediate=True) as c:c.execute('UPDATE crm_clients SET inn=?,kpp=? WHERE id=?',(FIELDS['inn'],FIELDS['kpp'],cid))
     j,_=requisites(http,users,monkeypatch,cid=cid)
@@ -53,6 +53,10 @@ def setup_invoice(api,monkeypatch,payload=None,source=None):
     j=http.post('/api/document-assistant/jobs',headers=users['alice']['headers'],json={'kind':'invoice','clientId':cid,'assetIds':[a['id']]}).json()
     j=http.get('/api/document-assistant/jobs/'+j['id'],headers=users['alice']['headers']).json()
     assert j['status']=='review',j
+    if not review_only:
+        response=confirm(http,users,j,'review',key='review-invoice-setup')
+        assert response.status_code==200,response.text
+        j=response.json()['job']
     return j,a
 
 
@@ -215,3 +219,20 @@ def test_imported_ready_contract_is_extracted_from_saved_bytes_and_keeps_origina
     assert any(FIELDS['document_name'] in text for text in seen)
     assert spec.json()['contractId']==imported.json()['id'] and spec.json()['contractVersionId']==asset['id']
     assert http.get(f"/api/document-assets/{asset['id']}/download",headers=users['boris']['headers']).content==content
+
+
+def test_review_invoice_requires_confirmation_before_generation_and_replays(api,monkeypatch):
+    http,service,users,cid=api; job,_=setup_invoice(api,monkeypatch,review_only=True)
+    with service.db.connect() as conn:
+        before=[conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ('documents','client_document_assets','document_assistant_operations')]
+    files_before={p.relative_to(service.document_storage_dir) for p in service.document_storage_dir.rglob('*') if p.is_file()}
+    response=generate(api,job,key='confirm-required-test')
+    assert files_before=={p.relative_to(service.document_storage_dir) for p in service.document_storage_dir.rglob('*') if p.is_file()}
+    assert response.status_code in (409,422) and 'проверьте' in response.text.lower()
+    with service.db.connect() as conn:
+        assert before==[conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in ('documents','client_document_assets','document_assistant_operations')]
+    confirmed=confirm(http,users,job,'review',key='review-invoice-test')
+    assert confirmed.status_code==200,confirmed.text
+    job=confirmed.json()['job']
+    first=generate(api,job,key='confirm-required-test'); assert first.status_code==200,first.text
+    assert generate(api,job,key='confirm-required-test').json()['id']==first.json()['id']

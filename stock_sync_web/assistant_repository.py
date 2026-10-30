@@ -579,7 +579,7 @@ class AssistantRepository:
                 return row
             if op['status']!='pending': raise DocumentConflict('Результат операции неизвестен; повтор запрещён.')
             job = conn.execute('SELECT * FROM document_assistant_jobs WHERE id=?',(op['job_id'],)).fetchone()
-            if op['action']!='generate_specification' or not job or job['kind']!='invoice' or job['crm_client_id']!=client_id or invoice_asset_id not in json.loads(job['input_asset_ids']) or job['status'] not in {'review','confirmed'}:
+            if op['action']!='generate_specification' or not job or job['kind']!='invoice' or job['crm_client_id']!=client_id or invoice_asset_id not in json.loads(job['input_asset_ids']) or job['status']!='confirmed':
                 raise DocumentConflict('Операция не соответствует проверенному исходному счёту клиента.')
             state=self._specification_sequence_state(conn,client_id,contract_document_id)
             if (state['contract_document_id'],state['contract_version_asset_id']) != (contract_document_id,contract_version_asset_id): raise DocumentConflict('Версия договора изменилась. Повторите проверку.')

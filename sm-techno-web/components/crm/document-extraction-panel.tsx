@@ -15,7 +15,7 @@ const message=(failure: unknown) => failure instanceof Error ? failure.message :
 const scalar=(value: unknown) => typeof value==='string' || typeof value==='number' ? String(value) : '';
 
 /** Reusable intake for the same client card and for a not-yet-created client. */
-export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJob}: {clientId?: number;onConfirmed?: (job: DocumentAssistantJob) => void;purpose?: "requisites" | "invoice";restoredJob?: DocumentAssistantJob | null}) {
+export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJob,onActiveJobChange}: {onActiveJobChange?: (job: DocumentAssistantJob | null) => void;clientId?: number;onConfirmed?: (job: DocumentAssistantJob) => void;purpose?: "requisites" | "invoice";restoredJob?: DocumentAssistantJob | null}) {
   const [kind,setKind]=useState<DocumentAssistantKind>(purpose ?? 'requisites');
   const [file,setFile]=useState<File | null>(null);
   const [assetId,setAssetId]=useState<number | null>(null);
@@ -24,13 +24,17 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string | null>(null);
   const [revision,setRevision]=useState(0);
+  const selectionTouched=useRef(false);
+  const activeCallback=useRef(onActiveJobChange);
+  useEffect(() => {activeCallback.current=onActiveJobChange;},[onActiveJobChange]);
   const job=jobs.find((item) => item.id===selected);
   function update(next: DocumentAssistantJob) { setJobs((current) => [next,...current.filter((item) => item.id!==next.id)]); }
   useEffect(() => {
     let active=true;
-    fetchDocumentAssistantJobs(clientId).then((data) => {if(active) {const items=purpose ? data.items.filter((item) => item.kind===purpose) : data.items; const merged=restoredJob ? [restoredJob,...items.filter((item) => item.id!==restoredJob.id)] : items; setJobs(merged); setSelected(restoredJob?.id ?? merged[0]?.id ?? null);}},(failure: unknown) => {if(active) setError(message(failure));});
+    fetchDocumentAssistantJobs(clientId).then((data) => {if(active) {const items=purpose ? data.items.filter((item) => item.kind===purpose) : data.items; setJobs((current) => [...current,...items.filter((item) => !current.some((candidate) => candidate.id===item.id))]); if(!selectionTouched.current && items[0]) {setSelected(items[0].id);activeCallback.current?.(items[0]);}}},(failure: unknown) => {if(active) setError(message(failure));});
     return () => {active=false;};
-  },[clientId,purpose,restoredJob]);
+  },[clientId,purpose]);
+  useEffect(() => {let active=true;if(restoredJob) {selectionTouched.current=true;void Promise.resolve().then(() => {if(active){update(restoredJob);setSelected(restoredJob.id);}});}return () => {active=false;};},[restoredJob]);
   useEffect(() => {
     if(!job || !['queued','running'].includes(job.status)) return;
     let active=true;
@@ -46,24 +50,24 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
         : await uploadClientDocumentAsset(clientId,{file:file!,role:kind==='invoice' ? 'source_invoice' : kind==='requisites' ? 'requisites' : 'attachment'})).id;
       setAssetId(source);
       const next=await startDocumentAssistantJob({kind,...(clientId===undefined ? {} : {clientId}),assetIds:[source]});
-      update(next); setSelected(next.id); setFile(null); setAssetId(null); setRevision((current) => current+1);
+      update(next); setSelected(next.id); onActiveJobChange?.(next); setFile(null); setAssetId(null); setRevision((current) => current+1);
     } catch(failure: unknown) {setError(message(failure));}
     finally {setBusy(false);}
   }
   return <section aria-label="Распознавание документов" className="grid min-w-0 gap-3 rounded-lg border border-[var(--border-color)] p-3">
     <div><h3 className="font-semibold">{purpose==='invoice' ? 'Счёт для спецификации' : purpose==='requisites' ? 'Реквизиты для договора' : 'Распознать документ клиента'}</h3><p className="mt-1 text-sm text-[var(--text-secondary)]">Загрузите документ или фото. Проверьте результат и исправьте поля перед использованием.</p></div>
-    <form role="presentation" className="grid gap-3 sm:grid-cols-2" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {event.preventDefault(); const next=event.dataTransfer.files[0]; if(next) {setFile(next);setAssetId(null);}}} onSubmit={(event) => {event.preventDefault(); void start();}}>
+    <form role="presentation" className="grid gap-3 sm:grid-cols-2" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {event.preventDefault(); const next=event.dataTransfer.files[0]; if(next) {setFile(next);setAssetId(null);selectionTouched.current=true;setSelected(null);onActiveJobChange?.(null);}}} onSubmit={(event) => {event.preventDefault(); void start();}}>
       {!purpose ? <label className="grid gap-1 text-sm">Что распознать<select className={control} value={kind} disabled={busy || assetId!==null} onChange={(event) => setKind(event.target.value as DocumentAssistantKind)}>{Object.entries(kinds).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label> : null}
-      <label className="grid gap-1 text-sm">Документ или фото для распознавания<input key={revision} className={control} type="file" required={assetId===null && !file} disabled={busy} accept={kind==='invoice' ? '.docx' : '.docx,.doc,.rtf,.odt,.xlsx,.xls,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.heic,.heif'} onChange={(event) => {setFile(event.target.files?.[0] ?? null);setAssetId(null);}} /></label>
+      <label className="grid gap-1 text-sm">Документ или фото для распознавания<input key={revision} className={control} type="file" required={assetId===null && !file} disabled={busy} accept={kind==='invoice' ? '.docx' : '.docx,.doc,.rtf,.odt,.xlsx,.xls,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.heic,.heif'} onChange={(event) => {setFile(event.target.files?.[0] ?? null);setAssetId(null);if(event.target.files?.[0]) {selectionTouched.current=true;setSelected(null);onActiveJobChange?.(null);}}} /></label>
       <p className="text-xs text-[var(--text-secondary)] sm:col-span-2">{file ? `Выбран: ${file.name}. ` : 'Перетащите файл сюда или выберите кнопкой. '}{kind==='invoice' ? 'Исходный счёт — DOCX.' : 'Word, OpenDocument, Excel, CSV/TSV, текст, PDF или фото.'} До 25 МБ; до 100 страниц и 40 млн пикселей. Оригинал сохраняется.</p>
       <button type="submit" className={`${button} sm:col-span-2`} disabled={busy}>{busy ? 'Загружаем…' : assetId!==null ? 'Повторить запуск из сохранённого файла' : 'Загрузить и распознать'}</button>
     </form>
     {error ? <p role="alert" className="break-words rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p> : null}
-    {jobs.length ? <label className="grid gap-1 text-sm">Сохранённые задания<select className={control} value={selected ?? ''} onChange={(event) => setSelected(event.target.value)}>{jobs.map((item) => <option key={item.id} value={item.id}>{kinds[item.kind]} · {new Date(item.createdAt).toLocaleString('ru-RU')} · {statuses[item.status]}</option>)}</select></label> : null}
+    {jobs.length ? <label className="grid gap-1 text-sm">Сохранённые задания<select className={control} value={selected ?? ''} onChange={(event) => {selectionTouched.current=true;const next=jobs.find((item) => item.id===event.target.value) ?? null;setSelected(next?.id ?? null);onActiveJobChange?.(next);}}>{selected===null ? <option value="">Выберите задание</option> : null}{jobs.map((item) => <option key={item.id} value={item.id}>{kinds[item.kind]} · {new Date(item.createdAt).toLocaleString('ru-RU')} · {statuses[item.status]}</option>)}</select></label> : null}
     {job ? <div className="grid gap-3"><output className="font-medium">{statuses[job.status]}</output>
       <button type="button" className={button} onClick={() => {setError(null); void fetchDocumentAssistantJob(job.id).then(update,(failure: unknown) => setError(message(failure)));}}>Обновить состояние задания</button>
       {job.error ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm">{job.error.message}</p> : null}
-      {job.status==='failed' ? <button type="button" className={button} disabled={busy} onClick={() => {setBusy(true);setError(null);void startDocumentAssistantJob({kind:job.kind,...(job.clientId===null ? {} : {clientId:job.clientId}),assetIds:job.assetIds}).then((next) => {update(next);setSelected(next.id);},(failure: unknown) => setError(message(failure))).finally(() => setBusy(false));}}>Распознать сохранённый источник заново</button> : null}
+      {job.status==='failed' ? <button type="button" className={button} disabled={busy} onClick={() => {setBusy(true);setError(null);void startDocumentAssistantJob({kind:job.kind,...(job.clientId===null ? {} : {clientId:job.clientId}),assetIds:job.assetIds}).then((next) => {update(next);setSelected(next.id);onActiveJobChange?.(next);},(failure: unknown) => setError(message(failure))).finally(() => setBusy(false));}}>Распознать сохранённый источник заново</button> : null}
       {job.result && ['review','confirmed'].includes(job.status) ? <ExtractionReview key={`${job.id}-${job.version}`} job={job} onSaved={(next) => {update(next);onConfirmed?.(next);}} /> : null}
       {job.status==='confirmed' && job.kind==='requisites' && onConfirmed ? <button type="button" className={button} onClick={() => onConfirmed(job)}>Использовать проверенные реквизиты</button> : null}
       {job.status==='confirmed' && job.kind==='invoice' && onConfirmed ? <button type="button" className={button} onClick={() => onConfirmed(job)}>Использовать проверенный счёт</button> : null}
