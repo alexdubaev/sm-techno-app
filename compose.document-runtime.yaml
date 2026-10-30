@@ -1,0 +1,9 @@
+services:
+  backend:
+    environment:
+      DOCUMENT_ASSISTANT_CODEX_CLI: /usr/local/bin/codex
+      CODEX_HOME: /run/sm-techno-codex
+      DOCUMENT_ASSISTANT_CONVERTER_SOCKET: /run/sm-techno-converter/converter.sock
+    volumes:
+      - ${SM_TECHNO_HOST_ROOT:-/srv/sm-techno-test}/runtime/document-codex:/run/sm-techno-codex
+      - ${SM_TECHNO_HOST_ROOT:-/srv/sm-techno-test}/runtime/converter/socket:/run/sm-techno-converter:ro
