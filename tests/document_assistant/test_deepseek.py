@@ -19,6 +19,10 @@ def stub(monkeypatch):
             state['requests'].append((self.path, dict(self.headers), self.rfile.read(int(self.headers['Content-Length']))))
             if state.get('delay'): time.sleep(state['delay'])
             try:
+                if state.get('header_trickle'):
+                    for byte in b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n':
+                        self.wfile.write(bytes([byte])); self.wfile.flush(); time.sleep(state['header_trickle'])
+                    return
                 self.send_response(state['status']); self.end_headers()
                 if state.get('trickle'):
                     for byte in state['body']:
@@ -106,3 +110,11 @@ def test_overall_deadline_cannot_be_extended_by_trickling_response(stub):
     with pytest.raises(ExtractionError) as error:
         DeepSeekDocumentExtractor(connection_factory=factory, timeout=.12).extract(ExtractionRequest('articles', [], [], []))
     assert error.value.code == 'runtime_timeout' and time.monotonic() - started < 1
+
+
+def test_overall_deadline_cannot_be_extended_by_trickling_headers(stub):
+    state, factory = stub; state['header_trickle'] = .04
+    started = time.monotonic()
+    with pytest.raises(ExtractionError) as error:
+        DeepSeekDocumentExtractor(connection_factory=factory, timeout=.12).extract(ExtractionRequest('articles', [], [], []))
+    assert error.value.code == 'runtime_timeout' and time.monotonic() - started < .8

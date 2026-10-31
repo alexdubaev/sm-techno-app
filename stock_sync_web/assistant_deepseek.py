@@ -5,6 +5,7 @@ import json
 import os
 import socket
 import ssl
+import threading
 import time
 
 from stock_sync_web.assistant_extraction import (
@@ -55,9 +56,19 @@ class DeepSeekDocumentExtractor:
             if len(body) > 28 * 1024 * 1024:
                 raise ExtractionError('input_limit', 'Превышен предел материалов задания.')
             connection = self._connection_factory(remaining())
+            timer = None
+            expired = threading.Event()
             try:
-                connection.request('POST', '/chat/completions', body=body, headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'Accept': 'application/json'})
+                connection.connect()
                 sock = connection.sock
+                def abort_at_deadline():
+                    expired.set()
+                    try: sock.shutdown(socket.SHUT_RDWR)
+                    except OSError: pass
+                timer = threading.Timer(remaining(), abort_at_deadline)
+                timer.daemon = True
+                timer.start()
+                connection.request('POST', '/chat/completions', body=body, headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'Accept': 'application/json'})
                 sock.settimeout(remaining())
                 response = connection.getresponse()
                 if response.status != 200:
@@ -74,8 +85,16 @@ class DeepSeekDocumentExtractor:
                     data.extend(chunk)
                     if len(data) > MAX_OUTPUT_BYTES:
                         raise ExtractionError('runtime_output_limit', 'Ответ DeepSeek превысил допустимый размер.')
+            except (OSError, http.client.HTTPException):
+                if expired.is_set():
+                    raise ExtractionError('runtime_timeout', 'DeepSeek не ответил за допустимое время.') from None
+                raise
             finally:
+                if timer is not None:
+                    timer.cancel()
+                    timer.join()
                 connection.close()
+            remaining()
             envelope = json.loads(data)
             choices = envelope['choices']
             if not isinstance(choices, list) or len(choices) != 1: raise ValueError()
