@@ -115,3 +115,12 @@ def test_cli_timeout_and_nonzero_never_expose_process_diagnostics(tmp_path):
     with pytest.raises(ExtractionError) as error:
         CodexDocumentExtractor._run([sys.executable,'-c','import sys; print("SYNTHETIC_PRIVATE_PATH",file=sys.stderr); sys.exit(2)'],'',_runtime_environment(tmp_path),tmp_path,10)
     assert error.value.code=='runtime_failed' and 'SYNTHETIC_PRIVATE_PATH' not in str(error.value)
+
+
+def test_deepseek_provider_requires_key_without_network(monkeypatch):
+    from stock_sync_web import assistant_extraction as module
+    monkeypatch.setenv('DOCUMENT_ASSISTANT_PROVIDER', 'deepseek')
+    monkeypatch.delenv('DEEPSEEK_API_KEY', raising=False)
+    with pytest.raises(ExtractionError) as error:
+        module.create_document_extractor().extract(ExtractionRequest('articles', ['00123'], [], []))
+    assert error.value.code == 'provider_configuration'
