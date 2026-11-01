@@ -1,7 +1,7 @@
 <!-- autopilot:progress -->
 # СМ ТЕХНО — мобильный ввод и Android, приёмка 2026-11-01
 
-Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`. Реализация Android/frontend в commits11f9f24+8484079; UIsteering1694f64 + preserve-draft closure (normalcollapsed, equal2columns). PR25. Local checks и independent review с bounded F2 закрыты. PR/merge/deploy ещё не выполнены на момент этой записи; точный live ce3f260, оба сервиса healthy. Прогон остаётся открытым для физических телефонов.
+Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`: **main387a6d8 выпущен по прямому «Деплой» владельца**, оба сервиса healthy, publicHTTPSchecks PASS; frontend1b39f773/backend4726d4da без перезапуска. Блок по умолчанию свёрнут, кнопки равные в двух колонках, сворачивание сохраняет черновик. PR25+26 merged, appCI387 green. Прогон открыт только для физических телефонов; подробные backup/rollback/checks/timings в android-release.md.
 
 ## Договорились — не пересматривать
 
@@ -24,7 +24,7 @@
 
 ## Следующие действия и ограничения
 
-- Завершить PR/main и подготовку frontendrelease; запросить один раз exactmainSHAdeploy после готового backup/rollback. Текущий сервер ce3f260 не переключён.
+- Выпуск387 завершён; не спрашивать разрешение на него повторно. Freshbackup20:10 SHA43092bad… strictverify/emptyrestore PASS; script6142817c…/rollbackprevious0a4 сохранены. Backend/currentdata/devices не менялись.
 - R11: физический AndroidChromePWA «Поделиться» с настоящим вложением — NOTRUN; владелец подтвердил, что Android найдётся.
 - R14: импорт iPhoneкоманды с новым именем и native115 runtime — NOTRUN. Предыдущая111 дала actualphonevalidationFAIL, новая115 уже опубликована вce3, физическаяприёмка открыта. Signedbytes неизменны, новыйroute только downloadname.
 - G4 текущего расширения5/7, физические проверки не скрывать за браузернымPASS. Нужные phonechecks после доступного выпуска; ключи/коды в чат не запрашивать.
