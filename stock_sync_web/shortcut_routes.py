@@ -68,7 +68,8 @@ def create_shortcut_router(current_user, get_service):
         async with clone.form(max_files=1, max_fields=0) as form:
             file = form.get('file')
             if len(form) != 1 or not isinstance(file, UploadFile): raise HTTPException(400, 'Нужен один файл.')
-            result = await extract_valuation_upload(file)
+            from stock_sync_web.deepseek_usage import sink_for
+            result = await extract_valuation_upload(file, usage_sink=sink_for(get_service().db))
         result['warnings'] = [str(w)[:1000] for w in result['warnings'][:20]]
         preview = '\n'.join(f"{r['sourceRow']}. {r['article']}" + (f" — {r['requestedQty']}" if r['requestedQty'] else '') for r in result['rows'])
         if len(preview) > 100_000: raise HTTPException(413, 'Список слишком велик для просмотра на телефоне.')

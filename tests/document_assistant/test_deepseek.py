@@ -118,3 +118,24 @@ def test_overall_deadline_cannot_be_extended_by_trickling_headers(stub):
     with pytest.raises(ExtractionError) as error:
         DeepSeekDocumentExtractor(connection_factory=factory, timeout=.12).extract(ExtractionRequest('articles', [], [], []))
     assert error.value.code == 'runtime_timeout' and time.monotonic() - started < .8
+
+def test_usage_recorded_for_invalid_model_output(stub):
+    state, factory = stub
+    state['body'] = json.dumps({'usage': {'prompt_tokens': 12, 'completion_tokens': 3, 'total_tokens': 15}, 'choices': []}).encode()
+    recorded = []
+    with pytest.raises(ExtractionError):
+        DeepSeekDocumentExtractor(connection_factory=factory, usage_sink=lambda *args: recorded.append(args)).extract(ExtractionRequest('articles', [], [], []))
+    assert len(recorded) == 1
+    assert recorded[0][2] == {'prompt_tokens': 12, 'completion_tokens': 3, 'total_tokens': 15}
+
+def test_usage_records_errors_and_sink_failure_never_breaks_success(stub):
+    state, factory = stub
+    records = []
+    state.update(status=500, body=b'')
+    with pytest.raises(ExtractionError):
+        DeepSeekDocumentExtractor(connection_factory=factory, usage_sink=lambda *args: records.append(args)).extract(ExtractionRequest('articles', [], [], []))
+    assert len(records) == 1 and records[0][1:] == ('failed', None)
+    state.update(status=200, body=response(good()))
+    def failed_sink(*args): raise OSError('storage offline')
+    result = DeepSeekDocumentExtractor(connection_factory=factory, usage_sink=failed_sink).extract(ExtractionRequest('articles', [], [], []))
+    assert result.payload['rows'][0]['article'] == '00123'

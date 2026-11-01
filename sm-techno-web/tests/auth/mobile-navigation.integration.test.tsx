@@ -99,7 +99,8 @@ describe('responsive AppShell navigation', () => {
   });
 
   it.each([
-    ['/manager', 'Кабинет'],
+    ['/dashboard', 'Обзор'],
+    ['/manager', 'Ещё'],
     ['/stock', 'Остатки'],
     ['/crm', 'CRM'],
     ['/settings', 'Настройки'],

@@ -259,13 +259,13 @@ def extraction_prompt(request):
         'Images are numbered pages in attachment order. Extraction kind: '+request.kind+'\n<customer_data>\n'+
         json.dumps(request.texts,ensure_ascii=False)+'\n</customer_data>')
 
-def create_document_extractor(*, codex_factory=None):
+def create_document_extractor(*, codex_factory=None, usage_sink=None):
     provider = (os.getenv("DOCUMENT_ASSISTANT_PROVIDER") or "codex").strip().lower()
     if provider == "codex":
         return (codex_factory or CodexDocumentExtractor)()
     if provider == "deepseek":
         from stock_sync_web.assistant_deepseek import DeepSeekDocumentExtractor
-        return DeepSeekDocumentExtractor()
+        return DeepSeekDocumentExtractor(usage_sink=usage_sink)
     raise ExtractionError("provider_configuration", "Неизвестный провайдер распознавания. Проверьте настройки сервера.")
 
 class CodexDocumentExtractor:

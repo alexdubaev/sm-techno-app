@@ -93,7 +93,7 @@ export function AppShell({ children }: ShellProps) {
   const visibleNavGroups = navigationGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => !item.adminOnly || isAdmin),
+      items: group.items.filter((item) => !item.adminOnly || isAdmin).map((item) => isAdmin && item.href === '/manager' ? { ...item, label: 'Мои продажи' } : item),
     }))
     .filter((group) => group.items.length > 0);
   const routeGroupLabel =
@@ -115,7 +115,7 @@ export function AppShell({ children }: ShellProps) {
   const mobilePrimaryItems = visibleNavGroups.flatMap((group) =>
     group.items.filter(
       (item) =>
-        item.href === '/manager' || item.href === '/stock' || item.href === '/crm' || item.href === '/settings',
+        item.href === (isAdmin ? '/dashboard' : '/manager') || item.href === '/stock' || item.href === '/crm' || item.href === '/settings',
     ),
   );
 

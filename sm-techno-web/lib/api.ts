@@ -1792,3 +1792,13 @@ export function generateClientArticleOffer(clientId: number,payload: {articlesJo
     method:'POST',headers:createHeaders({'Content-Type':'application/json'}),body:JSON.stringify(payload),
   },'Не удалось сформировать коммерческое предложение.',{timeoutMs:420_000});
 }
+
+export function fetchAdminSales(period: import('./admin-dashboard-types').PeriodKind, date: string) {
+  return requestJson<import('./admin-dashboard-types').SalesOverview>(`/api/admin/dashboard/sales?${new URLSearchParams({period, date})}`, {bypassCache: true});
+}
+export function fetchAdminUsage(period: import('./admin-dashboard-types').PeriodKind, date: string) {
+  return requestJson<import('./admin-dashboard-types').UsageOverview>(`/api/admin/dashboard/deepseek?${new URLSearchParams({period, date})}`, {bypassCache: true});
+}
+export function fetchAdminBalance() {
+  return requestJson<import('./admin-dashboard-types').Balance>('/api/admin/dashboard/deepseek/balance', {bypassCache: true});
+}
