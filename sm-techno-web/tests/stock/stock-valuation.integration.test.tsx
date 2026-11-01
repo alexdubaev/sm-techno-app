@@ -12,7 +12,7 @@ it('reviews dropped articles and resolves the edited row without a client', asyn
   expect(screen.queryByRole('button', {name: 'Вставить список'})).not.toBeInTheDocument();
   fireEvent.click(toggle);
   expect(screen.getByRole('button', {name: 'Свернуть'})).toHaveAttribute('aria-expanded', 'true');
-  const input = screen.getByLabelText('Выбрать файл с артикулами');
+  const input = screen.getByLabelText('Выбрать файл или фото');
   fireEvent.drop(input.parentElement!.parentElement!, { dataTransfer: { files: [new File(['001'], 'list.txt')] } });
   expect(api.intakeValuation).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Распознать' }));
@@ -39,7 +39,7 @@ it('validates pasted text and photos before explicit recognition, and clears sta
   await screen.findByLabelText('Артикул строки 1');
   const file = vi.mocked(api.intakeValuation).mock.calls[0][0];
   expect(file.name).toBe('stock.txt');
-  fireEvent.change(screen.getByLabelText('Фото / скриншот'), {target: {files: [new File(['image'], 'photo.jpg', {type: 'image/jpeg'})]}});
+  fireEvent.change(screen.getByLabelText('Выбрать файл или фото'), {target: {files: [new File(['image'], 'photo.jpg', {type: 'image/jpeg'})]}});
   expect(screen.queryByLabelText('Артикул строки 1')).not.toBeInTheDocument();
   expect(api.intakeValuation).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', {name: 'Распознать'}));
@@ -49,7 +49,7 @@ it('validates pasted text and photos before explicit recognition, and clears sta
 it('preserves the selected source and pasted list when collapsed and reopened', () => {
   render(<StockValuationPanel />);
   fireEvent.click(screen.getByRole('button', {name: 'Развернуть'}));
-  fireEvent.change(screen.getByLabelText('Выбрать файл с артикулами'), {target: {files: [new File(['001'], 'list.txt')]}});
+  fireEvent.change(screen.getByLabelText('Выбрать файл или фото'), {target: {files: [new File(['001'], 'list.txt')]}});
   expect(screen.getByText(/list.txt/)).toBeVisible();
   fireEvent.click(screen.getByRole('button', {name: 'Свернуть'}));
   expect(screen.getByRole('button', {name: 'Развернуть'})).toHaveAttribute('aria-expanded', 'false');

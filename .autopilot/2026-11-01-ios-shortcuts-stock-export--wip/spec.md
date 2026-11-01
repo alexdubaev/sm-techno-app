@@ -100,3 +100,7 @@ Backend/API/schema/1С/dependencies не меняются; URLнавигации
 
 ### G06 — точечное изменение вида по владельцу
 R15: в обычной загрузке Остатков блок расценки свёрнут; понятное Развернуть/Свернуть. Три действия одинакового размера, равные колонки/отступы (две колонки), без выдуманной четвёртой кнопки и без смены остальной страницы. Входящий принятый sharedsource раскрывает блок, чтобы не спрятать пользовательский файл. Ручное сворачивание при lateclaim не даёт ему раскрыться позже. Существующие границы auth/source/session/расценки/Excel не меняются. Это known bounded UIsteering, smallchangepolicy: один исполнитель с existingcontext, затронутые проверки/390visual, без новогоscout/reviewритуала.
+
+
+### G07 — единый file/photo input по уточнению владельца
+R16 supersedes прежнюю presentation трёх отдельныхдействий: один «Выбрать файл или фото» с прежним полнымaccept (включаяimages), рядом «Вставить список». Две равные кнопки/колонки; R09 photo capability сохраняется, defaultcollapse/retention/manualrecognition/share/validation/2Excel не меняются. Knownbounded UI correction, no protectedcontracts.

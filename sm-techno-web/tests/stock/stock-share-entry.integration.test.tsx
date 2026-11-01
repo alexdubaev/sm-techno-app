@@ -16,7 +16,7 @@ it.each(['manual', 'close'])('a late claim cannot overwrite %s user action', asy
   render(<StockValuationEntry />);
   await waitFor(() => expect(share.messageWorker).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({type:'claim'})));
   fireEvent.click(screen.getByRole('button',{name:'Развернуть'}));
-  if (action === 'manual') fireEvent.change(screen.getByLabelText('Выбрать файл с артикулами'),{target:{files:[new File(['own'],'manual.txt')]}});
+  if (action === 'manual') fireEvent.change(screen.getByLabelText('Выбрать файл или фото'),{target:{files:[new File(['own'],'manual.txt')]}});
   else fireEvent.click(screen.getByRole('button',{name:'Свернуть'}));
   finish({ok:true,payload:new File(['shared'],'late.txt')});
   await waitFor(() => expect(share.currentOwner).toHaveBeenCalledTimes(3));

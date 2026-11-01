@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "7d42a9cd3ac79826cedaa9bbd001acd68c129061",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T20:13:30+03:00",
+  "updatedAt": "2026-11-01T20:23:17+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -65,8 +65,8 @@ window.STATE =
     }
   ],
   "requirements": {
-    "total": 15,
-    "done": 13,
+    "total": 16,
+    "done": 14,
     "inTicket": 2,
     "inSpec": 0,
     "placeholder": 0,
@@ -232,6 +232,35 @@ window.STATE =
       "commit": "0becd450afd5"
     },
     {
+      "id": "05",
+      "title": "Один выбор файла или фото",
+      "requirements": [
+        "R16"
+      ],
+      "blockedBy": [
+        "04"
+      ],
+      "wave": 7,
+      "zone": [
+        "sm-techno-web/components/stock/stock-valuation-panel.tsx",
+        "sm-techno-web/tests/stock/",
+        "sm-techno-web/tests/e2e/stock-valuation.spec.ts",
+        "sm-techno-web/tests/e2e/stock-share.spec.ts"
+      ],
+      "review": "нет — known bounded presentation correction, no protected changes",
+      "model": "сильная — existing Terra6.1",
+      "status": "done",
+      "startedAt": "2026-11-01T20:21:22+03:00",
+      "finishedAt": "2026-11-01T20:23:17+03:00",
+      "retries": 0,
+      "repairs": 0,
+      "tests": {
+        "passed": 5,
+        "failed": 0
+      },
+      "commit": "cf12e935504f"
+    },
+    {
       "id": "F1",
       "title": "Исправления независимого ревью",
       "requirements": [
@@ -377,9 +406,11 @@ window.STATE =
     "2026-11-01T18:47:10+03:00",
     "2026-11-01T18:50:12+03:00",
     "2026-11-01T18:50:13+03:00",
-    "2026-11-01T20:13:30+03:00"
+    "2026-11-01T20:13:30+03:00",
+    "2026-11-01T20:21:22+03:00",
+    "2026-11-01T20:23:17+03:00"
   ],
-  "rev": 75,
+  "rev": 79,
   "waiting": null,
   "waits": [
     {
@@ -880,6 +911,38 @@ window.STATE =
       "k": "add",
       "key": "report",
       "n": 1
+    },
+    {
+      "t": "2026-11-01T20:21:22+03:00",
+      "k": "tickets",
+      "n": 7
+    },
+    {
+      "t": "2026-11-01T20:21:22+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T20:23:17+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 5,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T20:23:17+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
     }
   ],
   "reqList": [
@@ -957,6 +1020,11 @@ window.STATE =
       "id": "R15",
       "text": "«новый экран ... по умолчанию свернутым ... свернуть и развернуть ... кнопки ... одинакового размера ... равномерно ... по две в столбик»",
       "status": "done"
+    },
+    {
+      "id": "R16",
+      "text": "«Выбрать файл и фото скриншот по сути вызывают одно и то же меню. Тогда зачем две кнопки»",
+      "status": "done"
     }
   ],
   "gates": {
@@ -975,7 +1043,7 @@ window.STATE =
     },
     "G3": {
       "ok": true,
-      "at": "2026-11-01T18:47:10+03:00",
+      "at": "2026-11-01T20:23:17+03:00",
       "problems": 0
     },
     "G4": {
