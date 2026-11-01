@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "7d42a9cd3ac79826cedaa9bbd001acd68c129061",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T18:50:13+03:00",
+  "updatedAt": "2026-11-01T20:13:30+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -376,9 +376,10 @@ window.STATE =
     "2026-11-01T18:47:09+03:00",
     "2026-11-01T18:47:10+03:00",
     "2026-11-01T18:50:12+03:00",
-    "2026-11-01T18:50:13+03:00"
+    "2026-11-01T18:50:13+03:00",
+    "2026-11-01T20:13:30+03:00"
   ],
-  "rev": 74,
+  "rev": 75,
   "waiting": null,
   "waits": [
     {
@@ -873,6 +874,12 @@ window.STATE =
       "ok": false,
       "checked": 7,
       "matched": 5
+    },
+    {
+      "t": "2026-11-01T20:13:30+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
     }
   ],
   "reqList": [
@@ -983,6 +990,7 @@ window.STATE =
     "Physical iPhone installation/import/share/Quick Look NOT RUN; only readable workflow provided, no signed Shortcut or iCloud link published.",
     "G02: подключение iPhone перенесено в Настройки, версия8498dc4 установлена. Физическая проверка самой команды на iPhone остаётся отдельным действием.",
     "Готовая подписанная команда опубликована; сервер и скачивание проверены. Первый запуск на iPhone ещё не проверен.",
-    "Исправление If и подтверждение копирования опубликованы. Прежний файл не прошёл проверку на iPhone; новый требует переустановки и проверки."
+    "Исправление If и подтверждение копирования опубликованы. Прежний файл не прошёл проверку на iPhone; новый требует переустановки и проверки.",
+    "Версия387a6d8 выпущена по прямому Деплой владельца, publicHTTPS PASS; Android/iPhone physical gates остаются NOTRUN. Evidence android-release.md."
   ]
 }
