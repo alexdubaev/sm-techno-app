@@ -1,0 +1,100 @@
+name: Sign stock Shortcut (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Reviewed source commit, 40 hex characters
+        required: true
+        type: string
+      input_sha256:
+        description: Reviewed unsigned artifact SHA-256
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: manual-stock-shortcut-signing
+  cancel-in-progress: false
+jobs:
+  sign:
+    if: github.event.repository.private == false
+    runs-on: macos-26
+    timeout-minutes: 8
+    steps:
+      - name: Validate source identifiers
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          INPUT_SHA256: ${{ inputs.input_sha256 }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$INPUT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Validate reviewed blank workflow
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          INPUT_SHA256: ${{ inputs.input_sha256 }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, plistlib, subprocess
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==os.environ['SOURCE_SHA']
+          source=pathlib.Path('assets/shortcuts/EXPERIMENTAL-NOT-INSTALLABLE.plist')
+          assert all(not p.is_symlink() for p in (source, *source.parents) if str(p) != '.')
+          assert source.is_file()
+          data=source.read_bytes()
+          assert 0<len(data)<1024*1024
+          assert hashlib.sha256(data).hexdigest()==os.environ['INPUT_SHA256']
+          workflow=plistlib.loads(data)
+          actions=workflow['WFWorkflowActions']
+          assert 0<len(actions)<=200
+          assert workflow['WFWorkflowTypes']==['ActionExtension']
+          questions=workflow['WFWorkflowImportQuestions']
+          assert len(questions)==1 and questions[0]['ActionIndex']==0
+          assert questions[0]['DefaultValue']=='' and questions[0]['ParameterKey']=='WFTextActionText'
+          assert actions[0]['WFWorkflowActionIdentifier']=='is.workflow.actions.gettext'
+          assert actions[0]['WFWorkflowActionParameters']['WFTextActionText']==''
+          out=pathlib.Path('signing-output');out.mkdir()
+          (out/'unsigned.shortcut').write_bytes(data)
+          (out/'input-provenance.json').write_text(json.dumps({'source_sha':os.environ['SOURCE_SHA'],'input_sha256':os.environ['INPUT_SHA256'],'actions':len(actions)}))
+          print('Reviewed blank workflow matched; actions='+str(len(actions)))
+          PY
+          plutil -lint signing-output/unsigned.shortcut
+      - name: Sign using Apple Shortcuts
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, plistlib, subprocess
+          out=pathlib.Path('signing-output')
+          original=plistlib.loads((out/'unsigned.shortcut').read_bytes())
+          signed=out/'sm-techno-stock.shortcut'
+          command=['/usr/bin/shortcuts','sign','--mode','anyone','--input',str(out/'unsigned.shortcut'),'--output',str(signed)]
+          def attempt():
+              try:
+                  result=subprocess.run(command,capture_output=True,text=True,timeout=120)
+              except subprocess.TimeoutExpired:
+                  return False
+              if result.returncode: print(result.stderr[-2000:])
+              return result.returncode==0 and signed.is_file() and signed.read_bytes().startswith(b'AEA1')
+          ok=attempt()
+          if not ok:
+              signed.unlink(missing_ok=True)
+              subprocess.run(['plutil','-convert','binary1',str(out/'unsigned.shortcut')],check=True)
+              assert plistlib.loads((out/'unsigned.shortcut').read_bytes())==original
+              ok=attempt()
+          assert ok,'Apple signing failed; no installer produced. Do not weaken validation or request account secrets.'
+          data=signed.read_bytes()
+          assert 1000<len(data)<2*1024*1024 and data[:4]==b'AEA1'
+          meta=json.loads((out/'input-provenance.json').read_text())
+          meta.update({'signed_sha256':hashlib.sha256(data).hexdigest(),'signed_size':len(data),'format':'AEA1','signer':'Apple shortcuts sign on GitHub macos-26','ios_runtime':'unverified'})
+          (out/'provenance.json').write_text(json.dumps(meta,indent=2))
+          print(json.dumps(meta))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stock-shortcut-signed
+          path: |
+            signing-output/sm-techno-stock.shortcut
+            signing-output/provenance.json
+          if-no-files-found: error
+          retention-days: 1
