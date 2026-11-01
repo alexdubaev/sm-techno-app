@@ -95,20 +95,17 @@ test('invalid share bodies fail closed with recovery and metadata contains no pa
   await page.getByRole('button',{name:'Войти',exact:true}).click(); await expect(page.getByRole('main')).toBeVisible();
   await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistration('/stock-share/'))?.active?.state === 'activated');
   for (const kind of ['title', 'url', 'multiple', 'oversize'] as const) {
-    let result = '';
-    await page.route('**/stock?share=*', async route => { result = new URL(route.request().url()).searchParams.get('share') || ''; await route.abort(); });
     await page.goto('/stock-share/capability');
+    const redirected = page.waitForRequest(request => request.isNavigationRequest() && new URL(request.url()).pathname === '/stock' && new URL(request.url()).searchParams.get('share') === 'invalid');
     await page.evaluate(kind => {
       const form=document.createElement('form'); form.method='POST'; form.enctype='multipart/form-data'; form.action='/stock-share/receive';
       if (kind === 'title' || kind === 'url') { const field=document.createElement('input'); field.name=kind === 'title' ? 'title' : 'text'; field.value=kind === 'title' ? 'private title' : 'https://example.com/private'; form.append(field); }
       else { const input=document.createElement('input'); input.type='file'; input.name='file'; input.multiple=true; const files=new DataTransfer(); files.items.add(new File([new Uint8Array(kind === 'oversize' ? 27*1024*1024 : 1)], 'a.txt')); if (kind === 'multiple') files.items.add(new File(['b'], 'b.txt')); input.files=files.files; form.append(input); }
       document.body.append(form); form.submit();
     }, kind);
-    await expect.poll(() => result).toBe('invalid');
-    await page.unroute('**/stock?share=*');
+    await redirected;
+    await expect(page.getByRole('alert').filter({hasText:'Передача недоступна'})).toBeVisible();
   }
-  await page.goto('/stock?share=invalid');
-  await expect(page.getByRole('alert').filter({hasText:'Передача недоступна'})).toBeVisible();
   expect(calls).toBe(0);
   const metadata = await page.evaluate(async () => { const db=await new Promise<IDBDatabase>(resolve => { const r=indexedDB.open('stock-share-owner-v1'); r.onsuccess=()=>resolve(r.result); }); return await new Promise(resolve => { const r=db.transaction('meta').objectStore('meta').get('owner'); r.onsuccess=()=>{db.close();resolve(r.result);}; }); });
   expect(Object.keys(metadata as object).sort()).toEqual(['actor','hash','updated','version']);
