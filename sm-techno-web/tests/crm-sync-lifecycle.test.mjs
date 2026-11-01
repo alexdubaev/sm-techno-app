@@ -94,6 +94,7 @@ async function workspaceHarness(t, { localGate, cached = false } = {}) {
       },
       require: (name) => {
         if (name === "@/components/auth-provider") return { useAuth: () => ({ user, isAdmin: false }) };
+        if (name === "next/navigation") return { useSearchParams: () => new URLSearchParams(), useRouter: () => ({ push() {} }) };
         // Presentational children are outside the lifecycle under test. The desktop cards render normally.
         if (name === "@/components/crm/mobile/mobile-crm-workspace") return { MobileCrmWorkspace: () => null };
         if (name === "@/components/crm/use-crm-client-detail") return {};
