@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "7d42a9cd3ac79826cedaa9bbd001acd68c129061",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T20:23:17+03:00",
+  "updatedAt": "2026-11-01T20:52:04+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -408,9 +408,10 @@ window.STATE =
     "2026-11-01T18:50:13+03:00",
     "2026-11-01T20:13:30+03:00",
     "2026-11-01T20:21:22+03:00",
-    "2026-11-01T20:23:17+03:00"
+    "2026-11-01T20:23:17+03:00",
+    "2026-11-01T20:52:04+03:00"
   ],
-  "rev": 79,
+  "rev": 80,
   "waiting": null,
   "waits": [
     {
@@ -943,6 +944,12 @@ window.STATE =
       "g": "G3",
       "ok": true,
       "problems": 0
+    },
+    {
+      "t": "2026-11-01T20:52:04+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
     }
   ],
   "reqList": [
@@ -1059,6 +1066,7 @@ window.STATE =
     "G02: подключение iPhone перенесено в Настройки, версия8498dc4 установлена. Физическая проверка самой команды на iPhone остаётся отдельным действием.",
     "Готовая подписанная команда опубликована; сервер и скачивание проверены. Первый запуск на iPhone ещё не проверен.",
     "Исправление If и подтверждение копирования опубликованы. Прежний файл не прошёл проверку на iPhone; новый требует переустановки и проверки.",
-    "Версия387a6d8 выпущена по прямому Деплой владельца, publicHTTPS PASS; Android/iPhone physical gates остаются NOTRUN. Evidence android-release.md."
+    "Версия387a6d8 выпущена по прямому Деплой владельца, publicHTTPS PASS; Android/iPhone physical gates остаются NOTRUN. Evidence android-release.md.",
+    "R16 единыйfile/photo picker выпущен5f73, публичныеchecksPASS, freshbackup/rollbackverified; задача завершена. ИсторическиеphonegatesNOTRUN."
   ]
 }

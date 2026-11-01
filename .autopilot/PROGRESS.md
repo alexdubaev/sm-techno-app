@@ -1,7 +1,7 @@
 <!-- autopilot:progress -->
 # СМ ТЕХНО — мобильный ввод и Android, приёмка 2026-11-01
 
-Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`: **main387a6d8 выпущен по прямому «Деплой» владельца**, оба сервиса healthy, publicHTTPSchecks PASS; frontend1b39f773/backend4726d4da без перезапуска. Блок по умолчанию свёрнут, кнопки равные в двух колонках, сворачивание сохраняет черновик. Следующая UIправка T05/cf12e93 объединяет file/photo в один picker по замечанию владельца; она ещё не выпущена на момент записи. PR25+26 merged, appCI387 green. Прогон открыт только для физических телефонов; подробные backup/rollback/checks/timings в android-release.md.
+Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`: **main5f73a35 выпущен, задача единой кнопки завершена**. Остались «Вставить список» и «Выбрать файл или фото», equal2columns, defaultcollapsed/черновик сохранены. Frontend228d872e/backend4726 без перезапуска, обаhealthy/publicHTTPSchecksPASS. PR28+finalappCI зелёные. Backup/rollback/checks/timings в unified-picker-release.md; предыдущий выпуск387 описан в android-release.md. Прогон открыт только для исторических физическихphonechecks.
 
 ## Договорились — не пересматривать
 
@@ -24,7 +24,7 @@
 
 ## Следующие действия и ограничения
 
-- Выпуск387 завершён; не спрашивать разрешение на него повторно. Freshbackup20:10 SHA43092bad… strictverify/emptyrestore PASS; script6142817c…/rollbackprevious0a4 сохранены. Backend/currentdata/devices не менялись.
+- Выпуск5f73 завершён по прямому требованию закончить задачу передhandoff; не повторять его и не запрашивать approvalзаново. Freshbackup20:50 SHA9a009a27… strictverify/emptyrestorePASS; rollbackpreviousfrontend1b39/backend4726 сохранён. Data/storage/devices/1С не менялись.
 - R11: физический AndroidChromePWA «Поделиться» с настоящим вложением — NOTRUN; владелец подтвердил, что Android найдётся.
 - R14: импорт iPhoneкоманды с новым именем и native115 runtime — NOTRUN. Предыдущая111 дала actualphonevalidationFAIL, новая115 уже опубликована вce3, физическаяприёмка открыта. Signedbytes неизменны, новыйroute только downloadname.
 - G4 текущего расширения5/7, физические проверки не скрывать за браузернымPASS. Нужные phonechecks после доступного выпуска; ключи/коды в чат не запрашивать.
