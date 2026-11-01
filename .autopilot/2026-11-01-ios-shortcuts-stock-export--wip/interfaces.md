@@ -100,3 +100,7 @@ Owner snapshot/revision до чтения stream; atomic owner CAS и guard те
 
 ### T04 closure: сворачивание сохраняет работу
 Бывший close() стирал source/text/rows/result. Для нового «Свернуть» исправлено: отменить inflight и lateclaim, скрыть панель, сохранить draft/review/result в памяти до ухода со страницы/новогоисточника/authunmount. NarrowVitest5PASS включая file/textretention, types0/lint/buildPASS (f3-ui-preserve-* logs). Layoutunchanged, прежние390screens актуальны. R15 verified worker+root; не выдавать эту smallUIпроверку за отдельныйblindrun. G4 counts возвращены7/5 для действительно независимого Androidрасширения; R15 отдельно affectedtests/visual по smallchangepolicy. Новыйsource требует финального frontendimage послеmerge, промежуточныеобразы сохраняем.
+
+
+### T04 CI selector closure — test-only
+ПолныйCI be041: backendPASS; fullauthbrowser64PASS/6SKIP/2FAIL. Новый screenshotready wait `.getByText(...).first()` наdesktop выбрал скрытуюmobileкарточку; это ошибочный testlocator. Исправлен толькоtests/e2e/stock-valuation.spec.ts: пересечение с :visible сохраняет ожидание реально видимойпозиции. Existingaffectedscenario на390/1280/1600 —3PASS черезnpmallowlist, f3-ui-ci-selector.log. Appsource0bec неизменен, его productionbuild/types/lint остаются действующими evidence; широкиеlocalchecks/whole-review не повторяются. НовыйCI обязателен передmerge; не выдаём прежнийкрасныйпрогон заPASS.

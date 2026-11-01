@@ -17,6 +17,7 @@
 
 - Local auth+stock73PASS; F2 worker actualRequest/ReadableStream/time2PASS, UI4PASS, bridge2PASS, Chromium5PASS; final types/lint exactbaseline/build PASS. One fresh whole-review, boundedfix, narrowclosure; второй whole-review не запускался.
 - Independent cleanclone browser2+3PASS: file/review/downloadUI и paste/photo/actualbinaryFile browserworker; входящие filename/bytes проверены, noOCR beforebutton. Backend OCR/Excel в этих сценариях mocked; liveDeepSeek/настоящий AndroidOSintent не тестировались.
+- Test-only CIselector closure: new `.first()` wait был привязан к скрытомуmobileDOM наdesktop; corrected visiblelocator, affectedscenario390/1280/1600 —3PASS. НовыйCIpending, appsource unchanged.
 - UIsteering1694: affectedVitest5PASS/Chromium2PASS/types/lint/buildPASS; defaultcollapsed/toggle/sourceautoopen/equalbuttons проверены.
 - 390px визуально проверен root: три действия и source/recognize читаемы, существующие карточки/навигация сохранены.
 - Предыдущие backend/auth/device/restore/XLSX evidence сохранены в carried и native-condition-release.md. Новый backend/schema/1С не менялся.

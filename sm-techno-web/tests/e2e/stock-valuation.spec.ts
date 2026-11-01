@@ -11,7 +11,7 @@ test('stock valuation review is temporary and produces both downloads', async ({
   await page.goto('/stock');
   const toggle = page.getByRole('button', { name: 'Развернуть' });
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-  await expect(page.getByText('Синтетическая позиция').first()).toBeVisible();
+  await expect(page.getByText('Синтетическая позиция').and(page.locator(':visible')).first()).toBeVisible();
   await page.screenshot({path:test.info().outputPath('stock-collapsed-390.png')});
   await toggle.click();
   await expect(page.getByRole('button', {name:'Свернуть'})).toHaveAttribute('aria-expanded', 'true');
