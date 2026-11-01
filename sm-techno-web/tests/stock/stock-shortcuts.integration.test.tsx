@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { it, expect, vi } from 'vitest';
 import { StockShortcutsPanel } from '@/components/stock/stock-shortcuts-panel';
 import * as api from '@/lib/stock-shortcuts-api';
@@ -17,4 +17,23 @@ it('creates a personal code, hides it on close and revokes a listed device', asy
   fireEvent.click(screen.getByRole('button', {name: 'Команды iPhone'}));
   fireEvent.click(await screen.findByRole('button', {name: 'Отозвать iPhone'}));
   await waitFor(() => expect(api.revokeShortcutDevice).toHaveBeenCalledWith(1));
+});
+it('discards a late code after closing while keeping the created device revocable', async () => {
+  const device = { id: 2, label: 'iPhone', createdAt: '2026-01-01T00:00:00Z', lastUsedAt: null, idleExpiresAt: '2027-01-01T00:00:00Z', absoluteExpiresAt: '2027-01-01T00:00:00Z', revokedAt: null };
+  let complete!: (value: {device: typeof device; credential: string}) => void;
+  vi.mocked(api.listShortcutDevices).mockResolvedValue({devices: [device]});
+  vi.mocked(api.createShortcutDevice).mockReturnValue(new Promise(resolve => { complete = resolve; }));
+  vi.mocked(api.revokeShortcutDevice).mockResolvedValue({ok: true});
+  render(<StockShortcutsPanel />);
+  fireEvent.click(screen.getByRole('button', {name: 'Команды iPhone'}));
+  await waitFor(() => expect(screen.getByRole('button', {name: 'Создать подключение'})).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', {name: 'Создать подключение'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Закрыть'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Команды iPhone'}));
+  await act(async () => { complete({device, credential: 'late-code'}); });
+  expect(screen.queryByDisplayValue('late-code')).toBeNull();
+  const revoke = await screen.findByRole('button', {name: 'Отозвать iPhone'});
+  await waitFor(() => expect(revoke).toBeEnabled());
+  fireEvent.click(revoke);
+  await waitFor(() => expect(api.revokeShortcutDevice).toHaveBeenCalledWith(2));
 });

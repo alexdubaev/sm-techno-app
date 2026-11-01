@@ -244,7 +244,7 @@ def build_valuation_result(service, rows: list[Row]) -> dict:
                 if price is None or not math.isfinite(price) or price <= 0:
                     excluded += 1
                     continue
-                offer_lines.append(CommercialOfferLineInput(len(offer_lines) + 1, item.get('sku', row.article), item.get('name', ''), None,
+                offer_lines.append(CommercialOfferLineInput(len(offer_lines) + 1, item.get('sku', row.article), item.get('name', ''), item.get('category_name'),
                     quantity, price, None, None, f"{item['warehouse_name']} · наличие: {quantity:g}"))
         seen.add(key)
         resolved.append({**row.model_dump(), 'status': status, 'variants': variants})

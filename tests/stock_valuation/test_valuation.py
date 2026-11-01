@@ -173,7 +173,7 @@ def test_offer_export_uses_template_and_excludes_unpriced(tmp_path):
     from stock_sync_web.service import WebStockSyncService
     db = WebDatabase(tmp_path / 'synthetic.db')
     service = WebStockSyncService(db=db, commercial_offer_storage_dir=tmp_path/'offers', document_storage_dir=tmp_path/'documents')
-    db.create_local_item(sku='00123', name='=Unsafe()', print_name='=Unsafe()', category_name='Тест', group_name='Тест', price=42, warehouses=[{'warehouse_name':'=Warehouse()', 'quantity':2, 'price':42}, {'warehouse_name':'Второй', 'quantity':5, 'price':42}])
+    db.create_local_item(sku='00123', name='=Unsafe()', print_name='=Unsafe()', category_name='=Brand()', group_name='Тест', price=42, warehouses=[{'warehouse_name':'=Warehouse()', 'quantity':2, 'price':42}, {'warehouse_name':'Второй', 'quantity':5, 'price':42}])
     db.create_local_item(sku='002', name='Без цены', print_name='Без цены', category_name='Тест', group_name='Тест', price=0, warehouses=[{'warehouse_name':'Первый', 'quantity':1}])
     with db.transaction() as connection:
         connection.execute("UPDATE item_warehouse_balances SET price=42 WHERE item_id=(SELECT id FROM items WHERE sku='00123')")
@@ -185,6 +185,7 @@ def test_offer_export_uses_template_and_excludes_unpriced(tmp_path):
     ws = load_workbook(BytesIO(base64.b64decode(result['offerWorkbook']['base64'])), data_only=False)['КП']
     assert ws['B13'].value == '00123' and ws['B13'].data_type == 's'
     assert ws['C13'].value == '=Unsafe()' and ws['C13'].data_type == 's'
+    assert ws['D13'].value == '=Brand()' and ws['D13'].data_type == 's'
     assert ws['I13'].data_type == 's' and 'Warehouse()' in ws['I13'].value
     assert ws['G13'].data_type == 'f' and ws['G15'].data_type == 'f'
     assert ws['A7'].value == 'Коммерческое предложение' and ws['A9'].value is None
