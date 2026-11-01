@@ -18,7 +18,7 @@ R01–R03: один file/image из меню «Поделиться» в мес�
 
 ## Подключение
 
-В Остатках компактная панель «Команды iPhone»: create(label), show/copy ограниченный код один раз, список своих устройств с last-used/expiry, revoke. Paste/autofill разрешён, controls имеют labels/focus и понятные состояния. Чужие записи/секрет повторно не выдаются.
+По прямому уточнению владельца G02 панель «Команды iPhone» расположена в Настройках (из Остатков убрана): create(label), show/copy ограниченный код один раз, список своих устройств с last-used/expiry, revoke. Paste/autofill разрешён, controls имеют labels/focus и понятные состояния. Чужие записи/секрет повторно не выдаются. Сотруднику доступны личные подключения в общих Настройках; административные карточки, fetchUsers и страницы пользователей/1С по-прежнему только для администратора. Серверные ACL/API не меняются.
 
 Код отдельный stock-only random256bit credential, не websession/пароль/DeepSeek key. Сервер хранит SHA256 и metadata, live active user/reader ACL на каждый вызов.180d idle/365d absolute как existing session, индивидуальный revoke немедленный. Password reset/deactivate/role-change/delete отзывают devices атомарно с existing session invalidation; reactivation не оживляет key. Logout одного browser session не отключает телефоны молча.
 

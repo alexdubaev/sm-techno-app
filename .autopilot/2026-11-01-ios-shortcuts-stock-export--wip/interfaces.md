@@ -42,3 +42,5 @@ T02 bounded technical ruling: разрешён existing Next catch-all sm-techno
 
 
 T02 actual: GET/POST /api/stock/shortcut-devices; DELETE /api/stock/shortcut-devices/{id}; POST /api/shortcuts/stock/{intake,resolve}, Authorization: Shortcut credential. Dedicated scope и additive registry; staged restore revokes. Native-only NodeHTTP streaming proxy: realHTTP slowbody receives401beforeuploadend, validJSON422/no-store; это earlyresponse, не гарантия остановки клиентского трафика. UIcreate/revoke/list/showonce; readableactions docs/ios-shortcuts.md + assets/shortcuts/README.md, physicaliOS remainsmanual. Worker concern toreview: close panel duringinflightcreate may show eventual oncecode uponreopen; assess boundedfix.
+
+Current placement after ownerG02: Settingsroot sharedpersonalentry with reusedStockShortcutsPanel; adminlanding/usercounts onlyisAdmin, users/1Сchildgates unchanged. StockValuationPanel no devicecontrols. No API/session/registry/schema/dependency changes. UIreviewclean455448d; obsolete role-gate fixture corrected437adb9, fullauth189PASS. PR18 main8498dc4. PhysicalShortcut gate unchanged.

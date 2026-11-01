@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "240ef36",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T11:35:27+03:00",
+  "updatedAt": "2026-11-01T12:52:49+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -239,9 +239,10 @@ window.STATE =
     "2026-11-01T11:04:04+03:00",
     "2026-11-01T11:06:51+03:00",
     "2026-11-01T11:35:26+03:00",
-    "2026-11-01T11:35:27+03:00"
+    "2026-11-01T11:35:27+03:00",
+    "2026-11-01T12:52:49+03:00"
   ],
-  "rev": 34,
+  "rev": 35,
   "waiting": {
     "kind": "action",
     "since": "2026-11-01T11:35:27+03:00",
@@ -462,6 +463,12 @@ window.STATE =
       "k": "ask",
       "kind": "action",
       "note": "Сервер96faf42 выпущен и проверен; нужна физическая проверка владельцем первой команды iPhone и безопасного распространения. HTTP/browser не являются iOS PASS."
+    },
+    {
+      "t": "2026-11-01T12:52:49+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
     }
   ],
   "reqList": [
@@ -529,6 +536,7 @@ window.STATE =
   },
   "result": null,
   "report": [
-    "Physical iPhone installation/import/share/Quick Look NOT RUN; only readable workflow provided, no signed Shortcut or iCloud link published."
+    "Physical iPhone installation/import/share/Quick Look NOT RUN; only readable workflow provided, no signed Shortcut or iCloud link published.",
+    "G02: подключение iPhone перенесено в Настройки, версия8498dc4 установлена. Физическая проверка самой команды на iPhone остаётся отдельным действием."
   ]
 }
