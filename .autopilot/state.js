@@ -3,7 +3,7 @@ window.STATE =
   "version": 2,
   "slug": "server-document-deployment",
   "dir": "2026-10-30-server-document-deployment--wip",
-  "title": "СМ ТЕХНО: серверный выпуск с Terra и возвратом",
+  "title": "СМ ТЕХНО: серверный выпуск с DeepSeek и возвратом",
   "mode": "semi",
   "depth": "normal",
   "tier": "T0",
@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "1d7dd9be7f733e6af37ede3c58a8ae0f488cb8fc",
   "startedAt": "2026-10-30T22:00:17+03:00",
-  "updatedAt": "2026-10-30T22:54:13+03:00",
+  "updatedAt": "2026-11-01T08:35:23+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -108,7 +108,7 @@ window.STATE =
     }
   ],
   "tests": {
-    "passed": 8,
+    "passed": 42,
     "failed": 0
   },
   "debt": {
@@ -128,7 +128,13 @@ window.STATE =
   "concerns": [
     "External resource: VPS OpenAI403 unsupported_country_region_territory; same-account local actual Terra PASS. Need owner-provided permitted egress/host; no app proxy configured. Preparation/rollback complete, no protected runtime guard weakened."
   ],
-  "blind": null,
+  "blind": {
+    "checked": 3,
+    "matched": 0,
+    "mismatches": [
+      "DeepSeek actual XLSX/PNG/DOCX canary: provider_auth; GET/models401, no model outputs. Downstream stock independently PASS; real document generation after extraction NOT RUN."
+    ]
+  },
   "beats": [
     "2026-10-30T22:00:17+03:00",
     "2026-10-30T22:00:18+03:00",
@@ -144,15 +150,25 @@ window.STATE =
     "2026-10-30T22:54:10+03:00",
     "2026-10-30T22:54:11+03:00",
     "2026-10-30T22:54:12+03:00",
-    "2026-10-30T22:54:13+03:00"
+    "2026-10-30T22:54:13+03:00",
+    "2026-11-01T08:28:19+03:00",
+    "2026-11-01T08:28:20+03:00",
+    "2026-11-01T08:35:22+03:00",
+    "2026-11-01T08:35:23+03:00"
   ],
-  "rev": 17,
+  "rev": 22,
   "waiting": {
     "kind": "action",
-    "since": "2026-10-30T22:54:13+03:00",
-    "note": "Нужен разрешённый маршрут OpenAI: VPS403 unsupported_country_region_territory. Backups/images и 6.81s stage rollback готовы; рабочий сервер52 не переключён."
+    "since": "2026-11-01T08:35:23+03:00",
+    "note": "DeepSeek rejects configured key: GET/models HTTP401 authentication_error; owner asked replace via protected helper. Source/image and backup checks ready, old runtime unchanged; no secret in chat."
   },
-  "waits": [],
+  "waits": [
+    {
+      "kind": "action",
+      "from": "2026-10-30T22:54:13+03:00",
+      "to": "2026-11-01T08:28:19+03:00"
+    }
+  ],
   "log": [
     {
       "t": "2026-10-30T22:00:17+03:00",
@@ -259,6 +275,31 @@ window.STATE =
       "k": "ask",
       "kind": "action",
       "note": "Нужен разрешённый маршрут OpenAI: VPS403 unsupported_country_region_territory. Backups/images и 6.81s stage rollback готовы; рабочий сервер52 не переключён."
+    },
+    {
+      "t": "2026-11-01T08:28:19+03:00",
+      "k": "answered",
+      "kind": "action"
+    },
+    {
+      "t": "2026-11-01T08:35:22+03:00",
+      "k": "tests",
+      "passed": 42,
+      "failed": 0
+    },
+    {
+      "t": "2026-11-01T08:35:23+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": false,
+      "checked": 3,
+      "matched": 0
+    },
+    {
+      "t": "2026-11-01T08:35:23+03:00",
+      "k": "ask",
+      "kind": "action",
+      "note": "DeepSeek rejects configured key: GET/models HTTP401 authentication_error; owner asked replace via protected helper. Source/image and backup checks ready, old runtime unchanged; no secret in chat."
     }
   ],
   "reqList": [
@@ -284,7 +325,7 @@ window.STATE =
     },
     {
       "id": "R05",
-      "text": "«подготовка среды Terra на сервере»",
+      "text": "«DeepSeek по api», «проверить распознавание и выкатить новую версию на сервер»",
       "status": "in-ticket"
     },
     {
@@ -327,6 +368,12 @@ window.STATE =
       "found": 0,
       "fixed": 0,
       "deferred": 0
+    },
+    "G4": {
+      "ok": false,
+      "at": "2026-11-01T08:35:23+03:00",
+      "checked": 3,
+      "matched": 0
     }
   },
   "result": null,

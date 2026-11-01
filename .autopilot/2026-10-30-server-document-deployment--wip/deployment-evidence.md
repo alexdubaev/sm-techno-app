@@ -1,5 +1,17 @@
 # Сервер подготовлен; рабочее переключение ещё не выполнено
 
+## Продолжение2026-11-01 — DeepSeek
+
+Владелец безопасно настроил ключ в server.env и сообщил DONE. После merge main4126fd9 в runtime ветку sourcee51f83f64e56c213f4ea402c6fd8bfeff40940a7 собран кандидат backend `sha256:02ed2e533b749d2d0ad36e2f341b0cf5bf561e5808d88ea58a4bc41ada1d6732` (tag sm-techno-candidate-backend:20261101-deepseek). Поддержка DeepSeek и broker автоматически совместились; конфликты только в Autopilot metadata и .env.example разрешены с сохранением обеих настроек. Frontend tree d2856c81bf8085a6f24c4071e423cea167ddf66a совпадает с ранее собранным frontend, повторная сборка неизменённого frontend до finalSHA не требуется.
+
+Local combined extraction/provider/stock-route35PASS/12.06s. Linux на actual candidate: broker8 + extraction16 + provider18 =42PASS/14.27s. Использованы изолированные testDB/storage/synthetickey и собственный dependency target (pytest9.1.1/httpx2 2.12.0 из requirements-dev), без рабочей .env/1С; readonly source вызвал только cache warning. Первые диагностические попытки с CRLF через PowerShell→SSH и отсутствующим pytest не засчитаны как PASS; найден нормализующий remote pipeline `tr -d '\015' | bash -s`, затем выполнен настоящий зелёный набор.
+
+Независимый actual canary на e51 candidate: три real DeepSeek extraction запроса (XLSX articles, PNG requisites, DOCX invoice) вернули provider_auth без модельного результата. Независимый GET official `/models` с тем же server-only key вернул HTTP401, type authentication_error, code invalid_request_error. Проверено только boolean: ключ в canary точно совпал с защищённым server.env; он без кавычек и пробелов, временный env содержал только3 выбранных provider settings и synthetic settings. Значения, hashes, prefixes ключа не выводились. Это отказ провайдера принять credential, не ошибка модели/документа/выбранного адаптера. Рабочую .env в тесты не передавали. Временный canary env удалён, own container остановлен; реальная проверка распознавания/Word после него остаётся FAIL/NOT RUN, не выдаётся за PASS.
+
+Независимый downstream stock PASS на synthetic SQLite: ведущий ноль, два склада, реальный XLSX, canonical DB tables unchanged, без записей offer storage. Это отдельно от заблокированной actual extraction. Свежий предварительный backup `sm-techno-20261101T053353302747Z.tar.gz`, SHA25685c3a922d16fb8c4f363cd8e67adb6bbf8b26eebd86609c9b53fefadeb4e7f47: verify-only и empty-target restore PASS (`verified-backup-20261101`). Перед actual switch по-прежнему нужен новый FINAL quiesced backup.
+
+Владельцу отправлено одно сообщение о замене ключа через готовый hidden-input helper; ключ в чат не запрашивается. PR13 остаётся draft, mandatory actual-model gate не обходится. Main/live app не переключены: фактический server Git52ccb395 и исходная healthy пара проверены сегодня; свободно8.4GiB. Прежний OpenAI403 ниже — исторический факт, маршрут OpenAI больше не является текущим условием выпуска по решению владельца.
+
 Последнее указание владельца разрешило deploy и отменило прежнюю паузу. Выпуск удерживает обнаруженное техническое условие: OpenAI не обслуживает текущий исходящий маршрут VPS. Это не новая просьба о разрешении на уже порученный deploy.
 
 ## Подготовлено и проверено

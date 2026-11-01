@@ -1,4 +1,8 @@
 <!-- autopilot:progress -->
+# Серверное продолжение2026-11-01
+
+Владелец добавил DeepSeek key через защищённый helper. Runtime branch объединена с main4126fd9; sourcee51f83f/candidate02ed2e53 собран, local35 и Linux42 проверки PASS. Независимый real canary API вернул401 authentication_error даже на GET/models; boolean equality подтвердил точную передачу server key. Модельные результаты/формирование документов после actual extraction пока НЕ проверены. Владелец уведомлён и попросили заменить ключ через тот же hidden-input helper; сам секрет в чат не нужен. Держать PR13 draft и старый runtime52 до успешного real canary. Рабочие данные,1С,DNS/Caddy не менялись, outages0. Новый PRELIMINARY backup20261101T053353302747Z verify+emptyrestorePASS; передactual switch нужна FINAL quiesced копия. См. актуальные факты `.autopilot/2026-10-30-server-document-deployment--wip/deployment-evidence.md`.
+
 # Продолжение 2026-10-31 — DeepSeek
 
 Пользователь поручил: «Ты подготовь пока базу под DeepSeek а ключи я дам позже». Подготовлена отдельная интеграция `.autopilot/2026-10-31-deepseek-provider/acceptance-report.md` (PR14): выбираемый backend-адаптер DeepSeek, ключ пока пуст, реальная inference NOT RUN. Стандартное поведение Codex сохраняется, переключение явное без автоматического fallback. Финальный узкий набор18PASS, clean clone acceptance4PASS; один review finding timeout закрыт регрессией. Проверки HTTP stub не считать проверкой реальной модели. На рабочий VPS этот этап не переключает приложение. System DNS управляется ОС вне socket watchdog.
