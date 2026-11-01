@@ -14,3 +14,7 @@ Read-only code-scout map проверен: pre/scout/post HEAD0c20786d9460098836
 Первичные docs: Chrome Web Share Target (developer.chrome.com/docs/capabilities/web-apis/web-share-target); MDN ServiceWorkerGlobalScope (state disappears on restart) и ExtendableEvent.waitUntil; Next.js официальные PWA/manifest docs получены Context7. Новый worker будет scoped только /stock-share/, без offline/auth/API cache. Постоянно сохранять сами полученные файлы не планируется.
 
 UX guidance ui-ux-pro-max: mobile file-upload query дал нерелевантный результат и не использован; уточнённый file upload error recovery → конкретные recovery actions, role=alert, error рядом с источником. Сохраняем существующие цвета/навигацию, touch targets не менее44px, итоговые сообщения рядом с действием.
+
+
+## Название Android share: проверенные ограничения
+Manifest share_target/proto имеет action, method, enctype, params, без отдельного name/label. В шаблоне Chromium WebAPK application label=@string/short_name, share activity-alias label={{title}}; конкретное отображение определяется генератором WebAPK и ОС, нельзя обещать независимо настраиваемое имя. Источники: https://chromium.googlesource.com/chromium/src/+/lkgr/components/webapk/webapk.proto ; https://chromium.googlesource.com/chromium/src/+/refs/heads/main/chrome/android/webapk/shell_apk/AndroidManifest.xml ; https://w3c.github.io/web-share-target/level-2/ . Перед возможным переименованием всей установки требуется решение владельца.

@@ -59,3 +59,16 @@ Base0c20786, nativeiPhone115/2Excel/backendscope выше сохраняются
 - Root owns AP/architecture/Git/ops. OnefreshTerra6.1executor fullfrontend+tests+documentation zone, no nestedagents; reviewfresh afteritscommit. Nocode writes before user acceptsprotectedplan. NewbackendAPIs/schema/credentials/additionaldata persistence require separate technicalruling/ownerplan, notsilentexecutorchange.
 - Installability: manifest добавить настоящий192PNG route app/icon-192.png/route.ts (NextImageResponse техническое масштабирование существующего public/icon-512.png в192x192 без смены жёлтогоPWAбренда/новыхdeps; favicon.svg другой голубой знак и не подходит); actualPNG dimensions и existing512 проверить. Не переименовывать приложение/start_url/id, не добавлять rootworker радиinstallprompt.
 - UI auth seam: new StockValuationEntry in components/stock/stock-valuation-entry.tsx owns sharequery/fresh-currentuser claim and passes optional receivedsource/error props to StockValuationPanel. StockPage changes only import/mount of entry. Panel remains auth-agnostic/testable by existing direct tests; registration observer stock-share-session-bridge.tsx is a separate AuthProviderchild in rootlayout. Internal helper names can be resolved by singleexecutor, actualinterfaces report required.
+- Auth observer lifecycle ruling: ordinary navigation/unmount with the SAME storedsession must not clear ownerhint/pending (Androidintent may replace the document). Cleanup clears oldowner only when storedsession disappeared/changed, and conditionalworker owner-match protects newerlogin. Before lateasyncSYNC re-read currentstorage and requirecapturedsession+user stillmatch; no pagehide/visibility clear pretendinglogout. This preserves realauth-boundary semantics without losing legitimatecoldstart handoff.
+
+
+### Название, добавленное владельцем
+R14: «Поделиться СМ ТЕХНО» на iPhone и Android. До решения по Android не менять name/short_name наугад: отдельного share_target label нет. Нельзя использовать params.title как label. iPhone подписанный asset сохранять; предпочтительно проверить корректную выдачу имени загрузки с UTF-8 Content-Disposition, сохранив старый URL. Расширение T03 на download route/установочную ссылку и узкие тесты допускается после фиксации решения, без изменения native workflow graph, credentials или API обработки. Защищённый план Android по-прежнему ожидает подтверждения.
+
+
+### Закрытие вопроса об имени Android
+Владелец: «Не тогда делай как проще, без переименования». Android: сохранить текущие manifest name/short_name и имя установленного PWA; системная подпись share-пункта допустима, отдельное действие с новым label не создавать. iPhone: ранее заданное «Поделиться СМ ТЕХНО» сохраняется. Это закрывает только развилку R14, не подтверждает пока не отвеченный защищённый план передачи приватных файлов.
+
+
+### Продолжение разработки разрешено
+Защищённый план android-protected-plan.md теперь APPROVED: владелец после предъявления плана и закрытия имени прямо требует продолжить работу. Не требовать ещё одного формального «да». Дополнительных полномочий на деплой/расширение хранения/изменение backend или схемы нет. R14 закрыт существующим Android именем и новым именем iPhone команды.

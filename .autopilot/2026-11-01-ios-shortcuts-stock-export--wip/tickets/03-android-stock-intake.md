@@ -1,5 +1,5 @@
 # 03 — Общий ввод в Остатках и Android share
-**Требования:** R08, R09, R10, R11, R12i, R13i
+**Требования:** R08, R09, R10, R11, R12i, R13i, R14
 **Зависит от:** 02
 **Зона:** `sm-techno-web/app/manifest.ts` · `sm-techno-web/app/layout.tsx` · `sm-techno-web/app/icon-192.png/` · `sm-techno-web/app/stock-share/` · `sm-techno-web/public/stock-share/` · `sm-techno-web/next.config.ts` · `sm-techno-web/components/stock-page.tsx` · `sm-techno-web/components/stock/stock-valuation-panel.tsx` · `sm-techno-web/components/stock/stock-valuation-entry.tsx` · `sm-techno-web/components/stock/stock-share-session-bridge.tsx` · `sm-techno-web/lib/stock-share.ts` · `sm-techno-web/lib/stock-intake-source.ts` · `sm-techno-web/tests/stock/` · `sm-techno-web/tests/e2e/stock-valuation.spec.ts` · `sm-techno-web/tests/e2e/stock-share.spec.ts` · `docs/android-stock-share.md`
 **Волна:** 4
@@ -30,3 +30,7 @@ interfaces.md сначала; android-notes.md; spec.md только допол�
 
 ## Возврат
 STATUS / FILES / TESTS / REDPROOF / INTERFACES / REQUIREMENTS R08…R13i / CONCERNS / BLOCKERS, <=25строк, безdiff/прозы. Root делаетGit/signoffs/release. Еслиархитектура неработает — причина/безопаснаяальтернатива, неотказываться от требования и не менятьAPI/хранение молча.
+
+
+## Дополнение R14 — название
+Android name/short_name остаются без изменений: владелец выбрал «без переименования» в ответ на вопрос о названии установленного Android-приложения. iPhone команда — «Поделиться СМ ТЕХНО». Дополнительная разрешённая зона: lib/stock-shortcut-setup.ts, app/shortcuts/ (маршрут загрузки), существующие относящиеся к установке Shortcut tests/docs. Предпочесть корректное UTF-8 имя загрузки неизменённого подписанного файла, сохранить старый URL; не редактировать подписанные байты/граф или credentials. Корректное имя импортированной команды проверяется физически; имя ссылки само по себе не доказывает iOS PASS.
