@@ -5,9 +5,10 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import tarfile
 import tempfile
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from stock_sync_web.vps_integrity import (
@@ -180,6 +181,9 @@ def restore_backup(
                 (staging / "data").mkdir()
                 shutil.copyfile(extracted / DATABASE_NAME, staging / "data" / DATABASE_NAME)
                 shutil.copytree(extracted / "storage", staging / "storage")
+                with closing(sqlite3.connect(staging / "data" / DATABASE_NAME)) as conn, conn:
+                    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'app_shortcut_devices'").fetchone():
+                        conn.execute("UPDATE app_shortcut_devices SET revoked_at = COALESCE(revoked_at, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))")
                 validate_database_storage_pair(
                     staging / "data" / DATABASE_NAME,
                     staging / "storage",

@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { StockShortcutsPanel } from '@/components/stock/stock-shortcuts-panel';
 import { intakeValuation, resolveValuation, type ValuationRow, type ValuationResult, type Workbook } from '@/lib/stock-valuation-api';
 
 const statuses = { matched: 'Найдено', not_found: 'Не найдено', ambiguous: 'Неоднозначно', zero_stock: 'Нет остатка', duplicate: 'Дубликат' };
@@ -33,7 +34,7 @@ export function StockValuationPanel() {
     const url = URL.createObjectURL(new Blob([bytes], {type: workbook.mediaType}));
     const link = document.createElement('a'); link.href = url; link.download = workbook.filename; link.click(); URL.revokeObjectURL(url);
   }
-  return <div className="mb-3 rounded-2xl bg-white p-3 shadow-sm">
+  return <><StockShortcutsPanel /><div className="mb-3 rounded-2xl bg-white p-3 shadow-sm">
     {!open ? <button type="button" className="font-semibold underline" onClick={() => setOpen(true)}>Расценить список артикулов</button> : <section aria-label="Расценка артикулов" className="space-y-3">
       <div className="flex items-center justify-between gap-3"><h2 className="font-semibold">Расценка артикулов</h2><button type="button" onClick={close}>Закрыть</button></div>
       <p className="text-sm text-slate-600">Загрузите список, проверьте артикулы и получите остатки и цены по складам. Подборка не сохраняется.</p>
@@ -44,5 +45,5 @@ export function StockValuationPanel() {
       {rows.length > 0 && <><h3 className="font-semibold">Проверьте распознанные строки</h3><div className="max-h-72 overflow-auto"><table className="w-full text-left text-sm"><thead><tr><th>Строка</th><th>Артикул</th><th>Количество (необязательно)</th></tr></thead><tbody>{rows.map((row, i) => <tr key={i}><td>{row.sourceRow}</td><td><input aria-label={`Артикул строки ${row.sourceRow}`} className="w-full rounded border p-1" value={row.article} onChange={e => { setRows(old => old.map((r, j) => j === i ? {...r, article: e.target.value} : r)); setResult(null); }} /></td><td><input aria-label={`Количество строки ${row.sourceRow}`} className="w-full rounded border p-1" value={row.requestedQty ?? ''} onChange={e => { setRows(old => old.map((r, j) => j === i ? {...r, requestedQty: e.target.value || null} : r)); setResult(null); }} /></td></tr>)}</tbody></table></div><button type="button" disabled={busy} className="rounded-lg bg-amber-400 px-4 py-2 font-semibold disabled:opacity-50" onClick={() => void resolve()}>Проверить остатки</button></>}
       {result && <><h3 className="font-semibold">Результаты</h3><div className="overflow-auto"><table className="w-full text-left text-sm"><thead><tr><th>Артикул</th><th>Статус</th><th>Склад</th><th>Остаток</th><th>Цена</th></tr></thead><tbody>{result.articleResolution.flatMap((row, i) => row.variants.length ? row.variants.map((v, j) => <tr key={`${i}-${j}`}><td>{row.article}</td><td>{statuses[row.status]}</td><td>{v.warehouseName}</td><td>{v.physicalStock}</td><td>{v.price}</td></tr>) : [<tr key={i}><td>{row.article}</td><td>{statuses[row.status]}</td><td>—</td><td>—</td><td>—</td></tr>])}</tbody></table></div><button type="button" className="rounded-lg bg-amber-400 px-4 py-2 font-semibold" onClick={() => download(result.workbook)}>Скачать Excel</button><div className="mt-2 flex flex-wrap items-center gap-3"><button type="button" disabled={!result.offerWorkbook} className="rounded-lg border border-slate-400 px-4 py-2 font-semibold disabled:opacity-50" onClick={() => { if (result.offerWorkbook) download(result.offerWorkbook); }}>Скачать Excel по шаблону КП</button><output className="text-sm">{result.offerWorkbook ? `Позиций в файле: ${result.offerExport.includedRows}` : 'Нет позиций с остатком и положительной ценой для файла по шаблону КП.'}</output></div>{result.offerExport.warnings.map((warning, i) => <output key={i} className="block text-sm">{warning}</output>)}</>}
     </section>}
-  </div>;
+  </div></>;
 }

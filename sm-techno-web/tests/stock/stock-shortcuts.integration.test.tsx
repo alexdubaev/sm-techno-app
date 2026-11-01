@@ -1,0 +1,20 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { it, expect, vi } from 'vitest';
+import { StockShortcutsPanel } from '@/components/stock/stock-shortcuts-panel';
+import * as api from '@/lib/stock-shortcuts-api';
+vi.mock('@/lib/stock-shortcuts-api', () => ({listShortcutDevices: vi.fn(), createShortcutDevice: vi.fn(), revokeShortcutDevice: vi.fn()}));
+it('creates a personal code, hides it on close and revokes a listed device', async () => {
+  const device = { id: 1, label: 'iPhone', createdAt: '2026-01-01T00:00:00Z', lastUsedAt: null, idleExpiresAt: '2027-01-01T00:00:00Z', absoluteExpiresAt: '2027-01-01T00:00:00Z', revokedAt: null };
+  vi.mocked(api.listShortcutDevices).mockResolvedValue({devices: [device]});
+  vi.mocked(api.createShortcutDevice).mockResolvedValue({device, credential: 'one-time-code'});
+  vi.mocked(api.revokeShortcutDevice).mockResolvedValue({ok: true});
+  render(<StockShortcutsPanel />);
+  fireEvent.click(screen.getByRole('button', {name: 'Команды iPhone'}));
+  fireEvent.click(await screen.findByRole('button', {name: 'Создать подключение'}));
+  expect(await screen.findByDisplayValue('one-time-code')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', {name: 'Закрыть'}));
+  expect(screen.queryByDisplayValue('one-time-code')).toBeNull();
+  fireEvent.click(screen.getByRole('button', {name: 'Команды iPhone'}));
+  fireEvent.click(await screen.findByRole('button', {name: 'Отозвать iPhone'}));
+  await waitFor(() => expect(api.revokeShortcutDevice).toHaveBeenCalledWith(1));
+});
