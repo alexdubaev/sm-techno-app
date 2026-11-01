@@ -48,6 +48,30 @@ def build():
     assert actions[0]['WFWorkflowActionIdentifier'] == 'is.workflow.actions.gettext'
     assert actions[0]['WFWorkflowActionParameters']['WFTextActionText'] == ''
     question['ActionIndex'] = 0
+    # Get all keys first: successful API responses do not contain "detail".
+    # The native list-contains condition tests membership, not a substring.
+    for target in ('intakeDetail', 'resultDetail'):
+        index = next(i for i, a in enumerate(actions)
+                     if a.get('WFWorkflowActionParameters', {}).get('CustomOutputName') == target)
+        detail = actions[index]['WFWorkflowActionParameters']
+        keys_name = target + 'Keys'
+        keys_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, 'sm-techno-stock-' + keys_name))
+        keys = {'WFWorkflowActionIdentifier': 'is.workflow.actions.getvalueforkey',
+                'WFWorkflowActionParameters': {'CustomOutputName': keys_name, 'UUID': keys_uuid,
+                    'WFGetDictionaryValueType': 'All Keys', 'WFInput': detail['WFInput']}}
+        reference = {'Value': {'OutputName': keys_name, 'OutputUUID': keys_uuid, 'Type': 'ActionOutput'},
+                     'WFSerializationType': 'WFTextTokenAttachment'}
+        start = {'WFWorkflowActionIdentifier': 'is.workflow.actions.conditional',
+                 'WFWorkflowActionParameters': {'WFControlFlowMode': 0, 'WFCondition': 99,
+                     'WFConditionalActionString': 'detail',
+                     'WFInput': {'Type': 'Variable', 'Variable': reference}}}
+        end = {'WFWorkflowActionIdentifier': 'is.workflow.actions.conditional',
+               'WFWorkflowActionParameters': {'WFControlFlowMode': 2, 'UUID': 'placeholder'}}
+        # The existing detail/alert/exit conditional occupies six actions.
+        assert actions[index + 1]['WFWorkflowActionParameters']['WFControlFlowMode'] == 0
+        assert actions[index + 5]['WFWorkflowActionParameters']['WFControlFlowMode'] == 2
+        actions[index:index] = [keys, start]
+        actions.insert(index + 8, end)
     # Cherri 2.3 reused one identifier for unrelated control-flow blocks. Replace
     # it consistently within each properly nested block; end UUID denotes its output.
     stack = []

@@ -7,7 +7,7 @@ describe('iPhone setup', () => {
     expect(value.startsWith('SMTECHNO1.')).toBe(true);
     expect(JSON.parse(atob(value.slice(10)))).toEqual({baseUrl: 'https://stock.example:8443', credential: 'A_-'.repeat(14) + 'Z'});
   });
-  it.each(['http://stock.example', 'https://user:pass@stock.example', 'https://stock.example/path', 'https://stock.example?x=1', 'https://stock.example#x', 'invalid'])('rejects unsafe origin %s', origin => {
+  it.each(['http://stock.example', 'https://[::1]', 'https://[2001:db8::1]:8443', 'https://user:pass@stock.example', 'https://stock.example/path', 'https://stock.example?x=1', 'https://stock.example#x', 'invalid'])('rejects unsafe origin %s', origin => {
     expect(() => encodeStockShortcutSetup(origin, 'a'.repeat(43))).toThrow();
   });
   it.each(['short', 'a'.repeat(42) + '+', 'a'.repeat(44)])('rejects invalid credential', credential => {

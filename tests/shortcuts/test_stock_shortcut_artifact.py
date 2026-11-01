@@ -42,7 +42,7 @@ class ShortcutArtifact(unittest.TestCase):
         self.assertEqual(self.graph['WFWorkflowInputContentItemClasses'], ['WFGenericFileContentItem', 'WFImageContentItem'])
         self.assertEqual(self.graph['WFWorkflowTypes'], ['ActionExtension'])
         self.assertEqual(q['Text'], 'Вставьте строку подключения из настроек')
-        self.assertEqual(len(self.actions), 105)
+        self.assertEqual(len(self.actions), 111)
 
     def test_all_output_refs_point_backwards_and_control_groups_match(self):
         seen, stack, groups = {}, [], set()
@@ -123,6 +123,18 @@ class ShortcutArtifact(unittest.TestCase):
     def test_server_details_stop_and_warnings_are_conditional(self):
         for target, dictionary, before in (('intakeDetail', 'intakeDict', 'rows'), ('resultDetail', 'resultDict', 'workbookRaw')):
             i, p = self.outputs[target]
+            key_index, keys = self.outputs[target + 'Keys']
+            self.assertEqual(self.names[key_index], 'getvalueforkey')
+            self.assertEqual(keys['WFGetDictionaryValueType'], 'All Keys')
+            self.assertNotIn('WFDictionaryKey', keys)
+            self.assertEqual(keys['WFInput']['Value']['OutputUUID'], self.outputs[dictionary][1]['UUID'])
+            outer = self.params[key_index + 1]
+            self.assertEqual((self.names[key_index + 1], outer['WFControlFlowMode'], outer['WFCondition']), ('conditional', 0, 99))
+            self.assertEqual(outer['WFConditionalActionString'], 'detail')
+            self.assertEqual(outer['WFInput']['Variable']['Value']['OutputUUID'], keys['UUID'])
+            self.assertEqual(i, key_index + 2)
+            self.assertEqual((self.names[i + 6], self.params[i + 6]['WFControlFlowMode']), ('conditional', 2))
+            self.assertEqual(self.params[i + 6]['GroupingIdentifier'], outer['GroupingIdentifier'])
             self.assertEqual(p['WFDictionaryKey'], 'detail')
             self.assertEqual(p['WFInput']['Value']['OutputUUID'], self.outputs[dictionary][1]['UUID'])
             self.assertLess(i, self.outputs[before][0])
