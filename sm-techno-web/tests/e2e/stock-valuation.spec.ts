@@ -16,12 +16,11 @@ test('stock valuation review is temporary and produces both downloads', async ({
   await toggle.click();
   await expect(page.getByRole('button', {name:'Свернуть'})).toHaveAttribute('aria-expanded', 'true');
   const dimensions = await page.locator('section[aria-label="Расценка артикулов"] .grid > *').evaluateAll(elements => elements.map(element => { const rect = element.getBoundingClientRect(); return {width:rect.width, height:rect.height, top:rect.top, left:rect.left, clipped:element.scrollHeight > element.clientHeight}; }));
-  expect(dimensions).toHaveLength(3);
+  expect(dimensions).toHaveLength(2);
   expect(dimensions.every(item => item.width === dimensions[0].width && item.height === dimensions[0].height && !item.clipped)).toBe(true);
   expect(dimensions[0].top).toBe(dimensions[1].top);
-  expect(dimensions[2].top).toBeGreaterThan(dimensions[0].top);
   await page.screenshot({path:test.info().outputPath('stock-collapsible-390.png')});
-  await page.getByLabel('Выбрать файл с артикулами').setInputFiles({ name: 'articles.txt', mimeType: 'text/plain', buffer: Buffer.from('00123') });
+  await page.getByLabel('Выбрать файл или фото').setInputFiles({ name: 'articles.txt', mimeType: 'text/plain', buffer: Buffer.from('00123') });
   await page.getByRole('button', { name: 'Распознать' }).click();
   await expect(page.getByLabel('Артикул строки 1')).toHaveValue('00123');
   await page.getByRole('button', { name: 'Проверить остатки' }).click();
