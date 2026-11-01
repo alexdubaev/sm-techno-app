@@ -33,6 +33,7 @@ from stock_sync_web.crm_export import build_crm_export_xlsx
 from stock_sync_web.crm_import import ImportValidationError
 from stock_sync_web.crm_repository import CrmRepository
 from stock_sync_web.manager_api import create_manager_router
+from stock_sync_web.admin_dashboard import create_admin_dashboard_router
 from stock_sync_web.stock_valuation import create_stock_valuation_router
 from stock_sync_web.shortcut_routes import create_shortcut_router
 from stock_sync_web.document_workflows import create_document_workflows_router
@@ -593,6 +594,7 @@ def _get_admin_user(current_user: dict[str, Any] = Depends(_get_current_user)) -
 
 app.include_router(create_manager_router(_get_current_user, lambda: SERVICE.db))
 app.include_router(create_stock_valuation_router(_get_current_user, lambda: SERVICE))
+app.include_router(create_admin_dashboard_router(_get_admin_user, lambda: SERVICE.db))
 app.include_router(create_shortcut_router(_get_current_user, lambda: SERVICE))
 app.include_router(create_document_workflows_router(_get_current_user, lambda: SERVICE))
 

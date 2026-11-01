@@ -182,7 +182,7 @@ def _workbook(rows):
     return base64.b64encode(output.getvalue()).decode('ascii')
 
 
-async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | None = None) -> dict:
+async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | None = None, usage_sink=None) -> dict:
     suffix = Path(file.filename or '').suffix.lower()
     if suffix not in FORMATS: raise HTTPException(400, 'Этот формат не поддерживается.')
     limits = limits or UploadLimits()
@@ -200,7 +200,7 @@ async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | N
                     raise HTTPException(429, 'Распознавание занято. Повторите попытку позже.')
                 try:
                     texts, images = DocumentSourceReader(limits).read(source, workspace)
-                    return create_document_extractor(codex_factory=CodexDocumentExtractor).extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
+                    return create_document_extractor(codex_factory=CodexDocumentExtractor, usage_sink=usage_sink).extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
                 finally:
                     _extraction_slots.release()
             result = await run_in_threadpool(extract_source)
@@ -266,7 +266,8 @@ def create_stock_valuation_router(current_user, get_service) -> APIRouter:
     async def intake(response: Response, file: UploadFile = File(...), actor=Depends(current_user)):
         response.headers['Cache-Control'] = 'no-store'
         _authorize(actor)
-        return await extract_valuation_upload(file)
+        from stock_sync_web.deepseek_usage import sink_for
+        return await extract_valuation_upload(file, usage_sink=sink_for(get_service().db))
 
     @router.post('/resolve')
     def resolve(body: ResolveRequest, response: Response, actor=Depends(current_user)):

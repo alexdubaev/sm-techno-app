@@ -99,7 +99,8 @@ describe('responsive AppShell navigation', () => {
   });
 
   it.each([
-    ['/manager', 'Кабинет'],
+    ['/dashboard', 'Обзор'],
+    ['/manager', 'Ещё'],
     ['/stock', 'Остатки'],
     ['/crm', 'CRM'],
     ['/settings', 'Настройки'],
@@ -144,6 +145,9 @@ describe('responsive AppShell navigation', () => {
     const { logout } = renderShell({ isAdmin: true }, '/orders');
 
     await user.click(screen.getByRole('button', { name: 'Ещё' }));
+    const menu = screen.getByRole('dialog', { name: 'Ещё' });
+    expect(within(menu).getByRole('link', { name: 'Мои продажи' })).toHaveAttribute('href', '/manager');
+    expect(within(menu).queryByRole('link', { name: 'Обзор' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Выйти' }));
     expect(logout).toHaveBeenCalledOnce();
   });

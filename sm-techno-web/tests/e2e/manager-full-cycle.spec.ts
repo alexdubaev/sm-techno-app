@@ -83,6 +83,8 @@ test('full ledger cycle preserves closed snapshots, avatar and employee privacy'
     admin,
   );
   await page.goto('/');
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await page.getByRole('link', { name: 'Мои продажи →' }).click();
   await expect(page).toHaveURL(/\/manager$/);
   await page.getByLabel('Месяц', { exact: true }).fill('2026-10');
   await page.getByLabel('Кабинет сотрудника').selectOption(String(managerId));

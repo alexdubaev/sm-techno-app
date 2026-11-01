@@ -18,21 +18,37 @@ MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 
 
 class DeepSeekDocumentExtractor:
-    def __init__(self, *, connection_factory=None, timeout=None):
+    def __init__(self, *, connection_factory=None, timeout=None, usage_sink=None):
         self.timeout = timeout or min(300, max(15, int(os.getenv('DOCUMENT_ASSISTANT_TIMEOUT_SECONDS') or '120')))
         self._connection_factory = connection_factory or self._connection
+        self.usage_sink = usage_sink
 
     @staticmethod
     def _connection(timeout):
         return http.client.HTTPSConnection('api.deepseek.com', timeout=timeout, context=ssl.create_default_context())
 
     def extract(self, request, *, temp_root=None):
+        tracking = {'attempted': False, 'usage': None, 'model': 'deepseek-flash'}
+        outcome = 'failed'
+        try:
+            result = self._extract(request, temp_root=temp_root, tracking=tracking)
+            outcome = 'success'
+            return result
+        finally:
+            if tracking['attempted'] and self.usage_sink is not None:
+                try:
+                    self.usage_sink(tracking['model'], outcome, tracking['usage'])
+                except Exception:
+                    pass
+
+    def _extract(self, request, *, temp_root=None, tracking):
         if request.kind not in KINDS:
             raise ValueError('Неизвестный тип распознавания.')
         key = (os.getenv('DEEPSEEK_API_KEY') or '').strip()
         model = (os.getenv('DOCUMENT_ASSISTANT_DEEPSEEK_MODEL') or 'deepseek-flash').strip()
         if not key or not model or len(key) > 4096 or any(c in key for c in '\r\n') or len(model) > 200:
             raise ExtractionError('provider_configuration', 'Проверьте настройки DeepSeek на сервере.')
+        tracking['model'] = model if all(c.isalnum() or c in '-_.' for c in model) else 'unknown'
         if len(request.texts) > 100 or sum(map(len, request.texts)) > 200000 or len(request.image_paths) > 100:
             raise ExtractionError('input_limit', 'Превышен предел материалов задания.')
         started = time.monotonic()
@@ -68,6 +84,7 @@ class DeepSeekDocumentExtractor:
                 timer = threading.Timer(remaining(), abort_at_deadline)
                 timer.daemon = True
                 timer.start()
+                tracking['attempted'] = True
                 connection.request('POST', '/chat/completions', body=body, headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json', 'Accept': 'application/json'})
                 sock.settimeout(remaining())
                 response = connection.getresponse()
@@ -96,6 +113,7 @@ class DeepSeekDocumentExtractor:
                 connection.close()
             remaining()
             envelope = json.loads(data)
+            tracking['usage'] = envelope.get('usage') if isinstance(envelope, dict) else None
             choices = envelope['choices']
             if not isinstance(choices, list) or len(choices) != 1: raise ValueError()
             choice = choices[0]
