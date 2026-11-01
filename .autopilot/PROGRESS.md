@@ -1,7 +1,7 @@
 <!-- autopilot:progress -->
 # СМ ТЕХНО — команды iPhone и второй Excel, приёмка 2026-11-01
 
-Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`: currentlive8498dc47fe1b9e21c7cd6e6c4f3dba43a3819468 deployed_verified (PR18), phone configuration now in Settings. Backendimage4726d4da unchanged, frontendd2ac4315; all relevant local/PR/main checks green. Workingresult09:49:50UTC; current release evidence placement-release.md, earlier feature release acceptance-report.md. Physical iPhone installation/import/share/Quick Look is NOT verified; no signed Shortcut or iCloud link is published. Old completed release details in current run carried.md; preserve prior recovery artifacts.
+Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`: live mainab40776eb243cd567c82e3ae39464c089399bb51 deployed_verified (PR21). В Настройках готовый подписанный Shortcut + одна персональная настройка для копирования; ручная сборка HTTP-действий и работа на сервере не нужны. Backend4726d4da без перезапуска, frontend34232c4b; local/PR/main checks и публичные HTTPS health/installer SHA PASS. Доказательства installer-release.md. Физическая установка/import/share/Excel на iPhone остаются NOT RUN. Старые подготовки и recovery artifacts сохранены.
 
 ## Договорились — не пересматривать
 
@@ -22,9 +22,9 @@
 ## Следующие действия и ограничения
 
 - Выпуск exactmain96faf42 подтверждён владельцем «Да» и выполнен. Final quiescedbackup20261101T083204694777Z SHA6d305f5c… verified+emptyrestorePASS; stop-to-ready17.848s. Code-onlyrollback к00d6152 сохраняет текущие данные.
-- Currentlive8498dc4 clean/healthy, backendбезперезапуска, DeepSeekFlash/converteractive, VPSfree7.5GiB. Latest frontend-only release/rollback в releases/20261101-iphone-settings-placement; прежние artifacts в releases/20261101-ios-shortcuts и releases/20261030-document-workflows сохранены.
-- Latest onlinebackup20261101T094939960854Z SHA0196887f… strictverify/emptyrestorePASS. Frontend switch-to-ready8.164s, fullserveroperation10.271s; code-onlyfrontendrollback не заменяет DB и сохраняет подключения.
-- Native action instructions docs/ios-shortcuts.md; physical first setup and safe sharing require owner iPhone. Server/API acceptance is not actualiOSPASS.
+- Currentliveab40776 clean/healthy; backend без перезапуска, converter active, VPSfree8.7GiB. Последний frontend-only release/rollback: releases/20261101-iphone-shortcut-installer; прежние artifacts сохранены.
+- Последний backup20261101T120744127446Z SHA8d23ce32… strictverify/emptyrestorePASS. Frontend switch-to-ready8.088s, serveroperation9.950s; это не полное время задачи (нижняя измеренная граница подготовки1ч33м29с). Code-onlyfrontendrollback сохраняет текущие данные и подключения.
+- Простая инструкция docs/ios-shortcuts.md и готовый файл /shortcuts/sm-techno-stock.shortcut опубликованы. Первый setup/import/share/Excel требует iPhone владельца; server acceptance не равен iOS runtime PASS.
 - Suggested durable memory additions are memory-proposal.md; owner AGENTS unchanged.
 
 ## Правки без автопилота

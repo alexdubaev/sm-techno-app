@@ -27,3 +27,5 @@
 ## Правки без автопилота
 
 —
+
+G03 published: liveab40776/frontend34232c4b, backend4726 unchanged. Ready signed nativefile and one-copysetup in Settings, no handassembled HTTP. Exactmain CI41304167764 SUCCESS; HTTPShealth and realpublicasset SHA d7a3ab1e… PASS. Latest backup120744SHA8d23ce32… verified/stagedrestorePASS. Rollbackpreviousfrontd2 retainscurrentdata/devicebindings. See installer-release.md; physicaliPhone firstimport/runtime NOT RUN. Utility Apple signer requirediCloud, disabled; approvedShortcuty fallback worked. Preserveoldpreparations.
