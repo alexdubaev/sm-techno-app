@@ -1,0 +1,57 @@
+// EXPERIMENTAL: NOT INSTALLABLE. HTTP form file and rows array are serialized as text.
+// Do not sign or distribute until native wire types and iPhone behavior are verified.
+#include 'actions/text'
+#include 'actions/web'
+#include 'actions/crypto'
+#include 'actions/sharing'
+#define name Расценка
+#define inputs file, image
+#question setup "Вставьте строку подключения из настроек" ""
+
+@setupValue = text(setup)
+const configMatch = matchText('^SMTECHNO1\.[A-Za-z0-9+/]+={0,2}$', @setupValue)
+if !configMatch { alert("Неверная строка подключения.") stop() }
+const encoded = replaceText("SMTECHNO1.", "", @setupValue)
+const decoded = base64Decode(encoded)
+const config = getDictionary(decoded)
+const base = getValue(config, "baseUrl")
+const credential = getValue(config, "credential")
+const urlMatch = matchText('^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$', "{base}")
+const keyMatch = matchText('^[A-Za-z0-9_-]{43}$', "{credential}")
+if !urlMatch { alert("Неверный адрес подключения.") stop() }
+if !keyMatch { alert("Неверный код подключения.") stop() }
+const n = count(ShortcutInput)
+if n != 1 { alert("Выберите один файл или изображение.") stop() }
+const file = getFirstItem(ShortcutInput)
+const intake = formRequest("{base}/api/shortcuts/stock/intake", "POST", {"file": "{file}"}, {"Authorization": "Shortcut {credential}"})
+const intakeDict = getDictionary(intake)
+const rows = getValue(intakeDict, "rows")
+const preview = getValue(intakeDict, "previewText")
+const warnings = getValue(intakeDict, "warnings")
+if !rows { alert("Не удалось получить список.") stop() }
+alert("{preview}\n\nПредупреждения: {warnings}", "Проверьте список")
+@format = ""
+menu "Выберите файл" {
+ item "Excel для расценки":
+  @format = "valuation"
+ item "Excel по шаблону КП":
+  @format = "offer"
+ item "Отмена":
+  stop()
+}
+const result = jsonRequest("{base}/api/shortcuts/stock/resolve", "POST", {"rows": "{rows}", "format": "{@format}"}, {"Authorization": "Shortcut {credential}"})
+const resultDict = getDictionary(result)
+const workbookRaw = getValue(resultDict, "workbook")
+if !workbookRaw { alert("Не удалось получить файл.") stop() }
+const warning2 = getValue(resultDict, "warnings")
+alert("{warning2}", "Предупреждения")
+const workbook = getDictionary(workbookRaw)
+const filename = getValue(workbook, "filename")
+const data = getValue(workbook, "base64")
+if !data { alert("Не удалось получить файл.") stop() }
+const excel = base64Decode(data)
+const named = setName(excel, "{filename}")
+quicklook(named)
+share(named)
+
+
