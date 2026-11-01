@@ -88,3 +88,11 @@ Owner snapshot/revision до чтения stream; atomic owner CAS и guard те
 
 ## Независимая приёмка из чистого clone 8484079
 Чистый clone с копией готового dependencycache (не выдаём за freshnpmci); npm test:auth:e2e allowlist/syntheticdata. Существующие два UIсценария2PASS; дополнительный disposableprobe3PASS: actualclipboard tab/newline неизменны в multipart File, photo PNGbytes/filename неизменны, реальный binaryFile черезbrowserworker сохраняетbytes/name. Все три без modelrequest до явнойкнопки. OCR/resolve подставлены на frontendboundary: это не liveDeepSeek и не доказательство содержимогоExcel; backend unchanged и ранее проверен отдельно. Probe/logprivate сохранены, cloneclean. AndroidOSshare и iPhoneимя/115runtime не выдаются заPASS; G4текущего расширения5/7, эти две физические проверкиоткрыты.
+
+
+## G06 owner UIsteering R15
+Текущий source34dd215 в PR25; новая правка только panel toggle/default/layout и affectedtests. Normal stock collapsed; expand/collapse доступен, три source actions equaldimensions/twoequalcolumns; external receivedsource autoopens как прежде, manualcollapse invalidates lateclaim. No API/auth/protocol/storage/permission changes. Исполнитель existingTerra context по smallknownpolicy, одна narrowverification + finalproductionbuild на изменённомUI. Кандидатсервер8484079 после этой UIправки считается прежним, нужно пересобрать доfinalSHA; deployнеразрешён.
+
+
+## T04 фактическое UIповедение и проверки
+1694f64: normalcollapsed Развернуть/Свернуть aria-expanded, receivedshare autoopens, threeequalbuttons/twoequalcolumns. Root просмотрел оба actual390скриншота: нет clippedlabels, свернутыйблокоставляет больше местаостаткам. AffectedVitest5PASS, Chromium2PASS + screenshotonlynarrow1PASS, types0/lint/buildPASS. Никаких изменений auth/protocol/worker/backend. ПоследнийE2E снова сгенерировалnext-env (a419 вместоce4), root Gitrestore только own generatedfile кtrackedHEAD, не выдал утверждениеработника о cleanfile зафакт. Source1694 требует нового frontendкандидата и CI текущейветки; предыдущий848образ сохранён. Повторныйwhole-review и broadlocalchecks без новойпричины не запускались.

@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "7d42a9cd3ac79826cedaa9bbd001acd68c129061",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T18:35:03+03:00",
+  "updatedAt": "2026-11-01T18:47:10+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -50,7 +50,7 @@ window.STATE =
       "id": "build",
       "status": "done",
       "startedAt": "2026-11-01T18:12:51+03:00",
-      "finishedAt": "2026-11-01T18:23:18+03:00"
+      "finishedAt": "2026-11-01T18:35:03+03:00"
     },
     {
       "id": "review",
@@ -65,8 +65,8 @@ window.STATE =
     }
   ],
   "requirements": {
-    "total": 14,
-    "done": 12,
+    "total": 15,
+    "done": 13,
     "inTicket": 2,
     "inSpec": 0,
     "placeholder": 0,
@@ -192,14 +192,44 @@ window.STATE =
       "model": "сильная — ранее выбранная владельцем Terra6.1",
       "status": "done",
       "startedAt": "2026-11-01T18:12:51+03:00",
+      "finishedAt": "2026-11-01T18:35:03+03:00",
       "retries": 0,
       "repairs": 0,
-      "finishedAt": "2026-11-01T18:35:03+03:00",
       "tests": {
         "passed": 73,
         "failed": 0
       },
       "commit": "11f9f24416fd"
+    },
+    {
+      "id": "04",
+      "title": "Свёрнутый блок расценки и ровные кнопки",
+      "requirements": [
+        "R15"
+      ],
+      "blockedBy": [
+        "03",
+        "02"
+      ],
+      "wave": 6,
+      "zone": [
+        "sm-techno-web/components/stock/stock-valuation-panel.tsx",
+        "sm-techno-web/tests/stock/",
+        "sm-techno-web/tests/e2e/stock-valuation.spec.ts",
+        "sm-techno-web/tests/e2e/stock-share.spec.ts"
+      ],
+      "review": "нет — known bounded UI steering без protected behavior change, owner smallchangepolicy",
+      "model": "сильная — existingTerra6.1context",
+      "status": "done",
+      "startedAt": "2026-11-01T18:44:38+03:00",
+      "finishedAt": "2026-11-01T18:47:09+03:00",
+      "retries": 0,
+      "repairs": 0,
+      "tests": {
+        "passed": 5,
+        "failed": 0
+      },
+      "commit": "1694f64f54d9"
     },
     {
       "id": "F1",
@@ -257,10 +287,10 @@ window.STATE =
       "review": "нет — одно whole-review завершено; после bounded fixes узкие поведенческие closure checks по ownerpolicy, без повторного whole-review",
       "model": "сильная — Terra6.1",
       "status": "done",
-      "retries": 0,
-      "repairs": 0,
       "startedAt": "2026-11-01T18:25:49+03:00",
       "finishedAt": "2026-11-01T18:35:03+03:00",
+      "retries": 0,
+      "repairs": 0,
       "tests": {
         "passed": 2,
         "failed": 0
@@ -269,7 +299,7 @@ window.STATE =
     }
   ],
   "tests": {
-    "passed": 2,
+    "passed": 5,
     "failed": 0
   },
   "debt": {
@@ -288,11 +318,11 @@ window.STATE =
   },
   "concerns": [],
   "blind": {
-    "checked": 7,
-    "matched": 5,
+    "checked": 8,
+    "matched": 6,
     "mismatches": [
-      "R11: browser File/text PASS; Android OS Share/WebAPK requires physical phone",
-      "R14: download filename/unchanged signed bytes PASS; imported iPhone name requires phone"
+      "R11: browser file/text verified; physical Android OS share remains NOTRUN",
+      "R14: signed bytes/download name verified; iPhone imported name remains NOTRUN"
     ]
   },
   "beats": [
@@ -341,9 +371,12 @@ window.STATE =
     "2026-11-01T18:12:51+03:00",
     "2026-11-01T18:23:18+03:00",
     "2026-11-01T18:25:49+03:00",
-    "2026-11-01T18:35:03+03:00"
+    "2026-11-01T18:35:03+03:00",
+    "2026-11-01T18:44:38+03:00",
+    "2026-11-01T18:47:09+03:00",
+    "2026-11-01T18:47:10+03:00"
   ],
-  "rev": 65,
+  "rev": 72,
   "waiting": null,
   "waits": [
     {
@@ -766,6 +799,58 @@ window.STATE =
       "ok": false,
       "checked": 7,
       "matched": 5
+    },
+    {
+      "t": "2026-11-01T18:44:38+03:00",
+      "k": "tickets",
+      "n": 6
+    },
+    {
+      "t": "2026-11-01T18:44:38+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T18:44:38+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T18:47:09+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 5,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T18:47:10+03:00",
+      "k": "stage",
+      "id": "final",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T18:47:10+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": false,
+      "checked": 8,
+      "matched": 6
+    },
+    {
+      "t": "2026-11-01T18:47:10+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
     }
   ],
   "reqList": [
@@ -838,6 +923,11 @@ window.STATE =
       "id": "R14",
       "text": "«команда будет называться Поделиться СМ ТЕХНО»; затем «Не тогда делай как проще, без переименования»",
       "status": "in-ticket"
+    },
+    {
+      "id": "R15",
+      "text": "«новый экран ... по умолчанию свернутым ... свернуть и развернуть ... кнопки ... одинакового размера ... равномерно ... по две в столбик»",
+      "status": "done"
     }
   ],
   "gates": {
@@ -856,14 +946,14 @@ window.STATE =
     },
     "G3": {
       "ok": true,
-      "at": "2026-11-01T18:12:49+03:00",
+      "at": "2026-11-01T18:47:10+03:00",
       "problems": 0
     },
     "G4": {
       "ok": false,
-      "at": "2026-11-01T18:35:03+03:00",
-      "checked": 7,
-      "matched": 5
+      "at": "2026-11-01T18:47:10+03:00",
+      "checked": 8,
+      "matched": 6
     }
   },
   "result": null,
