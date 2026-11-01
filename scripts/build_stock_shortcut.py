@@ -49,7 +49,8 @@ def build():
     assert actions[0]['WFWorkflowActionParameters']['WFTextActionText'] == ''
     question['ActionIndex'] = 0
     # Get all keys first: successful API responses do not contain "detail".
-    # The native list-contains condition tests membership, not a substring.
+    # Join the keys with newlines, match the complete key, then test whether
+    # the match exists. This avoids a list-typed If with a missing operand.
     for target in ('intakeDetail', 'resultDetail'):
         index = next(i for i, a in enumerate(actions)
                      if a.get('WFWorkflowActionParameters', {}).get('CustomOutputName') == target)
@@ -61,17 +62,31 @@ def build():
                     'WFGetDictionaryValueType': 'All Keys', 'WFInput': detail['WFInput']}}
         reference = {'Value': {'OutputName': keys_name, 'OutputUUID': keys_uuid, 'Type': 'ActionOutput'},
                      'WFSerializationType': 'WFTextTokenAttachment'}
+        combined_name = target + 'KeysText'
+        combined_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, 'sm-techno-stock-' + combined_name))
+        combine = {'WFWorkflowActionIdentifier': 'is.workflow.actions.text.combine',
+                   'WFWorkflowActionParameters': {'CustomOutputName': combined_name, 'UUID': combined_uuid,
+                       'WFTextSeparator': 'New Lines', 'text': reference}}
+        match_name = target + 'KeyMatch'
+        match_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, 'sm-techno-stock-' + match_name))
+        combined_output = {'OutputName': combined_name, 'OutputUUID': combined_uuid, 'Type': 'ActionOutput'}
+        match = {'WFWorkflowActionIdentifier': 'is.workflow.actions.text.match',
+                 'WFWorkflowActionParameters': {'CustomOutputName': match_name, 'UUID': match_uuid,
+                     'WFMatchTextPattern': r'(?m)^detail$', 'WFMatchTextCaseSensitive': True,
+                     'text': {'Value': {'string': '\ufffc', 'attachmentsByRange': {'{0, 1}': combined_output}},
+                              'WFSerializationType': 'WFTextTokenString'}}}
+        match_reference = {'Value': {'OutputName': match_name, 'OutputUUID': match_uuid, 'Type': 'ActionOutput'},
+                           'WFSerializationType': 'WFTextTokenAttachment'}
         start = {'WFWorkflowActionIdentifier': 'is.workflow.actions.conditional',
-                 'WFWorkflowActionParameters': {'WFControlFlowMode': 0, 'WFCondition': 99,
-                     'WFConditionalActionString': 'detail',
-                     'WFInput': {'Type': 'Variable', 'Variable': reference}}}
+                 'WFWorkflowActionParameters': {'WFControlFlowMode': 0, 'WFCondition': 100,
+                     'WFInput': {'Type': 'Variable', 'Variable': match_reference}}}
         end = {'WFWorkflowActionIdentifier': 'is.workflow.actions.conditional',
                'WFWorkflowActionParameters': {'WFControlFlowMode': 2, 'UUID': 'placeholder'}}
         # The existing detail/alert/exit conditional occupies six actions.
         assert actions[index + 1]['WFWorkflowActionParameters']['WFControlFlowMode'] == 0
         assert actions[index + 5]['WFWorkflowActionParameters']['WFControlFlowMode'] == 2
-        actions[index:index] = [keys, start]
-        actions.insert(index + 8, end)
+        actions[index:index] = [keys, combine, match, start]
+        actions.insert(index + 10, end)
     # Cherri 2.3 reused one identifier for unrelated control-flow blocks. Replace
     # it consistently within each properly nested block; end UUID denotes its output.
     stack = []

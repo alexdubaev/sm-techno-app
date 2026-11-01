@@ -42,7 +42,7 @@ class ShortcutArtifact(unittest.TestCase):
         self.assertEqual(self.graph['WFWorkflowInputContentItemClasses'], ['WFGenericFileContentItem', 'WFImageContentItem'])
         self.assertEqual(self.graph['WFWorkflowTypes'], ['ActionExtension'])
         self.assertEqual(q['Text'], 'Вставьте строку подключения из настроек')
-        self.assertEqual(len(self.actions), 111)
+        self.assertEqual(len(self.actions), 115)
 
     def test_all_output_refs_point_backwards_and_control_groups_match(self):
         seen, stack, groups = {}, [], set()
@@ -128,11 +128,26 @@ class ShortcutArtifact(unittest.TestCase):
             self.assertEqual(keys['WFGetDictionaryValueType'], 'All Keys')
             self.assertNotIn('WFDictionaryKey', keys)
             self.assertEqual(keys['WFInput']['Value']['OutputUUID'], self.outputs[dictionary][1]['UUID'])
-            outer = self.params[key_index + 1]
-            self.assertEqual((self.names[key_index + 1], outer['WFControlFlowMode'], outer['WFCondition']), ('conditional', 0, 99))
-            self.assertEqual(outer['WFConditionalActionString'], 'detail')
-            self.assertEqual(outer['WFInput']['Variable']['Value']['OutputUUID'], keys['UUID'])
-            self.assertEqual(i, key_index + 2)
+            combine = self.params[key_index + 1]
+            self.assertEqual(self.actions[key_index + 1]['WFWorkflowActionIdentifier'], 'is.workflow.actions.text.combine')
+            self.assertEqual(combine['WFTextSeparator'], 'New Lines')
+            self.assertEqual(combine['text']['WFSerializationType'], 'WFTextTokenAttachment')
+            self.assertEqual(combine['text']['Value']['OutputUUID'], keys['UUID'])
+            match = self.params[key_index + 2]
+            self.assertEqual(self.actions[key_index + 2]['WFWorkflowActionIdentifier'], 'is.workflow.actions.text.match')
+            self.assertTrue(match['WFMatchTextCaseSensitive'])
+            self.assertEqual(match['text']['WFSerializationType'], 'WFTextTokenString')
+            self.assertEqual(match['text']['Value']['attachmentsByRange']['{0, 1}']['OutputUUID'], combine['UUID'])
+            pattern = match['WFMatchTextPattern']
+            self.assertEqual(pattern, r'(?m)^detail$')
+            for keys_list, expected in ((['rows', 'detail', 'warnings'], True), (['detail'], True),
+                                        (['detailCount', 'details', 'Detail'], False), ([], False)):
+                self.assertEqual(bool(re.search(pattern, '\n'.join(keys_list))), expected)
+            outer = self.params[key_index + 3]
+            self.assertEqual((self.names[key_index + 3], outer['WFControlFlowMode'], outer['WFCondition']), ('conditional', 0, 100))
+            self.assertNotIn('WFConditionalActionString', outer)
+            self.assertEqual(outer['WFInput']['Variable']['Value']['OutputUUID'], match['UUID'])
+            self.assertEqual(i, key_index + 4)
             self.assertEqual((self.names[i + 6], self.params[i + 6]['WFControlFlowMode']), ('conditional', 2))
             self.assertEqual(self.params[i + 6]['GroupingIdentifier'], outer['GroupingIdentifier'])
             self.assertEqual(p['WFDictionaryKey'], 'detail')

@@ -47,3 +47,39 @@ it('discards a late code after closing while keeping the created device revocabl
   await waitFor(() => expect(api.revokeShortcutDevice).toHaveBeenCalledWith(2));
 });
 
+
+it('reports clipboard results accurately and ignores a late result after close', async () => {
+  const device = { id: 3, label: 'iPhone', createdAt: '2026-01-01T00:00:00Z', lastUsedAt: null, idleExpiresAt: '2027-01-01T00:00:00Z', absoluteExpiresAt: '2027-01-01T00:00:00Z', revokedAt: null };
+  vi.mocked(api.listShortcutDevices).mockResolvedValue({devices: [device]});
+  vi.mocked(api.createShortcutDevice).mockResolvedValue({device, credential: 'c'.repeat(43)});
+  render(<StockShortcutsPanel />);
+  fireEvent.click(screen.getByRole('button', {name: 'Команды iPhone'}));
+  await waitFor(() => expect(screen.getByRole('button', {name: 'Создать подключение'})).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', {name: 'Создать подключение'}));
+  const setup = (await screen.findByLabelText('Настройка для iPhone') as HTMLInputElement).value;
+  let finish!: () => void;
+  const writeText = vi.fn().mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve; })).mockRejectedValueOnce(new Error('denied'));
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  fireEvent.click(screen.getByRole('button', {name: 'Скопировать настройку'}));
+  expect(writeText).toHaveBeenCalledWith(setup);
+  expect(screen.queryByText('Настройка скопирована')).toBeNull();
+  await act(async () => finish());
+  expect(screen.getByRole('status')).toHaveTextContent('Настройка скопирована');
+  fireEvent.click(screen.getByRole('button', {name: 'Скопировать настройку'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось скопировать настройку');
+  expect(screen.queryByRole('status')).toBeNull();
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  fireEvent.click(screen.getByRole('button', {name: 'Скопировать настройку'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось скопировать настройку');
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } });
+  fireEvent.click(screen.getByRole('button', {name: 'Скопировать настройку'}));
+  expect(await screen.findByRole('status')).toHaveTextContent('Настройка скопирована');
+  expect(screen.queryByRole('alert')).toBeNull();
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockReturnValue(new Promise<void>(resolve => { finish = resolve; })) } });
+  fireEvent.click(screen.getByRole('button', {name: 'Скопировать настройку'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Закрыть'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Команды iPhone'}));
+  await act(async () => finish());
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.queryByRole('alert')).toBeNull();
+});
