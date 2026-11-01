@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 
 import SettingsPage from "@/app/settings/page";
+import UsersSettingsPage from "@/app/settings/users/page";
+import OneCSettingsPage from "@/app/settings/onec/page";
 import WorkWithPricePage from "@/app/work-with-price/page";
 import { AuthProvider } from "@/components/auth-provider";
 import { saveAuthSessionToStorage } from "@/lib/storage";
@@ -68,15 +70,22 @@ describe("rendered role gates", () => {
     const user = userEvent.setup();
     const settingsView = render(<AuthProvider><SettingsPage /></AuthProvider>);
 
-    expect(await screen.findByText("Этот раздел доступен только администратору приложения.")).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Команды iPhone" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: /Пользователи.*Учетные записи/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Интеграция с 1С.*Подключение/ })).not.toBeInTheDocument();
     await expandDesktopGroup(user, "Администрирование");
-    expect(screen.queryByRole("link", { name: "Настройки" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Настройки" })).not.toHaveLength(0);
     expect(settingsRequest).not.toHaveBeenCalled();
     expect(usersRequest).not.toHaveBeenCalled();
 
     settingsView.unmount();
-    render(<AuthProvider><WorkWithPricePage /></AuthProvider>);
-    expect(await screen.findByText("Этот раздел доступен только администратору приложения.")).toBeVisible();
+    for (const Page of [UsersSettingsPage, OneCSettingsPage, WorkWithPricePage]) {
+      const view = render(<AuthProvider><Page /></AuthProvider>);
+      expect(await screen.findByText("Этот раздел доступен только администратору приложения.")).toBeVisible();
+      view.unmount();
+    }
+    expect(settingsRequest).not.toHaveBeenCalled();
+    expect(usersRequest).not.toHaveBeenCalled();
   });
 
   test("administrators see guarded navigation and load the settings controls", async () => {

@@ -8,7 +8,7 @@ import { SettingsFeedback } from "@/components/settings/shared/settings-feedback
 import { SettingsLanding } from "@/components/settings/shared/settings-landing";
 import { SettingsShell } from "@/components/settings/shared/settings-shell";
 import { fetchUsers } from "@/lib/api";
-import { SettingsAccessDenied } from "./settings-access";
+import { StockShortcutsPanel } from "@/components/stock/stock-shortcuts-panel";
 
 type UserCounts = {
   total: number;
@@ -18,7 +18,14 @@ type UserCounts = {
 export default function SettingsPage() {
   const { isAdmin } = useAuth();
 
-  return <AppShell>{isAdmin ? <AdminSettingsLanding /> : <SettingsAccessDenied />}</AppShell>;
+  return (
+    <AppShell>
+      <SettingsShell title="Настройки" description={isAdmin ? "Личные настройки, учетные записи и параметры интеграции." : "Личные настройки."}>
+        <StockShortcutsPanel />
+        {isAdmin && <AdminSettingsLanding />}
+      </SettingsShell>
+    </AppShell>
+  );
 }
 
 function AdminSettingsLanding() {
@@ -55,10 +62,7 @@ function AdminSettingsLanding() {
   }, []);
 
   return (
-    <SettingsShell
-      title="Настройки"
-      description="Управление учетными записями и параметрами интеграции."
-    >
+    <>
       <div className="mb-5">
         <SettingsFeedback
           message={error ?? (isLoading ? "Загружаем сведения о пользователях…" : undefined)}
@@ -71,6 +75,6 @@ function AdminSettingsLanding() {
         usersHref="/settings/users"
         onecHref="/settings/onec"
       />
-    </SettingsShell>
+    </>
   );
 }

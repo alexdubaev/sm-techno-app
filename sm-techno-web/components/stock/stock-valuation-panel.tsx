@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { StockShortcutsPanel } from '@/components/stock/stock-shortcuts-panel';
 import { intakeValuation, resolveValuation, type ValuationRow, type ValuationResult, type Workbook } from '@/lib/stock-valuation-api';
 
 const statuses = { matched: 'Найдено', not_found: 'Не найдено', ambiguous: 'Неоднозначно', zero_stock: 'Нет остатка', duplicate: 'Дубликат' };
@@ -34,7 +33,7 @@ export function StockValuationPanel() {
     const url = URL.createObjectURL(new Blob([bytes], {type: workbook.mediaType}));
     const link = document.createElement('a'); link.href = url; link.download = workbook.filename; link.click(); URL.revokeObjectURL(url);
   }
-  return <><StockShortcutsPanel /><div className="mb-3 rounded-2xl bg-white p-3 shadow-sm">
+  return <><div className="mb-3 rounded-2xl bg-white p-3 shadow-sm">
     {!open ? <button type="button" className="font-semibold underline" onClick={() => setOpen(true)}>Расценить список артикулов</button> : <section aria-label="Расценка артикулов" className="space-y-3">
       <div className="flex items-center justify-between gap-3"><h2 className="font-semibold">Расценка артикулов</h2><button type="button" onClick={close}>Закрыть</button></div>
       <p className="text-sm text-slate-600">Загрузите список, проверьте артикулы и получите остатки и цены по складам. Подборка не сохраняется.</p>

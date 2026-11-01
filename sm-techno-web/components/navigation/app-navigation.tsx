@@ -115,7 +115,6 @@ export const navigationGroups: AppNavGroup[] = [
         label: 'Настройки',
         mobileIcon: '/mobile-icons/settings.webp',
         Icon: GearIcon,
-        adminOnly: true,
       },
     ],
   },

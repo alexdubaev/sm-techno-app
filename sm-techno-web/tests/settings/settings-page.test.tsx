@@ -70,11 +70,13 @@ describe("Settings landing route", () => {
     expect(api.fetchUsers).toHaveBeenCalledTimes(1);
   });
 
-  test("keeps the landing behind the admin gate and does not load user data", async () => {
+  test("shows personal iPhone settings to employees without loading admin data", async () => {
     state.isAdmin = false;
     render(<SettingsPage />);
 
-    expect(screen.getByText(/доступен только администратору/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Команды iPhone" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Пользователи/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Интеграция с 1С/ })).not.toBeInTheDocument();
     await waitFor(() => expect(api.fetchUsers).not.toHaveBeenCalled());
   });
 });
