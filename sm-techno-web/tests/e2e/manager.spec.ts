@@ -184,7 +184,7 @@ test('manager cabinet saves manual sales, previews excess commission and protect
   expect(errors).toEqual([]);
 });
 
-test('startup opens personal cabinet and menu keeps stock available', async ({
+test('admin startup opens overview and personal sales remain available from the menu', async ({
   page,
   request,
 }, testInfo) => {
@@ -207,6 +207,8 @@ test('startup opens personal cabinet and menu keeps stock available', async ({
     session,
   );
   await page.goto('/');
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await page.getByRole('link', { name: 'Мои продажи →' }).click();
   await expect(page).toHaveURL(/\/manager$/);
   await expect(
     page.getByRole('heading', { name: profileName, exact: true }),
@@ -222,11 +224,11 @@ test('startup opens personal cabinet and menu keeps stock available', async ({
   await expect(page).toHaveURL(/\/stock$/);
   await expect(page.getByRole('main')).toBeVisible();
   const cabinet = page
-    .getByRole('link', { name: 'Кабинет', exact: true })
+    .getByRole('link', { name: 'Мои продажи', exact: true })
     .filter({ visible: true });
   if (!(await cabinet.count()))
     await page
-      .getByRole('button', { name: 'Личный кабинет', exact: true })
+      .getByRole('button', { name: page.viewportSize()!.width < 1536 ? 'Ещё' : 'Личный кабинет', exact: true })
       .click();
   if (testInfo.project.name.startsWith('production-')) {
     await cabinet.click();
@@ -255,7 +257,7 @@ test('startup opens personal cabinet and menu keeps stock available', async ({
     await expect(
       page
         .getByRole('navigation', { name: 'Основная навигация' })
-        .getByRole('link', { name: 'Кабинет' }),
+        .getByRole('button', { name: 'Ещё' }),
     ).toHaveAttribute('aria-current', 'page');
   }
 });

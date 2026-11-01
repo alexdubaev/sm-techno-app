@@ -1,9 +1,11 @@
 """HTTP smoke ONLY for isolated loopback candidate with synthetic credentials."""
 import json
+import os
 import urllib.request
 import urllib.error
 
-BASE = 'http://127.0.0.1:19030'
+BASE = os.getenv('SM_TECHNO_CANDIDATE_ORIGIN', 'http://127.0.0.1:19030')
+assert BASE in ('http://127.0.0.1:19030', 'http://sm-techno-admin-candidate-frontend:3000')
 
 def request(path, token=None, payload=None):
     headers = {'Content-Type': 'application/json'}

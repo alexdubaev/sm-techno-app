@@ -398,6 +398,7 @@ class DocumentApiTest(unittest.TestCase):
                 "specification": self.specification_template_path,
             },
             document_storage_dir=self.temp_path / "storage" / "documents",
+            commercial_offer_storage_dir=self.temp_path / "storage" / "commercial_offers",
         )
         self.original_service = stock_sync_api.SERVICE
         stock_sync_api.SERVICE = self.service

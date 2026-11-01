@@ -29,10 +29,11 @@ export function MobileMoreMenu({
   open,
   roleLabel,
 }: MobileMoreMenuProps) {
+  const hasOverview = groups.some(group => group.items.some(item => item.href === '/dashboard'));
   const menuGroups = groups.flatMap((group) => {
     const items = group.items.filter(
       (item) =>
-        item.href !== '/manager' && item.href !== '/stock' && item.href !== '/crm' && item.href !== '/settings',
+        item.href !== (hasOverview ? '/dashboard' : '/manager') && item.href !== '/stock' && item.href !== '/crm' && item.href !== '/settings',
     );
     return items.length > 0 ? [{ ...group, items }] : [];
   });
