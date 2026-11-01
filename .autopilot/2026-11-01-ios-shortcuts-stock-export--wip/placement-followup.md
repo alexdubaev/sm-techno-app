@@ -16,3 +16,5 @@ Implementation check record2026-11-01T09:12UTC: worker settings68PASS, stock/nav
 
 
 Fresh independent UIaccessreview455448d: clean, no confirmedfindings; admincomponent/fetchUsers onlyisAdmin, adminchildroutesretainchecks, personalpanel lifecycleunchanged, sharednav employeesseeSettings. No furtherreview/test repetitionneeded.
+
+CI0ae push+PR: backendbothPASS, authoverallFAIL because old tests/auth/role-gates.integration.test.tsx stillasserted Settingsrootdenied/noSettingsnav. This omittedcouplingtest nowupdated inbounds, preservingexplicitusers/1C/price denial. No appcodechange. Worker narrow2PASS + fullauth189PASS, rootnarrow2PASS2.51s. Settings/build/E2E unchanged notrerunformally. FutureCIpoll mustinclude failedcompletedsteps, notonlycurrentrunningstep (workflowcontinuesafterearlyfailure).
