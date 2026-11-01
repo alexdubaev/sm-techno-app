@@ -1,4 +1,6 @@
-# Сервер подготовлен; рабочее переключение ещё не выполнено
+# Сервер обновлён2026-11-01; ниже сохранена история подготовки
+
+Итог: PR13 merged, live app Git main00d61528f0c26df56e1f75de28b0d1ace8ebf78a. Final backend37a83f27…, frontend4dc605fe… healthy, brokeractive; same-origin200/401. Final quiesced backup20261101T060408197811Z SHAa859e168d6a8a17dd64f6fc5acd5eaaeb743c48898d4805bea5c786f9b8bf42d verify+emptyrestorePASS. Stop→verifiedready26.685s. Live synthetic brokerRTF→PDF10014B/workemptyPASS. Полный итог и пределы в acceptance-report.md. Секреты не выводились. Сообщения ниже об ожидании/ключе401 относятся к завершённым предыдущим попыткам, а не к текущему runtime.
 
 ## Продолжение2026-11-01 — DeepSeek
 
