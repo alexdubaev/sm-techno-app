@@ -617,3 +617,21 @@ def test_private_asset_unsafe_keys_block_backup(tmp_path,key):
     with pytest.raises(RuntimeError,match='unsafe storage key'):
         create_backup(root,tmp_path/'backups')
     assert not list((tmp_path/'backups').glob('*.tar.gz'))
+
+
+def test_restore_revokes_shortcut_devices_only_in_restored_copy(tmp_path):
+    root = _make_root(tmp_path)
+    database = root / 'data' / 'stock_sync.db'
+    with sqlite3.connect(database) as conn:
+        conn.execute('CREATE TABLE app_shortcut_devices (id INTEGER PRIMARY KEY, revoked_at TEXT)')
+        conn.execute('INSERT INTO app_shortcut_devices VALUES (1, NULL)')
+    archive = create_backup(root, tmp_path / 'backups')
+    before = hashlib.sha256(archive.read_bytes()).hexdigest()
+    restore_backup(archive, tmp_path / 'verify', verify_only=True)
+    restore_backup(archive, tmp_path / 'restored')
+    with sqlite3.connect(database) as source, sqlite3.connect(tmp_path / 'restored' / 'data' / 'stock_sync.db') as restored:
+        assert source.execute('SELECT revoked_at FROM app_shortcut_devices').fetchone()[0] is None
+        assert restored.execute('SELECT revoked_at FROM app_shortcut_devices').fetchone()[0] is not None
+        assert restored.execute('SELECT * FROM parent').fetchall() == [(1,)]
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == before
+    assert (tmp_path / 'restored' / 'storage' / 'documents' / 'contract.docx').read_bytes() == b'contract'

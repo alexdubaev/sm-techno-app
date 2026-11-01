@@ -504,6 +504,7 @@ class WebDatabase(Database):
         ("2026-10-26-manager-cabinet-v1", "_add_manager_cabinet"),
         ("2026-10-27-manager-invoice-details-v1", "_add_manager_invoice_details"),
         ("2026-10-30-client-documents-v1", "_add_client_documents"),
+        ("2026-11-01-shortcut-devices-v1", "_add_shortcut_devices"),
     )
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
@@ -550,6 +551,17 @@ class WebDatabase(Database):
             )
 
     @staticmethod
+    def _add_shortcut_devices(conn: sqlite3.Connection) -> None:
+        conn.execute("""CREATE TABLE IF NOT EXISTS app_shortcut_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id),
+            label TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
+            last_used_at TEXT, idle_expires_at TEXT NOT NULL, absolute_expires_at TEXT NOT NULL,
+            revoked_at TEXT, intake_window INTEGER NOT NULL DEFAULT 0, intake_count INTEGER NOT NULL DEFAULT 0,
+            resolve_window INTEGER NOT NULL DEFAULT 0, resolve_count INTEGER NOT NULL DEFAULT 0,
+            intake_times TEXT NOT NULL DEFAULT '[]', resolve_times TEXT NOT NULL DEFAULT '[]')""")
+        conn.execute("CREATE INDEX IF NOT EXISTS shortcut_devices_user ON app_shortcut_devices(user_id)")
+
+    @staticmethod
     def _add_client_documents(conn: sqlite3.Connection) -> None:
         from stock_sync_web.assistant_repository import migrate
         migrate(conn)
@@ -572,6 +584,8 @@ class WebDatabase(Database):
 
     @staticmethod
     def _migration_target_is_present(conn: sqlite3.Connection, version: str) -> bool:
+        if version == "2026-11-01-shortcut-devices-v1":
+            return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_shortcut_devices'").fetchone() is not None
         if version == "2026-10-30-client-documents-v1":
             from stock_sync_web.assistant_repository import migration_present
             return migration_present(conn)
@@ -1095,6 +1109,9 @@ class WebDatabase(Database):
     def update_user_account(self, user_id: int, *, role: str, is_active: bool) -> None:
         normalized_role = self._normalize_role(role)
         with self.transaction() as conn:
+            old = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not is_active or (old and old["role"] != normalized_role):
+                conn.execute("UPDATE app_shortcut_devices SET revoked_at = COALESCE(revoked_at, ?) WHERE user_id = ?", (utc_now(), user_id))
             conn.execute(
                 """
                 UPDATE users
@@ -1183,6 +1200,8 @@ class WebDatabase(Database):
                 ),
             )
 
+            if password_change or not is_active or existing["role"] != normalized_role:
+                conn.execute("UPDATE app_shortcut_devices SET revoked_at = COALESCE(revoked_at, ?) WHERE user_id = ?", (now, user_id))
             if password_change or not is_active:
                 conn.execute("DELETE FROM app_sessions WHERE user_id = ?", (user_id,))
 
@@ -1201,6 +1220,7 @@ class WebDatabase(Database):
                 """,
                 (self._hash_password(new_password), None, _protect_onec_password(new_password), utc_now(), user_id),
             )
+            conn.execute("UPDATE app_shortcut_devices SET revoked_at = COALESCE(revoked_at, ?) WHERE user_id = ?", (utc_now(), user_id))
             conn.execute("DELETE FROM app_sessions WHERE user_id = ?", (user_id,))
 
     def get_user_by_username(self, username: str) -> dict[str, Any] | None:
@@ -1387,6 +1407,7 @@ class WebDatabase(Database):
                     (utc_now(), user_id),
                 )
 
+            conn.execute("DELETE FROM app_shortcut_devices WHERE user_id = ?", (user_id,))
             conn.execute("DELETE FROM app_sessions WHERE user_id = ?", (user_id,))
             conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
