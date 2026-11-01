@@ -2,7 +2,7 @@ window.STATE =
 {
   "version": 2,
   "slug": "server-document-deployment",
-  "dir": "2026-10-30-server-document-deployment--wip",
+  "dir": "2026-10-30-server-document-deployment",
   "title": "СМ ТЕХНО: серверный выпуск с DeepSeek и возвратом",
   "mode": "semi",
   "depth": "normal",
@@ -13,8 +13,8 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "1d7dd9be7f733e6af37ede3c58a8ae0f488cb8fc",
   "startedAt": "2026-10-30T22:00:17+03:00",
-  "updatedAt": "2026-11-01T08:58:30+03:00",
-  "finishedAt": null,
+  "updatedAt": "2026-11-01T09:07:42+03:00",
+  "finishedAt": "2026-11-01T09:07:42+03:00",
   "stages": [
     {
       "id": "preflight",
@@ -49,22 +49,28 @@ window.STATE =
     },
     {
       "id": "build",
-      "status": "active",
-      "startedAt": "2026-10-30T22:07:50+03:00"
+      "status": "done",
+      "startedAt": "2026-10-30T22:07:50+03:00",
+      "finishedAt": "2026-11-01T09:06:34+03:00"
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-01T09:06:33+03:00",
+      "finishedAt": "2026-11-01T09:06:33+03:00",
+      "note": "Existing one independent runtime review and bounded closures retained; actual model and final deployment checks passed, no new whole review"
     },
     {
       "id": "final",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-01T09:06:34+03:00",
+      "finishedAt": "2026-11-01T09:07:42+03:00"
     }
   ],
   "requirements": {
     "total": 9,
-    "done": 7,
-    "inTicket": 1,
+    "done": 8,
+    "inTicket": 0,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 1,
@@ -98,10 +104,16 @@ window.STATE =
       ],
       "review": "нет — один fresh independent security review всей runtime delta",
       "model": "сильная",
-      "status": "in-progress",
+      "status": "done",
       "startedAt": "2026-10-30T22:07:51+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "finishedAt": "2026-11-01T09:06:32+03:00",
+      "tests": {
+        "passed": 42,
+        "failed": 0
+      },
+      "commit": "00d6152"
     },
     {
       "id": "F2",
@@ -133,7 +145,7 @@ window.STATE =
     }
   ],
   "tests": {
-    "passed": 9,
+    "passed": 42,
     "failed": 0
   },
   "debt": {
@@ -181,9 +193,13 @@ window.STATE =
     "2026-11-01T08:53:39+03:00",
     "2026-11-01T08:53:40+03:00",
     "2026-11-01T08:57:55+03:00",
-    "2026-11-01T08:58:30+03:00"
+    "2026-11-01T08:58:30+03:00",
+    "2026-11-01T09:06:32+03:00",
+    "2026-11-01T09:06:33+03:00",
+    "2026-11-01T09:06:34+03:00",
+    "2026-11-01T09:07:42+03:00"
   ],
-  "rev": 27,
+  "rev": 31,
   "waiting": null,
   "waits": [
     {
@@ -366,13 +382,42 @@ window.STATE =
       "ok": true,
       "checked": 5,
       "matched": 5
+    },
+    {
+      "t": "2026-11-01T09:06:32+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 42,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T09:06:33+03:00",
+      "k": "stage",
+      "id": "review",
+      "act": "done"
+    },
+    {
+      "t": "2026-11-01T09:06:34+03:00",
+      "k": "stage",
+      "id": "final",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T09:07:42+03:00",
+      "k": "finish",
+      "result": "VPS обновлён до00d6152, DeepSeek Flash и документы проверены, backup и откат сохранены"
     }
   ],
   "reqList": [
     {
       "id": "R01",
       "text": "«деплоить надо было»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R02",
@@ -442,7 +487,7 @@ window.STATE =
       "matched": 5
     }
   },
-  "result": null,
+  "result": "VPS обновлён до00d6152, DeepSeek Flash и документы проверены, backup и откат сохранены",
   "report": [
     "One fresh runtime security review: two confirmed cleanup/deadline findings fixed with red→green Linux regressions. Native UID1000 broker→real isolated RTF conversion passed; startup companion package corrected. Exact server inference still FAIL403; no live switch."
   ]
