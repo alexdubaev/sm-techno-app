@@ -1,0 +1,30 @@
+import { render, waitFor } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { StockShareSessionBridge } from '@/components/stock/stock-share-session-bridge';
+import * as share from '@/lib/stock-share';
+import * as storage from '@/lib/storage';
+vi.mock('@/components/auth-provider', () => ({useAuth: () => ({user:{id:1}})}));
+vi.mock('@/lib/stock-share', async importOriginal => ({...await importOriginal<typeof import('@/lib/stock-share')>(), currentOwner:vi.fn(), shareWorker:vi.fn(), messageWorker:vi.fn()}));
+const session=(token:string)=>({token,user:{id:1,username:'operator',role:'user' as const,fullName:'Test',isActive:true,onecUsername:'',hasOnecPassword:false,hasRecoverableAppPassword:false,createdAt:'',updatedAt:''}});
+const owner=(hash:string)=>({actor:1,hash,version:1 as const,updated:1});
+afterEach(() => vi.restoreAllMocks());
+it('ignores an old observer after a different session has appeared', async () => {
+  let saved=session('old'); vi.spyOn(storage,'loadAuthSessionFromStorage').mockImplementation(() => saved);
+  let finish!: (value:share.ShareOwner)=>void;
+  vi.mocked(share.currentOwner).mockReturnValue(new Promise(resolve=>{finish=resolve;}));
+  vi.mocked(share.shareWorker).mockResolvedValue({} as ServiceWorker);
+  vi.mocked(share.messageWorker).mockResolvedValue({ok:true,owner:null});
+  render(<StockShareSessionBridge />); saved=session('new'); finish(owner('old'));
+  await waitFor(() => expect(share.messageWorker).toHaveBeenCalledWith(expect.anything(),{type:'owner'}));
+  expect(share.messageWorker).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({type:'sync'}));
+});
+it('a new session in an old document replaces the current owner and same-session unmount does not clear it', async () => {
+  const saved=session('new'); vi.spyOn(storage,'loadAuthSessionFromStorage').mockReturnValue(saved);
+  vi.mocked(share.currentOwner).mockResolvedValue(owner('new'));
+  vi.mocked(share.shareWorker).mockResolvedValue({} as ServiceWorker);
+  vi.mocked(share.messageWorker).mockImplementation(async (_worker, data) => (data as {type:string}).type==='owner' ? {ok:true,owner:owner('old')} : {ok:true});
+  const view=render(<StockShareSessionBridge />);
+  await waitFor(() => expect(share.messageWorker).toHaveBeenCalledWith(expect.anything(),{type:'sync',owner:owner('new'),previous:owner('old')}));
+  view.unmount();
+  expect(share.messageWorker).not.toHaveBeenCalledWith(expect.anything(),expect.objectContaining({type:'clear'}));
+});

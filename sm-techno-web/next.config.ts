@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
     return [
+      { source: "/stock-share/worker.js", headers: [
+        { key: "Content-Security-Policy", value: "default-src 'none'; script-src 'self'; connect-src 'self'" },
+        { key: "Cache-Control", value: "no-store, no-cache, must-revalidate" },
+      ] },
       {
         source: "/:path*",
         headers: [

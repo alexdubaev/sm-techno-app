@@ -31,6 +31,11 @@ test('scoped worker accepts a text share only after login, without recognizing i
 
 
 test('manifest, PNG icons and unchanged signed iPhone download are served correctly', async ({request}) => {
+  const worker = await request.get('/stock-share/worker.js');
+  expect(worker.headers()['content-security-policy']).toBe("default-src 'none'; script-src 'self'; connect-src 'self'");
+  expect(worker.headers()['cache-control']).toContain('no-store');
+  expect(worker.headers()['x-content-type-options']).toBe('nosniff');
+  expect(worker.headers()['x-frame-options']).toBe('SAMEORIGIN');
   const manifest = await (await request.get('/manifest.webmanifest')).json();
   expect(manifest.share_target).toMatchObject({action:'/stock-share/receive', method:'POST', enctype:'multipart/form-data'});
   expect(manifest.name).toBe('СМ ТЕХНО — локальный прайс и заказы');
@@ -61,6 +66,7 @@ test('worker delivers only to stock client once and rejects another owner', asyn
     await page.evaluate(() => { const form=document.createElement('form'); form.method='POST'; form.enctype='multipart/form-data'; form.action='/stock-share/receive'; const field=document.createElement('input'); field.name='text'; field.value='private-article'; form.append(field); document.body.append(form); form.submit(); });
     await expect.poll(() => nonce).toMatch(/^[0-9a-f]{32}$/);
     await page.unroute('**/stock?share=*');
+    await page.goto('/settings');
     await page.goto('/stock');
     return nonce;
   }

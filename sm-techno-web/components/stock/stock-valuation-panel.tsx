@@ -4,7 +4,7 @@ import { validateStockFile, textStockFile } from '@/lib/stock-intake-source';
 import { intakeValuation, resolveValuation, type ValuationRow, type ValuationResult, type Workbook } from '@/lib/stock-valuation-api';
 
 const statuses = { matched: 'Найдено', not_found: 'Не найдено', ambiguous: 'Неоднозначно', zero_stock: 'Нет остатка', duplicate: 'Дубликат' };
-export function StockValuationPanel({ receivedSource, receivedError }: { receivedSource?: File | null; receivedError?: string }) {
+export function StockValuationPanel({ receivedSource, receivedError, onInteraction }: { receivedSource?: File | null; receivedError?: string; onInteraction?: () => void }) {
   const [open, setOpen] = useState(Boolean(receivedSource || receivedError));
   const [source, setSource] = useState<File | null>(receivedSource ?? null);
   const [text, setText] = useState('');
@@ -19,8 +19,8 @@ export function StockValuationPanel({ receivedSource, receivedError }: { receive
   useEffect(() => () => { generation.current++; controller.current?.abort(); }, []);
   function cancel() { generation.current++; controller.current?.abort(); controller.current = null; setBusy(false); }
   function reset() { cancel(); setRows([]); setResult(null); setWarnings([]); setError(''); }
-  function select(files: FileList | File[]) { reset(); setSource(null); setText(''); setShowText(false); if (files.length !== 1) { setError('Выберите один файл.'); return; } try { setSource(validateStockFile(files[0])); } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось выбрать файл.'); } }
-  function close() { reset(); setSource(null); setText(''); setShowText(false); setOpen(false); }
+  function select(files: FileList | File[]) { onInteraction?.(); reset(); setSource(null); setText(''); setShowText(false); if (files.length !== 1) { setError('Выберите один файл.'); return; } try { setSource(validateStockFile(files[0])); } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось выбрать файл.'); } }
+  function close() { onInteraction?.(); reset(); setSource(null); setText(''); setShowText(false); setOpen(false); }
   async function upload(file: File) {
     cancel(); const id = generation.current; const c = new AbortController(); controller.current = c;
     setBusy(true); setError(''); setResult(null);
@@ -45,12 +45,12 @@ export function StockValuationPanel({ receivedSource, receivedError }: { receive
       <p className="text-sm text-slate-600">Загрузите список, проверьте артикулы и получите остатки и цены по складам. Подборка не сохраняется.</p>
       <div className="rounded-xl border-2 border-dashed border-slate-300 p-4" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); select(e.dataTransfer.files); }}>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="min-h-11 rounded border px-3" onClick={() => { reset(); setSource(null); setText(''); setShowText(true); }}>Вставить список</button>
+          <button type="button" className="min-h-11 rounded border px-3" onClick={() => { onInteraction?.(); reset(); setSource(null); setText(''); setShowText(true); }}>Вставить список</button>
           <label className="flex min-h-11 cursor-pointer items-center rounded border px-3">Фото / скриншот<input aria-label="Фото / скриншот" type="file" accept="image/png,image/jpeg,image/webp,image/tiff,image/heic,image/heif" className="sr-only" onChange={e => { if (e.target.files?.length) select(e.target.files); e.target.value = ''; }} /></label>
           <label className="flex min-h-11 cursor-pointer items-center rounded border px-3">Выбрать файл<input aria-label="Выбрать файл с артикулами" type="file" className="sr-only" accept=".docx,.doc,.rtf,.odt,.xlsx,.xls,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.heic,.heif" onChange={e => { if (e.target.files?.length) select(e.target.files); e.target.value = ''; }} /></label>
         </div>
         <p className="mt-2 text-sm">Или перетащите один файл сюда (до 25 МиБ).</p>
-        {showText && <label className="mt-3 block">Список артикулов<textarea aria-label="Список артикулов" className="mt-1 block min-h-32 w-full rounded border p-2" value={text} onChange={e => { reset(); setText(e.target.value); }} /></label>}
+        {showText && <label className="mt-3 block">Список артикулов<textarea aria-label="Список артикулов" className="mt-1 block min-h-32 w-full rounded border p-2" value={text} onChange={e => { onInteraction?.(); reset(); setText(e.target.value); }} /></label>}
         {source && <p className="mt-3 break-all">{source.name} · {(source.size / 1024).toFixed(1)} КиБ</p>}
         {(source || showText) && <button type="button" disabled={busy} className="mt-3 min-h-11 rounded bg-amber-400 px-4 font-semibold disabled:opacity-50" onClick={() => { try { void upload(source ?? textStockFile(text)); } catch (e) { setError(e instanceof Error ? e.message : 'Проверьте список.'); } }}>Распознать</button>}
       </div>
