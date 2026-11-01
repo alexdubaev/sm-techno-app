@@ -25,7 +25,7 @@ test('scoped worker accepts a text share only after login, without recognizing i
   expect(calls).toBe(0);
   await page.screenshot({path: test.info().outputPath('stock-share-mobile.png')});
   expect(new URL(page.url()).searchParams.has('share')).toBe(false);
-  await page.getByRole('button',{name:'Закрыть'}).click();
+  await page.getByRole('button',{name:'Свернуть'}).click();
   await expect(page.getByText('stock.txt')).toHaveCount(0);
 });
 

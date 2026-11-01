@@ -9,7 +9,18 @@ test('stock valuation review is temporary and produces both downloads', async ({
   await page.getByRole('button', { name: 'Войти', exact: true }).click();
   await expect(page.getByRole('main')).toBeVisible();
   await page.goto('/stock');
-  await page.getByRole('button', { name: 'Расценить список артикулов' }).click();
+  const toggle = page.getByRole('button', { name: 'Развернуть' });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByText('Синтетическая позиция').first()).toBeVisible();
+  await page.screenshot({path:test.info().outputPath('stock-collapsed-390.png')});
+  await toggle.click();
+  await expect(page.getByRole('button', {name:'Свернуть'})).toHaveAttribute('aria-expanded', 'true');
+  const dimensions = await page.locator('section[aria-label="Расценка артикулов"] .grid > *').evaluateAll(elements => elements.map(element => { const rect = element.getBoundingClientRect(); return {width:rect.width, height:rect.height, top:rect.top, left:rect.left, clipped:element.scrollHeight > element.clientHeight}; }));
+  expect(dimensions).toHaveLength(3);
+  expect(dimensions.every(item => item.width === dimensions[0].width && item.height === dimensions[0].height && !item.clipped)).toBe(true);
+  expect(dimensions[0].top).toBe(dimensions[1].top);
+  expect(dimensions[2].top).toBeGreaterThan(dimensions[0].top);
+  await page.screenshot({path:test.info().outputPath('stock-collapsible-390.png')});
   await page.getByLabel('Выбрать файл с артикулами').setInputFiles({ name: 'articles.txt', mimeType: 'text/plain', buffer: Buffer.from('00123') });
   await page.getByRole('button', { name: 'Распознать' }).click();
   await expect(page.getByLabel('Артикул строки 1')).toHaveValue('00123');
@@ -29,6 +40,6 @@ test('stock valuation review is temporary and produces both downloads', async ({
     expect(Buffer.concat(chunks).toString()).toBe(contents);
   }
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Расценить список артикулов' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Развернуть' })).toBeVisible();
   await expect(page.getByLabel('Артикул строки 1')).toHaveCount(0);
 });

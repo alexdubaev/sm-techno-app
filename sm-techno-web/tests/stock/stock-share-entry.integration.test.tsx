@@ -15,12 +15,12 @@ it.each(['manual', 'close'])('a late claim cannot overwrite %s user action', asy
   vi.mocked(share.messageWorker).mockReturnValue(result);
   render(<StockValuationEntry />);
   await waitFor(() => expect(share.messageWorker).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({type:'claim'})));
-  fireEvent.click(screen.getByRole('button',{name:'Расценить список артикулов'}));
+  fireEvent.click(screen.getByRole('button',{name:'Развернуть'}));
   if (action === 'manual') fireEvent.change(screen.getByLabelText('Выбрать файл с артикулами'),{target:{files:[new File(['own'],'manual.txt')]}});
-  else fireEvent.click(screen.getByRole('button',{name:'Закрыть'}));
+  else fireEvent.click(screen.getByRole('button',{name:'Свернуть'}));
   finish({ok:true,payload:new File(['shared'],'late.txt')});
   await waitFor(() => expect(share.currentOwner).toHaveBeenCalledTimes(3));
   expect(screen.queryByText(/late.txt/)).not.toBeInTheDocument();
   if (action === 'manual') expect(screen.getByText(/manual.txt/)).toBeVisible();
-  else expect(screen.getByRole('button',{name:'Расценить список артикулов'})).toBeVisible();
+  else expect(screen.getByRole('button',{name:'Развернуть'})).toBeVisible();
 });

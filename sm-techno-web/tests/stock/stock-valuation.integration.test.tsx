@@ -7,7 +7,11 @@ it('reviews dropped articles and resolves the edited row without a client', asyn
   vi.mocked(api.intakeValuation).mockResolvedValue({ rows: [{ article: '001', requestedQty: null, sourceRow: 1 }], warnings: [] });
   vi.mocked(api.resolveValuation).mockResolvedValue({ resolvedAt: 'now', articleResolution: [{ article: '001', requestedQty: '3', sourceRow: 1, status: 'matched', variants: [{ itemId: 1, warehouseId: 2, warehouseName: 'Склад', physicalStock: 5, price: 12 }] }], workbook: { filename: 'stock.xlsx', mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', base64: '' }, offerWorkbook: null, offerExport: { includedRows: 0, excludedNoPriceRows: 1, warnings: ['Нет цены'] } });
   render(<StockValuationPanel />);
-  fireEvent.click(screen.getByRole('button', { name: 'Расценить список артикулов' }));
+  const toggle = screen.getByRole('button', { name: 'Развернуть' });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('button', {name: 'Вставить список'})).not.toBeInTheDocument();
+  fireEvent.click(toggle);
+  expect(screen.getByRole('button', {name: 'Свернуть'})).toHaveAttribute('aria-expanded', 'true');
   const input = screen.getByLabelText('Выбрать файл с артикулами');
   fireEvent.drop(input.parentElement!.parentElement!, { dataTransfer: { files: [new File(['001'], 'list.txt')] } });
   expect(api.intakeValuation).not.toHaveBeenCalled();
@@ -25,7 +29,7 @@ it('validates pasted text and photos before explicit recognition, and clears sta
   vi.mocked(api.intakeValuation).mockClear();
   vi.mocked(api.intakeValuation).mockResolvedValue({ rows: [{ article: 'A', requestedQty: null, sourceRow: 1 }], warnings: [] });
   render(<StockValuationPanel />);
-  fireEvent.click(screen.getByRole('button', {name: 'Расценить список артикулов'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Развернуть'}));
   fireEvent.click(screen.getByRole('button', {name: 'Вставить список'}));
   fireEvent.click(screen.getByRole('button', {name: 'Распознать'}));
   expect(screen.getByRole('alert')).toHaveTextContent('Вставьте список');
@@ -40,4 +44,15 @@ it('validates pasted text and photos before explicit recognition, and clears sta
   expect(api.intakeValuation).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', {name: 'Распознать'}));
   await waitFor(() => expect(api.intakeValuation).toHaveBeenCalledTimes(2));
+});
+
+it('collapses and reopens, clearing the selected source', () => {
+  render(<StockValuationPanel />);
+  fireEvent.click(screen.getByRole('button', {name: 'Развернуть'}));
+  fireEvent.change(screen.getByLabelText('Выбрать файл с артикулами'), {target: {files: [new File(['001'], 'list.txt')]}});
+  expect(screen.getByText(/list.txt/)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', {name: 'Свернуть'}));
+  expect(screen.getByRole('button', {name: 'Развернуть'})).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(screen.getByRole('button', {name: 'Развернуть'}));
+  expect(screen.queryByText(/list.txt/)).not.toBeInTheDocument();
 });
