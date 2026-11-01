@@ -35,3 +35,7 @@ $out
 
 # Local browser QA artifacts
 .playwright-mcp/
+
+# Task-local Shortcut compiler and inspection cache
+/artifacts/cherri/
+/artifacts/graph.txt
