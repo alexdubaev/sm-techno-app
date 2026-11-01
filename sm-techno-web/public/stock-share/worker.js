@@ -1,0 +1,27 @@
+/* Private, scoped handoff. Payload exists only in this worker's memory. */
+const VERSION = 1, LIMIT = 26 * 1024 * 1024, TTL = 120000;
+let pending = null;
+let serial = Promise.resolve();
+function locked(fn) { const next = serial.then(fn, fn); serial = next.catch(() => {}); return next; }
+function db() { return new Promise((resolve, reject) => { const req = indexedDB.open('stock-share-owner-v1', 1); req.onupgradeneeded = () => req.result.createObjectStore('meta'); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); }); }
+async function metadata(mode, value) { const database = await db(); return new Promise((resolve, reject) => { const tx = database.transaction('meta', mode === 'get' ? 'readonly' : 'readwrite'); const store = tx.objectStore('meta'); const req = mode === 'get' ? store.get('owner') : mode === 'put' ? store.put(value, 'owner') : store.delete('owner'); let result; req.onsuccess = () => { result = req.result; }; tx.oncomplete = () => { database.close(); resolve(result); }; tx.onerror = () => { database.close(); reject(tx.error); }; }); }
+function equal(a,b) { return !!a && !!b && a.actor === b.actor && a.hash === b.hash && a.version === VERSION && b.version === VERSION; }
+function discard() { if (pending) { clearTimeout(pending.timer); pending.finish(); pending = null; } }
+async function marker() { try { const r = await fetch('/stock-share/capability', {cache:'no-store', signal: AbortSignal.timeout(5000)}); if (r.status === 404 || r.status === 410 || (r.ok && (await r.json()).version !== VERSION)) { discard(); await self.registration.unregister(); return false; } return r.ok; } catch { return false; } }
+function redirect(code, nonce) { const url = new URL('/stock', self.location.origin); url.searchParams.set('share', nonce || code); return Response.redirect(url.href, 303); }
+async function readBounded(request) { if (!request.body) throw Error('empty'); const reader = request.body.getReader(), chunks = []; let total = 0; try { while (true) { const {done,value} = await reader.read(); if (done) break; total += value.byteLength; if (total > LIMIT) throw Error('large'); chunks.push(value); } } finally { await reader.cancel().catch(() => {}); } return new Response(new Blob(chunks), {headers:{'Content-Type': request.headers.get('Content-Type') || ''}}).formData(); }
+async function receive(request, finish) {
+  if (!await marker()) return redirect('unavailable');
+  let form; try { form = await readBounded(request); } catch { return redirect('invalid'); }
+  const files = form.getAll('file').filter(v => v instanceof File && (v.size || v.name));
+  if (files.length > 1) return redirect('invalid');
+  const text = form.get('text'); let payload;
+  if (files.length === 1) { if (!files[0].size || files[0].size > 25*1024*1024) return redirect('invalid'); payload = files[0]; }
+  else if (typeof text === 'string' && text.trim() && new TextEncoder().encode(text).length <= 256*1024 && !/^https?:\/\/\S+$/i.test(text.trim())) payload = text;
+  else return redirect('invalid');
+  return locked(async () => { const owner = await metadata('get'); if (!owner || owner.version !== VERSION) return redirect('login'); discard(); const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2,'0')).join(''); pending = {nonce, owner, payload, finish, expires: Date.now()+TTL, timer: setTimeout(discard, TTL)}; return redirect('', nonce); });
+}
+self.addEventListener('install', e => e.waitUntil(self.skipWaiting()));
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', e => { const u = new URL(e.request.url); if (u.origin === self.location.origin && u.pathname === '/stock-share/receive' && e.request.method === 'POST') { let finish; const lifetime = new Promise(resolve => { finish = resolve; }); e.waitUntil(lifetime); e.respondWith(receive(e.request,finish).then(response => { if (!pending || pending.finish !== finish) finish(); return response; }).catch(() => { finish(); return redirect('unavailable'); })); } });
+self.addEventListener('message', e => { const port = e.ports[0]; if (!port || !e.source || e.source.type !== 'window') return; e.waitUntil(locked(async () => { const client = await self.clients.get(e.source.id); if (!client || new URL(client.url).origin !== self.location.origin) return port.postMessage({ok:false}); const data = e.data || {}; if (data.type === 'sync') { const old = await metadata('get'); if (old && old.updated > data.owner.updated && !equal(old,data.owner)) return port.postMessage({ok:false}); if (!equal(old,data.owner)) discard(); await metadata('put',data.owner); return port.postMessage({ok:true}); } if (data.type === 'clear') { const old = await metadata('get'); if (equal(old,data.owner)) { discard(); await metadata('delete'); } return port.postMessage({ok:true}); } if (data.type === 'claim' || data.type === 'cancel') { if (new URL(client.url).pathname !== '/stock') return port.postMessage({ok:false}); const old = await metadata('get'); if (!pending || Date.now() >= pending.expires || pending.nonce !== data.nonce || !equal(old,data.owner) || !equal(pending.owner,data.owner)) { if (pending && (!equal(old,data.owner) || Date.now() >= pending.expires)) discard(); return port.postMessage({ok:false}); } const payload = pending.payload; discard(); return port.postMessage(data.type === 'claim' ? {ok:true,payload} : {ok:true}); } port.postMessage({ok:false}); }).catch(() => port.postMessage({ok:false}))); });

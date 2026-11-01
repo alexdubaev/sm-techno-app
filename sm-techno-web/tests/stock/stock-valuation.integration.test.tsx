@@ -10,6 +10,8 @@ it('reviews dropped articles and resolves the edited row without a client', asyn
   fireEvent.click(screen.getByRole('button', { name: 'Расценить список артикулов' }));
   const input = screen.getByLabelText('Выбрать файл с артикулами');
   fireEvent.drop(input.parentElement!.parentElement!, { dataTransfer: { files: [new File(['001'], 'list.txt')] } });
+  expect(api.intakeValuation).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Распознать' }));
   fireEvent.change(await screen.findByLabelText('Количество строки 1'), {target: {value: '3'}});
   fireEvent.click(screen.getByRole('button', { name: 'Проверить остатки' }));
   await waitFor(() => expect(api.resolveValuation).toHaveBeenCalledWith([{ article: '001', requestedQty: '3', sourceRow: 1 }], expect.any(AbortSignal)));
@@ -17,4 +19,25 @@ it('reviews dropped articles and resolves the edited row without a client', asyn
   expect(screen.getByRole('button', { name: 'Скачать Excel' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'Скачать Excel по шаблону КП' })).toBeDisabled();
   expect(screen.getByText('Нет цены')).toBeVisible();
+});
+
+it('validates pasted text and photos before explicit recognition, and clears stale rows', async () => {
+  vi.mocked(api.intakeValuation).mockClear();
+  vi.mocked(api.intakeValuation).mockResolvedValue({ rows: [{ article: 'A', requestedQty: null, sourceRow: 1 }], warnings: [] });
+  render(<StockValuationPanel />);
+  fireEvent.click(screen.getByRole('button', {name: 'Расценить список артикулов'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Вставить список'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Распознать'}));
+  expect(screen.getByRole('alert')).toHaveTextContent('Вставьте список');
+  fireEvent.change(screen.getByLabelText('Список артикулов'), {target: {value: 'A\t2\nB\t3'}});
+  expect(api.intakeValuation).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', {name: 'Распознать'}));
+  await screen.findByLabelText('Артикул строки 1');
+  const file = vi.mocked(api.intakeValuation).mock.calls[0][0];
+  expect(file.name).toBe('stock.txt');
+  fireEvent.change(screen.getByLabelText('Фото / скриншот'), {target: {files: [new File(['image'], 'photo.jpg', {type: 'image/jpeg'})]}});
+  expect(screen.queryByLabelText('Артикул строки 1')).not.toBeInTheDocument();
+  expect(api.intakeValuation).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', {name: 'Распознать'}));
+  await waitFor(() => expect(api.intakeValuation).toHaveBeenCalledTimes(2));
 });

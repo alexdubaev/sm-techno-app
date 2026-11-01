@@ -11,6 +11,7 @@ test('stock valuation review is temporary and produces both downloads', async ({
   await page.goto('/stock');
   await page.getByRole('button', { name: 'Расценить список артикулов' }).click();
   await page.getByLabel('Выбрать файл с артикулами').setInputFiles({ name: 'articles.txt', mimeType: 'text/plain', buffer: Buffer.from('00123') });
+  await page.getByRole('button', { name: 'Распознать' }).click();
   await expect(page.getByLabel('Артикул строки 1')).toHaveValue('00123');
   await page.getByRole('button', { name: 'Проверить остатки' }).click();
   await expect(page.getByRole('cell', { name: 'Склад тест' })).toBeVisible();
