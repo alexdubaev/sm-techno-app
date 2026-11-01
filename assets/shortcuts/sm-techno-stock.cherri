@@ -1,5 +1,5 @@
-// EXPERIMENTAL: NOT INSTALLABLE. HTTP form file and rows array are serialized as text.
-// Do not sign or distribute until native wire types and iPhone behavior are verified.
+// Raw Cherri compilation coerces file and rows to text; run scripts/build_stock_shortcut.py.
+// Generated candidate is unsigned and not installable: official signing and iPhone testing remain necessary.
 #include 'actions/text'
 #include 'actions/web'
 #include 'actions/crypto'
@@ -25,6 +25,8 @@ if n != 1 { alert("Выберите один файл или изображен�
 const file = getFirstItem(ShortcutInput)
 const intake = formRequest("{base}/api/shortcuts/stock/intake", "POST", {"file": "{file}"}, {"Authorization": "Shortcut {credential}"})
 const intakeDict = getDictionary(intake)
+const intakeDetail = getValue(intakeDict, "detail")
+if intakeDetail { alert("{intakeDetail}", "Ошибка") stop() }
 const rows = getValue(intakeDict, "rows")
 const preview = getValue(intakeDict, "previewText")
 const warnings = getValue(intakeDict, "warnings")
@@ -41,10 +43,12 @@ menu "Выберите файл" {
 }
 const result = jsonRequest("{base}/api/shortcuts/stock/resolve", "POST", {"rows": "{rows}", "format": "{@format}"}, {"Authorization": "Shortcut {credential}"})
 const resultDict = getDictionary(result)
+const resultDetail = getValue(resultDict, "detail")
+if resultDetail { alert("{resultDetail}", "Ошибка") stop() }
 const workbookRaw = getValue(resultDict, "workbook")
 if !workbookRaw { alert("Не удалось получить файл.") stop() }
 const warning2 = getValue(resultDict, "warnings")
-alert("{warning2}", "Предупреждения")
+if warning2 { alert("{warning2}", "Предупреждения") }
 const workbook = getDictionary(workbookRaw)
 const filename = getValue(workbook, "filename")
 const data = getValue(workbook, "base64")
@@ -52,6 +56,5 @@ if !data { alert("Не удалось получить файл.") stop() }
 const excel = base64Decode(data)
 const named = setName(excel, "{filename}")
 quicklook(named)
-share(named)
 
 

@@ -40,6 +40,9 @@ class ShortcutArtifact(unittest.TestCase):
         self.assertEqual((q['ActionIndex'], q['ParameterKey'], q['DefaultValue']), (0, 'WFTextActionText', ''))
         self.assertEqual(self.params[0]['WFTextActionText'], '')
         self.assertEqual(self.graph['WFWorkflowInputContentItemClasses'], ['WFGenericFileContentItem', 'WFImageContentItem'])
+        self.assertEqual(self.graph['WFWorkflowTypes'], ['ActionExtension'])
+        self.assertEqual(q['Text'], 'Вставьте строку подключения из настроек')
+        self.assertEqual(len(self.actions), 105)
 
     def test_all_output_refs_point_backwards_and_control_groups_match(self):
         seen, stack, groups = {}, [], set()
@@ -112,9 +115,28 @@ class ShortcutArtifact(unittest.TestCase):
         self.assertEqual(self.names[cancel+1], 'exit')
         self.assertEqual(self.params[self.outputs['Text 2'][0]]['WFTextActionText'], 'valuation')
         self.assertEqual(self.params[self.outputs['Text 3'][0]]['WFTextActionText'], 'offer')
-        self.assertEqual(self.names[-4:], ['base64encode', 'setitemname', 'previewdocument', 'share'])
-        self.assertEqual(self.params[-4]['WFEncodeMode'], 'Decode')
-        self.assertEqual(self.params[-3]['WFName']['Value']['attachmentsByRange']['{0, 1}']['OutputUUID'], self.outputs['filename'][1]['UUID'])
+        self.assertEqual(self.names[-3:], ['base64encode', 'setitemname', 'previewdocument'])
+        self.assertNotIn('share', self.names)
+        self.assertEqual(self.params[-3]['WFEncodeMode'], 'Decode')
+        self.assertEqual(self.params[-2]['WFName']['Value']['attachmentsByRange']['{0, 1}']['OutputUUID'], self.outputs['filename'][1]['UUID'])
+
+    def test_server_details_stop_and_warnings_are_conditional(self):
+        for target, dictionary, before in (('intakeDetail', 'intakeDict', 'rows'), ('resultDetail', 'resultDict', 'workbookRaw')):
+            i, p = self.outputs[target]
+            self.assertEqual(p['WFDictionaryKey'], 'detail')
+            self.assertEqual(p['WFInput']['Value']['OutputUUID'], self.outputs[dictionary][1]['UUID'])
+            self.assertLess(i, self.outputs[before][0])
+            guard = self.params[i + 1]
+            self.assertEqual((self.names[i+1], guard['WFControlFlowMode'], guard['WFCondition']), ('conditional', 0, 100))
+            self.assertEqual(guard['WFInput']['Variable']['Value']['OutputUUID'], p['UUID'])
+            self.assertEqual(self.names[i+2:i+4], ['alert', 'exit'])
+            self.assertEqual(self.params[i+2]['WFAlertActionMessage']['Value']['attachmentsByRange']['{0, 1}']['OutputUUID'], p['UUID'])
+        i, p = self.outputs['warning2']
+        guard = self.params[i+1]
+        self.assertEqual((self.names[i+1], guard['WFControlFlowMode'], guard['WFCondition']), ('conditional', 0, 100))
+        self.assertEqual(guard['WFInput']['Variable']['Value']['OutputUUID'], p['UUID'])
+        self.assertEqual(self.names[i+2], 'alert')
+        self.assertEqual(self.params[i+2]['WFAlertActionMessage']['Value']['attachmentsByRange']['{0, 1}']['OutputUUID'], p['UUID'])
 
 
 if __name__ == '__main__':

@@ -35,6 +35,9 @@ def typed(item, item_type, state, output_name):
 def build():
     with BASE.open('rb') as f:
         graph = plistlib.load(f)
+    # Advertise the file/image input as a Share Sheet action extension.
+    assert graph.get('WFWorkflowTypes', []) in ([], ['ActionExtension'])
+    graph['WFWorkflowTypes'] = ['ActionExtension']
     actions = graph['WFWorkflowActions']
     requests = [a for a in actions if a['WFWorkflowActionIdentifier'] == 'is.workflow.actions.downloadurl']
     assert len(requests) == 2
