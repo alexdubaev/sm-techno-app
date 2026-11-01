@@ -19,4 +19,6 @@ Reuse interpreter C:/Users/Alexandr/.codex/worktrees/f3c0/sm-techno-app/.venv/Sc
 Frontend from sm-techno-web: npm run test:auth -- <affected files>; npm run lint:ci; npx tsc --noEmit --incremental false; npm run build. Browser ONLY npm run test:auth:e2e -- <new spec> with SM_TECHNO_TEST_PYTHON pointing to above interpreter. Ports allowlist127.0.0.1:13000/18000. Existing CI unchanged, exact mandatory full checks before merge remain.
 
 ## Проверка и владение
+UPDATE владельца 2026-11-01: «Все делает активный агент». После c0fafb3 root самостоятельно делает код/ревью/приёмку/ops; новых субагентов не запускать. Это supersedes старую модель делегирования ниже. Прежний G2 действительно выполнен отдельно, новых независимых проверок не выдумывать.
+
 One executor implements whole feature ~3k lines; one whole-change independent review replaces point-review duplication under owner policy. Root runs/reports required validation with actual exits; reuse executor evidence, no redundant broad reruns. Executor no screenshots via manual browser unless appropriate tool; browser tests/screenshots through authorized E2E skill/launcher. Root final visual check one mobile/desktop. Changes outside stated surfaces require report and root decision.

@@ -11,9 +11,9 @@ window.STATE =
   "memoryFile": "AGENTS.md",
   "memoryOwner": "user",
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
-  "baseCommit": null,
+  "baseCommit": "ea110a519c9be69c3a75552741d9c78ac2a570d6",
   "startedAt": "2026-11-01T21:11:05+03:00",
-  "updatedAt": "2026-11-01T21:33:27+03:00",
+  "updatedAt": "2026-11-01T21:46:05+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -42,16 +42,20 @@ window.STATE =
     },
     {
       "id": "plan",
-      "status": "active",
-      "startedAt": "2026-11-01T21:33:03+03:00"
+      "status": "done",
+      "startedAt": "2026-11-01T21:33:03+03:00",
+      "finishedAt": "2026-11-01T21:33:35+03:00"
     },
     {
       "id": "build",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-01T21:33:35+03:00",
+      "finishedAt": "2026-11-01T21:46:05+03:00"
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "active",
+      "startedAt": "2026-11-01T21:46:05+03:00"
     },
     {
       "id": "final",
@@ -60,8 +64,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 13,
-    "done": 0,
-    "inTicket": 13,
+    "done": 13,
+    "inTicket": 0,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -100,12 +104,22 @@ window.STATE =
       ],
       "review": "нет",
       "model": "сильная — Terra 6.1 по выбору владельца",
-      "status": "pending",
+      "status": "done",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "startedAt": "2026-11-01T21:33:36+03:00",
+      "finishedAt": "2026-11-01T21:46:04+03:00",
+      "tests": {
+        "passed": 6,
+        "failed": 0
+      },
+      "commit": "HEAD"
     }
   ],
-  "tests": null,
+  "tests": {
+    "passed": 6,
+    "failed": 0
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [],
@@ -135,9 +149,14 @@ window.STATE =
     "2026-11-01T21:33:04+03:00",
     "2026-11-01T21:33:05+03:00",
     "2026-11-01T21:33:26+03:00",
-    "2026-11-01T21:33:27+03:00"
+    "2026-11-01T21:33:27+03:00",
+    "2026-11-01T21:33:34+03:00",
+    "2026-11-01T21:33:35+03:00",
+    "2026-11-01T21:33:36+03:00",
+    "2026-11-01T21:46:04+03:00",
+    "2026-11-01T21:46:05+03:00"
   ],
-  "rev": 17,
+  "rev": 22,
   "waiting": null,
   "waits": [
     {
@@ -258,73 +277,105 @@ window.STATE =
       "g": "G3",
       "ok": true,
       "problems": 0
+    },
+    {
+      "t": "2026-11-01T21:33:35+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T21:33:36+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T21:46:04+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 6,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T21:46:05+03:00",
+      "k": "stage",
+      "id": "review",
+      "act": "start"
     }
   ],
   "reqList": [
     {
       "id": "R01",
       "text": "«экран с дашбордом для администратора»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R02",
       "text": "«стартовый экран у администратора должен показывать все продажи компании»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R03",
       "text": "«всех менеджеров»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R04",
       "text": "«экран продаж для админа все таки был, потому что теоретически он может продавать, только это экран не стартовый»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R05",
       "text": "«процент выполнения плана если он есть»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R06",
       "text": "«график продаж за месяц»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R07",
       "text": "«за неделю»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R08",
       "text": "«за квартал»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R09",
       "text": "«за год»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R10",
       "text": "«Предусмотреть что это будет подгружаться через odata»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R11",
       "text": "«оставить ручную загрузку продаж которая уже реализована»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R12",
       "text": "«график использования наших лимитов api DeepSeek»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R13i",
       "text": "«(подразумевается) стартовый экран менеджера сохраняется, общая аналитика доступна только администратору»",
-      "status": "in-ticket"
+      "status": "done"
     }
   ],
   "gates": {

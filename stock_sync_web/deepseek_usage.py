@@ -11,7 +11,9 @@ def migrate(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS deepseek_usage (
         id INTEGER PRIMARY KEY, occurred_at TEXT NOT NULL, model TEXT NOT NULL,
         outcome TEXT NOT NULL CHECK(outcome IN ('success','failed')),
-        prompt_tokens INTEGER, completion_tokens INTEGER, total_tokens INTEGER)''')
+        prompt_tokens INTEGER CHECK(prompt_tokens BETWEEN 0 AND 9007199254740991),
+        completion_tokens INTEGER CHECK(completion_tokens BETWEEN 0 AND 9007199254740991),
+        total_tokens INTEGER CHECK(total_tokens BETWEEN 0 AND 9007199254740991))''')
     conn.execute('CREATE INDEX IF NOT EXISTS deepseek_usage_occurred ON deepseek_usage(occurred_at)')
 
 

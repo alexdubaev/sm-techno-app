@@ -28,6 +28,27 @@ def test_balance_validates_and_never_returns_secret(monkeypatch):
     monkeypatch.setattr(deepseek_balance, '_cache', None)
     conn.body = b'{"is_available":true,"balance_infos":[{"currency":"USD","total_balance":"NaN"}]}'
     assert deepseek_balance.balance(lambda timeout: conn)['status'] == 'unavailable'
-    monkeypatch.setattr(deepseek_balance, '_cache', None)
     conn.body = b'x' * 65537
     assert deepseek_balance.balance(lambda timeout: conn)['status'] == 'unavailable'
+
+
+def test_balance_rejects_non_object_and_honors_whole_request_deadline(monkeypatch):
+    import threading
+    import time
+
+    monkeypatch.setenv('DEEPSEEK_API_KEY', 'synthetic-deadline-key')
+    monkeypatch.setattr(deepseek_balance, '_cache', None)
+    assert deepseek_balance.balance(lambda timeout: Connection(b'[]'))['status'] == 'unavailable'
+
+    interrupted = threading.Event()
+    class SlowConnection(Connection):
+        def connect(self):
+            time.sleep(0.3)
+            self.sock = type('InterruptibleSocket', (), {'shutdown': lambda self, how: interrupted.set()})()
+        def getresponse(self):
+            assert interrupted.wait(1), 'response was not interrupted at deadline'
+            raise OSError('synthetic slow response')
+
+    started = time.monotonic()
+    assert deepseek_balance.balance(lambda timeout: SlowConnection(b''), timeout=0.4)['status'] == 'unavailable'
+    assert time.monotonic() - started < 0.6

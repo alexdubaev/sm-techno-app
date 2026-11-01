@@ -27,21 +27,25 @@ def balance(connection_factory=None, timeout=5):
             return _cache[2].copy()
     result = dict(status='unavailable', checkedAt=checked, isAvailable=None, balances=[])
     conn = None; timer = None
+    deadline = time.monotonic() + timeout
     try:
         conn = (connection_factory or (lambda t: http.client.HTTPSConnection('api.deepseek.com', timeout=t, context=ssl.create_default_context())))(timeout)
         conn.connect()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError()
         sock = conn.sock
         def abort():
             try: sock.shutdown(socket.SHUT_RDWR)
             except OSError: pass
-        timer = threading.Timer(timeout, abort); timer.daemon = True; timer.start()
+        timer = threading.Timer(remaining, abort); timer.daemon = True; timer.start()
         conn.request('GET', '/user/balance', headers={'Authorization': 'Bearer ' + key, 'Accept': 'application/json'})
         response = conn.getresponse()
         if response.status != 200: raise ValueError()
         raw = response.read(65537)
         if len(raw) > 65536: raise ValueError()
         payload = json.loads(raw)
-        if type(payload.get('is_available')) is not bool or not isinstance(payload.get('balance_infos'), list) or len(payload['balance_infos']) > 20: raise ValueError()
+        if not isinstance(payload, dict) or type(payload.get('is_available')) is not bool or not isinstance(payload.get('balance_infos'), list) or len(payload['balance_infos']) > 20: raise ValueError()
         balances = []
         for item in payload['balance_infos']:
             currency = item['currency']

@@ -108,3 +108,30 @@ def test_all_extraction_consumers_share_persistent_sink(auth_api, monkeypatch):
     assert auth_api.client.post('/api/shortcuts/stock/intake',headers={'Authorization':'Shortcut '+credential},files=upload).status_code==200
     data=auth_api.client.get('/api/admin/dashboard/deepseek',headers=admin).json()
     assert data['totals']['requests']==3 and data['totals']['totalTokens']==9
+
+
+def test_usage_upgrade_preserves_populated_legacy_ledger(tmp_path, monkeypatch):
+    import sqlite3
+    import pytest
+    from stock_sync_web.database import WebDatabase
+    from stock_sync_web.deepseek_usage import VERSION, sink_for
+
+    with monkeypatch.context() as legacy:
+        legacy.setattr(WebDatabase, 'WEB_MIGRATIONS', tuple(m for m in WebDatabase.WEB_MIGRATIONS if m[0] != VERSION))
+        db = WebDatabase(tmp_path / 'legacy.db')
+        db.initialize()
+    with db.transaction(immediate=True) as conn:
+        conn.execute("INSERT INTO manager_accounts(id,display_name) VALUES(1,'Historical employee')")
+        conn.execute("INSERT INTO manager_periods(manager_id,month,plan,fixed,rate,mode) VALUES(1,'2026-10',100,50,200,'minimum')")
+        conn.execute("INSERT INTO manager_sales(id,manager_id,month,date,client,amount,rate,created_by,updated_at) VALUES(1,1,'2026-10','2026-10-31','Synthetic client',150,200,1,'2026-10-31')")
+        before = {table: [tuple(r) for r in conn.execute('SELECT * FROM ' + table)] for table in ('manager_accounts','manager_periods','manager_sales')}
+        assert not conn.execute("SELECT 1 FROM sqlite_master WHERE name='deepseek_usage'").fetchone()
+    db.initialize()
+    sink_for(db)('deepseek-flash', 'success', {'prompt_tokens':2,'completion_tokens':1,'total_tokens':3})
+    db.initialize()
+    with db.transaction() as conn:
+        assert all([tuple(r) for r in conn.execute('SELECT * FROM ' + table)] == rows for table, rows in before.items())
+        assert conn.execute('SELECT COUNT(*) FROM deepseek_usage').fetchone()[0] == 1
+        assert conn.execute('SELECT COUNT(*) FROM web_schema_migrations WHERE version=?',(VERSION,)).fetchone()[0] == 1
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("INSERT INTO deepseek_usage(occurred_at,model,outcome,total_tokens) VALUES('2026-11-01','deepseek-flash','success',-1)")
