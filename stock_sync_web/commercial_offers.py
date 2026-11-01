@@ -291,6 +291,7 @@ def generate_commercial_offer_workbook(
     offer_number: str,
     client_name: str,
     offer_date: date,
+    stateless: bool = False,
 ) -> None:
     if not lines:
         raise ValueError("Нельзя сформировать КП без позиций.")
@@ -346,14 +347,21 @@ def generate_commercial_offer_workbook(
         ws[_cell(columns["delivery_time"], row)] = line.delivery_time
         ws[_cell(columns["note"], row)] = line.note
         _set_cell_alignment(ws[_cell(columns["note"], row)], wrap_text=True, vertical="top")
+        if stateless:
+            for column in ("article", "name", "brand", "delivery_time", "note"):
+                cell = ws[_cell(columns[column], row)]
+                if isinstance(cell.value, str):
+                    cell.data_type = "s"
+                    if column == "article":
+                        cell.number_format = "@"
         _fit_name_row_height(ws, row, line.name, row_height, line.note)
 
     total_row = first_row + len(lines)
     ws[_cell(columns["amount_vat"], total_row)] = (
         f'=SUM({_cell(columns["amount_vat"], first_row)}:{_cell(columns["amount_vat"], total_row - 1)})'
     )
-    ws["A7"] = f"Коммерческое предложение № {offer_number}"
-    ws["A9"] = _client_cell_value(client_name)
+    ws["A7"] = "Коммерческое предложение" if stateless else f"Коммерческое предложение № {offer_number}"
+    ws["A9"] = None if stateless else _client_cell_value(client_name)
     ws["F9"] = f"Дата: {offer_date.strftime('%d.%m.%Y')}"
     _set_cell_alignment(ws["A9"], vertical="center")
     _set_cell_alignment(ws["F9"], horizontal="right", vertical="center")
@@ -363,6 +371,10 @@ def generate_commercial_offer_workbook(
         ws[_cell(columns["price_vat"], row)].number_format = "#,##0.00 ₽"
         ws[_cell(columns["amount_vat"], row)].number_format = "#,##0.00 ₽"
 
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    workbook.save(output)
+    if hasattr(output_path, "write"):
+        workbook.save(output_path)
+    else:
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        workbook.save(output)
+    workbook.close()

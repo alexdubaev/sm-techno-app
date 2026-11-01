@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
+import math
+from datetime import date, datetime, timezone
 from io import BytesIO
 from decimal import Decimal
 from pathlib import Path
@@ -27,7 +28,8 @@ from stock_sync_web.assistant_extraction import (CodexDocumentExtractor, Documen
     ExtractionError, ExtractionRequest, FORMATS, validate_payload, create_document_extractor)
 from stock_sync_web.assistant_service import _extraction_slots, require_document_reader
 from stock_sync_web.assistant_storage import UploadLimits
-from stock_sync_web.service import CLIENT_PRICE_TEMPLATE_PATH
+from stock_sync_web.service import CLIENT_PRICE_TEMPLATE_PATH, COMMERCIAL_OFFER_TEMPLATE_PATH
+from stock_sync_web.commercial_offers import CommercialOfferLineInput, generate_commercial_offer_workbook
 
 
 def _reparse(path):
@@ -180,6 +182,83 @@ def _workbook(rows):
     return base64.b64encode(output.getvalue()).decode('ascii')
 
 
+async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | None = None) -> dict:
+    suffix = Path(file.filename or '').suffix.lower()
+    if suffix not in FORMATS: raise HTTPException(400, 'Этот формат не поддерживается.')
+    limits = limits or UploadLimits()
+    try:
+        with _stock_workspace() as workspace:
+            source = workspace / ('source' + suffix)
+            size = 0
+            with source.open('wb') as target:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > limits.max_bytes: raise HTTPException(413, 'Превышен допустимый размер файла.')
+                    target.write(chunk)
+            def extract_source():
+                if not _extraction_slots.acquire(blocking=False):
+                    raise HTTPException(429, 'Распознавание занято. Повторите попытку позже.')
+                try:
+                    texts, images = DocumentSourceReader(limits).read(source, workspace)
+                    return create_document_extractor(codex_factory=CodexDocumentExtractor).extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
+                finally:
+                    _extraction_slots.release()
+            result = await run_in_threadpool(extract_source)
+            validate_payload('articles', result.payload)
+            rows = [Row(article=r['article'], requestedQty=r['requested_qty'], sourceRow=r['source_row']) for r in result.payload['rows']]
+            _payload(rows)
+            if not rows: raise ValueError('В файле не найдено артикулов.')
+            return {'rows': [r.model_dump() for r in rows], 'warnings': result.warnings}
+    except HTTPException: raise
+    except ExtractionError: raise HTTPException(400, 'Не удалось распознать файл. Проверьте формат или повторите попытку.') from None
+    except Exception: raise HTTPException(400, 'Не удалось распознать файл. Проверьте формат или повторите попытку.') from None
+    finally: await file.close()
+
+
+
+def build_valuation_result(service, rows: list[Row]) -> dict:
+    _payload(rows)
+    db = service.db
+    keys = [db._normalize_stock_sku(r.article) for r in rows]
+    counts = Counter(keys)
+    quantities = {}
+    for key, row in zip(keys, rows): quantities.setdefault(key, set()).add(Decimal(row.requestedQty) if row.requestedQty else None)
+    snapshot = db.lookup_stock_articles([r.article for r in rows])
+    seen = set(); resolved = []; offer_lines = []; excluded = 0
+    for key, row in zip(keys, rows):
+        matches = snapshot.get(key, [])
+        ids = {item['item_id'] for item in matches}
+        variants = [{'itemId': x['item_id'], 'warehouseId': x['warehouse_id'], 'warehouseName': x['warehouse_name'],
+                     'physicalStock': x['quantity'], 'price': x['price']} for x in matches if x['warehouse_id'] is not None and x['quantity'] > 0]
+        if counts[key] > 1 and len(quantities[key]) > 1: status = 'ambiguous'; variants = []
+        elif key in seen: status = 'duplicate'; variants = []
+        elif not matches: status = 'not_found'; variants = []
+        elif len(ids) != 1: status = 'ambiguous'; variants = []
+        elif not variants: status = 'zero_stock'
+        else: status = 'matched'
+        if status == 'matched':
+            for item in matches:
+                quantity, price = item['quantity'], item['price']
+                if item['warehouse_id'] is None or not math.isfinite(quantity) or quantity <= 0:
+                    continue
+                if price is None or not math.isfinite(price) or price <= 0:
+                    excluded += 1
+                    continue
+                offer_lines.append(CommercialOfferLineInput(len(offer_lines) + 1, item.get('sku', row.article), item.get('name', ''), None,
+                    quantity, price, None, None, f"{item['warehouse_name']} · наличие: {quantity:g}"))
+        seen.add(key)
+        resolved.append({**row.model_dump(), 'status': status, 'variants': variants})
+    offer = None
+    if offer_lines:
+        output = BytesIO()
+        generate_commercial_offer_workbook(template_path=getattr(service, 'commercial_offer_template_path', COMMERCIAL_OFFER_TEMPLATE_PATH),
+            output_path=output, lines=offer_lines, offer_number='', client_name='', offer_date=date.today(), stateless=True)
+        offer = {'filename': 'stock-offer.xlsx', 'mediaType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'base64': base64.b64encode(output.getvalue()).decode('ascii')}
+    warnings = [f'Исключено позиций без положительной цены: {excluded}.'] if excluded else []
+    return {'offerWorkbook': offer, 'offerExport': {'includedRows': len(offer_lines), 'excludedNoPriceRows': excluded, 'warnings': warnings}, 'resolvedAt': datetime.now(timezone.utc).isoformat(), 'articleResolution': resolved,
+            'workbook': {'filename': 'stock-valuation.xlsx', 'mediaType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'base64': _workbook(resolved)}}
+
+
 def create_stock_valuation_router(current_user, get_service) -> APIRouter:
     router = APIRouter(prefix='/api/stock/valuation', route_class=PrivateRoute)
 
@@ -187,62 +266,11 @@ def create_stock_valuation_router(current_user, get_service) -> APIRouter:
     async def intake(response: Response, file: UploadFile = File(...), actor=Depends(current_user)):
         response.headers['Cache-Control'] = 'no-store'
         _authorize(actor)
-        suffix = Path(file.filename or '').suffix.lower()
-        if suffix not in FORMATS: raise HTTPException(400, 'Этот формат не поддерживается.')
-        limits = UploadLimits()
-        try:
-            with _stock_workspace() as workspace:
-                source = workspace / ('source' + suffix)
-                size = 0
-                with source.open('wb') as target:
-                    while chunk := await file.read(1024 * 1024):
-                        size += len(chunk)
-                        if size > limits.max_bytes: raise HTTPException(413, 'Превышен допустимый размер файла.')
-                        target.write(chunk)
-                def extract_source():
-                    if not _extraction_slots.acquire(blocking=False):
-                        raise HTTPException(429, 'Распознавание занято. Повторите попытку позже.')
-                    try:
-                        texts, images = DocumentSourceReader(limits).read(source, workspace)
-                        return create_document_extractor(codex_factory=CodexDocumentExtractor).extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
-                    finally:
-                        _extraction_slots.release()
-                result = await run_in_threadpool(extract_source)
-                validate_payload('articles', result.payload)
-                rows = [Row(article=r['article'], requestedQty=r['requested_qty'], sourceRow=r['source_row']) for r in result.payload['rows']]
-                _payload(rows)
-                if not rows: raise ValueError('В файле не найдено артикулов.')
-                return {'rows': [r.model_dump() for r in rows], 'warnings': result.warnings}
-        except HTTPException: raise
-        except ExtractionError: raise HTTPException(400, 'Не удалось распознать файл. Проверьте формат или повторите попытку.') from None
-        except Exception: raise HTTPException(400, 'Не удалось распознать файл. Проверьте формат или повторите попытку.') from None
-        finally: await file.close()
+        return await extract_valuation_upload(file)
 
     @router.post('/resolve')
     def resolve(body: ResolveRequest, response: Response, actor=Depends(current_user)):
         response.headers['Cache-Control'] = 'no-store'; _authorize(actor)
-        try: _payload(body.rows)
+        try: return build_valuation_result(get_service(), body.rows)
         except ValueError: raise HTTPException(400, 'Проверьте артикулы и количество.') from None
-        db = get_service().db
-        keys = [db._normalize_stock_sku(r.article) for r in body.rows]
-        counts = Counter(keys)
-        quantities = {}
-        for key, row in zip(keys, body.rows): quantities.setdefault(key, set()).add(Decimal(row.requestedQty) if row.requestedQty else None)
-        snapshot = db.lookup_stock_articles([r.article for r in body.rows])
-        seen = set(); resolved = []
-        for key, row in zip(keys, body.rows):
-            matches = snapshot.get(key, [])
-            ids = {item['item_id'] for item in matches}
-            variants = [{'itemId': x['item_id'], 'warehouseId': x['warehouse_id'], 'warehouseName': x['warehouse_name'],
-                         'physicalStock': x['quantity'], 'price': x['price']} for x in matches if x['warehouse_id'] is not None and x['quantity'] > 0]
-            if counts[key] > 1 and len(quantities[key]) > 1: status = 'ambiguous'; variants = []
-            elif key in seen: status = 'duplicate'; variants = []
-            elif not matches: status = 'not_found'; variants = []
-            elif len(ids) != 1: status = 'ambiguous'; variants = []
-            elif not variants: status = 'zero_stock'
-            else: status = 'matched'
-            seen.add(key)
-            resolved.append({**row.model_dump(), 'status': status, 'variants': variants})
-        return {'resolvedAt': datetime.now(timezone.utc).isoformat(), 'articleResolution': resolved,
-                'workbook': {'filename': 'stock-valuation.xlsx', 'mediaType': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'base64': _workbook(resolved)}}
     return router

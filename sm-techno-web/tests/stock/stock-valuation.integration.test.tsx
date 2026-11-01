@@ -5,7 +5,7 @@ import * as api from '@/lib/stock-valuation-api';
 vi.mock('@/lib/stock-valuation-api', () => ({ intakeValuation: vi.fn(), resolveValuation: vi.fn() }));
 it('reviews dropped articles and resolves the edited row without a client', async () => {
   vi.mocked(api.intakeValuation).mockResolvedValue({ rows: [{ article: '001', requestedQty: null, sourceRow: 1 }], warnings: [] });
-  vi.mocked(api.resolveValuation).mockResolvedValue({ resolvedAt: 'now', articleResolution: [{ article: '001', requestedQty: '3', sourceRow: 1, status: 'matched', variants: [{ itemId: 1, warehouseId: 2, warehouseName: 'Склад', physicalStock: 5, price: 12 }] }], workbook: { filename: 'stock.xlsx', mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', base64: '' } });
+  vi.mocked(api.resolveValuation).mockResolvedValue({ resolvedAt: 'now', articleResolution: [{ article: '001', requestedQty: '3', sourceRow: 1, status: 'matched', variants: [{ itemId: 1, warehouseId: 2, warehouseName: 'Склад', physicalStock: 5, price: 12 }] }], workbook: { filename: 'stock.xlsx', mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', base64: '' }, offerWorkbook: null, offerExport: { includedRows: 0, excludedNoPriceRows: 1, warnings: ['Нет цены'] } });
   render(<StockValuationPanel />);
   fireEvent.click(screen.getByRole('button', { name: 'Расценить список артикулов' }));
   const input = screen.getByLabelText('Выбрать файл с артикулами');
@@ -15,4 +15,6 @@ it('reviews dropped articles and resolves the edited row without a client', asyn
   await waitFor(() => expect(api.resolveValuation).toHaveBeenCalledWith([{ article: '001', requestedQty: '3', sourceRow: 1 }], expect.any(AbortSignal)));
   expect(await screen.findByRole('cell', { name: 'Склад' })).toBeVisible();
   expect(screen.getByRole('button', { name: 'Скачать Excel' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Скачать Excel по шаблону КП' })).toBeDisabled();
+  expect(screen.getByText('Нет цены')).toBeVisible();
 });

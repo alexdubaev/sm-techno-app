@@ -164,3 +164,30 @@ def test_stock_intake_uses_deepseek_when_selected(monkeypatch, tmp_path):
     app = FastAPI(); app.include_router(create_stock_valuation_router(lambda: {'id': 1, 'role': 'user'}, lambda: Service()))
     response = TestClient(app).post('/api/stock/valuation/intake', files={'file': ('list.txt', b'00123', 'text/plain')})
     assert response.status_code == 200 and response.json()['rows'][0]['article'] == '00123'
+
+def test_offer_export_uses_template_and_excludes_unpriced(tmp_path):
+    import base64
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from stock_sync_web.database import WebDatabase
+    from stock_sync_web.service import WebStockSyncService
+    db = WebDatabase(tmp_path / 'synthetic.db')
+    service = WebStockSyncService(db=db, commercial_offer_storage_dir=tmp_path/'offers', document_storage_dir=tmp_path/'documents')
+    db.create_local_item(sku='00123', name='=Unsafe()', print_name='=Unsafe()', category_name='Тест', group_name='Тест', price=42, warehouses=[{'warehouse_name':'=Warehouse()', 'quantity':2, 'price':42}, {'warehouse_name':'Второй', 'quantity':5, 'price':42}])
+    db.create_local_item(sku='002', name='Без цены', print_name='Без цены', category_name='Тест', group_name='Тест', price=0, warehouses=[{'warehouse_name':'Первый', 'quantity':1}])
+    with db.transaction() as connection:
+        connection.execute("UPDATE item_warehouse_balances SET price=42 WHERE item_id=(SELECT id FROM items WHERE sku='00123')")
+    app = FastAPI(); app.include_router(create_stock_valuation_router(lambda: {'id':1,'role':'user'}, lambda: service))
+    response = TestClient(app).post('/api/stock/valuation/resolve', json={'rows':[{'article':a,'requestedQty':None,'sourceRow':i} for i,a in enumerate(['00123','002'],1)]})
+    assert response.status_code == 200
+    result = response.json()
+    assert result['offerExport']['includedRows'] == 2 and result['offerExport']['excludedNoPriceRows'] == 1
+    ws = load_workbook(BytesIO(base64.b64decode(result['offerWorkbook']['base64'])), data_only=False)['КП']
+    assert ws['B13'].value == '00123' and ws['B13'].data_type == 's'
+    assert ws['C13'].value == '=Unsafe()' and ws['C13'].data_type == 's'
+    assert ws['I13'].data_type == 's' and 'Warehouse()' in ws['I13'].value
+    assert ws['G13'].data_type == 'f' and ws['G15'].data_type == 'f'
+    assert ws['A7'].value == 'Коммерческое предложение' and ws['A9'].value is None
+    assert ws['B13'].number_format == '@'
+    assert ws._images and ws.merged_cells.ranges
+    assert not (tmp_path/'offers').exists() or not any(p.is_file() for p in (tmp_path/'offers').rglob('*'))
