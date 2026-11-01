@@ -1,0 +1,11 @@
+# F1 — Условия единственного security review
+
+Parentb85134d; immutablebaseecb5d33. No signing/POST/deploy/commits/nestedagents/backendAPI/schema changes.
+
+1. Nativegraph blindlyreads detail on successfulAPIresponses wherekeyabsent. Guard retrievalbyGetDictionaryKeys/exactcontains beforeGetValue; successmustnotreadmissingkey. Errorstillalertsafe serverdetail+stopbeforepreview/decode. UseprimarynativeKeysactionandconsistentcontrolIDs/refs; preserveShareSheet, nativefile5/array2, oneImportQuestion0, 105+updatedactionsreport. Do not use defaultemptyuncheckedGetValue. ActualiOSmayabortHTTPactiononnon2xx, keepnative-runtimeunverified.
+2. UIencoder currentlyacceptsHTTPSIPv6butnativebaseregexrejects. Alignsupportedorigins: rejectunsupportedIPv6 inUIhelper usingexactnativeoriginformat plusURLvalidation, before emittingconfiguration. Addmeaningfulroundtrip/boundarycase. No broadeningtransport toHTTP.
+3. Explain inplainUI/docs: share onlyoriginalinstaller/file/linkfromappwithcolleagues; personalsetupisprivate, do notforwardcustomizedcopiesbeforeactualsharingbehaviorverified; leakedsetup->revokeconnection. Do NOTclaimApplealwaysleaksconfiguredcredential: Appleprimarydocs saysImportQuestionfieldclearedonsharing; thisremainsphysicalmanualgate, sooriginalblankartifactisoursafedistributionpath. Preserveexistingrawcodecompatibility/closegeneration/clipboardnosecretURLs.
+
+ZONE union assets/shortcuts/*.cherri/PList+sources, scripts/build_stock_shortcut.py, tests/shortcuts/test_stock_shortcut_artifact.py; sm-techno-web/lib/stock-shortcut-setup.ts, components/stock/stock-shortcuts-panel.tsx, tests/stock/stock-shortcut-setup.test.ts + tests/stock/stock-shortcuts.integration.test.tsx; docs/ios-shortcuts.md andassets/shortcuts/README.md forwording. No AP/AGENTS/othercode. Onewriterownsall; priorworkersfinished.
+
+Narrowartifact5/currenttests andtargetedUI13/currentonly; types/lint ifTSchangedrequires (notbuild/fullauthrepeatformally unchangedcompiledlogic asidehelperregex/message). Finalsourceallauth200/settings68previouspassed butreportnarrowchangesactualseparately. Rootwillrecordactualtests/commit; originalrevieweronlyboundedclosureof3conditions (no secondwhole-review). Ifadditionaltransportfailurefound reportprecise cause no auth/verifierbypass.
