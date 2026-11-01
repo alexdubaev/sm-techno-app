@@ -3,17 +3,17 @@ window.STATE =
   "version": 2,
   "slug": "ios-shortcuts-stock-export",
   "dir": "2026-11-01-ios-shortcuts-stock-export--wip",
-  "title": "СМ ТЕХНО: команды iPhone и Excel по шаблону КП",
+  "title": "СМ ТЕХНО: мобильная расценка и Android",
   "mode": "semi",
   "depth": "normal",
-  "tier": "T1",
-  "briefFile": "2026-11-01-brief.md",
+  "tier": "T0",
+  "briefFile": "2026-11-01-android-intake-brief.md",
   "memoryFile": "AGENTS.md",
   "memoryOwner": "user",
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
-  "baseCommit": "240ef36",
+  "baseCommit": "0c20786d94600988363e6db4e3298b2c0908021c",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T16:00:20+03:00",
+  "updatedAt": "2026-11-01T17:09:34+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -25,49 +25,43 @@ window.STATE =
     {
       "id": "manifest",
       "status": "done",
-      "startedAt": "2026-11-01T10:19:56+03:00",
-      "finishedAt": "2026-11-01T10:19:57+03:00"
+      "startedAt": "2026-11-01T16:49:33+03:00",
+      "finishedAt": "2026-11-01T16:55:13+03:00"
     },
     {
       "id": "briefing",
       "status": "done",
-      "startedAt": "2026-11-01T10:19:57+03:00",
-      "finishedAt": "2026-11-01T10:31:07+03:00"
+      "startedAt": "2026-11-01T16:55:13+03:00",
+      "finishedAt": "2026-11-01T16:55:13+03:00"
     },
     {
       "id": "spec",
       "status": "done",
-      "startedAt": "2026-11-01T10:31:07+03:00",
-      "finishedAt": "2026-11-01T10:34:46+03:00"
+      "startedAt": "2026-11-01T16:55:13+03:00",
+      "finishedAt": "2026-11-01T17:05:27+03:00"
     },
     {
       "id": "plan",
-      "status": "done",
-      "startedAt": "2026-11-01T10:34:46+03:00",
-      "finishedAt": "2026-11-01T10:39:34+03:00"
+      "status": "active",
+      "startedAt": "2026-11-01T17:05:27+03:00"
     },
     {
       "id": "build",
-      "status": "done",
-      "startedAt": "2026-11-01T10:39:34+03:00",
-      "finishedAt": "2026-11-01T11:00:04+03:00"
+      "status": "pending"
     },
     {
       "id": "review",
-      "status": "done",
-      "startedAt": "2026-11-01T11:00:04+03:00",
-      "finishedAt": "2026-11-01T11:06:51+03:00"
+      "status": "pending"
     },
     {
       "id": "final",
-      "status": "active",
-      "startedAt": "2026-11-01T11:06:51+03:00"
+      "status": "pending"
     }
   ],
   "requirements": {
-    "total": 7,
+    "total": 13,
     "done": 7,
-    "inTicket": 0,
+    "inTicket": 6,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -155,6 +149,45 @@ window.STATE =
       "commit": "HEAD"
     },
     {
+      "id": "03",
+      "title": "Общий ввод в Остатках и Android share",
+      "requirements": [
+        "R08",
+        "R09",
+        "R10",
+        "R11",
+        "R12i",
+        "R13i"
+      ],
+      "blockedBy": [
+        "02"
+      ],
+      "wave": 4,
+      "zone": [
+        "sm-techno-web/app/manifest.ts",
+        "sm-techno-web/app/layout.tsx",
+        "sm-techno-web/app/icon-192.png/",
+        "sm-techno-web/app/stock-share/",
+        "sm-techno-web/public/stock-share/",
+        "sm-techno-web/next.config.ts",
+        "sm-techno-web/components/stock-page.tsx",
+        "sm-techno-web/components/stock/stock-valuation-panel.tsx",
+        "sm-techno-web/components/stock/stock-valuation-entry.tsx",
+        "sm-techno-web/components/stock/stock-share-session-bridge.tsx",
+        "sm-techno-web/lib/stock-share.ts",
+        "sm-techno-web/lib/stock-intake-source.ts",
+        "sm-techno-web/tests/stock/",
+        "sm-techno-web/tests/e2e/stock-valuation.spec.ts",
+        "sm-techno-web/tests/e2e/stock-share.spec.ts",
+        "docs/android-stock-share.md"
+      ],
+      "review": "нет — одна итоговаяfreshsecurityreview всего нового slice, без дублирующего pointreview",
+      "model": "сильная — ранее выбранная владельцем Terra6.1",
+      "status": "pending",
+      "retries": 0,
+      "repairs": 0
+    },
+    {
       "id": "F1",
       "title": "Исправления независимого ревью",
       "requirements": [
@@ -173,10 +206,10 @@ window.STATE =
       "review": "да — узкая проверка закрытия подтверждённых условий, не повторный whole review",
       "model": "сильная — userTerra6.1",
       "status": "done",
-      "retries": 0,
-      "repairs": 0,
       "startedAt": "2026-11-01T11:01:42+03:00",
       "finishedAt": "2026-11-01T11:04:04+03:00",
+      "retries": 0,
+      "repairs": 0,
       "tests": {
         "passed": 13,
         "failed": 0
@@ -199,18 +232,11 @@ window.STATE =
     "fixed": 0,
     "deferred": 0,
     "items": [
-      "Fresh independent rawbrief/spec coveragePASS8/8; missing0/half0"
+      "G2: independent reader checked14 requirement groups, missing0/half0/extra0; physicalgates explicitlyopen."
     ]
   },
   "concerns": [],
-  "blind": {
-    "checked": 7,
-    "matched": 4,
-    "mismatches": [
-      "Browser two-download and no-history userpath not independently exercised yet; final isolated stock E2E pending.",
-      "Physical iPhone installation/import/shared workflow and opening Excel unverified; owner manual gate."
-    ]
-  },
+  "blind": null,
   "beats": [
     "2026-11-01T10:17:16+03:00",
     "2026-11-01T10:17:18+03:00",
@@ -243,14 +269,17 @@ window.STATE =
     "2026-11-01T12:52:49+03:00",
     "2026-11-01T15:09:34+03:00",
     "2026-11-01T15:09:35+03:00",
-    "2026-11-01T16:00:20+03:00"
+    "2026-11-01T16:00:20+03:00",
+    "2026-11-01T16:49:33+03:00",
+    "2026-11-01T16:49:34+03:00",
+    "2026-11-01T16:55:13+03:00",
+    "2026-11-01T16:58:27+03:00",
+    "2026-11-01T17:05:26+03:00",
+    "2026-11-01T17:05:27+03:00",
+    "2026-11-01T17:09:34+03:00"
   ],
-  "rev": 39,
-  "waiting": {
-    "kind": "action",
-    "since": "2026-11-01T11:35:27+03:00",
-    "note": "Перезапустить PWA → скопировать настройку с подтверждением → удалить старую sm-techno-stock в Командах → установить новую/вставить настройку → проверить файл и Excel на iPhone."
-  },
+  "rev": 49,
+  "waiting": null,
   "waits": [
     {
       "kind": "briefing",
@@ -261,6 +290,11 @@ window.STATE =
       "kind": "plan",
       "from": "2026-11-01T10:36:49+03:00",
       "to": "2026-11-01T10:39:33+03:00"
+    },
+    {
+      "kind": "action",
+      "from": "2026-11-01T11:35:27+03:00",
+      "to": "2026-11-01T16:49:33+03:00"
     }
   ],
   "log": [
@@ -496,6 +530,78 @@ window.STATE =
       "k": "ask",
       "kind": "action",
       "note": "Перезапустить PWA → скопировать настройку с подтверждением → удалить старую sm-techno-stock в Командах → установить новую/вставить настройку → проверить файл и Excel на iPhone."
+    },
+    {
+      "t": "2026-11-01T16:49:33+03:00",
+      "k": "answered",
+      "kind": "action"
+    },
+    {
+      "t": "2026-11-01T16:49:33+03:00",
+      "k": "reopen"
+    },
+    {
+      "t": "2026-11-01T16:49:34+03:00",
+      "k": "tier",
+      "v": "T2"
+    },
+    {
+      "t": "2026-11-01T16:49:34+03:00",
+      "k": "stage",
+      "id": "manifest",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T16:55:13+03:00",
+      "k": "stage",
+      "id": "briefing",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T16:55:13+03:00",
+      "k": "gate",
+      "g": "G1",
+      "ok": true,
+      "open": 0,
+      "total": 13
+    },
+    {
+      "t": "2026-11-01T16:55:13+03:00",
+      "k": "stage",
+      "id": "spec",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T16:58:27+03:00",
+      "k": "tier",
+      "v": "T0"
+    },
+    {
+      "t": "2026-11-01T17:05:26+03:00",
+      "k": "gate",
+      "g": "G2",
+      "ok": true,
+      "found": 0,
+      "fixed": 0,
+      "deferred": 0
+    },
+    {
+      "t": "2026-11-01T17:05:27+03:00",
+      "k": "stage",
+      "id": "plan",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T17:09:34+03:00",
+      "k": "tickets",
+      "n": 4
+    },
+    {
+      "t": "2026-11-01T17:09:34+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
     }
   ],
   "reqList": [
@@ -533,32 +639,56 @@ window.STATE =
       "id": "R07",
       "text": "«цена ... то количество, которое есть у нас на складе»",
       "status": "done"
+    },
+    {
+      "id": "R08",
+      "text": "«реализуем экран, как ты придумал» — «Вставить список»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R09",
+      "text": "«реализуем экран, как ты придумал» — «Фото / скриншот»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R10",
+      "text": "«реализуем экран, как ты придумал» — «Выбрать файл»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R11",
+      "text": "«добавим поддержку Андроида»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R12i",
+      "text": "(подразумевается) вложение получает только текущий авторизованный менеджер",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R13i",
+      "text": "(подразумевается) ошибки передачи не подменяют файл названием и дают путь восстановления",
+      "status": "in-ticket"
     }
   ],
   "gates": {
     "G1": {
       "ok": true,
-      "at": "2026-11-01T10:31:07+03:00",
+      "at": "2026-11-01T16:55:13+03:00",
       "open": 0,
-      "total": 7
+      "total": 13
     },
     "G2": {
       "ok": true,
-      "at": "2026-11-01T10:34:46+03:00",
+      "at": "2026-11-01T17:05:26+03:00",
       "found": 0,
       "fixed": 0,
       "deferred": 0
     },
     "G3": {
       "ok": true,
-      "at": "2026-11-01T10:34:48+03:00",
+      "at": "2026-11-01T17:09:34+03:00",
       "problems": 0
-    },
-    "G4": {
-      "ok": false,
-      "at": "2026-11-01T11:03:20+03:00",
-      "checked": 7,
-      "matched": 4
     }
   },
   "result": null,
