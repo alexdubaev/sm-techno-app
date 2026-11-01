@@ -21,13 +21,13 @@
 Весь spec.md (Решение, Состояния и границы, Решения по реализации, Приёмка и выпуск). Read interfaces.md first, notes.md, design.md, protected-plan.md, provider-evidence.md. Historical handoffs not implementation tasks.
 
 ## Критерии приёмки
-- [ ] Admin home /dashboard, manager /manager; admin can still open own sales and all old controls. Direct unauthorized API/page requests do not expose analytics.
-- [ ] Four periods, date navigation and zero-filled chart; totals equal uncancelled ledger including admin/inactive/archive. All active managers visible with zero.
-- [ ] Monthly plans match existing cabinet including unset/zero/positive/>100%, explicit month for non-month sales periods. No invented prorating/company plan or compensation changes.
-- [ ] One numeric record per actual DeepSeek request, all application call sites covered, missing usage remains unknown, malformed output still records returned usage, sink failure does not break extraction. Additive migration works on populated legacy DB and repeated startup.
-- [ ] Token/request graph + balance with safe server-only key; independent errors/retry, unavailable versus zero, date of history start, no fabricated past/account quota/budget.
-- [ ] Current manual entry intact; both manual/onec ledger sales aggregate; future OData mapping/idempotency boundary documented, no live sync or fake connected UI.
-- [ ] Meaningful isolated backend/frontend tests, short E2E, typecheck/lint/build pass without weakening guards/baselines or new dependencies; mobile/desktop usable.
+- [x] Admin home /dashboard, manager /manager; admin can still open own sales and all old controls. Direct unauthorized API/page requests do not expose analytics.
+- [x] Four periods, date navigation and zero-filled chart; totals equal uncancelled ledger including admin/inactive/archive. All active managers visible with zero.
+- [x] Monthly plans match existing cabinet including unset/zero/positive/>100%, explicit month for non-month sales periods. No invented prorating/company plan or compensation changes.
+- [x] One numeric record per actual DeepSeek request, all application call sites covered, missing usage remains unknown, malformed output still records returned usage, sink failure does not break extraction. Additive migration works on populated legacy DB and repeated startup.
+- [x] Token/request graph + balance with safe server-only key; independent errors/retry, unavailable versus zero, date of history start, no fabricated past/account quota/budget.
+- [x] Current manual entry intact; both manual/onec ledger sales aggregate; future OData mapping/idempotency boundary documented, no live sync or fake connected UI.
+- [x] Meaningful isolated backend/frontend tests, short E2E, typecheck/lint/build pass without weakening guards/baselines or new dependencies; mobile/desktop usable.
 
 ## Scope
 Root owns AP/Git/release. Product executor may edit necessary new dashboard modules, database.py, stock_sync_api.py, assistant_deepseek/extraction/service, stock_valuation and shortcut wiring where required for injection, frontend home/nav/dashboard, tests, docs/admin-dashboard.md. No unrelated refactor. No commit; return <=25-line contract per executor prompt with exact tests/evidence, paths and concerns.
