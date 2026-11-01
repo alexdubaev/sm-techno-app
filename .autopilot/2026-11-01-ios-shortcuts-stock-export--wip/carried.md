@@ -29,3 +29,5 @@
 —
 
 G03 published: liveab40776/frontend34232c4b, backend4726 unchanged. Ready signed nativefile and one-copysetup in Settings, no handassembled HTTP. Exactmain CI41304167764 SUCCESS; HTTPShealth and realpublicasset SHA d7a3ab1e… PASS. Latest backup120744SHA8d23ce32… verified/stagedrestorePASS. Rollbackpreviousfrontd2 retainscurrentdata/devicebindings. See installer-release.md; physicaliPhone firstimport/runtime NOT RUN. Utility Apple signer requirediCloud, disabled; approvedShortcuty fallback worked. Preserveoldpreparations.
+
+G04: livece3f260/frontend0a4b4b11, backend4726+StartedAt unchanged; native If missingoperand replaced canonicaltext-match+HasValue115actions, freshsignedasset7ae53265…; clipboard truthfulstatus/error and actualChromiumcopy tested. Main41308197933SUCCESS, strictpublicHTTPShealth+asset27898SHA7aePASS, backup125832SHAc61fc984… verified/stagedrestorePASS. Old111realphonevalidationFAIL; new115firstiPhone/runtimeNOTRUN. Reinstalloldcommand afterPWArefresh andcopysetup. See native-condition-release.md. NativeG4 remainsopen; preserveolduserpreps.
