@@ -92,6 +92,7 @@ test('manager cabinet saves manual sales, previews excess commission and protect
       }),
   ).toContainText(/10\s000/);
   await page.reload();
+  await page.getByLabel('Месяц', { exact: true }).fill('2026-10');
   await page.getByLabel('Кабинет сотрудника').selectOption(String(account));
   await expect(page.getByText('ООО «Промснаб»', { exact: true })).toBeVisible();
   await expect(page.getByText('Счёт № 001/26 от 20.10.2026', { exact: true })).toBeVisible();

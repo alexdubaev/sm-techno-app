@@ -1,0 +1,19 @@
+[Unit]
+Description=SM Techno isolated document converter broker
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=codex-deploy
+WorkingDirectory=/srv/sm-techno-test/app
+Environment=PYTHONPATH=/srv/sm-techno-test/app
+EnvironmentFile=/srv/sm-techno-test/runtime/converter/broker.env
+ExecStart=/usr/bin/python3 -m document_runtime.broker --root /srv/sm-techno-test/runtime/converter --image ${DOCUMENT_ASSISTANT_CONVERTER_IMAGE}
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
