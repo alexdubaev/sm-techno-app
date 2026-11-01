@@ -96,3 +96,7 @@ Owner snapshot/revision до чтения stream; atomic owner CAS и guard те
 
 ## T04 фактическое UIповедение и проверки
 1694f64: normalcollapsed Развернуть/Свернуть aria-expanded, receivedshare autoopens, threeequalbuttons/twoequalcolumns. Root просмотрел оба actual390скриншота: нет clippedlabels, свернутыйблокоставляет больше местаостаткам. AffectedVitest5PASS, Chromium2PASS + screenshotonlynarrow1PASS, types0/lint/buildPASS. Никаких изменений auth/protocol/worker/backend. ПоследнийE2E снова сгенерировалnext-env (a419 вместоce4), root Gitrestore только own generatedfile кtrackedHEAD, не выдал утверждениеработника о cleanfile зафакт. Source1694 требует нового frontendкандидата и CI текущейветки; предыдущий848образ сохранён. Повторныйwhole-review и broadlocalchecks без новойпричины не запускались.
+
+
+### T04 closure: сворачивание сохраняет работу
+Бывший close() стирал source/text/rows/result. Для нового «Свернуть» исправлено: отменить inflight и lateclaim, скрыть панель, сохранить draft/review/result в памяти до ухода со страницы/новогоисточника/authunmount. NarrowVitest5PASS включая file/textretention, types0/lint/buildPASS (f3-ui-preserve-* logs). Layoutunchanged, прежние390screens актуальны. R15 verified worker+root; не выдавать эту smallUIпроверку за отдельныйblindrun. G4 counts возвращены7/5 для действительно независимого Androidрасширения; R15 отдельно affectedtests/visual по smallchangepolicy. Новыйsource требует финального frontendimage послеmerge, промежуточныеобразы сохраняем.

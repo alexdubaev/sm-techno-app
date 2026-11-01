@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "7d42a9cd3ac79826cedaa9bbd001acd68c129061",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T18:47:10+03:00",
+  "updatedAt": "2026-11-01T18:50:13+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -222,14 +222,14 @@ window.STATE =
       "model": "сильная — existingTerra6.1context",
       "status": "done",
       "startedAt": "2026-11-01T18:44:38+03:00",
-      "finishedAt": "2026-11-01T18:47:09+03:00",
+      "finishedAt": "2026-11-01T18:50:12+03:00",
       "retries": 0,
       "repairs": 0,
       "tests": {
         "passed": 5,
         "failed": 0
       },
-      "commit": "1694f64f54d9"
+      "commit": "0becd450afd5"
     },
     {
       "id": "F1",
@@ -318,11 +318,11 @@ window.STATE =
   },
   "concerns": [],
   "blind": {
-    "checked": 8,
-    "matched": 6,
+    "checked": 7,
+    "matched": 5,
     "mismatches": [
-      "R11: browser file/text verified; physical Android OS share remains NOTRUN",
-      "R14: signed bytes/download name verified; iPhone imported name remains NOTRUN"
+      "R11: independent browser file/text accepted, physical Android OS share remains NOTRUN",
+      "R14: signed bytes/download name verified, iPhone imported name remains NOTRUN"
     ]
   },
   "beats": [
@@ -374,9 +374,11 @@ window.STATE =
     "2026-11-01T18:35:03+03:00",
     "2026-11-01T18:44:38+03:00",
     "2026-11-01T18:47:09+03:00",
-    "2026-11-01T18:47:10+03:00"
+    "2026-11-01T18:47:10+03:00",
+    "2026-11-01T18:50:12+03:00",
+    "2026-11-01T18:50:13+03:00"
   ],
-  "rev": 72,
+  "rev": 74,
   "waiting": null,
   "waits": [
     {
@@ -851,6 +853,26 @@ window.STATE =
       "g": "G3",
       "ok": true,
       "problems": 0
+    },
+    {
+      "t": "2026-11-01T18:50:12+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 5,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T18:50:13+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": false,
+      "checked": 7,
+      "matched": 5
     }
   ],
   "reqList": [
@@ -951,9 +973,9 @@ window.STATE =
     },
     "G4": {
       "ok": false,
-      "at": "2026-11-01T18:47:10+03:00",
-      "checked": 8,
-      "matched": 6
+      "at": "2026-11-01T18:50:13+03:00",
+      "checked": 7,
+      "matched": 5
     }
   },
   "result": null,
