@@ -46,7 +46,7 @@ it('validates pasted text and photos before explicit recognition, and clears sta
   await waitFor(() => expect(api.intakeValuation).toHaveBeenCalledTimes(2));
 });
 
-it('collapses and reopens, clearing the selected source', () => {
+it('preserves the selected source and pasted list when collapsed and reopened', () => {
   render(<StockValuationPanel />);
   fireEvent.click(screen.getByRole('button', {name: 'Развернуть'}));
   fireEvent.change(screen.getByLabelText('Выбрать файл с артикулами'), {target: {files: [new File(['001'], 'list.txt')]}});
@@ -54,5 +54,10 @@ it('collapses and reopens, clearing the selected source', () => {
   fireEvent.click(screen.getByRole('button', {name: 'Свернуть'}));
   expect(screen.getByRole('button', {name: 'Развернуть'})).toHaveAttribute('aria-expanded', 'false');
   fireEvent.click(screen.getByRole('button', {name: 'Развернуть'}));
-  expect(screen.queryByText(/list.txt/)).not.toBeInTheDocument();
+  expect(screen.getByText(/list.txt/)).toBeVisible();
+  fireEvent.click(screen.getByRole('button', {name: 'Вставить список'}));
+  fireEvent.change(screen.getByLabelText('Список артикулов'), {target: {value: 'A\t2\nB'}});
+  fireEvent.click(screen.getByRole('button', {name: 'Свернуть'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Развернуть'}));
+  expect(screen.getByLabelText('Список артикулов')).toHaveValue('A\t2\nB');
 });

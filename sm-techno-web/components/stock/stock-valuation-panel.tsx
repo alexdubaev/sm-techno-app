@@ -21,7 +21,7 @@ export function StockValuationPanel({ receivedSource, receivedError, onInteracti
   function cancel() { generation.current++; controller.current?.abort(); controller.current = null; setBusy(false); }
   function reset() { cancel(); setRows([]); setResult(null); setWarnings([]); setError(''); }
   function select(files: FileList | File[]) { onInteraction?.(); reset(); setSource(null); setText(''); setShowText(false); if (files.length !== 1) { setError('Выберите один файл.'); return; } try { setSource(validateStockFile(files[0])); } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось выбрать файл.'); } }
-  function close() { onInteraction?.(); reset(); setSource(null); setText(''); setShowText(false); setOpen(false); }
+  function close() { onInteraction?.(); cancel(); setOpen(false); }
   async function upload(file: File) {
     cancel(); const id = generation.current; const c = new AbortController(); controller.current = c;
     setBusy(true); setError(''); setResult(null);
