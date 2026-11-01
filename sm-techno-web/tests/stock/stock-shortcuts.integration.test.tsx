@@ -19,7 +19,7 @@ it('creates a personal code, hides it on close and revokes a listed device', asy
   fireEvent.click(screen.getByRole('button', {name: 'Скопировать настройку'}));
   expect(writeText).toHaveBeenCalledWith(setup);
   expect(JSON.parse(atob(setup.slice('SMTECHNO1.'.length)))).toEqual({baseUrl: 'https://stock.example', credential: 'a'.repeat(43)});
-  expect(screen.queryByRole('link', {name: 'Установить команду на iPhone'})).toBeNull();
+  expect(screen.getByRole('link', {name: 'Установить команду на iPhone'})).toHaveAttribute('href', '/shortcuts/sm-techno-stock.shortcut');
   fireEvent.click(screen.getByRole('button', {name: 'Закрыть'}));
   expect(screen.queryByDisplayValue(setup)).toBeNull();
   expect(screen.queryByDisplayValue('a'.repeat(43))).toBeNull();

@@ -1,6 +1,6 @@
-/** The signed artifact must be added and audited before enabling its download. */
+/** Public, signed template; personal setup is provided separately. */
 export const STOCK_SHORTCUT_INSTALLER_PATH = '/shortcuts/sm-techno-stock.shortcut';
-export const STOCK_SHORTCUT_INSTALLER_AVAILABLE: boolean = false;
+export const STOCK_SHORTCUT_INSTALLER_AVAILABLE: boolean = true;
 
 export function encodeStockShortcutSetup(origin: string, credential: string): string {
   let url: URL;

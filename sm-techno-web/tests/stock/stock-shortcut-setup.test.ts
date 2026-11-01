@@ -13,8 +13,8 @@ describe('iPhone setup', () => {
   it.each(['short', 'a'.repeat(42) + '+', 'a'.repeat(44)])('rejects invalid credential', credential => {
     expect(() => encodeStockShortcutSetup('https://stock.example', credential)).toThrow();
   });
-  it('keeps the fixed download path disabled until the signed file is ready', () => {
+  it('exposes the signed installer at the fixed download path', () => {
     expect(STOCK_SHORTCUT_INSTALLER_PATH).toBe('/shortcuts/sm-techno-stock.shortcut');
-    expect(STOCK_SHORTCUT_INSTALLER_AVAILABLE).toBe(false);
+    expect(STOCK_SHORTCUT_INSTALLER_AVAILABLE).toBe(true);
   });
 });
