@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "1d7dd9be7f733e6af37ede3c58a8ae0f488cb8fc",
   "startedAt": "2026-10-30T22:00:17+03:00",
-  "updatedAt": "2026-11-01T08:35:23+03:00",
+  "updatedAt": "2026-11-01T08:58:30+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -63,8 +63,8 @@ window.STATE =
   ],
   "requirements": {
     "total": 9,
-    "done": 6,
-    "inTicket": 2,
+    "done": 7,
+    "inTicket": 1,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 1,
@@ -88,10 +88,7 @@ window.STATE =
       "wave": 1,
       "zone": [
         "stock_sync_web/assistant_extraction.py",
-        "stock_sync_web/assistant_errors.py",
-        "stock_sync_web/assistant_environment.py",
-        "stock_sync_web/assistant_office.py",
-        "stock_sync_web/assistant_converter_broker.py",
+        "document_runtime/",
         "tests/document_assistant/",
         "Dockerfile.backend",
         "compose.document-runtime.yaml",
@@ -102,13 +99,41 @@ window.STATE =
       "review": "нет — один fresh independent security review всей runtime delta",
       "model": "сильная",
       "status": "in-progress",
+      "startedAt": "2026-10-30T22:07:51+03:00",
+      "retries": 0,
+      "repairs": 0
+    },
+    {
+      "id": "F2",
+      "title": "Закрыть реальные frontend release check failures",
+      "requirements": [
+        "R01",
+        "R05"
+      ],
+      "blockedBy": [
+        "01"
+      ],
+      "wave": 2,
+      "zone": [
+        "sm-techno-web/tests/",
+        "sm-techno-web/scripts/"
+      ],
+      "review": "по фактическому риску; test-fixture-only узкий fix не требует второго whole review",
+      "model": "сильная",
+      "status": "done",
       "retries": 0,
       "repairs": 0,
-      "startedAt": "2026-10-30T22:07:51+03:00"
+      "startedAt": "2026-11-01T08:53:40+03:00",
+      "finishedAt": "2026-11-01T08:57:55+03:00",
+      "tests": {
+        "passed": 9,
+        "failed": 0
+      },
+      "commit": "29776d9"
     }
   ],
   "tests": {
-    "passed": 42,
+    "passed": 9,
     "failed": 0
   },
   "debt": {
@@ -129,11 +154,9 @@ window.STATE =
     "External resource: VPS OpenAI403 unsupported_country_region_territory; same-account local actual Terra PASS. Need owner-provided permitted egress/host; no app proxy configured. Preparation/rollback complete, no protected runtime guard weakened."
   ],
   "blind": {
-    "checked": 3,
-    "matched": 0,
-    "mismatches": [
-      "DeepSeek actual XLSX/PNG/DOCX canary: provider_auth; GET/models401, no model outputs. Downstream stock independently PASS; real document generation after extraction NOT RUN."
-    ]
+    "checked": 5,
+    "matched": 5,
+    "mismatches": []
   },
   "beats": [
     "2026-10-30T22:00:17+03:00",
@@ -154,19 +177,24 @@ window.STATE =
     "2026-11-01T08:28:19+03:00",
     "2026-11-01T08:28:20+03:00",
     "2026-11-01T08:35:22+03:00",
-    "2026-11-01T08:35:23+03:00"
+    "2026-11-01T08:35:23+03:00",
+    "2026-11-01T08:53:39+03:00",
+    "2026-11-01T08:53:40+03:00",
+    "2026-11-01T08:57:55+03:00",
+    "2026-11-01T08:58:30+03:00"
   ],
-  "rev": 22,
-  "waiting": {
-    "kind": "action",
-    "since": "2026-11-01T08:35:23+03:00",
-    "note": "DeepSeek rejects configured key: GET/models HTTP401 authentication_error; owner asked replace via protected helper. Source/image and backup checks ready, old runtime unchanged; no secret in chat."
-  },
+  "rev": 27,
+  "waiting": null,
   "waits": [
     {
       "kind": "action",
       "from": "2026-10-30T22:54:13+03:00",
       "to": "2026-11-01T08:28:19+03:00"
+    },
+    {
+      "kind": "action",
+      "from": "2026-11-01T08:35:23+03:00",
+      "to": "2026-11-01T08:53:39+03:00"
     }
   ],
   "log": [
@@ -300,6 +328,44 @@ window.STATE =
       "k": "ask",
       "kind": "action",
       "note": "DeepSeek rejects configured key: GET/models HTTP401 authentication_error; owner asked replace via protected helper. Source/image and backup checks ready, old runtime unchanged; no secret in chat."
+    },
+    {
+      "t": "2026-11-01T08:53:39+03:00",
+      "k": "answered",
+      "kind": "action"
+    },
+    {
+      "t": "2026-11-01T08:53:40+03:00",
+      "k": "tickets",
+      "n": 2
+    },
+    {
+      "t": "2026-11-01T08:53:40+03:00",
+      "k": "ticket",
+      "ids": [
+        "F2"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T08:57:55+03:00",
+      "k": "ticket",
+      "ids": [
+        "F2"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 9,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T08:58:30+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": true,
+      "checked": 5,
+      "matched": 5
     }
   ],
   "reqList": [
@@ -326,7 +392,7 @@ window.STATE =
     {
       "id": "R05",
       "text": "«DeepSeek по api», «проверить распознавание и выкатить новую версию на сервер»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R06",
@@ -370,10 +436,10 @@ window.STATE =
       "deferred": 0
     },
     "G4": {
-      "ok": false,
-      "at": "2026-11-01T08:35:23+03:00",
-      "checked": 3,
-      "matched": 0
+      "ok": true,
+      "at": "2026-11-01T08:58:30+03:00",
+      "checked": 5,
+      "matched": 5
     }
   },
   "result": null,

@@ -6,7 +6,7 @@
 | R02 | «сохранив старую версию» | done | Сохранить current52, immutable image IDs, код и защищённую runtime конфигурацию | spec.md /01 → T01 |
 | R03 | «быстро откатить на старую» | done | Проверенный code-only rollback на копии текущих данных, точные команды и замер, без старой БД поверх новых записей | spec.md /01 → T01 |
 | R04 | «резервная копия базы и файлов» | done | Согласованный backup и свежий strict verifier, restore только в пустое staging | spec.md /01 → T01 |
-| R05 | «DeepSeek по api», «проверить распознавание и выкатить новую версию на сервер» | in-ticket | По прямому дополнению владельца реальная DeepSeek inference и безопасная обработка форматов в Linux; Codex runtime сохранён selectable | spec.md /01 → T01 |
+| R05 | «DeepSeek по api», «проверить распознавание и выкатить новую версию на сервер» | done | После замены ключа5 actual synthetic calls и оба Word проверены; manager corrections сохранены, Flash подтверждена владельцем; Codex selectable | spec.md /01 → T01 |
 | R06 | «Тот же аккаунт (рекомендую)» | done | Официальный browser/device login, без паролей и токенов в чат/Git | spec.md /01 → T01 |
 | R07 | «Проверь сразу место на сервере» | done | Диск/память и безопасный бюджет без удаления чужих cache/images | spec.md /01 → T01 |
 | R08 | «подготовление не удаляй» | done | Исходные oldfeature и server-prep worktrees/bundle не меняются | spec.md /01 → T01 |
