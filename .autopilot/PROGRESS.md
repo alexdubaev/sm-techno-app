@@ -1,7 +1,7 @@
 <!-- autopilot:progress -->
 # СМ ТЕХНО — команды iPhone и второй Excel, приёмка 2026-11-01
 
-Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`: product code implemented/reviewed, local affected checks and browser downloads green. Git publication/Linux CI/merge/server release pending. Physical iPhone installation/import/share/Quick Look is NOT verified; no signed Shortcut or iCloud link is published. Old completed release details in current run carried.md; preserve prior recovery artifacts.
+Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`: main96faf42d267bd561309583ae530a2acc6a064553 deployed_verified, PR16merged, all existing Linux/main checks green, backup+code-onlyrollback verified. Server working result08:32UTC; release evidence acceptance-report.md. Physical iPhone installation/import/share/Quick Look is NOT verified; no signed Shortcut or iCloud link is published. Old completed release details in current run carried.md; preserve prior recovery artifacts.
 
 ## Договорились — не пересматривать
 
@@ -20,8 +20,8 @@
 
 ## Следующие действия и ограничения
 
-- Publish reviewed source and obtain real existing Linux checks; merge only green. Before separate server operation agree exact mainSHA/target per AGENTS and prepare fresh verifiedbackup plus code-onlyrollback on currentdata.
-- Current live at00d6152, clean and healthy, VPSfree8.0GiB at07:54UTC. No currenttaskserverchanges yet. Existing rollback artifacts remain in releases/20261030-document-workflows.
+- Выпуск exactmain96faf42 подтверждён владельцем «Да» и выполнен. Final quiescedbackup20261101T083204694777Z SHA6d305f5c… verified+emptyrestorePASS; stop-to-ready17.848s. Code-onlyrollback к00d6152 сохраняет текущие данные.
+- Currentlive96faf42 clean/healthy, registrymigrationpresent, DeepSeekFlash/converteractive, VPSfree8.1GiB. Новые release/rollback artifacts в releases/20261101-ios-shortcuts, прежние в releases/20261030-document-workflows сохранены.
 - Native action instructions docs/ios-shortcuts.md; physical first setup and safe sharing require owner iPhone. Server/API acceptance is not actualiOSPASS.
 - Suggested durable memory additions are memory-proposal.md; owner AGENTS unchanged.
 

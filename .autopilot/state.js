@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "240ef36",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T11:06:51+03:00",
+  "updatedAt": "2026-11-01T11:35:27+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -185,7 +185,7 @@ window.STATE =
     }
   ],
   "tests": {
-    "passed": 13,
+    "passed": 739,
     "failed": 0
   },
   "debt": {
@@ -237,10 +237,16 @@ window.STATE =
     "2026-11-01T11:01:42+03:00",
     "2026-11-01T11:03:20+03:00",
     "2026-11-01T11:04:04+03:00",
-    "2026-11-01T11:06:51+03:00"
+    "2026-11-01T11:06:51+03:00",
+    "2026-11-01T11:35:26+03:00",
+    "2026-11-01T11:35:27+03:00"
   ],
-  "rev": 30,
-  "waiting": null,
+  "rev": 34,
+  "waiting": {
+    "kind": "action",
+    "since": "2026-11-01T11:35:27+03:00",
+    "note": "Сервер96faf42 выпущен и проверен; нужна физическая проверка владельцем первой команды iPhone и безопасного распространения. HTTP/browser не являются iOS PASS."
+  },
   "waits": [
     {
       "kind": "briefing",
@@ -438,6 +444,24 @@ window.STATE =
       "k": "stage",
       "id": "final",
       "act": "start"
+    },
+    {
+      "t": "2026-11-01T11:35:26+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
+    },
+    {
+      "t": "2026-11-01T11:35:27+03:00",
+      "k": "tests",
+      "passed": 739,
+      "failed": 0
+    },
+    {
+      "t": "2026-11-01T11:35:27+03:00",
+      "k": "ask",
+      "kind": "action",
+      "note": "Сервер96faf42 выпущен и проверен; нужна физическая проверка владельцем первой команды iPhone и безопасного распространения. HTTP/browser не являются iOS PASS."
     }
   ],
   "reqList": [
@@ -503,5 +527,8 @@ window.STATE =
       "matched": 4
     }
   },
-  "result": null
+  "result": null,
+  "report": [
+    "Physical iPhone installation/import/share/Quick Look NOT RUN; only readable workflow provided, no signed Shortcut or iCloud link published."
+  ]
 }
