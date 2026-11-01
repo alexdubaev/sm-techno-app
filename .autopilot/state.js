@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "240ef36",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T10:39:33+03:00",
+  "updatedAt": "2026-11-01T11:06:51+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -42,26 +42,32 @@ window.STATE =
     },
     {
       "id": "plan",
-      "status": "active",
-      "startedAt": "2026-11-01T10:34:46+03:00"
+      "status": "done",
+      "startedAt": "2026-11-01T10:34:46+03:00",
+      "finishedAt": "2026-11-01T10:39:34+03:00"
     },
     {
       "id": "build",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-01T10:39:34+03:00",
+      "finishedAt": "2026-11-01T11:00:04+03:00"
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-01T11:00:04+03:00",
+      "finishedAt": "2026-11-01T11:06:51+03:00"
     },
     {
       "id": "final",
-      "status": "pending"
+      "status": "active",
+      "startedAt": "2026-11-01T11:06:51+03:00"
     }
   ],
   "requirements": {
     "total": 7,
-    "done": 0,
-    "inTicket": 7,
+    "done": 7,
+    "inTicket": 0,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -91,9 +97,16 @@ window.STATE =
       ],
       "review": "нет — одна итоговаяfreshsecurityreview включая pricing/file-boundary; не повторятьreviewформально",
       "model": "сильная — userTerra6.1",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-01T10:39:35+03:00",
+      "finishedAt": "2026-11-01T10:48:04+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 27,
+        "failed": 0
+      },
+      "commit": "e1bb5e6"
     },
     {
       "id": "02",
@@ -123,19 +136,58 @@ window.STATE =
         "tests/shortcuts/",
         "tests/auth/",
         "tests/test_auth_session_persistence.py",
-        "tests/test_vps_restore.py",
+        "tests/test_vps_backup_restore.py",
         "sm-techno-web/tests/stock/",
         "docs/ios-shortcuts.md",
         "assets/shortcuts/"
       ],
       "review": "нет — одна итоговаяfreshsecurityreviewauth/schema/restore/files без повторного whole review",
       "model": "сильная — userTerra6.1",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-01T10:48:05+03:00",
+      "finishedAt": "2026-11-01T11:00:03+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 47,
+        "failed": 0
+      },
+      "commit": "HEAD"
+    },
+    {
+      "id": "F1",
+      "title": "Исправления независимого ревью",
+      "requirements": [
+        "R02",
+        "R05",
+        "R07"
+      ],
+      "blockedBy": [],
+      "wave": 3,
+      "zone": [
+        "stock_sync_web/stock_valuation.py",
+        "tests/stock_valuation/test_valuation.py",
+        "sm-techno-web/components/stock/stock-shortcuts-panel.tsx",
+        "sm-techno-web/tests/stock/stock-shortcuts.integration.test.tsx"
+      ],
+      "review": "да — узкая проверка закрытия подтверждённых условий, не повторный whole review",
+      "model": "сильная — userTerra6.1",
+      "status": "done",
+      "retries": 0,
+      "repairs": 0,
+      "startedAt": "2026-11-01T11:01:42+03:00",
+      "finishedAt": "2026-11-01T11:04:04+03:00",
+      "tests": {
+        "passed": 13,
+        "failed": 0
+      },
+      "commit": "HEAD"
     }
   ],
-  "tests": null,
+  "tests": {
+    "passed": 13,
+    "failed": 0
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [],
@@ -151,7 +203,14 @@ window.STATE =
     ]
   },
   "concerns": [],
-  "blind": null,
+  "blind": {
+    "checked": 7,
+    "matched": 4,
+    "mismatches": [
+      "Browser two-download and no-history userpath not independently exercised yet; final isolated stock E2E pending.",
+      "Physical iPhone installation/import/shared workflow and opening Excel unverified; owner manual gate."
+    ]
+  },
   "beats": [
     "2026-11-01T10:17:16+03:00",
     "2026-11-01T10:17:18+03:00",
@@ -166,9 +225,21 @@ window.STATE =
     "2026-11-01T10:34:48+03:00",
     "2026-11-01T10:36:40+03:00",
     "2026-11-01T10:36:49+03:00",
-    "2026-11-01T10:39:33+03:00"
+    "2026-11-01T10:39:33+03:00",
+    "2026-11-01T10:39:34+03:00",
+    "2026-11-01T10:39:35+03:00",
+    "2026-11-01T10:48:04+03:00",
+    "2026-11-01T10:48:05+03:00",
+    "2026-11-01T10:57:10+03:00",
+    "2026-11-01T11:00:03+03:00",
+    "2026-11-01T11:00:04+03:00",
+    "2026-11-01T11:01:41+03:00",
+    "2026-11-01T11:01:42+03:00",
+    "2026-11-01T11:03:20+03:00",
+    "2026-11-01T11:04:04+03:00",
+    "2026-11-01T11:06:51+03:00"
   ],
-  "rev": 18,
+  "rev": 30,
   "waiting": null,
   "waits": [
     {
@@ -271,43 +342,139 @@ window.STATE =
       "t": "2026-11-01T10:39:33+03:00",
       "k": "answered",
       "kind": "plan"
+    },
+    {
+      "t": "2026-11-01T10:39:34+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T10:39:35+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T10:48:04+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 27,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T10:48:05+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T10:57:10+03:00",
+      "k": "tickets",
+      "n": 2
+    },
+    {
+      "t": "2026-11-01T11:00:03+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 47,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T11:00:04+03:00",
+      "k": "stage",
+      "id": "review",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T11:01:41+03:00",
+      "k": "tickets",
+      "n": 3
+    },
+    {
+      "t": "2026-11-01T11:01:42+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T11:03:20+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": false,
+      "checked": 7,
+      "matched": 4
+    },
+    {
+      "t": "2026-11-01T11:04:04+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 13,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T11:06:51+03:00",
+      "k": "stage",
+      "id": "final",
+      "act": "start"
     }
   ],
   "reqList": [
     {
       "id": "R01",
       "text": "«поддержка команд была на сервере»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R02",
       "text": "«настрою один раз ... передаю на другой телефон»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R03",
       "text": "«напиши ... по шагово, как настроить такую команду»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R04",
       "text": "«два варианта скачивания Excel ... один вот простой который уже реализован»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R05",
       "text": "«второй, обернутый в шаблон нашего коммерческого предложения»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R06",
       "text": "«только те позиции, которые есть на складах ... не будет пустых ... прочерков»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R07",
       "text": "«цена ... то количество, которое есть у нас на складе»",
-      "status": "in-ticket"
+      "status": "done"
     }
   ],
   "gates": {
@@ -328,6 +495,12 @@ window.STATE =
       "ok": true,
       "at": "2026-11-01T10:34:48+03:00",
       "problems": 0
+    },
+    "G4": {
+      "ok": false,
+      "at": "2026-11-01T11:03:20+03:00",
+      "checked": 7,
+      "matched": 4
     }
   },
   "result": null

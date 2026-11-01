@@ -14,6 +14,8 @@
 
 Browser endpoint existing `/api/stock/valuation/resolve`: additive `offerWorkbook: {filename,mediaType,base64}|null`, `offerExport:{includedRows,excludedNoPriceRows,warnings:string[]}`. Existing fields остаются. T02 native `/api/shortcuts/stock/intake` возвращает rows,warnings,previewText; `/resolve` accepts{rows,format:valuation|offer}, returns{workbook,warnings}, format offer+none returns422. Resolve не повторяет модель и не создаёт CP/job/files.
 
+T01 фактически выставил `async extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | None = None) -> dict` (rows/warnings), `build_valuation_result(service, rows: list[Row]) -> dict` (existing fields плюс offerWorkbook/offerExport). T02 валидирует входной JSON через Row до core call. Snapshot один lookup; price сохраняет прежний warehouse→catalog fallback, исключается effectiveprice<=0/nonfinite; qty также positivefinite. Spreadsheetrenderer title без номера, SKUtextformat@, logo/footer сохраняются. Root actualXLSX B13/B14='00123',type's',images1,2warehouserows иnoemptyproductrows verified. Bundledartifactrenderer import визуально теряет leading0 несмотря на корректный actualcell — это QAtool inference, не исправлять данные на основании этой картинки.
+
 ## Device registry / auth / restore — T02
 
 `Authorization: Shortcut <credential>` только dedicated new router, никогда не global _get_current_user. Credential only SHA256 in app_shortcut_devices; existing bearer sessions не копировать/менятьформат. Current active user+reader ACL eachrequest, own-only management. Проверять scoped auth и rate ДО multipart/body parsing; body/content-type/upload bounds и неизвестный/отозванный ключ не должны провоцировать чтение необъятного тела или модель. Subsequent requests после revoke/passwordreset/deactivate fail; in-flight boundary aligned existing auth semantics, не обещать отмену уже начатого model request.
@@ -28,8 +30,15 @@ Ready frontend cache D:/codex/sm-techno-app/sm-techno-web/node_modules. No exter
 
 One fresh independent security review entire delta, bounded fixes+narrowclosures perownerpolicy. G2 independent coverage PASS8/8, missing0/half0. G3 beforeworker. Need actual output XLSX data/styles/images/printlayout/formula-injection check; source-text assertions nottests. G4 cleanclone rawbrief, owner native iPhone installation/share/confirmation/XLSX pending until realdevice, no fabricated iCloudlink/unsignedfilepassing asinstalled.
 
+T02 testzone clerical clarification: existing restore integration module=`tests/test_vps_backup_restore.py`, replace nonexistent `tests/test_vps_restore.py` ticketpath; exact existing module authorized for approved restore-revocation checks, no scope/security change. Otherauth/migration tests can live under newtests/shortcuts as planned.
+
 ## Владение и запрет до подтверждения
 
 Root пишет `.autopilot/**`, Git, ops/handoff, не productcode. T01 product export/sharedhelpers/UI/tests. T02 newregistry/migration/restore/auth/router/UI/instructions/tests. Они последовательно и не работают по незакоммиченному parent. Перед запускомT02 root дописывает фактические interfacesT01. Никаких новых dependencies/1С/schema вне protected-plan. Worker прочитывает C:/Users/Alexandr/.codex/skills/autopilot/prompts/executor.md.
 
 APPROVED2026-11-01: пользователь «Подтверждаю план, реализуй» на exactsummary protectedplan. Реализация T01/T02 разрешена в перечисленных границах, повторное согласование того же scope не нужно. Изменение auth/API/schema/restore сверх плана — technicalruling/отдельное ownerрешение еслиmaterial. Live deployment отдельно по testedmainSHA, свежий проверенныйbackup/currentdata/code-onlyrollback. Current VPS/source00d6152 не трогать из тестов.
+
+T02 bounded technical ruling: разрешён existing Next catch-all sm-techno-web/app/api/[...path]/route.ts и узкий transport regression. Existing arrayBuffer before backend auth нарушает уже approved preauth-before-body для native upload. Scoped streaming native stock branch предпочтительнее глобального proxy refactor; preserve session/cookie/no-store/error behavior. Это устранение transport coupling в согласованном плане, не новый auth grant/ownerdecision. RealHTTP early rejection evidence обязательно; не обещать отмену всего сетевого трафика.
+
+
+T02 actual: GET/POST /api/stock/shortcut-devices; DELETE /api/stock/shortcut-devices/{id}; POST /api/shortcuts/stock/{intake,resolve}, Authorization: Shortcut credential. Dedicated scope и additive registry; staged restore revokes. Native-only NodeHTTP streaming proxy: realHTTP slowbody receives401beforeuploadend, validJSON422/no-store; это earlyresponse, не гарантия остановки клиентского трафика. UIcreate/revoke/list/showonce; readableactions docs/ios-shortcuts.md + assets/shortcuts/README.md, physicaliOS remainsmanual. Worker concern toreview: close panel duringinflightcreate may show eventual oncecode uponreopen; assess boundedfix.

@@ -1,7 +1,8 @@
 # 02 — Личное подключение iPhone и прямая выдача Excel
 **Требования:** R01, R02, R03, R04, R05, R06, R07
 **Зависит от:** 01
-**Зона:** `stock_sync_web/database.py` · `stock_sync_api.py` · `stock_sync_web/shortcut_devices.py` · `stock_sync_web/shortcut_routes.py` · `scripts/vps_restore.py` · `sm-techno-web/lib/stock-shortcuts-api.ts` · `sm-techno-web/components/stock/stock-shortcuts-panel.tsx` · `sm-techno-web/components/stock/stock-valuation-panel.tsx` · `tests/shortcuts/` · `tests/auth/` · `tests/test_auth_session_persistence.py` · `tests/test_vps_restore.py` · `sm-techno-web/tests/stock/` · `docs/ios-shortcuts.md` · `assets/shortcuts/`
+**Зона:** `stock_sync_web/database.py` · `stock_sync_api.py` · `stock_sync_web/shortcut_devices.py` · `stock_sync_web/shortcut_routes.py` · `scripts/vps_restore.py` · `sm-techno-web/lib/stock-shortcuts-api.ts` · `sm-techno-web/components/stock/stock-shortcuts-panel.tsx` · `sm-techno-web/components/stock/stock-valuation-panel.tsx` · `tests/shortcuts/` · `tests/auth/` · `tests/test_auth_session_persistence.py` · `tests/test_vps_backup_restore.py` · `sm-techno-web/tests/stock/` · `docs/ios-shortcuts.md` · `assets/shortcuts/`
+**Дополнительная зона по transport ruling:** `sm-techno-web/app/api/[...path]/route.ts` и узкий proxy regression в `sm-techno-web/tests/e2e/`.
 **Волна:** 2
 **Ревью:** нет — одна итоговаяfreshsecurityreviewauth/schema/restore/files без повторного whole review
 **Модель:** сильная — userTerra6.1

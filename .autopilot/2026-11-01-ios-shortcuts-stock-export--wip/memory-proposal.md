@@ -1,0 +1,5 @@
+- Инструкция сборки команды iPhone и ограничения проверки: `docs/ios-shortcuts.md`; описание распространяемых материалов: `assets/shortcuts/README.md`.
+- Код устройства действует только для маршрутов `/api/shortcuts/stock/intake` и `/api/shortcuts/stock/resolve`; обычный выход из браузера его не отзывает.
+- Восстановление базы отзывает подключения устройств; откат только кода сохраняет их.
+- Проверка реестра и восстановления из корня: `C:/Users/Alexandr/.codex/worktrees/f3c0/sm-techno-app/.venv/Scripts/python.exe -m pytest tests/auth/test_shortcut_devices.py tests/test_vps_backup_restore.py -q --strict-markers`.
+- Перед изменениями вне Autopilot проверять открытые задачи в `.autopilot/PROGRESS.md`.

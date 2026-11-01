@@ -1,28 +1,29 @@
 <!-- autopilot:progress -->
-# СМ ТЕХНО — серверный выпуск завершён 2026-11-01
+# СМ ТЕХНО — команды iPhone и второй Excel, приёмка 2026-11-01
 
-Развёрнут main00d61528f0c26df56e1f75de28b0d1ace8ebf78a (PR13) на /srv/sm-techno-test/app, project sm-techno-test. Backend37a83f27…/frontend4dc605fe… healthy, own converter broker active. Активный провайдер DeepSeek Flash(deepseek-flash), ключ только в protected server.env. Результат: `.autopilot/2026-10-30-server-document-deployment/acceptance-report.md`.
+Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`: product code implemented/reviewed, local affected checks and browser downloads green. Git publication/Linux CI/merge/server release pending. Physical iPhone installation/import/share/Quick Look is NOT verified; no signed Shortcut or iCloud link is published. Old completed release details in current run carried.md; preserve prior recovery artifacts.
 
 ## Договорились — не пересматривать
 
-- Артикулы загружаются в Остатках; результат временная расценка/Excel, без клиента, КП и сохранённой подборки. Резервы не учитываются.
-- КП остаётся отдельным сохраняемым клиентским процессом; КП без клиента отменено владельцем.
-- Договоры/спецификации в Документах после файла и review менеджером, доступны в полной CRM-карточке. Входной счёт DOCX; условия менеджер заполняет в Word.
-- У клиента один договор с версиями; новый клиент после подтверждения идёт через прежний путь1С. Наименование документов=document_name/full_name.
-- Владелец разрешил deploy, заменил API-ключ и подтвердил Flash. Не просить ключи в чат. Прямое переключение конфигурации, никакого автоматического fallback.
-- Старая подготовка C:/Users/Alexandr/.codex/worktrees/server-release-20261030/sm-techno-app и исходная private feature сохранены. Bundle private history не публиковать.
+- Артикулы загружаются в Остатках; временная расценка и оба Excel без клиента/КП/сохранённой подборки. Резервы не учитывать.
+- Обычный Excel сохраняется; второй по существующему шаблону КП, только однозначные товары с physicalqty>0 и finiteprice>0, все склады/цены, предупреждения без цены, без пустых товарных строк.
+- Сохраняемое КП — отдельный клиентский процесс. Договоры и спецификации — Документы с привязкой к CRM; один договор клиента с версиями; manager checks legal fields and fills conditions.
+- План scoped iPhone credential/API/registry/restore подтверждён владельцем: «Подтверждаю план, реализуй». Raw credential только один раз, общая команда без личного кода. Обычный logout не отзывает устройства; смена пароля/роли/deactivate отзывает; настоящий DBrestore отзывает, code-only update/rollback сохраняет.
+- DeepSeek Flash остаётся, ключ только server.env. Рабочую1С не использовать для тестов; document_name/full_name для документов.
+- Старые preparation/privatefeature сохранять; private history не публиковать. Необязательное обслуживание G01 отдельно.
 
-## Recovery и проверки
+## Фактические проверки
 
-- FINAL quiesced backup20261101T060408197811Z, SHAa859e168d6a8a17dd64f6fc5acd5eaaeb743c48898d4805bea5c786f9b8bf42d, verify+emptyrestorePASS. Старые source/images/config сохранены; code-only rollback на текущих данных проверен, старую DB поверх новых записей не восстанавливать.
-- Stop→verified-ready26.685s. Реальная модель проверена5syntheticcalls и Word; manager дополнял missing legal/signer/currency поля. Linux42/local35/CRM8/managerbrowser1PASS; live broker10014B и same-originhealth/authPASS. Подробности и исторические неуспешные проверки в отчёте, не подменять их одним allgreen прогоном.
-- Рабочие DB/storage/1С не использовались для тестовых записей, настройки1С,DNS/Caddy/чужие ресурсы не менялись. Финальные imageIDs, sourceSHA и rollback overrides на сервере в releases/20261030-document-workflows.
+- Root device+restore47PASS; valuation11PASS; UI fullauth189PASS/settings68PASS; types/lint exactbaselinePASS; productionbuildPASS; targeted isolated Chromium stock/proxy3PASS.
+- Single fresh security review found2defects; F1fixed, narrow closurebothclosed. Cleanclone realHTTP twoactualXLSX/revoke/scope/emptyoffer/nohistory accepted with synthetic FakeExtractor.
+- Full Windows backend suite cannot collect Linux-only broker tests (os.geteuid); existing Linux gate remains required, not fabricatedPASS. Legacy migration tarfilter checked on properPython3.13 after3.10setupfailure.
 
-## Не вошло и ограничения
+## Следующие действия и ограничения
 
-- G01 — необязательная очистка служебного файла после редкого отказа удаления отложена владельцем.
-- Codex runtime сохранён как опция; прежний OpenAI403 на VPS egress не устранён, активному DeepSeek не мешает. Системный DNS вне HTTP socket watchdog.
-- Прежние dev-only npm advisories и наблюдение React duplicate job keys остаются отдельным обслуживанием, подтверждённого нового сбоя нет.
+- Publish reviewed source and obtain real existing Linux checks; merge only green. Before separate server operation agree exact mainSHA/target per AGENTS and prepare fresh verifiedbackup plus code-onlyrollback on currentdata.
+- Current live at00d6152, clean and healthy, VPSfree8.0GiB at07:54UTC. No currenttaskserverchanges yet. Existing rollback artifacts remain in releases/20261030-document-workflows.
+- Native action instructions docs/ios-shortcuts.md; physical first setup and safe sharing require owner iPhone. Server/API acceptance is not actualiOSPASS.
+- Suggested durable memory additions are memory-proposal.md; owner AGENTS unchanged.
 
 ## Правки без автопилота
 
