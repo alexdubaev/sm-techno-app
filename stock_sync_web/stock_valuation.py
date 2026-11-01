@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 from starlette.concurrency import run_in_threadpool
 
 from stock_sync_web.assistant_extraction import (CodexDocumentExtractor, DocumentSourceReader,
-    ExtractionError, ExtractionRequest, FORMATS, validate_payload)
+    ExtractionError, ExtractionRequest, FORMATS, validate_payload, create_document_extractor)
 from stock_sync_web.assistant_service import _extraction_slots, require_document_reader
 from stock_sync_web.assistant_storage import UploadLimits
 from stock_sync_web.service import CLIENT_PRICE_TEMPLATE_PATH
@@ -204,7 +204,7 @@ def create_stock_valuation_router(current_user, get_service) -> APIRouter:
                         raise HTTPException(429, 'Распознавание занято. Повторите попытку позже.')
                     try:
                         texts, images = DocumentSourceReader(limits).read(source, workspace)
-                        return CodexDocumentExtractor().extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
+                        return create_document_extractor(codex_factory=CodexDocumentExtractor).extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
                     finally:
                         _extraction_slots.release()
                 result = await run_in_threadpool(extract_source)

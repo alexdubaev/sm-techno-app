@@ -60,8 +60,8 @@ class DocumentAssistantService:
         self.repository=repository or AssistantRepository(service.db)
         self.store=store or LocalPrivateDocumentStore(service.document_storage_dir/'client_assets',service._storage_operation_root())
         self.limits=limits or UploadLimits()
-        from stock_sync_web.assistant_extraction import CodexDocumentExtractor, DocumentSourceReader
-        self.extractor=extractor or CodexDocumentExtractor()
+        from stock_sync_web.assistant_extraction import create_document_extractor, DocumentSourceReader
+        self.extractor=extractor or create_document_extractor()
         self.source_reader=source_reader or DocumentSourceReader(self.limits)
 
     def intake(self,actor,kind,file):

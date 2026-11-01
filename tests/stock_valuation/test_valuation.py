@@ -149,3 +149,18 @@ def test_intake_transient_result_and_owned_runtime(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.json()['rows'] == [{'article':'00123', 'requestedQty':None, 'sourceRow':1}]
     assert not observed['root'].exists()
+
+
+def test_stock_intake_uses_deepseek_when_selected(monkeypatch, tmp_path):
+    import tempfile
+    from stock_sync_web.assistant_deepseek import DeepSeekDocumentExtractor
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    monkeypatch.setenv('DOCUMENT_ASSISTANT_PROVIDER', 'deepseek')
+    monkeypatch.setattr(tempfile, 'tempdir', str(tmp_path))
+    def extract(self, request, *, temp_root=None):
+        assert request.texts == ['00123'] and temp_root.exists()
+        return ExtractionResult('articles', {'rows':[{'article':'00123','requested_qty':None,'source_row':1}]})
+    monkeypatch.setattr(DeepSeekDocumentExtractor, 'extract', extract)
+    app = FastAPI(); app.include_router(create_stock_valuation_router(lambda: {'id': 1, 'role': 'user'}, lambda: Service()))
+    response = TestClient(app).post('/api/stock/valuation/intake', files={'file': ('list.txt', b'00123', 'text/plain')})
+    assert response.status_code == 200 and response.json()['rows'][0]['article'] == '00123'
