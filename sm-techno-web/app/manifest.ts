@@ -10,7 +10,9 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#F5F7FA",
     theme_color: "#07162E",
     lang: "ru",
+    share_target: { action: "/stock-share/receive", method: "POST", enctype: "multipart/form-data", params: { title: "title", text: "text", files: [{ name: "file", accept: ["image/*", ".pdf", ".txt", ".csv", ".tsv", ".xls", ".xlsx", ".doc", ".docx", ".rtf", ".odt"] }] } },
     icons: [
+      { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
       {
         src: "/icon.png",
         sizes: "256x256",

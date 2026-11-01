@@ -44,3 +44,63 @@ T02 bounded technical ruling: разрешён existing Next catch-all sm-techno
 T02 actual: GET/POST /api/stock/shortcut-devices; DELETE /api/stock/shortcut-devices/{id}; POST /api/shortcuts/stock/{intake,resolve}, Authorization: Shortcut credential. Dedicated scope и additive registry; staged restore revokes. Native-only NodeHTTP streaming proxy: realHTTP slowbody receives401beforeuploadend, validJSON422/no-store; это earlyresponse, не гарантия остановки клиентского трафика. UIcreate/revoke/list/showonce; readableactions docs/ios-shortcuts.md + assets/shortcuts/README.md, physicaliOS remainsmanual. Worker concern toreview: close panel duringinflightcreate may show eventual oncecode uponreopen; assess boundedfix.
 
 Current placement after ownerG02: Settingsroot sharedpersonalentry with reusedStockShortcutsPanel; adminlanding/usercounts onlyisAdmin, users/1Сchildgates unchanged. StockValuationPanel no devicecontrols. No API/session/registry/schema/dependency changes. UIreviewclean455448d; obsolete role-gate fixture corrected437adb9, fullauth189PASS. PR18 main8498dc4. PhysicalShortcut gate unchanged.
+
+## G05 — общий intake и Android, фиксируемые границы
+
+Base0c20786, nativeiPhone115/2Excel/backendscope выше сохраняются. Рабочий каталог D:/codex-android-stock-intake-20261101. Notes android-notes.md, rawbrief2026-11-01-android-intake-brief.md. Productcode только после protectedplan; никаких новых npm/pip/runtime dependencies, migrations/backendsettings или1С.
+
+- StockValuationPanel владеет selectedsource (file/text), ручным recognition, reviewrows и result; новый источник очищает stale rows/output. Text→UTF8 File.txt→intakeValuation existingFileAPI, size25MiB/text256KiB, legacyform/drop остаётся. Обычный clipboard paste, без permissions dependency.
+- Новый scoped transport: public/stock-share/worker.js, scope /stock-share/, POST /stock-share/receive (fallback Next route с bodyunused), GET /stock-share/capability {version:1}/no-store. Manifest один share_target multipart POST file/text/title; title не payload. Worker никогда не cache/authproxy/intakecall и не intercept outsideprefix.
+- Session observer размещается отдельным child внутри AuthProvider в app/layout.tsx; useAuth и существующее storage читаются без изменения coreAuthProvider/login/logout/sessionformat. В worker только hashedsession+actor, не токен. Metadata-only persistence, payload onlyRAM120s/onepending. Claim nonce cryptorandom128bits+, one-use, URL толькоnonce/фиксированный errorcode, очистить share-query послеclaim. Без filename/code/data в URL/log.
+- Claim: только sameoriginWindowClient с stockpath /stock (root '/' redirect /manager не consumer), текущий server-validatedowner и неизменная сессия. На API401/login/userchange никаких прежних filetitles/previews; discard+resend. Ownerupdate/cleanup guarded против позднего oldsession, logout clears только matchingowner, не чужуюновуюсессию. Несовпадение/повтор/expiry не возвращает payload.
+- Serviceworker active через registration.statechange, не navigator.serviceWorker.ready (обычныйroot не controlled). Front ownerhint ACK before reporting ready. Boundedrequestreader26MiB before formData; 25MiBfile/256KiBtext,1file. Clone File в message, consumeатомарно доответа; waitUntil завершается приclaim/cancel/timeout, без обещания сохранности приOSkill. Oldmarker404/410/versionmismatch failclosed+ownunregister, offline transienterror; boundedtimeout на marker/registration/messages.
+- Tests предпочитают реальные Request/FormData/stream и ChromiumSW/IndexedDB с syntheticactor, не sourcegrep. Ownership/races/rollback критичны. UI tests actualinput→review→bothdownloads; unitfewunique validationboundaries. RealAndroidWebAPK не эмулируется PASS; владелец согласился проверить.
+- ReadyPython3.10 как выше; frontendnode_modules copycacheD:/codex/sm-techno-app без junction. npmtest:auth:e2e толькоallowlist иSM_TECHNO_TEST_PYTHON, никакойserver.env/realaccount/DeepSeekkey. Types/lint:ci/build onfinalsource; no giantnewmatrix. Existing mandatoryCI/release safeguards unchanged.
+- Root owns AP/architecture/Git/ops. OnefreshTerra6.1executor fullfrontend+tests+documentation zone, no nestedagents; reviewfresh afteritscommit. Nocode writes before user acceptsprotectedplan. NewbackendAPIs/schema/credentials/additionaldata persistence require separate technicalruling/ownerplan, notsilentexecutorchange.
+- Installability: manifest добавить настоящий192PNG route app/icon-192.png/route.ts (NextImageResponse техническое масштабирование существующего public/icon-512.png в192x192 без смены жёлтогоPWAбренда/новыхdeps; favicon.svg другой голубой знак и не подходит); actualPNG dimensions и existing512 проверить. Не переименовывать приложение/start_url/id, не добавлять rootworker радиinstallprompt.
+- UI auth seam: new StockValuationEntry in components/stock/stock-valuation-entry.tsx owns sharequery/fresh-currentuser claim and passes optional receivedsource/error props to StockValuationPanel. StockPage changes only import/mount of entry. Panel remains auth-agnostic/testable by existing direct tests; registration observer stock-share-session-bridge.tsx is a separate AuthProviderchild in rootlayout. Internal helper names can be resolved by singleexecutor, actualinterfaces report required.
+- Auth observer lifecycle ruling: ordinary navigation/unmount with the SAME storedsession must not clear ownerhint/pending (Androidintent may replace the document). Cleanup clears oldowner only when storedsession disappeared/changed, and conditionalworker owner-match protects newerlogin. Before lateasyncSYNC re-read currentstorage and requirecapturedsession+user stillmatch; no pagehide/visibility clear pretendinglogout. This preserves realauth-boundary semantics without losing legitimatecoldstart handoff.
+
+
+### Название, добавленное владельцем
+R14: «Поделиться СМ ТЕХНО» на iPhone и Android. До решения по Android не менять name/short_name наугад: отдельного share_target label нет. Нельзя использовать params.title как label. iPhone подписанный asset сохранять; предпочтительно проверить корректную выдачу имени загрузки с UTF-8 Content-Disposition, сохранив старый URL. Расширение T03 на download route/установочную ссылку и узкие тесты допускается после фиксации решения, без изменения native workflow graph, credentials или API обработки. Защищённый план Android по-прежнему ожидает подтверждения.
+
+
+### Закрытие вопроса об имени Android
+Владелец: «Не тогда делай как проще, без переименования». Android: сохранить текущие manifest name/short_name и имя установленного PWA; системная подпись share-пункта допустима, отдельное действие с новым label не создавать. iPhone: ранее заданное «Поделиться СМ ТЕХНО» сохраняется. Это закрывает только развилку R14, не подтверждает пока не отвеченный защищённый план передачи приватных файлов.
+
+
+### Продолжение разработки разрешено
+Защищённый план android-protected-plan.md теперь APPROVED: владелец после предъявления плана и закрытия имени прямо требует продолжить работу. Не требовать ещё одного формального «да». Дополнительных полномочий на деплой/расширение хранения/изменение backend или схемы нет. R14 закрыт существующим Android именем и новым именем iPhone команды.
+
+
+## T03 фактический результат
+Общий source→explicit recognition→review→existing2Excel, scoped /stock-share/worker.js, POSTreceive/GETcapability, AuthProvider child observer и StockValuationEntry. Payload RAM; IDB owner metadata actor/hash/updated/version. iPhone installer /shortcuts/download с новым именем, исходные подписанные байты неизменны. Android имя манифеста сохранено. 390px визуально проверен root: элементы читаемы, навигация/карточки сохранены. Auth+stock73PASS, invalid/revoked-session узкие Chromium closuresPASS; finalbuild/lint PASS; root final tsc exit0 (worker filename лога отсутствовал, отсутствие не выдано за evidence). TTL/rollback/latesync lifecycle ещё нуждаются в проверке review, физические AndroidOSshare/iPhoneimport остаются NOTRUN.
+
+
+## Whole-review 11f9f24: обязательный bounded repair F2
+Независимое review выявило смену owner при чтении stream, lateclaim после ручногоисточника, неверную tabcreation ordering, недостающие worker headers и проверки criticalrecovery. Исправление в рамках прежнего approvedprivatehandoff; scope/permissions/data model не расширяются. Условия дословно tickets/F2-android-share-boundaries.md. Нельзя публиковать до устранения/проверки. Старый F1 предыдущего этапа не переписывать. Ownerpolicy: одна independent whole-review, boundedfix и narrow closure, без второй whole-review формальности.
+
+
+## F2 closure evidence
+Owner snapshot/revision до чтения stream; atomic owner CAS и guard текущей сохранённой сессии; lateclaim отменяется пользовательским source/close. Worker отдельные CSP self-only/no-store/nosniff без ослабления globals. Узкие tests actualworker Request/ReadableStream с управляемым временем: delayedbody A→B, CAS, TTL, cancel, logout, rollback/unregister — 2PASS root closure; UI4PASS, bridge2PASS, Chromium5PASS, final types exit0/lint/build PASS. Harness в tests/stock-share-worker.test.mjs включён существующим node --test tests/*.test.mjs без новойCI. Физические AndroidOSshare/iPhoneimport NOTRUN. Одна independentreview выполнена, boundedfindings закрыты проверками без второй whole-review.
+
+
+## Независимая приёмка из чистого clone 8484079
+Чистый clone с копией готового dependencycache (не выдаём за freshnpmci); npm test:auth:e2e allowlist/syntheticdata. Существующие два UIсценария2PASS; дополнительный disposableprobe3PASS: actualclipboard tab/newline неизменны в multipart File, photo PNGbytes/filename неизменны, реальный binaryFile черезbrowserworker сохраняетbytes/name. Все три без modelrequest до явнойкнопки. OCR/resolve подставлены на frontendboundary: это не liveDeepSeek и не доказательство содержимогоExcel; backend unchanged и ранее проверен отдельно. Probe/logprivate сохранены, cloneclean. AndroidOSshare и iPhoneимя/115runtime не выдаются заPASS; G4текущего расширения5/7, эти две физические проверкиоткрыты.
+
+
+## G06 owner UIsteering R15
+Текущий source34dd215 в PR25; новая правка только panel toggle/default/layout и affectedtests. Normal stock collapsed; expand/collapse доступен, три source actions equaldimensions/twoequalcolumns; external receivedsource autoopens как прежде, manualcollapse invalidates lateclaim. No API/auth/protocol/storage/permission changes. Исполнитель existingTerra context по smallknownpolicy, одна narrowverification + finalproductionbuild на изменённомUI. Кандидатсервер8484079 после этой UIправки считается прежним, нужно пересобрать доfinalSHA; deployнеразрешён.
+
+
+## T04 фактическое UIповедение и проверки
+1694f64: normalcollapsed Развернуть/Свернуть aria-expanded, receivedshare autoopens, threeequalbuttons/twoequalcolumns. Root просмотрел оба actual390скриншота: нет clippedlabels, свернутыйблокоставляет больше местаостаткам. AffectedVitest5PASS, Chromium2PASS + screenshotonlynarrow1PASS, types0/lint/buildPASS. Никаких изменений auth/protocol/worker/backend. ПоследнийE2E снова сгенерировалnext-env (a419 вместоce4), root Gitrestore только own generatedfile кtrackedHEAD, не выдал утверждениеработника о cleanfile зафакт. Source1694 требует нового frontendкандидата и CI текущейветки; предыдущий848образ сохранён. Повторныйwhole-review и broadlocalchecks без новойпричины не запускались.
+
+
+### T04 closure: сворачивание сохраняет работу
+Бывший close() стирал source/text/rows/result. Для нового «Свернуть» исправлено: отменить inflight и lateclaim, скрыть панель, сохранить draft/review/result в памяти до ухода со страницы/новогоисточника/authunmount. NarrowVitest5PASS включая file/textretention, types0/lint/buildPASS (f3-ui-preserve-* logs). Layoutunchanged, прежние390screens актуальны. R15 verified worker+root; не выдавать эту smallUIпроверку за отдельныйblindrun. G4 counts возвращены7/5 для действительно независимого Androidрасширения; R15 отдельно affectedtests/visual по smallchangepolicy. Новыйsource требует финального frontendimage послеmerge, промежуточныеобразы сохраняем.
+
+
+### T04 CI selector closure — test-only
+ПолныйCI be041: backendPASS; fullauthbrowser64PASS/6SKIP/2FAIL. Новый screenshotready wait `.getByText(...).first()` наdesktop выбрал скрытуюmobileкарточку; это ошибочный testlocator. Исправлен толькоtests/e2e/stock-valuation.spec.ts: пересечение с :visible сохраняет ожидание реально видимойпозиции. Existingaffectedscenario на390/1280/1600 —3PASS черезnpmallowlist, f3-ui-ci-selector.log. Appsource0bec неизменен, его productionbuild/types/lint остаются действующими evidence; широкиеlocalchecks/whole-review не повторяются. НовыйCI обязателен передmerge; не выдаём прежнийкрасныйпрогон заPASS.

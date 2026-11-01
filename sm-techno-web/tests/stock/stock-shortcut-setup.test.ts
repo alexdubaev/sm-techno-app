@@ -14,7 +14,7 @@ describe('iPhone setup', () => {
     expect(() => encodeStockShortcutSetup('https://stock.example', credential)).toThrow();
   });
   it('exposes the signed installer at the fixed download path', () => {
-    expect(STOCK_SHORTCUT_INSTALLER_PATH).toBe('/shortcuts/sm-techno-stock.shortcut');
+    expect(STOCK_SHORTCUT_INSTALLER_PATH).toBe('/shortcuts/download');
     expect(STOCK_SHORTCUT_INSTALLER_AVAILABLE).toBe(true);
   });
 });

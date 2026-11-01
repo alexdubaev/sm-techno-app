@@ -1,31 +1,34 @@
 <!-- autopilot:progress -->
-# СМ ТЕХНО — команды iPhone и второй Excel, приёмка 2026-11-01
+# СМ ТЕХНО — мобильный ввод и Android, приёмка 2026-11-01
 
-Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`: live maince3f260d41e0143c16eee5e99796a65950052ed1 deployed_verified (PR23). Исправлен nativeIf, новая подписанная115action-команда; Clipboard write теперь с правдивым успехом/ошибкой. Backend4726d4da без перезапуска, frontend0a4b4b11; local/PR/main и HTTPShealth/publicinstaller SHA PASS. Прежняя111action-команда получила actualphonevalidationFAIL; новая115 ещё NOT RUN на iPhone. Доказательства native-condition-release.md; приёмка открыта, старые подготовки сохранены.
+Текущий прогон `.autopilot/2026-11-01-ios-shortcuts-stock-export--wip/`. Реализация Android/frontend в commits11f9f24+8484079; UIsteering1694f64 + preserve-draft closure (normalcollapsed, equal2columns). PR25. Local checks и independent review с bounded F2 закрыты. PR/merge/deploy ещё не выполнены на момент этой записи; точный live ce3f260, оба сервиса healthy. Прогон остаётся открытым для физических телефонов.
 
 ## Договорились — не пересматривать
 
-- Настройка личного подключения iPhone расположена в Настройках, доступна сотрудникам; admin users/1С остаются ограничены. В Остатках настройки телефонов больше нет.
-- Артикулы загружаются в Остатках; временная расценка и оба Excel без клиента/КП/сохранённой подборки. Резервы не учитывать.
-- Обычный Excel сохраняется; второй по существующему шаблону КП, только однозначные товары с physicalqty>0 и finiteprice>0, все склады/цены, предупреждения без цены, без пустых товарных строк.
-- Сохраняемое КП — отдельный клиентский процесс. Договоры и спецификации — Документы с привязкой к CRM; один договор клиента с версиями; manager checks legal fields and fills conditions.
-- План scoped iPhone credential/API/registry/restore подтверждён владельцем: «Подтверждаю план, реализуй». Raw credential только один раз, общая команда без личного кода. Обычный logout не отзывает устройства; смена пароля/роли/deactivate отзывает; настоящий DBrestore отзывает, code-only update/rollback сохраняет.
-- DeepSeek Flash остаётся, ключ только server.env. Рабочую1С не использовать для тестов; document_name/full_name для документов.
-- Старые preparation/privatefeature сохранять; private history не публиковать. Необязательное обслуживание G01 отдельно.
+- В Остатках блок по умолчанию свёрнут, Развернуть/Свернуть без потери текущего черновика/результата; внутри три равные кнопки в двух колонках: вставить список, фото/скриншот, файл/drop; источник → явное распознавание → проверка/правка → оба Excel. Без клиента, сохранённой подборки/КП/истории и резервов.
+- Обычный Excel и второй по существующему шаблону КП сохраняются; наличие и положительная цена, все склады/цены, предупреждения без цены. Настоящее сохраняемое КП — отдельный клиентский процесс.
+- Android имя приложения и системный share-пункт остаются «СМ ТЕХНО»; iPhone команда «Поделиться СМ ТЕХНО». Личное подключение iPhone остаётся в Настройках, admin users/1С права прежние.
+- Документы/договор/спецификация в Документах с CRM-привязкой; один договор клиента с версиями, менеджер проверяет реквизиты и сам заполняет условия. document_name/full_name для документов.
+- Android scopedworker только /stock-share/, payload RAM/одноразово120с, служебный ownerhash metadata без rawtoken/files. Выход/смена сессии/ошибка/expiry отбрасывают передачу; после нового входа переслать заново. Никакого фонового распознавания.
+- DeepSeek Flash/ключ только server.env. Не использовать рабочую1С в тестах. Старые подготовки/образы/backup сохранять; G01 обслуживание отдельно.
+- Merge не означает deploy. Новая версия выпускается отдельно по точному mainSHA с проверенным backup и code-onlyrollback, текущаяБД/подключения сохраняются.
 
 ## Фактические проверки
 
-- Root device+restore47PASS; valuation11PASS; UI fullauth189PASS/settings68PASS; types/lint exactbaselinePASS; productionbuildPASS; targeted isolated Chromium stock/proxy3PASS.
-- Single fresh security review found2defects; F1fixed, narrow closurebothclosed. Cleanclone realHTTP twoactualXLSX/revoke/scope/emptyoffer/nohistory accepted with synthetic FakeExtractor.
-- Full Windows backend suite cannot collect Linux-only broker tests (os.geteuid); existing Linux gate remains required, not fabricatedPASS. Legacy migration tarfilter checked on properPython3.13 after3.10setupfailure.
+- Local auth+stock73PASS; F2 worker actualRequest/ReadableStream/time2PASS, UI4PASS, bridge2PASS, Chromium5PASS; final types/lint exactbaseline/build PASS. One fresh whole-review, boundedfix, narrowclosure; второй whole-review не запускался.
+- Independent cleanclone browser2+3PASS: file/review/downloadUI и paste/photo/actualbinaryFile browserworker; входящие filename/bytes проверены, noOCR beforebutton. Backend OCR/Excel в этих сценариях mocked; liveDeepSeek/настоящий AndroidOSintent не тестировались.
+- Test-only CIselector closure: new `.first()` wait был привязан к скрытомуmobileDOM наdesktop; corrected visiblelocator, affectedscenario390/1280/1600 —3PASS. НовыйCIpending, appsource unchanged.
+- UIsteering1694: affectedVitest5PASS/Chromium2PASS/types/lint/buildPASS; defaultcollapsed/toggle/sourceautoopen/equalbuttons проверены.
+- 390px визуально проверен root: три действия и source/recognize читаемы, существующие карточки/навигация сохранены.
+- Предыдущие backend/auth/device/restore/XLSX evidence сохранены в carried и native-condition-release.md. Новый backend/schema/1С не менялся.
 
 ## Следующие действия и ограничения
 
-- Выпуск exactmain96faf42 подтверждён владельцем «Да» и выполнен. Final quiescedbackup20261101T083204694777Z SHA6d305f5c… verified+emptyrestorePASS; stop-to-ready17.848s. Code-onlyrollback к00d6152 сохраняет текущие данные.
-- Currentlivece3f260 clean/healthy; backend без перезапуска, converter active, VPSfree8.4GiB. Последний release/rollback: releases/20261101-shortcut-condition-repair; предыдущийfrontend34232 сохранён, старые artifacts не удалялись.
-- Последний backup20261101T125832584366Z SHAc61fc984… strictverify/emptyrestorePASS. Switch-to-ready8.001s, serveroperation9.773s; измеренная нижняя граница всей подготовки/проверок/публикации/выпуска38м52с. Code-onlyrollback сохраняет данные и подключения.
-- Простая инструкция docs/ios-shortcuts.md и готовый файл /shortcuts/sm-techno-stock.shortcut опубликованы. Первый setup/import/share/Excel требует iPhone владельца; server acceptance не равен iOS runtime PASS.
-- Suggested durable memory additions are memory-proposal.md; owner AGENTS unchanged.
+- Завершить PR/main и подготовку frontendrelease; запросить один раз exactmainSHAdeploy после готового backup/rollback. Текущий сервер ce3f260 не переключён.
+- R11: физический AndroidChromePWA «Поделиться» с настоящим вложением — NOTRUN; владелец подтвердил, что Android найдётся.
+- R14: импорт iPhoneкоманды с новым именем и native115 runtime — NOTRUN. Предыдущая111 дала actualphonevalidationFAIL, новая115 уже опубликована вce3, физическаяприёмка открыта. Signedbytes неизменны, новыйroute только downloadname.
+- G4 текущего расширения5/7, физические проверки не скрывать за браузернымPASS. Нужные phonechecks после доступного выпуска; ключи/коды в чат не запрашивать.
+- Latest подготовка/backup дляAndroid в private releasehandoff; старыйrollback ce3→ab40776 и artifacts предыдущихвыпусков сохранены.
 
 ## Правки без автопилота
 

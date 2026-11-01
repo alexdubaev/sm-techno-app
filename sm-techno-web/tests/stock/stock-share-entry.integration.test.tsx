@@ -1,0 +1,26 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, expect, it, vi } from 'vitest';
+import { StockValuationEntry } from '@/components/stock/stock-valuation-entry';
+import * as share from '@/lib/stock-share';
+vi.mock('@/components/auth-provider', () => ({useAuth: () => ({user:{id:1}})}));
+vi.mock('@/lib/stock-share', () => ({currentOwner:vi.fn(), shareWorker:vi.fn(), messageWorker:vi.fn()}));
+vi.mock('@/lib/stock-valuation-api', () => ({intakeValuation:vi.fn(), resolveValuation:vi.fn()}));
+beforeEach(() => { window.history.replaceState({}, '', `/stock?share=${'a'.repeat(32)}`); });
+it.each(['manual', 'close'])('a late claim cannot overwrite %s user action', async action => {
+  const owner={actor:1,hash:'hash',version:1 as const,updated:1};
+  vi.mocked(share.currentOwner).mockResolvedValue(owner);
+  vi.mocked(share.shareWorker).mockResolvedValue({} as ServiceWorker);
+  let finish!: (value:{ok:boolean;payload:File}) => void;
+  const result=new Promise<{ok:boolean;payload:File}>(resolve => {finish=resolve;});
+  vi.mocked(share.messageWorker).mockReturnValue(result);
+  render(<StockValuationEntry />);
+  await waitFor(() => expect(share.messageWorker).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({type:'claim'})));
+  fireEvent.click(screen.getByRole('button',{name:'Развернуть'}));
+  if (action === 'manual') fireEvent.change(screen.getByLabelText('Выбрать файл с артикулами'),{target:{files:[new File(['own'],'manual.txt')]}});
+  else fireEvent.click(screen.getByRole('button',{name:'Свернуть'}));
+  finish({ok:true,payload:new File(['shared'],'late.txt')});
+  await waitFor(() => expect(share.currentOwner).toHaveBeenCalledTimes(3));
+  expect(screen.queryByText(/late.txt/)).not.toBeInTheDocument();
+  if (action === 'manual') expect(screen.getByText(/manual.txt/)).toBeVisible();
+  else expect(screen.getByRole('button',{name:'Развернуть'})).toBeVisible();
+});
