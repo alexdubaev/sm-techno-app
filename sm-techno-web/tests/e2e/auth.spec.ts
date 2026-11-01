@@ -81,18 +81,33 @@ test("login survives reload, logout revokes the captured server session", async 
   expect(rejected.status()).toBe(401);
 });
 
-test("ordinary user is denied admin routes while admin has a positive control", async ({ page }) => {
+test("ordinary user is denied admin routes while admin has a positive control", async ({ page, request }) => {
   await login(page, "operator", OPERATOR_PASSWORD);
 
+  const operator = await apiLogin(request, "operator", OPERATOR_PASSWORD);
+  for (const path of ["/api/users", "/api/settings/system"]) {
+    expect((await request.get(path, { headers: { Authorization: `Bearer ${operator.token}` } })).status()).toBe(403);
+  }
   await page.goto("/settings");
-  await expect(page.getByText("Этот раздел доступен только администратору приложения.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Команды iPhone" })).toBeVisible();
+  await page.getByRole("button", { name: "Команды iPhone" }).click();
+  await expect(page.getByLabel("Название устройства")).toBeVisible();
+  for (const path of ["/settings/users", "/settings/onec"]) {
+    await page.goto(path);
+    await expect(page.getByText("Этот раздел доступен только администратору приложения.")).toBeVisible();
+  }
   await page.goto("/work-with-price");
   await expect(page.getByText("Этот раздел доступен только администратору приложения.")).toBeVisible();
 
   await logoutViaUI(page);
   await login(page, "admin", ADMIN_PASSWORD);
+  const admin = await apiLogin(request, "admin", ADMIN_PASSWORD);
+  for (const path of ["/api/users", "/api/settings/system"]) {
+    expect((await request.get(path, { headers: { Authorization: `Bearer ${admin.token}` } })).status()).toBe(200);
+  }
   await page.goto("/settings");
   await expect(page.getByRole("heading", { name: "Настройки", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Команды iPhone" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Пользователи.*Учетные записи/ })).toHaveAttribute("href", "/settings/users");
   await expect(page.getByRole("link", { name: /Интеграция с 1С.*Подключение/ })).toHaveAttribute("href", "/settings/onec");
 });

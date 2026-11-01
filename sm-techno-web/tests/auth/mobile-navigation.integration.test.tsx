@@ -72,14 +72,14 @@ describe('responsive AppShell navigation', () => {
     expect(navigation).toHaveAttribute('data-item-count', '5');
   });
 
-  it('omits settings instead of leaving an empty primary slot for a user', () => {
+  it('shows personal settings in primary navigation for a user', () => {
     renderShell({ isAdmin: false }, '/');
 
     const navigation = screen.getByLabelText('Основная навигация');
     expect(
-      within(navigation).queryByRole('link', { name: 'Настройки' }),
-    ).not.toBeInTheDocument();
-    expect(navigation).toHaveAttribute('data-item-count', '4');
+      within(navigation).getByRole('link', { name: 'Настройки' }),
+    ).toBeInTheDocument();
+    expect(navigation).toHaveAttribute('data-item-count', '5');
   });
 
   it('does not duplicate the administrator settings link in the More drawer', async () => {
