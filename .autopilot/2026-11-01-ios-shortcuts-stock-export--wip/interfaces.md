@@ -72,3 +72,19 @@ R14: «Поделиться СМ ТЕХНО» на iPhone и Android. До ре�
 
 ### Продолжение разработки разрешено
 Защищённый план android-protected-plan.md теперь APPROVED: владелец после предъявления плана и закрытия имени прямо требует продолжить работу. Не требовать ещё одного формального «да». Дополнительных полномочий на деплой/расширение хранения/изменение backend или схемы нет. R14 закрыт существующим Android именем и новым именем iPhone команды.
+
+
+## T03 фактический результат
+Общий source→explicit recognition→review→existing2Excel, scoped /stock-share/worker.js, POSTreceive/GETcapability, AuthProvider child observer и StockValuationEntry. Payload RAM; IDB owner metadata actor/hash/updated/version. iPhone installer /shortcuts/download с новым именем, исходные подписанные байты неизменны. Android имя манифеста сохранено. 390px визуально проверен root: элементы читаемы, навигация/карточки сохранены. Auth+stock73PASS, invalid/revoked-session узкие Chromium closuresPASS; finalbuild/lint PASS; root final tsc exit0 (worker filename лога отсутствовал, отсутствие не выдано за evidence). TTL/rollback/latesync lifecycle ещё нуждаются в проверке review, физические AndroidOSshare/iPhoneimport остаются NOTRUN.
+
+
+## Whole-review 11f9f24: обязательный bounded repair F2
+Независимое review выявило смену owner при чтении stream, lateclaim после ручногоисточника, неверную tabcreation ordering, недостающие worker headers и проверки criticalrecovery. Исправление в рамках прежнего approvedprivatehandoff; scope/permissions/data model не расширяются. Условия дословно tickets/F2-android-share-boundaries.md. Нельзя публиковать до устранения/проверки. Старый F1 предыдущего этапа не переписывать. Ownerpolicy: одна independent whole-review, boundedfix и narrow closure, без второй whole-review формальности.
+
+
+## F2 closure evidence
+Owner snapshot/revision до чтения stream; atomic owner CAS и guard текущей сохранённой сессии; lateclaim отменяется пользовательским source/close. Worker отдельные CSP self-only/no-store/nosniff без ослабления globals. Узкие tests actualworker Request/ReadableStream с управляемым временем: delayedbody A→B, CAS, TTL, cancel, logout, rollback/unregister — 2PASS root closure; UI4PASS, bridge2PASS, Chromium5PASS, final types exit0/lint/build PASS. Harness в tests/stock-share-worker.test.mjs включён существующим node --test tests/*.test.mjs без новойCI. Физические AndroidOSshare/iPhoneimport NOTRUN. Одна independentreview выполнена, boundedfindings закрыты проверками без второй whole-review.
+
+
+## Независимая приёмка из чистого clone 8484079
+Чистый clone с копией готового dependencycache (не выдаём за freshnpmci); npm test:auth:e2e allowlist/syntheticdata. Существующие два UIсценария2PASS; дополнительный disposableprobe3PASS: actualclipboard tab/newline неизменны в multipart File, photo PNGbytes/filename неизменны, реальный binaryFile черезbrowserworker сохраняетbytes/name. Все три без modelrequest до явнойкнопки. OCR/resolve подставлены на frontendboundary: это не liveDeepSeek и не доказательство содержимогоExcel; backend unchanged и ранее проверен отдельно. Probe/logprivate сохранены, cloneclean. AndroidOSshare и iPhoneимя/115runtime не выдаются заPASS; G4текущего расширения5/7, эти две физические проверкиоткрыты.

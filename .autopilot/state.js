@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "7d42a9cd3ac79826cedaa9bbd001acd68c129061",
   "startedAt": "2026-11-01T10:17:16+03:00",
-  "updatedAt": "2026-11-01T18:12:49+03:00",
+  "updatedAt": "2026-11-01T18:35:03+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -42,26 +42,32 @@ window.STATE =
     },
     {
       "id": "plan",
-      "status": "active",
-      "startedAt": "2026-11-01T17:05:27+03:00"
+      "status": "done",
+      "startedAt": "2026-11-01T17:05:27+03:00",
+      "finishedAt": "2026-11-01T18:12:51+03:00"
     },
     {
       "id": "build",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-01T18:12:51+03:00",
+      "finishedAt": "2026-11-01T18:23:18+03:00"
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-01T18:23:18+03:00",
+      "finishedAt": "2026-11-01T18:35:03+03:00"
     },
     {
       "id": "final",
-      "status": "pending"
+      "status": "active",
+      "startedAt": "2026-11-01T18:35:03+03:00"
     }
   ],
   "requirements": {
     "total": 14,
-    "done": 7,
-    "inTicket": 7,
+    "done": 12,
+    "inTicket": 2,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -184,9 +190,16 @@ window.STATE =
       ],
       "review": "нет — одна итоговаяfreshsecurityreview всего нового slice, без дублирующего pointreview",
       "model": "сильная — ранее выбранная владельцем Terra6.1",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-01T18:12:51+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "finishedAt": "2026-11-01T18:35:03+03:00",
+      "tests": {
+        "passed": 73,
+        "failed": 0
+      },
+      "commit": "11f9f24416fd"
     },
     {
       "id": "F1",
@@ -216,10 +229,47 @@ window.STATE =
         "failed": 0
       },
       "commit": "HEAD"
+    },
+    {
+      "id": "F2",
+      "title": "Устранить конкретные нарушения приватной передачи Android",
+      "requirements": [
+        "R08",
+        "R11",
+        "R12i",
+        "R13i"
+      ],
+      "blockedBy": [
+        "03"
+      ],
+      "wave": 5,
+      "zone": [
+        "sm-techno-web/public/stock-share/worker.js",
+        "sm-techno-web/lib/stock-share.ts",
+        "sm-techno-web/components/stock/stock-share-session-bridge.tsx",
+        "sm-techno-web/components/stock/stock-valuation-entry.tsx",
+        "sm-techno-web/components/stock/stock-valuation-panel.tsx",
+        "sm-techno-web/next.config.ts",
+        "sm-techno-web/tests/stock/",
+        "sm-techno-web/tests/e2e/stock-share.spec.ts",
+        "docs/android-stock-share.md"
+      ],
+      "review": "нет — одно whole-review завершено; после bounded fixes узкие поведенческие closure checks по ownerpolicy, без повторного whole-review",
+      "model": "сильная — Terra6.1",
+      "status": "done",
+      "retries": 0,
+      "repairs": 0,
+      "startedAt": "2026-11-01T18:25:49+03:00",
+      "finishedAt": "2026-11-01T18:35:03+03:00",
+      "tests": {
+        "passed": 2,
+        "failed": 0
+      },
+      "commit": "8484079e6af1"
     }
   ],
   "tests": {
-    "passed": 739,
+    "passed": 2,
     "failed": 0
   },
   "debt": {
@@ -237,7 +287,14 @@ window.STATE =
     ]
   },
   "concerns": [],
-  "blind": null,
+  "blind": {
+    "checked": 7,
+    "matched": 5,
+    "mismatches": [
+      "R11: browser File/text PASS; Android OS Share/WebAPK requires physical phone",
+      "R14: download filename/unchanged signed bytes PASS; imported iPhone name requires phone"
+    ]
+  },
   "beats": [
     "2026-11-01T10:17:16+03:00",
     "2026-11-01T10:17:18+03:00",
@@ -280,9 +337,13 @@ window.STATE =
     "2026-11-01T17:09:34+03:00",
     "2026-11-01T17:10:17+03:00",
     "2026-11-01T18:12:48+03:00",
-    "2026-11-01T18:12:49+03:00"
+    "2026-11-01T18:12:49+03:00",
+    "2026-11-01T18:12:51+03:00",
+    "2026-11-01T18:23:18+03:00",
+    "2026-11-01T18:25:49+03:00",
+    "2026-11-01T18:35:03+03:00"
   ],
-  "rev": 55,
+  "rev": 65,
   "waiting": null,
   "waits": [
     {
@@ -634,6 +695,77 @@ window.STATE =
       "g": "G3",
       "ok": true,
       "problems": 0
+    },
+    {
+      "t": "2026-11-01T18:12:51+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T18:12:51+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T18:23:18+03:00",
+      "k": "stage",
+      "id": "review",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T18:25:49+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-01T18:25:49+03:00",
+      "k": "ticket",
+      "ids": [
+        "F2"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T18:35:03+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 73,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T18:35:03+03:00",
+      "k": "ticket",
+      "ids": [
+        "F2"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 2,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-01T18:35:03+03:00",
+      "k": "stage",
+      "id": "final",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-01T18:35:03+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": false,
+      "checked": 7,
+      "matched": 5
     }
   ],
   "reqList": [
@@ -675,17 +807,17 @@ window.STATE =
     {
       "id": "R08",
       "text": "«реализуем экран, как ты придумал» — «Вставить список»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R09",
       "text": "«реализуем экран, как ты придумал» — «Фото / скриншот»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R10",
       "text": "«реализуем экран, как ты придумал» — «Выбрать файл»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R11",
@@ -695,12 +827,12 @@ window.STATE =
     {
       "id": "R12i",
       "text": "(подразумевается) вложение получает только текущий авторизованный менеджер",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R13i",
       "text": "(подразумевается) ошибки передачи не подменяют файл названием и дают путь восстановления",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R14",
@@ -726,6 +858,12 @@ window.STATE =
       "ok": true,
       "at": "2026-11-01T18:12:49+03:00",
       "problems": 0
+    },
+    "G4": {
+      "ok": false,
+      "at": "2026-11-01T18:35:03+03:00",
+      "checked": 7,
+      "matched": 5
     }
   },
   "result": null,
