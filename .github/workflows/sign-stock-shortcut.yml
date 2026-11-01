@@ -28,6 +28,8 @@ jobs:
         run: |
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$INPUT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$SOURCE_SHA" == 5690ee5ccf1cfaa270bab9ec5c3632a164bfeaed ]]
+          [[ "$INPUT_SHA256" == 222fa7570209cd7d0d2ad64e91f1aef06d57040df3b3a475d3a00365f4dcf0ed ]]
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.source_sha }}
