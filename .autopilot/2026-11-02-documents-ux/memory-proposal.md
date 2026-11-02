@@ -16,7 +16,7 @@
 - Боковое меню: `sm-techno-web/components/app-shell.tsx`, виден только с `2xl` (≥1536px), ниже — мобильные `MobileBottomNav`/`MobileMoreMenu`; тест `sm-techno-web/tests/auth/desktop-sidebar-menu.integration.test.tsx`.
 - Не трогать в `handleGroupClick` (`app-shell.tsx`): `router.` и формулу `current.expandedGroupLabel === group.label ? '' : group.label`, их проверяют `tests/test_documents_navigation_ui.py` и `sm-techno-web/tests/navigation-links.test.mjs`; пункты меню остаются `<Link href={item.href}>`.
 - Стили кнопок и общих блоков (`app-notice`, `app-dropzone`, `app-segmented`, `app-steps`, `app-nav-collapse`) — только в `sm-techno-web/app/globals.css`; варианты кнопки — модификаторы `.app-action-button--secondary|--danger`, занятость — `aria-busy="true"` (спиннер).
-- Подводный камень: правило `button, input, select { font: inherit }` в `sm-techno-web/app/globals.css` стоит вне слоя и перекрывает размеры шрифта Tailwind на кнопках; размер задавать через `.app-action-button--xs|sm|md|lg|xl`.
+- Подводный камень: правило `button, input, select { font: inherit }` в `sm-techno-web/app/globals.css` стоит вне слоя и перекрывает размеры шрифта Tailwind на кнопках; размер задавать через `.app-action-button--xs|sm|md|lg|xl`. Так же вне слоя стоит `a { color: inherit }`: цвет текста Tailwind на `<Link>` перекрывается, нужен `!` (пример — одиночная группа меню).
 
 ## Правка без автопилота
 - Перед правкой прочитать `.autopilot/PROGRESS.md`; после правки добавить строку в его раздел «Правки без автопилота».
