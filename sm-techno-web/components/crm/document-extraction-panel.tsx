@@ -58,6 +58,8 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
   const [error,setError]=useState<string | null>(null);
   const [revision,setRevision]=useState(0);
   const [startedAt,setStartedAt]=useState<Record<string,number>>({});
+  // Name of the file each job of this session recognises: after a replacement it shows what is being read now.
+  const [fileNames,setFileNames]=useState<Record<string,string>>({});
   const selectionTouched=useRef(false);
   const activeCallback=useRef(onActiveJobChange);
   const announced=useRef<string | null>(null);
@@ -95,6 +97,7 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
       setAssetId(source);
       const next=await startDocumentAssistantJob({kind,...(clientId===undefined ? {} : {clientId}),assetIds:[source]});
       setStartedAt((current) => ({...current,[next.id]:Date.now()}));
+      if(chosen) setFileNames((current) => ({...current,[next.id]:chosen.name}));
       update(next); setSelected(next.id); announce(next); setFile(null); setAssetId(null); setRevision((current) => current+1);
     } catch(failure: unknown) {
       setError(message(failure));
@@ -113,13 +116,14 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
   function restart(current: DocumentAssistantJob) {
     setBusy(true);setError(null);
     void startDocumentAssistantJob({kind:current.kind,...(current.clientId===null ? {} : {clientId:current.clientId}),assetIds:current.assetIds})
-      .then((next) => {setStartedAt((value) => ({...value,[next.id]:Date.now()}));update(next);setSelected(next.id);announce(next);},(failure: unknown) => setError(message(failure)))
+      .then((next) => {setStartedAt((value) => ({...value,[next.id]:Date.now()}));setFileNames((value) => value[current.id] ? {...value,[next.id]:value[current.id]} : value);update(next);setSelected(next.id);announce(next);},(failure: unknown) => setError(message(failure)))
       .finally(() => setBusy(false));
   }
   // In autoStart mode the button only appears for a retry: from the saved file, or the chosen file whose upload failed.
   const retryUpload=autoStart && assetId===null && file!==null && !busy;
   const showSubmit=!autoStart || assetId!==null || retryUpload;
   const compact=Boolean(job) && !busy && !dragging;
+  const jobFileName=job ? fileNames[job.id] : undefined;
   const confirmedActionLabel=job ? confirmedActionLabels[job.kind] : undefined;
   const title=purpose==='invoice' ? 'Счёт для спецификации' : purpose==='requisites' ? 'Реквизиты клиента' : 'Распознать документ клиента';
   return <section aria-label="Распознавание документов" className={card}>
@@ -134,6 +138,7 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
       <label className={`app-dropzone min-w-0 ${compact ? 'app-dropzone--compact' : ''} ${busy ? 'cursor-progress' : 'cursor-pointer'}`} data-dragging={dragging ? 'true' : 'false'} aria-busy={busy || undefined}>
         <span className={`flex shrink-0 items-center justify-center rounded-full bg-white text-[var(--brand-dark)] shadow-[0_2px_8px_rgba(7,22,46,0.08)] ${compact ? 'h-8 w-8' : 'h-10 w-10'}`} aria-hidden="true">{busy ? <span className="app-spinner" /> : <Upload className={compact ? 'h-4 w-4' : 'h-5 w-5'} />}</span>
         <span className="text-sm font-semibold text-[var(--text-primary)]">{busy ? 'Загружаем файл…' : dragging ? 'Отпустите файл здесь' : compact ? 'Другой файл — перетащите сюда' : 'Перетащите файл сюда'}</span>
+        {compact && !file && jobFileName ? <span className="max-w-full truncate text-xs font-semibold text-[var(--text-primary)]" title={jobFileName}>Файл: {jobFileName}</span> : null}
         {!busy ? <span className="app-action-button app-action-button--secondary min-h-9 rounded-[10px] px-3 text-xs" aria-hidden="true">Выбрать файл</span> : null}
         <input key={revision} aria-label="Документ или фото для распознавания" className="sr-only" type="file" required={!autoStart && assetId===null && !file} disabled={busy} accept={kind==='invoice' ? '.docx' : '.docx,.doc,.rtf,.odt,.xlsx,.xls,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.heic,.heif'} onChange={(event) => choose(event.target.files?.[0] ?? null)} />
         <span className={`max-w-full break-words text-xs text-[var(--text-secondary)] ${compact && !file ? 'sr-only' : ''}`}>{file ? `Выбран: ${file.name}. ` : ''}{kind==='invoice' ? 'Исходный счёт — DOCX.' : 'Word, OpenDocument, Excel, CSV/TSV, текст, PDF или фото.'} До 25 МБ; до 100 страниц и 40 млн пикселей. Оригинал сохраняется.</span>

@@ -315,8 +315,9 @@ export function AppShell({ children }: ShellProps) {
 }
 
 function navGroupClassName(active: boolean, expanded: boolean) {
+  // `!`: the global unlayered `a { color: inherit }` outranks layered utilities, and a single-item group renders as a link.
   const toneClass = active
-    ? 'bg-[var(--brand-dark)] text-white shadow-[0_12px_24px_rgba(7,22,46,0.14)]'
+    ? 'bg-[var(--brand-dark)] text-white! shadow-[0_12px_24px_rgba(7,22,46,0.14)]'
     : expanded
       ? 'bg-[#F1F4F9] text-[var(--text-primary)] hover:bg-[#EBEFF5]'
       : 'bg-transparent text-[var(--text-primary)] hover:bg-[#F1F4F9]';

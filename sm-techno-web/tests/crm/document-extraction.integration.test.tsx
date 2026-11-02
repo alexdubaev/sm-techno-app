@@ -146,3 +146,22 @@ it('keeps the explicit upload button on /clients: choosing a file does not uploa
   expect(api.uploadClientDocumentAsset).not.toHaveBeenCalled();
   expect(api.uploadDocumentAssistantIntake).not.toHaveBeenCalled();
 });
+
+it('names the file being recognised in the compact file zone after it is replaced',async () => {
+  vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[job]});
+  vi.mocked(api.fetchDocumentAssistantJob).mockReturnValue(new Promise(() => undefined));
+  vi.mocked(api.uploadDocumentAssistantIntake).mockReset().mockResolvedValueOnce({id:31} as Awaited<ReturnType<typeof api.uploadDocumentAssistantIntake>>).mockResolvedValueOnce({id:32} as Awaited<ReturnType<typeof api.uploadDocumentAssistantIntake>>);
+  vi.mocked(api.startDocumentAssistantJob).mockReset().mockResolvedValueOnce({...job,id:'first-file',status:'running',result:null}).mockResolvedValueOnce({...job,id:'second-file',status:'running',result:null});
+  render(<DocumentExtractionPanel purpose="requisites" autoStart />);
+  expect(await screen.findByText('Другой файл — перетащите сюда')).toBeVisible();
+  const input=() => screen.getByLabelText('Документ или фото для распознавания');
+  await userEvent.upload(input(),new File(['first'],'first.pdf',{type:'application/pdf'}));
+  await waitFor(() => expect(api.startDocumentAssistantJob).toHaveBeenCalledTimes(1));
+  await userEvent.upload(input(),new File(['second'],'requisites.pdf',{type:'application/pdf'}));
+  await waitFor(() => expect(api.startDocumentAssistantJob).toHaveBeenCalledTimes(2));
+  await screen.findByText('Другой файл — перетащите сюда');
+  const name=await screen.findByText('Файл: requisites.pdf');
+  expect(name).toBeVisible();
+  expect(name.closest('.sr-only')).toBeNull();
+  expect(screen.queryByText(/first\.pdf/)).not.toBeInTheDocument();
+});
