@@ -1203,6 +1203,26 @@ export function StockPage() {
                 <span className="max-[359px]:hidden">В наличии</span>
               </label>
             </div>
+            <div className="mt-3 border-t border-[var(--border-color)] pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleClientPriceExport();
+                }}
+                disabled={!priceLoaded || isExportingClientPrice}
+                aria-busy={isExportingClientPrice}
+                aria-describedby="mobile-client-price-hint"
+                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-4 py-3 text-[14px] font-semibold leading-5 text-[var(--brand-dark)] transition-colors hover:bg-[#FFF8D9] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-dark)] active:bg-[#FFF3BD] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <DocumentIcon aria-hidden="true" className="h-5 w-5 shrink-0 stroke-[1.8]" />
+                {isExportingClientPrice
+                  ? CLIENT_PRICE_LOADING_LABEL
+                  : CLIENT_PRICE_LABEL}
+              </button>
+              <p id="mobile-client-price-hint" className="mt-2 text-center text-[12px] leading-4 text-[var(--text-secondary)]">
+                Excel с учётом выбранных фильтров
+              </p>
+            </div>
           </section>
 
           <section className="mt-3">{renderMobileResults()}</section>
