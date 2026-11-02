@@ -118,3 +118,31 @@ it('hides the duplicate use-confirmed action when the host moves on by itself',a
   expect(await screen.findByText('Поля проверены и сохранены')).toBeVisible();
   expect(screen.queryByRole('button',{name:'Использовать проверенные реквизиты'})).not.toBeInTheDocument();
 });
+
+it('lets the same file be sent again with one action after its upload failed in autoStart mode',async () => {
+  vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[]});
+  vi.mocked(api.uploadDocumentAssistantIntake).mockReset().mockRejectedValueOnce(new Error('Сеть недоступна')).mockResolvedValueOnce({id:23} as Awaited<ReturnType<typeof api.uploadDocumentAssistantIntake>>);
+  vi.mocked(api.startDocumentAssistantJob).mockReset().mockResolvedValue({...job,id:'retry-upload',status:'running',result:null});
+  render(<DocumentExtractionPanel purpose="requisites" autoStart />);
+  const file=new File(['synthetic requisites'],'requisites.txt',{type:'text/plain'});
+  await userEvent.upload(screen.getByLabelText('Документ или фото для распознавания'),file);
+  expect(await screen.findByText('Сеть недоступна')).toHaveClass('app-notice--error');
+  expect(api.startDocumentAssistantJob).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button',{name:'Повторить загрузку файла'}));
+  await waitFor(() => expect(api.startDocumentAssistantJob).toHaveBeenCalledWith({kind:'requisites',assetIds:[23]}));
+  expect(api.uploadDocumentAssistantIntake).toHaveBeenCalledTimes(2);
+  expect(api.uploadDocumentAssistantIntake).toHaveBeenLastCalledWith(file,'requisites');
+});
+
+it('keeps the explicit upload button on /clients: choosing a file does not upload it by itself',async () => {
+  vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[]});
+  vi.mocked(api.uploadDocumentAssistantIntake).mockReset();
+  vi.mocked(api.uploadClientDocumentAsset).mockReset();
+  render(<DocumentExtractionPanel clientId={42} />);
+  expect(await screen.findByRole('button',{name:'Загрузить и распознать'})).toBeVisible();
+  await userEvent.upload(screen.getByLabelText('Документ или фото для распознавания'),new File(['x'],'r.txt',{type:'text/plain'}));
+  expect(screen.getByText(/Выбран: r.txt/)).toBeVisible();
+  await new Promise((resolve) => setTimeout(resolve,50));
+  expect(api.uploadClientDocumentAsset).not.toHaveBeenCalled();
+  expect(api.uploadDocumentAssistantIntake).not.toHaveBeenCalled();
+});

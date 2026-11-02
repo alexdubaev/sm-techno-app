@@ -96,7 +96,11 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
       const next=await startDocumentAssistantJob({kind,...(clientId===undefined ? {} : {clientId}),assetIds:[source]});
       setStartedAt((current) => ({...current,[next.id]:Date.now()}));
       update(next); setSelected(next.id); announce(next); setFile(null); setAssetId(null); setRevision((current) => current+1);
-    } catch(failure: unknown) {setError(message(failure));}
+    } catch(failure: unknown) {
+      setError(message(failure));
+      // A fresh input lets the same file be picked again; the retry button below also resends it.
+      if(autoStart) setRevision((current) => current+1);
+    }
     finally {setBusy(false);}
   }
   function choose(next: File | null) {
@@ -112,7 +116,9 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
       .then((next) => {setStartedAt((value) => ({...value,[next.id]:Date.now()}));update(next);setSelected(next.id);announce(next);},(failure: unknown) => setError(message(failure)))
       .finally(() => setBusy(false));
   }
-  const showSubmit=!autoStart || assetId!==null;
+  // In autoStart mode the button only appears for a retry: from the saved file, or the chosen file whose upload failed.
+  const retryUpload=autoStart && assetId===null && file!==null && !busy;
+  const showSubmit=!autoStart || assetId!==null || retryUpload;
   const compact=Boolean(job) && !busy && !dragging;
   const confirmedActionLabel=job ? confirmedActionLabels[job.kind] : undefined;
   const title=purpose==='invoice' ? 'Счёт для спецификации' : purpose==='requisites' ? 'Реквизиты клиента' : 'Распознать документ клиента';
@@ -132,7 +138,7 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
         <input key={revision} aria-label="Документ или фото для распознавания" className="sr-only" type="file" required={!autoStart && assetId===null && !file} disabled={busy} accept={kind==='invoice' ? '.docx' : '.docx,.doc,.rtf,.odt,.xlsx,.xls,.csv,.tsv,.txt,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.heic,.heif'} onChange={(event) => choose(event.target.files?.[0] ?? null)} />
         <span className={`max-w-full break-words text-xs text-[var(--text-secondary)] ${compact && !file ? 'sr-only' : ''}`}>{file ? `Выбран: ${file.name}. ` : ''}{kind==='invoice' ? 'Исходный счёт — DOCX.' : 'Word, OpenDocument, Excel, CSV/TSV, текст, PDF или фото.'} До 25 МБ; до 100 страниц и 40 млн пикселей. Оригинал сохраняется.</span>
       </label>
-      {showSubmit ? <button type="submit" className={primaryAction} disabled={busy} {...busyProps(busy)}>{busy ? 'Загружаем…' : assetId!==null ? 'Повторить запуск из сохранённого файла' : 'Загрузить и распознать'}</button> : null}
+      {showSubmit ? <button type="submit" className={primaryAction} disabled={busy} {...busyProps(busy)}>{busy ? 'Загружаем…' : assetId!==null ? 'Повторить запуск из сохранённого файла' : retryUpload ? 'Повторить загрузку файла' : 'Загрузить и распознать'}</button> : null}
     </form>
     {error ? <p role="alert" className="app-notice app-notice--error">{error}</p> : null}
     {jobs.length ? <label className={fieldLabel}>Сохранённые задания<select className={control} value={selected ?? ''} onChange={(event) => {selectionTouched.current=true;const next=jobs.find((item) => item.id===event.target.value) ?? null;setSelected(next?.id ?? null);announce(next);}}>{selected===null ? <option value="">Выберите задание</option> : null}{jobs.map((item) => <option key={item.id} value={item.id}>{kinds[item.kind]} · {new Date(item.createdAt).toLocaleString('ru-RU')} · {statuses[item.status]}</option>)}</select></label> : null}

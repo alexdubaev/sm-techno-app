@@ -23,21 +23,31 @@ const modes: {view: View; label: string; Icon: typeof FileText}[]=[
 ];
 const failureText=(failure: unknown,fallback: string) => failure instanceof Error ? failure.message : fallback;
 
-/** Moves focus to the block of a newly reached step, so the manager does not have to scroll. */
+/**
+ * Moves focus to the block of a newly reached step, so the manager does not have to scroll.
+ * The block may appear later than the step itself (it waits for the client documents), so the
+ * step stays pending until its block is in the DOM.
+ */
 function useFocusNextStep(root: React.RefObject<HTMLElement | null>,view: View,step: DocumentStep | null) {
   const previous=useRef<string | null>(null);
+  const pending=useRef<string | null>(null);
   useEffect(() => {
     const key=step ? `${view}:${step}` : null;
     const before=previous.current;
+    if(key===before) return;
     previous.current=key;
-    if(!key || !before || before===key || !before.startsWith(`${view}:`)) return;
-    if(step!=='client' && step!=='document' && step!=='done') return;
+    pending.current=key && before?.startsWith(`${view}:`) && (step==='client' || step==='document' || step==='done') ? key : null;
+  },[view,step]);
+  // Runs after every render: the pending block is focused as soon as it is rendered.
+  useEffect(() => {
+    if(!pending.current || pending.current!==`${view}:${step}`) return;
     const target=root.current?.querySelector<HTMLElement>(`[data-view="${view}"] [data-step-anchor="${step}"]`);
     if(!target) return;
+    pending.current=null;
     const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     target.scrollIntoView?.({block:'start',behavior:reduced ? 'auto' : 'smooth'});
     target.focus({preventScroll:true});
-  },[root,view,step]);
+  });
 }
 
 export default function DocumentsWorkspace() {

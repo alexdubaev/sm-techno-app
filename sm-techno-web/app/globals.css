@@ -315,6 +315,11 @@ select {
   border-color: #9fb0c6;
 }
 
+/* Keyboard focus on the hidden file input: same yellow ring as the buttons. */
+.app-dropzone:focus-within {
+  box-shadow: 0 0 0 3px rgba(255, 196, 0, 0.35);
+}
+
 .app-dropzone--compact {
   display: flex;
   flex-wrap: wrap;

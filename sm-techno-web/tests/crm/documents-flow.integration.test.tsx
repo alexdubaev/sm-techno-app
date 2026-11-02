@@ -1,9 +1,10 @@
-import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {beforeEach, expect, it, vi} from 'vitest';
 import DocumentsWorkspace from '@/components/documents/documents-workspace';
 import type {ClientDocumentsSummary, DocumentAssistantJob} from '@/lib/types';
 import * as api from '@/lib/api';
+import * as workflows from '@/lib/document-workflows-api';
 
 vi.mock('@/components/app-shell',()=>({AppShell:({children}:{children:React.ReactNode}) => <>{children}</>}));
 vi.mock('@/components/auth-provider',()=>({useAuth:()=>({isAdmin:false})}));
@@ -109,4 +110,38 @@ it('moves the step bar on when the running job reaches review',async()=>{
   expect(stepState('Файл')).toBe('current');
   await waitFor(()=>expect(stepState('Проверка')).toBe('current'),{timeout:4000});
   expect(stepState('Файл')).toBe('done');
+});
+
+it('scrolls to and focuses the contract form once the bound client documents have loaded',async()=>{
+  const scrolled=vi.fn();
+  Element.prototype.scrollIntoView=function(this:Element){scrolled(this);} as never;
+  const unbound={...requisites,clientId:null};
+  window.history.replaceState(null,'','/documents?contractJob=contract-job');
+  vi.mocked(api.fetchDocumentAssistantJob).mockResolvedValue(unbound);
+  vi.mocked(workflows.matchDocumentClient).mockResolvedValueOnce({status:'matched',candidates:[{clientId:42,documentName:'ООО Проверено',inn:'7701234567',kpp:'770101001',contract:null}]});
+  vi.mocked(workflows.bindDocumentClient).mockResolvedValueOnce({...requisites,version:5});
+  let loaded:(value:ClientDocumentsSummary)=>void=()=>undefined;
+  vi.mocked(api.fetchClientDocuments).mockImplementation(()=>new Promise((resolve)=>{loaded=resolve;}));
+  render(<DocumentsWorkspace/>);
+  fireEvent.click(await screen.findByRole('button',{name:/ООО Проверено.*подтвердить/}));
+  await waitFor(()=>expect(api.fetchClientDocuments).toHaveBeenCalledWith(42));
+  await act(async()=>{loaded(summary(null));});
+  const heading=await screen.findByRole('heading',{name:'Договор из проверенных реквизитов'});
+  await waitFor(()=>expect(heading).toHaveFocus());
+  expect(scrolled).toHaveBeenCalledWith(heading);
+});
+
+it('scrolls to and focuses the result after the contract is generated',async()=>{
+  const scrolled=vi.fn();
+  Element.prototype.scrollIntoView=function(this:Element){scrolled(this);} as never;
+  window.history.replaceState(null,'','/documents?contractJob=contract-job');
+  vi.mocked(api.fetchDocumentAssistantJob).mockResolvedValue(requisites);
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(null));
+  vi.mocked(api.confirmDocumentAssistantJob).mockResolvedValue({job:requisites,resultType:'document',resultId:20,clientId:42});
+  render(<DocumentsWorkspace/>);
+  fireEvent.change(await screen.findByLabelText('Номер формируемого договора'),{target:{value:'Д-2'}});
+  fireEvent.click(screen.getByRole('button',{name:'Сформировать договор'}));
+  const heading=await screen.findByRole('heading',{name:'Договор сформирован'});
+  await waitFor(()=>expect(heading).toHaveFocus());
+  expect(scrolled).toHaveBeenCalledWith(heading);
 });
