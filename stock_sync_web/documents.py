@@ -686,7 +686,7 @@ def generate_invoice_specification(*,template_path,output_path,number,document_d
     fill(signature[2].findall('w:tc',_WORD_NS)[1],legal['signer_position'])
     cell=signature[3].findall('w:tc',_WORD_NS)[1]
     paragraphs=cell.findall('w:p',_WORD_NS)
-    fill(paragraphs[0],'______________ / '+format_person_short_name(legal['signer_name'])+' /')
+    fill(paragraphs[0],'______________ / '+(legal.get('signer_short_name') or format_person_short_name(legal['signer_name']))+' /')
     with ZipFile(template_path) as source,ZipFile(output_path,'w') as target:
         for entry in source.infolist():
             target.writestr(entry,etree.tostring(root,xml_declaration=True,encoding='UTF-8',standalone=True) if entry.filename=='word/document.xml' else source.read(entry.filename))

@@ -85,6 +85,22 @@ def test_review_preserves_printed_forms_and_clears_completed_missing_fields():
     assert 'signer_name_genitive' not in raw['payload']
 
 
+def test_specification_uses_reviewed_initials_from_canonical_contract(api, monkeypatch):
+    from tests.document_assistant.test_specifications import setup_invoice, generate
+    http, _, users, cid = api
+    invoice, _ = setup_invoice(api, monkeypatch)
+    job, _ = requisites(http, users, monkeypatch, cid=cid)
+    corrected = {**job['result']['payload'], 'signer_short_name': 'Иванов И. И.',
+                 'contract_number': 'Д-37', 'contract_date': '2026-10-30'}
+    response = confirm(http, users, job, 'generate_contract', corrected, key='reviewed-initials-contract')
+    assert response.status_code == 200, response.text
+    specification = generate(api, invoice)
+    assert specification.status_code == 200, specification.text
+    word = Document(BytesIO(http.get(f"/api/documents/{specification.json()['id']}/download", headers=users['alice']['headers']).content))
+    signature = '\n'.join(cell.text for table in word.tables for row in table.rows for cell in row.cells)
+    assert 'Иванов И. И.' in signature
+
+
 @pytest.mark.parametrize('name, expected', [
     ('Заздравных Алексей Юрьевич', 'Заздравных Алексея Юрьевича'),
     ('Черных Анна Сергеевна', 'Черных Анны Сергеевны'),
