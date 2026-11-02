@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 
 import { useAuth } from "@/components/auth-provider";
 import { AppShell } from "@/components/app-shell";
+import { WarehouseClientPriceToggle } from "@/components/stock/warehouse-client-price-toggle";
 import {
   ResizableTableHeader,
   useResizableColumns,
@@ -1344,7 +1345,7 @@ function WorkWithPriceAdminPage() {
               )
             : null}
 
-          <aside className="flex min-h-0 flex-col gap-2 xl:sticky xl:top-2 xl:max-h-[calc(100dvh-0.75rem)] xl:self-start xl:overflow-auto">
+          <aside className="flex min-h-0 min-w-0 flex-col gap-2 xl:sticky xl:top-2 xl:max-h-[calc(100dvh-0.75rem)] xl:self-start xl:overflow-auto">
             <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -1526,7 +1527,7 @@ function WorkWithPriceAdminPage() {
                     </h2>
                     <p className="mt-1 text-[9px] text-[var(--text-secondary)]">
                       {isWarehouseSettingsExpanded
-                        ? "Добавляйте и удаляйте локальные склады. В 1С они не отправляются."
+                        ? "Управляйте складами и выбирайте, какие включать в клиентский прайс."
                         : "Разверните блок, чтобы управлять локальными складами."}
                     </p>
                   </div>
@@ -1563,9 +1564,10 @@ function WorkWithPriceAdminPage() {
                     <div className="mt-1.5 space-y-1">
                       {warehouses.length > 0 ? (
                         warehouses.map((warehouse) => (
-                          <div
+                          <fieldset
                             key={warehouse.id}
-                            className="flex items-center justify-between gap-2 rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-2.5 py-2"
+                            aria-label={`Склад ${warehouse.name}`}
+                            className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-[10px] border border-[var(--border-color)] bg-[#FCFDFE] px-2.5 py-2"
                           >
                             {warehouseBeingRenamed?.id === warehouse.id ? (
                               <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -1591,13 +1593,16 @@ function WorkWithPriceAdminPage() {
                               </div>
                             ) : (
                               <>
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex-1 basis-56">
                                   <div className="truncate text-[11px] font-semibold text-[var(--text-primary)]">
                                     {warehouse.name}
                                   </div>
                                   <div className="text-[9px] text-[var(--text-secondary)]">
                                     ID: {warehouse.id}
                                   </div>
+                                  <WarehouseClientPriceToggle warehouse={warehouse} disabled={isBusy}
+                                    onBusyChange={setIsBusy}
+                                    onSaved={(updated) => setWarehouses((current) => current.map((row) => row.id === updated.id ? updated : row))} />
                                 </div>
                                 <div className="flex shrink-0 gap-1.5">
                                   <button type="button" disabled={isBusy} onClick={() => setWarehouseBeingRenamed({ id: warehouse.id, name: warehouse.name })} className="app-action-button app-action-button--xs">
@@ -1609,7 +1614,7 @@ function WorkWithPriceAdminPage() {
                                 </div>
                               </>
                             )}
-                          </div>
+                          </fieldset>
                         ))
                       ) : (
                         <div className="rounded-[10px] border border-dashed border-[var(--border-color)] bg-[#FBFCFE] px-3 py-3 text-[10px] text-[var(--text-secondary)]">

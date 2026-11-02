@@ -17,6 +17,12 @@ from stock_sync_desktop.onec_api import OneCClient, OneCClientError, OneCCounter
 from stock_sync_desktop.database import resolve_db_path
 from stock_sync_web.database import WebDatabase
 from stock_sync_web.settings import DEFAULT_SETTINGS
+from stock_sync_web.warehouse_client_price import (
+    SETTING_PREFIX as WAREHOUSE_CLIENT_PRICE_PREFIX,
+    decorate_warehouses,
+    filter_client_price_rows,
+    set_client_price,
+)
 from stock_sync_web.vps_integrity import STORAGE_STAGING_DIR_NAME, storage_operation_lock
 
 CLIENT_PRICE_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templates" / "client_price_template.xlsx"
@@ -102,7 +108,8 @@ class WebStockSyncService:
 
     def get_system_settings(self) -> dict[str, str]:
         current = DEFAULT_SETTINGS.copy()
-        current.update(self.db.get_settings())
+        current.update({key: value for key, value in self.db.get_settings().items()
+                        if not key.startswith(WAREHOUSE_CLIENT_PRICE_PREFIX)})
         current["username"] = ""
         current["password"] = ""
         return current
@@ -111,7 +118,8 @@ class WebStockSyncService:
         # save_settings atomically upserts only these keys. CRM metadata belongs
         # to the sync writer, even when an older settings form submits it back.
         current = {key: value for key, value in values.items()
-                   if key not in {"crm_last_sync_status", "crm_last_sync_at"}}
+                   if key not in {"crm_last_sync_status", "crm_last_sync_at"}
+                   and not key.startswith(WAREHOUSE_CLIENT_PRICE_PREFIX)}
         current["username"] = ""
         current["password"] = ""
         self.db.save_settings(current)
@@ -654,6 +662,7 @@ class WebStockSyncService:
             only_in_stock=only_in_stock,
             split_by_warehouse=True,
         )
+        rows = filter_client_price_rows(self.db, rows)
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             temp_path = Path(tmp.name)
         try:
@@ -757,13 +766,16 @@ class WebStockSyncService:
         return self.db.get_item_by_id(item_id)
 
     def list_warehouses(self) -> list[dict[str, Any]]:
-        return self.db.list_warehouses()
+        return decorate_warehouses(self.db, self.db.list_warehouses())
+
+    def set_warehouse_client_price(self, warehouse_id: int, *, include: bool) -> dict[str, Any]:
+        return set_client_price(self.db, warehouse_id, include=include)
 
     def create_warehouse(self, *, name: str, external_code: str = "") -> dict[str, Any]:
-        return self.db.create_warehouse(name=name, external_code=external_code)
+        return decorate_warehouses(self.db, [self.db.create_warehouse(name=name, external_code=external_code)])[0]
 
     def rename_warehouse(self, warehouse_id: int, *, name: str) -> dict[str, Any]:
-        return self.db.rename_warehouse(warehouse_id, name=name)
+        return decorate_warehouses(self.db, [self.db.rename_warehouse(warehouse_id, name=name)])[0]
 
     def delete_warehouse(self, warehouse_id: int) -> None:
         self.db.delete_warehouse(warehouse_id)
