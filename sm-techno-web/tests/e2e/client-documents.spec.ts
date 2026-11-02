@@ -62,19 +62,22 @@ test('documents: review requisites, explicitly bind a client and download the ge
   await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   const source=page.getByLabel('Документ или фото для распознавания', {exact:true}).first();
   await source.setInputFiles({name:'synthetic-requisites.txt',mimeType:'text/plain',buffer:Buffer.from('SYNTHETIC REQUISITES 7701234560')});
-  await page.getByRole('button',{name:'Загрузить и распознать',exact:true}).first().click();
+  // Recognition starts by itself right after the file is chosen.
   await expect(page.getByLabel('ИНН',{exact:true}).first()).toHaveValue('7701234560');
   await page.getByRole('button',{name:'Подтвердить проверенные поля',exact:true}).first().click();
   await page.getByRole('button',{name:/ООО Синтетический клиент документов.*подтвердить/}).click();
   await page.getByLabel('Номер формируемого договора').fill('Д-E2E');
   await page.getByLabel('Дата формируемого договора').fill('2026-10-30');
   await page.getByRole('button',{name:'Сформировать договор',exact:true}).click();
-  await expect(page.getByRole('heading', {name:'Договор № Д-E2E от 2026-10-30',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading', {name:'Договор сформирован',exact:true})).toBeVisible();
   const download=page.waitForEvent('download');
-  await page.getByRole('button',{name:'Скачать актуальный файл № Д-E2E'}).click();
+  await page.getByRole('button',{name:'Скачать договор',exact:true}).click();
   const file=await download;
   expect(file.suggestedFilename()).toMatch(/\.docx$/i);
   expect(await file.failure()).toBeNull();
+  await page.getByRole('button',{name:'Открыть документы клиента',exact:true}).click();
+  await expect(page.getByRole('heading', {name:'Договор № Д-E2E от 2026-10-30',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Скачать актуальный файл № Д-E2E'})).toBeVisible();
   await page.goto('/crm?documents=1');
   await expect(page.getByText('SYNTHETIC PRIVATE NOTE',{exact:false})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Скачать актуальный файл № Д-E2E'})).toBeVisible();

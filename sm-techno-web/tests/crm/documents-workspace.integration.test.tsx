@@ -72,7 +72,7 @@ it('new file clears the previously confirmed invoice and starts the new job',asy
   expect(screen.queryByRole('button',{name:'Сформировать спецификацию из счёта'})).not.toBeInTheDocument();
   expect(new URL(window.location.href).searchParams.get('invoiceJob')).toBeNull();
   expect(screen.queryByLabelText('Документы клиента')).not.toBeInTheDocument();
-  fireEvent.click(screen.getAllByRole('button',{name:'Загрузить и распознать'})[1]);
+  // Recognition starts by itself right after the file is chosen.
   await waitFor(()=>expect(new URL(window.location.href).searchParams.get('invoiceJob')).toBe('invoice-new'));
   expect(screen.queryByLabelText('Документы клиента')).not.toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'Сформировать спецификацию из счёта'})).not.toBeInTheDocument();
