@@ -235,6 +235,7 @@ def _serialize_warehouse(row: dict[str, Any]) -> dict[str, Any]:
         "name": row.get("name") or "",
         "externalCode": row.get("external_code") or "",
         "isActive": bool(row.get("is_active", 1)),
+        "includeInClientPrice": bool(row.get("include_in_client_price", True)),
         "createdAt": row.get("created_at") or "",
         "updatedAt": row.get("updated_at") or "",
     }
@@ -2558,6 +2559,21 @@ def delete_warehouse(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True}
+
+
+@app.patch("/api/warehouses/{warehouse_id}/client-price")
+def set_warehouse_client_price(
+    warehouse_id: int,
+    payload: dict[str, Any],
+    current_user: dict[str, Any] = Depends(_get_admin_user),
+) -> dict[str, Any]:
+    if set(payload) != {"includeInClientPrice"} or type(payload.get("includeInClientPrice")) is not bool:
+        raise HTTPException(status_code=422, detail="Укажите включение в клиентский прайс: true или false.")
+    try:
+        warehouse = SERVICE.set_warehouse_client_price(warehouse_id, include=payload["includeInClientPrice"])
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"warehouse": _serialize_warehouse(warehouse)}
 
 
 @app.get("/api/stock/catalog")

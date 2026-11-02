@@ -1525,6 +1525,19 @@ export async function deleteWarehouse(warehouseId: number): Promise<{ ok: boolea
   );
 }
 
+export async function setWarehouseClientPrice(warehouseId: number, include: boolean): Promise<Warehouse> {
+  const result = await requestJsonWithInit<{ warehouse: Warehouse }>(
+    `/api/warehouses/${warehouseId}/client-price`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ includeInClientPrice: include }),
+    },
+    "Не удалось сохранить настройку склада.",
+  );
+  return result.warehouse;
+}
+
 export async function sendOrderToOneC(payload: SendOrderPayload): Promise<{
   orderId: number;
   order: OrderHistoryItem | null;

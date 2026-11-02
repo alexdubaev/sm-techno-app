@@ -13,6 +13,7 @@ export type Warehouse = {
   name: string;
   externalCode: string;
   isActive: boolean;
+  includeInClientPrice?: boolean;
   createdAt: string;
   updatedAt: string;
 };
