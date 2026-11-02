@@ -83,3 +83,38 @@ it('accepts a dropped DOCX invoice in the fixed specification flow',async () => 
   await waitFor(() => expect(api.uploadDocumentAssistantIntake).toHaveBeenCalledWith(file,'invoice'));
   expect(api.startDocumentAssistantJob).toHaveBeenCalledWith({kind:'invoice',assetIds:[19]});
 });
+
+it('starts recognition right after a file is chosen when autoStart is on and retries without a second upload',async () => {
+  vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[]});
+  vi.mocked(api.uploadDocumentAssistantIntake).mockResolvedValue({id:21} as Awaited<ReturnType<typeof api.uploadDocumentAssistantIntake>>);
+  vi.mocked(api.startDocumentAssistantJob).mockRejectedValueOnce(new Error('Сервис распознавания недоступен')).mockResolvedValueOnce({...job,id:'auto-job',status:'running',result:null});
+  render(<DocumentExtractionPanel purpose="requisites" autoStart />);
+  expect(screen.queryByRole('button',{name:'Загрузить и распознать'})).not.toBeInTheDocument();
+  const file=new File(['synthetic requisites'],'requisites.txt',{type:'text/plain'});
+  await userEvent.upload(screen.getByLabelText('Документ или фото для распознавания'),file);
+  await waitFor(() => expect(api.startDocumentAssistantJob).toHaveBeenCalledWith({kind:'requisites',assetIds:[21]}));
+  expect(api.uploadDocumentAssistantIntake).toHaveBeenCalledWith(file,'requisites');
+  expect(await screen.findByText('Сервис распознавания недоступен')).toHaveClass('app-notice--error');
+  fireEvent.click(await screen.findByRole('button',{name:'Повторить запуск из сохранённого файла'}));
+  expect(await screen.findByText('Распознаём документ…')).toBeVisible();
+  expect(api.uploadDocumentAssistantIntake).toHaveBeenCalledTimes(1);
+  expect(api.startDocumentAssistantJob).toHaveBeenLastCalledWith({kind:'requisites',assetIds:[21]});
+});
+
+it('shows a live indicator with elapsed seconds while the job is running',async () => {
+  const running={...job,status:'running' as const,result:null,createdAt:new Date(Date.now()-7_000).toISOString()};
+  vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[running]});
+  vi.mocked(api.fetchDocumentAssistantJob).mockReturnValue(new Promise(() => undefined));
+  render(<DocumentExtractionPanel purpose="requisites" autoStart />);
+  const status=(await screen.findByText('Распознаём документ…')).closest('output')!;
+  expect(status.querySelector('.app-spinner')).not.toBeNull();
+  expect(status).toHaveTextContent(/[78] с/);
+});
+
+it('hides the duplicate use-confirmed action when the host moves on by itself',async () => {
+  const confirmed={...job,status:'confirmed' as const,version:4};
+  vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[confirmed]});
+  render(<DocumentExtractionPanel purpose="requisites" onConfirmed={vi.fn()} hideUseConfirmedAction />);
+  expect(await screen.findByText('Поля проверены и сохранены')).toBeVisible();
+  expect(screen.queryByRole('button',{name:'Использовать проверенные реквизиты'})).not.toBeInTheDocument();
+});

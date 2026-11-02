@@ -114,7 +114,7 @@ describe("document client confirmation after file review", () => {
     const input=screen.getAllByLabelText('Документ или фото для распознавания')[0];
     const file=new File(['synthetic requisites'],'requisites.txt',{type:'text/plain'});
     await user.upload(input,file);
-    await user.click(screen.getAllByRole('button',{name:'Загрузить и распознать'})[0]);
+    // Recognition starts by itself right after the file is chosen.
     expect(await screen.findByLabelText('Наименование для документов')).toHaveValue('ООО Источник');
     await user.click(screen.getByRole('button',{name:'Подтвердить проверенные поля'}));
     const suggestion=await screen.findByRole('button',{name:/ООО Василёк.*подтвердить/});

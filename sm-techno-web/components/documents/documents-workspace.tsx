@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { FileSignature, FileSpreadsheet, FileText, FolderOpen, History } from 'lucide-react';
 import { AppShell } from '@/components/app-shell';
 import { useAuth } from '@/components/auth-provider';
 import { ClientDocumentsPanel, SpecificationGeneration } from '@/components/crm/client-documents-panel';
@@ -10,16 +11,44 @@ import { RequisitesContractForm } from '@/components/crm/requisites-contract-for
 import { confirmDocumentAssistantJob, fetchClientDocuments, fetchClients, fetchDocuments, fetchDocumentAssistantJob } from '@/lib/api';
 import { bindDocumentClient, matchDocumentClient, type ClientMatch } from '@/lib/document-workflows-api';
 import type { ClientDocumentsSummary, CrmClient, DocumentAssistantJob, GeneratedDocument } from '@/lib/types';
+import { DocumentSteps, documentStep, type DocumentStep } from './document-steps';
+import { GeneratedResult, type GeneratedInfo } from './generated-result';
+import { busyProps, card, cardTitle, control, fieldLabel, muted, primaryAction, secondaryAction } from './document-ui';
 
-const button='min-h-10 rounded-lg border border-[var(--border-color)] px-4 py-2 text-sm font-semibold disabled:opacity-50';
+type View='contract'|'spec'|'archive';
+const modes: {view: View; label: string; Icon: typeof FileText}[]=[
+  {view:'contract',label:'Создать договор',Icon:FileSignature},
+  {view:'spec',label:'Создать спецификацию',Icon:FileSpreadsheet},
+  {view:'archive',label:'Загрузить готовый',Icon:FolderOpen},
+];
+const failureText=(failure: unknown,fallback: string) => failure instanceof Error ? failure.message : fallback;
+
+/** Moves focus to the block of a newly reached step, so the manager does not have to scroll. */
+function useFocusNextStep(root: React.RefObject<HTMLElement | null>,view: View,step: DocumentStep | null) {
+  const previous=useRef<string | null>(null);
+  useEffect(() => {
+    const key=step ? `${view}:${step}` : null;
+    const before=previous.current;
+    previous.current=key;
+    if(!key || !before || before===key || !before.startsWith(`${view}:`)) return;
+    if(step!=='client' && step!=='document' && step!=='done') return;
+    const target=root.current?.querySelector<HTMLElement>(`[data-view="${view}"] [data-step-anchor="${step}"]`);
+    if(!target) return;
+    const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView?.({block:'start',behavior:reduced ? 'auto' : 'smooth'});
+    target.focus({preventScroll:true});
+  },[root,view,step]);
+}
+
 export default function DocumentsWorkspace() {
   const {isAdmin}=useAuth();
-  const [view,setView]=useState<'contract'|'spec'|'archive'>('contract');
+  const [view,setView]=useState<View>('contract');
   const [contractJob,setContractJob]=useState<DocumentAssistantJob|null>(null);
   const [invoiceJob,setInvoiceJob]=useState<DocumentAssistantJob|null>(null);
   const [clientId,setClientId]=useState<number|null>(null);
   const [summaryRevision,setSummaryRevision]=useState(0);
   const contextVersion=useRef(0);
+  const root=useRef<HTMLElement>(null);
   const [clients,setClients]=useState<CrmClient[]>([]);
   const [summary,setSummary]=useState<ClientDocumentsSummary|null>(null);
   const [documentsRevision,setDocumentsRevision]=useState(0);
@@ -27,6 +56,8 @@ export default function DocumentsWorkspace() {
   const [error,setError]=useState('');
   const [recent,setRecent]=useState<GeneratedDocument[] | null>(null);
   const [recentError,setRecentError]=useState('');
+  const [generated,setGenerated]=useState<GeneratedInfo|null>(null);
+
   function selectClient(id:number|null) {contextVersion.current+=1;setSummary(null);setClientId(id);setSummaryRevision((value) => value+1);}
   useEffect(() => {
     void fetchClients().then(setClients,() => setClients([]));
@@ -38,30 +69,175 @@ export default function DocumentsWorkspace() {
       if(job.kind!==kind) return;
       if(kind==='invoice') {setInvoiceJob(job);setView('spec');selectClient(job.clientId);}
       else {setContractJob(job);if(!invoice){setView('contract');selectClient(job.clientId);}}
-    },(e:unknown) => setError(e instanceof Error ? e.message : 'Не удалось восстановить задание.'));};
+    },(e:unknown) => setError(failureText(e,'Не удалось восстановить задание.')));};
     if(contract) restore(contract,'requisites');if(invoice) restore(invoice,'invoice');
   },[]);
-  useEffect(() => {if(!clientId) return;let alive=true;const version=contextVersion.current;void fetchClientDocuments(clientId).then((data) => {if(alive && version===contextVersion.current)setSummary(data);},(e:unknown) => {if(alive && version===contextVersion.current)setError(e instanceof Error ? e.message : 'Не удалось открыть документы клиента.');});return () => {alive=false;};},[clientId,view,summaryRevision]);
-  useEffect(() => {let alive=true;void fetchDocuments().then((items) => {if(alive){setRecent(items);setRecentError('');}},(e:unknown) => {if(alive){setRecent(null);setRecentError(e instanceof Error ? e.message : 'Не удалось загрузить документы.');}});return () => {alive=false;};},[documentsRevision,recentRevision]);
-  function selectJob(kind:'invoice'|'requisites',job:DocumentAssistantJob|null) {const url=new URL(window.location.href);const key=kind==='invoice' ? 'invoiceJob' : 'contractJob';if(job) url.searchParams.set(key,job.id);else url.searchParams.delete(key);window.history.replaceState(null,'',url);if(kind==='invoice') setInvoiceJob(job);else setContractJob(job);if((kind==='invoice' && view==='spec') || (kind==='requisites' && view==='contract')) selectClient(job?.clientId ?? null);}
+  useEffect(() => {
+    if(!clientId) return;
+    let alive=true;const version=contextVersion.current;
+    void fetchClientDocuments(clientId).then(
+      (data) => {if(alive && version===contextVersion.current)setSummary(data);},
+      (e:unknown) => {if(alive && version===contextVersion.current)setError(failureText(e,'Не удалось открыть документы клиента.'));});
+    return () => {alive=false;};
+  },[clientId,view,summaryRevision]);
+  useEffect(() => {
+    let alive=true;
+    void fetchDocuments().then(
+      (items) => {if(alive){setRecent(items);setRecentError('');}},
+      (e:unknown) => {if(alive){setRecent(null);setRecentError(failureText(e,'Не удалось загрузить документы.'));}});
+    return () => {alive=false;};
+  },[documentsRevision,recentRevision]);
+
+  function selectJob(kind:'invoice'|'requisites',job:DocumentAssistantJob|null) {
+    const url=new URL(window.location.href);const key=kind==='invoice' ? 'invoiceJob' : 'contractJob';
+    if(job) url.searchParams.set(key,job.id);else url.searchParams.delete(key);
+    window.history.replaceState(null,'',url);
+    if(kind==='invoice') setInvoiceJob(job);else setContractJob(job);
+    if((kind==='invoice' && view==='spec') || (kind==='requisites' && view==='contract')) selectClient(job?.clientId ?? null);
+  }
   function rememberJob(job:DocumentAssistantJob) {const url=new URL(window.location.href);url.searchParams.set(job.kind==='invoice' ? 'invoiceJob' : 'contractJob',job.id);window.history.replaceState(null,'',url);}
   async function updated(job:DocumentAssistantJob) {rememberJob(job);selectClient(job.clientId);}
-  return <AppShell><main className="grid gap-4 rounded-xl bg-white p-4">
-    <header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-xl font-bold">Документы</h1><p className="text-sm text-[var(--text-secondary)]">Создавайте и храните договоры и спецификации.</p></div><Link href="/documents/journal" className={`${button} underline`}>Журнал документов</Link></header>
-    <nav className="flex flex-wrap gap-2" aria-label="Действия с документами"><button className={button} onClick={() => {selectClient(contractJob?.clientId ?? null);setView('contract');}}>Создать договор</button><button className={button} onClick={() => {selectClient(invoiceJob?.clientId ?? null);setView('spec');}}>Создать спецификацию</button><button className={button} onClick={() => setView('archive')}>Загрузить готовый</button></nav>
-    {error ? <p role="alert">{error}</p> : null}
-    <section aria-label="Последние документы"><h2 className="font-semibold">Последние документы</h2>{recentError ? <p role="alert">{recentError}</p> : recent===null ? <p>Загрузка документов…</p> : recent.length===0 ? <p>Документов пока нет.</p> : <ul>{recent.slice(0,5).map((document) => <li key={document.id}>{document.documentType==='contract' ? 'Договор' : 'Спецификация'} № {document.number} · {document.clientName} · {document.documentDate}</li>)}</ul>}</section>
-    <div className={view==='contract' ? "grid gap-3" : "hidden"}><DocumentExtractionPanel purpose="requisites" restoredJob={contractJob} onActiveJobChange={(job) => selectJob('requisites',job)} onConfirmed={(job) => selectJob('requisites',job)} />{contractJob?.status==='confirmed' ? <ClientBinding key={contractJob.id} active={view==='contract'} job={contractJob} onBound={async (job) => {setContractJob(job);await updated(job);}} /> : null}{contractJob?.status==='confirmed' && contractJob.clientId && summary?.clientId===contractJob.clientId ? <RequisitesContractForm key={contractJob.id} job={contractJob} contract={summary.contract} onGenerated={async (job) => {setRecent(null);setDocumentsRevision((value) => value+1);setContractJob(job);await updated(job);setView('archive');}} /> : null}</div>
-    <div className={view==='spec' ? "grid gap-3" : "hidden"}><DocumentExtractionPanel purpose="invoice" restoredJob={invoiceJob} onActiveJobChange={(job) => selectJob('invoice',job)} onConfirmed={(job) => selectJob('invoice',job)} />{invoiceJob?.status==='confirmed' ? <ClientBinding key={invoiceJob.id} active={view==='spec'} job={invoiceJob} onBound={async (job) => {setInvoiceJob(job);await updated(job);}} /> : null}{invoiceJob?.status==='confirmed' && invoiceJob.clientId && summary?.clientId===invoiceJob.clientId ? <>{!summary.contract ? <div className="rounded-lg bg-amber-50 p-3 text-sm">Сначала сохраните договор. Счёт и проверенные позиции сохранятся. <button className="underline" onClick={() => {selectClient(contractJob?.clientId ?? null);setView('contract');}}>Создать договор</button> или <button className="underline" onClick={() => setView('archive')}>загрузить готовый</button>.</div> : <SpecificationGeneration key={invoiceJob.id} job={invoiceJob} clientId={invoiceJob.clientId} hasContract onGenerated={async () => {setRecent(null);setDocumentsRevision((value) => value+1);await updated(invoiceJob);setView('archive');}} />}</> : null}</div>
-    <div className={view==='archive' ? "grid gap-3" : "hidden"}><label className="grid gap-1 text-sm">Клиент<select className="min-h-10 rounded-lg border p-2" value={clientId ?? ''} onChange={(e) => selectClient(Number(e.target.value)||null)}><option value="">Выберите клиента</option>{clients.filter((c) => c.crmClientId || c.source==='local').map((c) => <option key={`${c.source}-${c.id}`} value={c.crmClientId ?? c.id}>{c.documentName || c.fullName || c.name} · {c.inn}</option>)}</select></label>{clientId ? <ClientDocumentsPanel key={`${clientId}-${documentsRevision}`} clientId={clientId} isAdmin={isAdmin} manage onChanged={() => {setRecent(null);setRecentRevision((value) => value+1);}} /> : null}</div>
+  function refreshRecent() {setRecent(null);setDocumentsRevision((value) => value+1);}
+  function openArchive(id:number|null) {if(id!==null) selectClient(id);setView('archive');}
+  function switchMode(next:View) {
+    if(next==='contract') selectClient(contractJob?.clientId ?? null);
+    if(next==='spec') selectClient(invoiceJob?.clientId ?? null);
+    setView(next);
+  }
+  function chooseAnotherFile(target:View) {
+    const input=root.current?.querySelector<HTMLInputElement>(`[data-view="${target}"] input[type="file"]`);
+    input?.closest('label')?.scrollIntoView?.({block:'center'});
+    input?.focus();
+  }
+
+  const activeJob=view==='contract' ? contractJob : view==='spec' ? invoiceJob : null;
+  const shownResult=generated && activeJob && generated.jobId===activeJob.id && generated.view===view ? generated : null;
+  const step=view==='archive' ? null : documentStep(activeJob,shownResult!==null);
+  useFocusNextStep(root,view,step);
+
+  const contractReady=contractJob?.status==='confirmed' && contractJob.clientId && summary?.clientId===contractJob.clientId;
+  const invoiceReady=invoiceJob?.status==='confirmed' && invoiceJob.clientId && summary?.clientId===invoiceJob.clientId;
+  const archiveOptions=clients.filter((c) => c.crmClientId || c.source==='local');
+  const archiveHasClient=clientId===null || archiveOptions.some((c) => (c.crmClientId ?? c.id)===clientId);
+
+  return <AppShell><main ref={root} className="grid min-w-0 gap-4">
+    <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-color)] bg-white px-4 py-3">
+      <div className="min-w-0"><h1 className="text-xl font-bold text-[var(--text-primary)]">Документы</h1><p className="text-sm text-[var(--text-secondary)]">Договоры и спецификации из реквизитов и счетов клиента.</p></div>
+      <Link href="/documents/journal" className={secondaryAction}><History className="h-4 w-4" aria-hidden="true" />Журнал документов</Link>
+    </header>
+    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
+      <div className="grid min-w-0 gap-4">
+        <nav aria-label="Действия с документами" className="min-w-0">
+          <div className="app-segmented">{modes.map(({view:mode,label,Icon}) => <button key={mode} type="button" className="app-segmented__item gap-2" aria-pressed={view===mode} onClick={() => switchMode(mode)}><Icon className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden="true" />{label}</button>)}</div>
+        </nav>
+        {error ? <p role="alert" className="app-notice app-notice--error">{error}</p> : null}
+        {view!=='archive' && step ? <DocumentSteps kind={view} step={step} /> : null}
+
+        <div data-view="contract" className={view==='contract' ? 'grid min-w-0 gap-4' : 'hidden'}>
+          <DocumentExtractionPanel purpose="requisites" autoStart hideUseConfirmedAction restoredJob={contractJob} onActiveJobChange={(job) => selectJob('requisites',job)} onConfirmed={(job) => selectJob('requisites',job)} />
+          {contractJob?.status==='confirmed' ? <ClientBinding key={`binding-${contractJob.id}`} active={view==='contract'} job={contractJob} clientName={summary?.clientId===contractJob.clientId ? summary.documentDisplayName : ''} onBound={async (job) => {setContractJob(job);await updated(job);}} /> : null}
+          {contractReady && shownResult ? <GeneratedResult result={shownResult} fallbackDocumentId={summary?.contract?.id ?? null} onOpenArchive={() => openArchive(shownResult.clientId)} onCreateAnother={() => chooseAnotherFile('contract')} /> : null}
+          {contractReady && !shownResult ? <RequisitesContractForm key={`contract-${contractJob.id}`} job={contractJob} contract={summary.contract} onGenerated={async (job,info) => {
+            refreshRecent();setContractJob(job);await updated(job);
+            setGenerated({view:'contract',jobId:job.id,documentId:info.documentId,number:info.number,date:info.date,clientId:summary.clientId,clientName:summary.documentDisplayName});
+          }} /> : null}
+        </div>
+
+        <div data-view="spec" className={view==='spec' ? 'grid min-w-0 gap-4' : 'hidden'}>
+          <DocumentExtractionPanel purpose="invoice" autoStart hideUseConfirmedAction restoredJob={invoiceJob} onActiveJobChange={(job) => selectJob('invoice',job)} onConfirmed={(job) => selectJob('invoice',job)} />
+          {invoiceJob?.status==='confirmed' ? <ClientBinding key={`binding-${invoiceJob.id}`} active={view==='spec'} job={invoiceJob} clientName={summary?.clientId===invoiceJob.clientId ? summary.documentDisplayName : ''} onBound={async (job) => {setInvoiceJob(job);await updated(job);}} /> : null}
+          {invoiceReady && shownResult ? <GeneratedResult result={shownResult} fallbackDocumentId={null} onOpenArchive={() => openArchive(shownResult.clientId)} onCreateAnother={() => chooseAnotherFile('spec')} /> : null}
+          {invoiceReady && !shownResult && !summary.contract ? <div className="app-notice app-notice--warning grid gap-2">
+            <p tabIndex={-1} data-step-anchor="document" className="outline-none">Сначала сохраните договор. Счёт и проверенные позиции сохранятся.</p>
+            <div className="flex flex-wrap gap-2"><button type="button" className={secondaryAction} onClick={() => switchMode('contract')}>Создать договор</button><button type="button" className={secondaryAction} onClick={() => setView('archive')}>Загрузить готовый</button></div>
+          </div> : null}
+          {invoiceReady && !shownResult && summary.contract ? <SpecificationGeneration key={`spec-${invoiceJob.id}`} job={invoiceJob} clientId={summary.clientId} hasContract onGenerated={async (document) => {
+            refreshRecent();await updated(invoiceJob);
+            setGenerated({view:'spec',jobId:invoiceJob.id,documentId:document?.id ?? null,number:document?.number ?? '',date:document?.documentDate ?? '',clientId:summary.clientId,clientName:summary.documentDisplayName});
+          }} /> : null}
+        </div>
+
+        <div data-view="archive" className={view==='archive' ? 'grid min-w-0 gap-4' : 'hidden'}>
+          <section className={card} aria-label="Архив клиента">
+            <div><h2 className={cardTitle}>Готовые документы клиента</h2><p className={muted}>Выберите клиента, чтобы загрузить готовый договор, спецификацию или вложение.</p></div>
+            <label className={fieldLabel}>Клиент<select className={control} value={clientId ?? ''} onChange={(e) => selectClient(Number(e.target.value)||null)}>
+              <option value="">Выберите клиента</option>
+              {!archiveHasClient && clientId!==null ? <option value={clientId}>{summary?.clientId===clientId ? summary.documentDisplayName : `Клиент #${clientId}`}</option> : null}
+              {archiveOptions.map((c) => <option key={`${c.source}-${c.id}`} value={c.crmClientId ?? c.id}>{c.documentName || c.fullName || c.name} · {c.inn}</option>)}
+            </select></label>
+          </section>
+          {clientId ? <ClientDocumentsPanel key={`${clientId}-${documentsRevision}`} clientId={clientId} isAdmin={isAdmin} manage onChanged={() => {setRecent(null);setRecentRevision((value) => value+1);}} /> : null}
+        </div>
+      </div>
+      <RecentDocuments recent={recent} error={recentError} onOpen={openArchive} />
+    </div>
   </main></AppShell>;
 }
 
-function ClientBinding({job,onBound,active}:{job:DocumentAssistantJob;onBound:(job:DocumentAssistantJob)=>Promise<void>;active:boolean}) {
-  const [match,setMatch]=useState<ClientMatch|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);const key=useRef<string|null>(null);
-  useEffect(() => {if(!active || job.clientId || job.status!=='confirmed') return;let alive=true;void matchDocumentClient(job.id,job.version,job.result?.payload ?? {}).then((result) => {if(alive){setError('');setMatch(result);}},(e:unknown) => {if(alive)setError(e instanceof Error ? e.message : 'Не удалось найти клиента.');});return () => {alive=false;};},[job,active]);
-  async function bind(id:number) {setBusy(true);setError('');key.current ??= crypto.randomUUID();try {await onBound(await bindDocumentClient(job.id,job.version,id,key.current));} catch(e:unknown) {setError(e instanceof Error ? e.message : 'Не удалось привязать клиента.');} finally {setBusy(false);}}
-  async function create() {setBusy(true);setError('');key.current ??= crypto.randomUUID();try {const result=await confirmDocumentAssistantJob(job.id,{version:job.version,fields:job.result?.payload ?? {},action:'create_client',operationKey:key.current});await onBound(result.job);}catch(e:unknown) {setError(e instanceof Error ? e.message : 'Не удалось создать клиента.');}finally {setBusy(false);}}
-  if(job.clientId) return <p className="text-sm">Клиент подтверждён.</p>;
-  return <section className="grid gap-2 rounded-lg border p-3"><h3 className="font-semibold">Подтвердите клиента</h3>{error ? <p role="alert">{error}</p> : null}{!match && !error ? <p>Ищем совпадения…</p> : null}{match?.candidates.map((c) => <button key={c.clientId} className={`${button} text-left`} disabled={busy} onClick={() => void bind(c.clientId)}>{c.documentName} · ИНН {c.inn} · КПП {c.kpp || '—'} · {c.contract ? `договор № ${c.contract.number}` : 'договора нет'} — подтвердить</button>)}{match?.status==='not_found' ? <p>Клиент не найден.</p> : null}{match?.status==='not_found' && job.kind==='requisites' ? <button className={button} disabled={busy} onClick={() => void create()}>Подтвердить создание клиента и отправку в 1С</button> : null}{match?.status==='not_found' && job.kind==='invoice' ? <p>Создайте клиента и договор по проверенным реквизитам, затем вернитесь к счёту.</p> : null}</section>;
+function RecentDocuments({recent,error,onOpen}:{recent:GeneratedDocument[]|null;error:string;onOpen:(clientId:number)=>void}) {
+  return <section aria-label="Последние документы" className={`${card} xl:sticky xl:top-4`}>
+    <h2 className={cardTitle}>Последние документы</h2>
+    {error ? <p role="alert" className="app-notice app-notice--error">{error}</p>
+      : recent===null ? <p className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]"><span className="app-spinner" aria-hidden="true" />Загрузка документов…</p>
+      : recent.length===0 ? <p className="text-sm text-[var(--text-secondary)]">Документов пока нет.</p>
+      : <ul className="-mx-1 grid gap-1">{recent.slice(0,5).map((document) => <li key={document.id}><RecentDocumentRow document={document} onOpen={onOpen} /></li>)}</ul>}
+  </section>;
+}
+
+function RecentDocumentRow({document,onOpen}:{document:GeneratedDocument;onOpen:(clientId:number)=>void}) {
+  const title=`${document.documentType==='contract' ? 'Договор' : 'Спецификация'} № ${document.number}`;
+  const content=<><span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[var(--text-primary)]"><FileText className="h-4 w-4 shrink-0 text-[var(--text-secondary)]" aria-hidden="true" /><span className="min-w-0 break-words">{title}</span></span>
+    <span className="block min-w-0 truncate pl-6 text-xs text-[var(--text-secondary)]">{document.clientName} · {document.documentDate}</span></>;
+  const clientId=document.crmClientId;
+  if(!clientId) return <div className="grid gap-0.5 px-2 py-2">{content}</div>;
+  return <button type="button" className="grid w-full min-w-0 gap-0.5 rounded-[10px] px-2 py-2 text-left transition-[background-color,transform] duration-200 hover:bg-[var(--panel-muted)] focus-visible:shadow-[0_0_0_3px_rgba(255,196,0,0.35)] focus-visible:outline-none active:scale-[.99] motion-reduce:transition-none" onClick={() => onOpen(clientId)}>{content}</button>;
+}
+
+function ClientBinding({job,onBound,active,clientName}:{job:DocumentAssistantJob;onBound:(job:DocumentAssistantJob)=>Promise<void>;active:boolean;clientName:string}) {
+  const [match,setMatch]=useState<ClientMatch|null>(null);
+  const [error,setError]=useState('');
+  const [pending,setPending]=useState<number|'create'|null>(null);
+  const key=useRef<string|null>(null);
+  const titleId=useId();
+  useEffect(() => {
+    if(!active || job.clientId || job.status!=='confirmed') return;
+    let alive=true;
+    void matchDocumentClient(job.id,job.version,job.result?.payload ?? {}).then(
+      (result) => {if(alive){setError('');setMatch(result);}},
+      (e:unknown) => {if(alive)setError(failureText(e,'Не удалось найти клиента.'));});
+    return () => {alive=false;};
+  },[job,active]);
+  async function bind(id:number) {
+    setPending(id);setError('');key.current ??= crypto.randomUUID();
+    try {await onBound(await bindDocumentClient(job.id,job.version,id,key.current));}
+    catch(e:unknown) {setError(failureText(e,'Не удалось привязать клиента.'));}
+    finally {setPending(null);}
+  }
+  async function create() {
+    setPending('create');setError('');key.current ??= crypto.randomUUID();
+    try {const result=await confirmDocumentAssistantJob(job.id,{version:job.version,fields:job.result?.payload ?? {},action:'create_client',operationKey:key.current});await onBound(result.job);}
+    catch(e:unknown) {setError(failureText(e,'Не удалось создать клиента.'));}
+    finally {setPending(null);}
+  }
+  if(job.clientId) return <p className="app-notice app-notice--success">Клиент подтверждён{clientName ? `: ${clientName}` : ''}.</p>;
+  const candidates=match?.candidates ?? [];
+  const busy=pending!==null;
+  return <section aria-labelledby={titleId} className={card}>
+    <div><h3 id={titleId} tabIndex={-1} data-step-anchor="client" className={cardTitle}>Подтвердите клиента</h3><p className={muted}>Реквизиты привяжутся только к клиенту, которого вы выберете.</p></div>
+    {error ? <p role="alert" className="app-notice app-notice--error">{error}</p> : null}
+    {!match && !error ? <p className="inline-flex items-center gap-2 text-sm text-[var(--text-secondary)]"><span className="app-spinner" aria-hidden="true" />Ищем совпадения…</p> : null}
+    {candidates.length ? <ul className="grid min-w-0 gap-2 lg:grid-cols-2">{candidates.map((c) => {
+      const contract=c.contract ? `договор № ${c.contract.number}` : 'договора нет';
+      return <li key={c.clientId} className="flex min-w-0 flex-col gap-3 rounded-[12px] border border-[var(--border-color)] p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0"><p className="break-words text-sm font-semibold">{c.documentName}</p><p className="text-xs text-[var(--text-secondary)]">ИНН {c.inn} · КПП {c.kpp || '—'}</p><p className="text-xs text-[var(--text-secondary)]">{c.contract ? `Договор № ${c.contract.number}` : 'Договора нет'}</p></div>
+        <button type="button" aria-label={`${c.documentName} · ИНН ${c.inn} · КПП ${c.kpp || '—'} · ${contract} — подтвердить`} className={`${candidates.length===1 ? primaryAction : secondaryAction} w-full shrink-0 sm:w-auto`} disabled={busy} {...busyProps(pending===c.clientId)} onClick={() => void bind(c.clientId)}>Подтвердить</button>
+      </li>;
+    })}</ul> : null}
+    {match?.status==='not_found' ? <p className="app-notice">Клиент не найден.</p> : null}
+    {match?.status==='not_found' && job.kind==='requisites' ? <div className="grid justify-items-start gap-1">
+      <button type="button" className={`${primaryAction} w-full sm:w-auto`} disabled={busy} {...busyProps(pending==='create')} onClick={() => void create()}>Подтвердить создание клиента и отправку в 1С</button>
+      <p className={muted}>Клиент будет создан по проверенным реквизитам.</p>
+    </div> : null}
+    {match?.status==='not_found' && job.kind==='invoice' ? <p className="app-notice app-notice--warning">Создайте клиента и договор по проверенным реквизитам, затем вернитесь к счёту.</p> : null}
+  </section>;
 }

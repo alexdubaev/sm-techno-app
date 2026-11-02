@@ -31,6 +31,7 @@ type ShellProps = {
 type MenuState = {
   expandedGroupLabel: string;
   selectedGroupLabel: string;
+  pathname: string;
 };
 
 function formatMoscowDeadline(value: string) {
@@ -47,7 +48,23 @@ function formatMoscowDeadline(value: string) {
 let menuStateSnapshot: MenuState = {
   expandedGroupLabel: '',
   selectedGroupLabel: '',
+  pathname: '',
 };
+
+/** A new address (link on a page, back/forward, fresh load) selects and opens its group. */
+function syncMenuWithRoute(
+  state: MenuState,
+  pathname: string,
+  routeGroupLabel: string,
+): MenuState {
+  if (state.pathname === pathname) return state;
+  if (!routeGroupLabel) return { ...state, pathname };
+  return {
+    expandedGroupLabel: routeGroupLabel,
+    selectedGroupLabel: routeGroupLabel,
+    pathname,
+  };
+}
 
 export function AppShell({ children }: ShellProps) {
   const pathname = usePathname();
@@ -99,10 +116,17 @@ export function AppShell({ children }: ShellProps) {
   const routeGroupLabel =
     visibleNavGroups.find((group) => isNavGroupActive(group, pathname))
       ?.label ?? '';
-  const [menuState, setMenuState] = useState<MenuState>(() => ({
-    expandedGroupLabel: menuStateSnapshot.expandedGroupLabel,
-    selectedGroupLabel: menuStateSnapshot.selectedGroupLabel || routeGroupLabel,
-  }));
+  const [storedMenuState, setMenuState] = useState<MenuState>(() =>
+    syncMenuWithRoute(menuStateSnapshot, pathname, routeGroupLabel),
+  );
+  const menuState = syncMenuWithRoute(
+    storedMenuState,
+    pathname,
+    routeGroupLabel,
+  );
+  useEffect(() => {
+    menuStateSnapshot = menuState;
+  }, [menuState]);
   const [moreOpen, setMoreOpen] = useState(false);
   const selectedGroupIsVisible = visibleNavGroups.some(
     (group) => group.label === menuState.selectedGroupLabel,
@@ -120,11 +144,9 @@ export function AppShell({ children }: ShellProps) {
   );
 
   const updateMenuState = (updater: (current: MenuState) => MenuState) => {
-    setMenuState((current) => {
-      const next = updater(current);
-      menuStateSnapshot = next;
-      return next;
-    });
+    setMenuState((current) =>
+      updater(syncMenuWithRoute(current, pathname, routeGroupLabel)),
+    );
   };
 
   const handleGroupClick = (group: AppNavGroup) => {
@@ -132,11 +154,13 @@ export function AppShell({ children }: ShellProps) {
       ...current,
       expandedGroupLabel:
         current.expandedGroupLabel === group.label ? '' : group.label,
+      selectedGroupLabel: group.label,
     }));
   };
 
   const handleItemClick = (groupLabel: string) => {
-    updateMenuState(() => ({
+    updateMenuState((current) => ({
+      ...current,
       expandedGroupLabel: groupLabel,
       selectedGroupLabel: groupLabel,
     }));
@@ -169,37 +193,60 @@ export function AppShell({ children }: ShellProps) {
               </div>
             </div>
 
-            <nav className="space-y-2">
+            <nav className="space-y-1.5" aria-label="Главное меню">
               {visibleNavGroups.map((group, groupIndex) => {
                 const groupActive = activeGroupLabel === group.label;
                 const groupExpanded =
                   menuState.expandedGroupLabel === group.label;
+                const collapseId = `desktop-nav-group-${groupIndex}`;
+
+                if (group.items.length === 1) {
+                  const [item] = group.items;
+                  return (
+                    <div key={group.label}>
+                      <Link
+                        href={item.href}
+                        aria-current={
+                          isNavItemActive(item, pathname) ? 'page' : undefined
+                        }
+                        onClick={() => handleItemClick(group.label)}
+                        className={navGroupClassName(groupActive, false)}
+                      >
+                        <span className="min-w-0 text-left">{group.label}</span>
+                      </Link>
+                    </div>
+                  );
+                }
 
                 return (
                   <div key={group.label}>
                     <NavGroupButton
                       active={groupActive}
-                      controlsId={`desktop-nav-group-${groupIndex}`}
+                      controlsId={collapseId}
                       expanded={groupExpanded}
                       label={group.label}
                       onClick={() => handleGroupClick(group)}
-                      variant="desktop"
                     />
-                    {groupExpanded ? (
-                      <div
-                        id={`desktop-nav-group-${groupIndex}`}
-                        className="mt-1.5 space-y-1.5"
-                      >
-                        {group.items.map((item) => (
-                          <SidebarLink
-                            key={item.href}
-                            item={item}
-                            onClick={() => handleItemClick(group.label)}
-                            pathname={pathname}
-                          />
-                        ))}
+                    <div
+                      id={collapseId}
+                      className="app-nav-collapse"
+                      data-open={groupExpanded ? 'true' : 'false'}
+                      aria-hidden={groupExpanded ? undefined : true}
+                      inert={!groupExpanded}
+                    >
+                      <div>
+                        <div className="space-y-1 pb-1 pl-2 pt-1.5">
+                          {group.items.map((item) => (
+                            <SidebarLink
+                              key={item.href}
+                              item={item}
+                              onClick={() => handleItemClick(group.label)}
+                              pathname={pathname}
+                            />
+                          ))}
+                        </div>
                       </div>
-                    ) : null}
+                    </div>
                   </div>
                 );
               })}
@@ -267,44 +314,39 @@ export function AppShell({ children }: ShellProps) {
   );
 }
 
+function navGroupClassName(active: boolean, expanded: boolean) {
+  const toneClass = active
+    ? 'bg-[var(--brand-dark)] text-white shadow-[0_12px_24px_rgba(7,22,46,0.14)]'
+    : expanded
+      ? 'bg-[#F1F4F9] text-[var(--text-primary)] hover:bg-[#EBEFF5]'
+      : 'bg-transparent text-[var(--text-primary)] hover:bg-[#F1F4F9]';
+  return `inline-flex min-h-[36px] w-full items-center justify-between gap-2 rounded-[12px] px-3 py-1.5 text-left transition-[background-color,color,box-shadow,transform] duration-200 ease-out active:scale-[.985] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,196,0,0.35)] motion-reduce:transition-none ${toneClass}`;
+}
+
 function NavGroupButton({
   active,
   controlsId,
   expanded,
   label,
   onClick,
-  variant,
 }: {
   active: boolean;
   controlsId: string;
   expanded: boolean;
   label: string;
   onClick: () => void;
-  variant: 'desktop';
 }) {
-  const desktop = variant === 'desktop';
-  const toneClass = active
-    ? 'bg-[var(--brand-dark)] text-white shadow-[0_12px_24px_rgba(7,22,46,0.14)]'
-    : expanded
-      ? 'bg-[#F8FAFD] text-[var(--text-primary)]'
-      : 'bg-transparent text-[var(--text-primary)] hover:bg-[#F8FAFD]';
-  const borderClass = '';
-
   return (
     <button
       type="button"
       aria-controls={controlsId}
       aria-expanded={expanded}
       onClick={onClick}
-      className={`inline-flex items-center justify-between gap-2 rounded-[12px] font-[700] transition ${toneClass} ${borderClass} ${
-        desktop
-          ? 'min-h-[34px] w-full px-3 py-1.5 text-left text-[13px] leading-[16px]'
-          : ''
-      }`}
+      className={navGroupClassName(active, expanded)}
     >
       <span className="min-w-0 text-left">{label}</span>
       <ChevronIcon
-        className={`h-3 w-3 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`}
+        className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
       />
     </button>
   );
@@ -326,10 +368,11 @@ function SidebarLink({
     <Link
       href={item.href}
       onClick={onClick}
-      className={`flex h-[38px] items-center gap-2 rounded-[13px] border px-3 text-[12px] font-semibold transition ${
+      aria-current={active ? 'page' : undefined}
+      className={`flex h-[38px] items-center gap-2 rounded-[12px] border px-3 text-[12px] font-semibold transition-[background-color,border-color,color,transform] duration-200 ease-out active:scale-[.985] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,196,0,0.35)] motion-reduce:transition-none ${
         active
-          ? 'border-[var(--brand-dark)] bg-white text-[var(--brand-dark)] shadow-[inset_0_0_0_1px_rgba(7,22,46,0.08)]'
-          : 'border-transparent text-[var(--text-primary)] hover:bg-[#F8FAFD]'
+          ? 'border-[var(--brand-dark)] bg-white text-[var(--brand-dark)] shadow-[inset_3px_0_0_var(--brand-yellow)]'
+          : 'border-transparent text-[var(--text-primary)] hover:bg-[#F1F4F9]'
       }`}
     >
       <Icon className="h-[17px] w-[17px] shrink-0" />
