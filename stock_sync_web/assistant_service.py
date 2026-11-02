@@ -101,6 +101,9 @@ class DocumentAssistantService:
     @staticmethod
     def serialize_job(row):
         result=row.get('result')
+        if row['kind']=='requisites' and row['status']=='review' and result:
+            from stock_sync_web.assistant_requisites import complete_requisites_review
+            result=complete_requisites_review(result)
         return {'id':row['id'],'kind':row['kind'],'clientId':row['crm_client_id'],'assetIds':row['input_asset_ids'],
             'status':row['status'],'version':row['version'],'result':result,
             'missingFields':(result or {}).get('missing_fields',[]),'warnings':(result or {}).get('warnings',[]),
@@ -168,6 +171,9 @@ class DocumentAssistantService:
         if action!='review': raise ValueError('Выберите доступное действие подтверждения результата.')
         if type(expected_version) is not int or expected_version<1 or type(fields) is not dict: raise ValueError('Укажите версию и исправленные поля задания.')
         validate_payload(job['kind'],fields,partial=True)
+        if job['kind']=='requisites':
+            from stock_sync_web.assistant_requisites import complete_requisites_submission
+            fields=complete_requisites_submission(fields,job['result'] or {})
         article_warnings=[]
         if job['kind']=='articles':
             grouped={};has_duplicates=False
@@ -233,6 +239,8 @@ class DocumentAssistantService:
         controls={key:fields[key] for key in allowed_controls if key in fields}
         legal={key:value for key,value in fields.items() if key not in controls}
         validate_payload('requisites',legal,partial=True)
+        from stock_sync_web.assistant_requisites import complete_requisites_submission
+        legal=complete_requisites_submission(legal,job['result'] or {})
         for key in ('is_buyer','is_supplier','is_inactive'):
             if key in controls and type(controls[key]) is not bool: raise ValueError('Проверьте роль контрагента.')
         if 'legal_type' in controls and (type(controls['legal_type']) is not str or controls['legal_type'] not in {'legal_entity','individual_entrepreneur'}):

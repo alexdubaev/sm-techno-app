@@ -125,10 +125,10 @@ def _client_to_context(client: dict[str, Any]) -> dict[str, str]:
         "bank_account": _get_value(client, "bank_account", "bankAccount"),
         "correspondent_account": _get_value(client, "correspondent_account", "correspondentAccount"),
         "signer_position": signer_position,
-        "signer_position_genitive": decline_signer_position_genitive(signer_position),
+        "signer_position_genitive": _get_value(client, "signer_position_genitive") or decline_signer_position_genitive(signer_position),
         "signer_name": signer_name,
-        "signer_name_genitive": decline_person_name_genitive(signer_name),
-        "signer_short_name": format_person_short_name(signer_name),
+        "signer_name_genitive": _get_value(client, "signer_name_genitive") or decline_person_name_genitive(signer_name),
+        "signer_short_name": _get_value(client, "signer_short_name") or format_person_short_name(signer_name),
         "signer_basis": _get_value(client, "signer_basis", "signerBasis"),
         "contact_person": _get_value(client, "contact_person", "contactPerson"),
         "email": _get_value(client, "email"),
@@ -377,6 +377,8 @@ def _decline_hyphenated(value: str, decline_part) -> str:
 
 def _decline_surname(value: str, gender: str) -> str:
     lower = value.lower()
+    if lower.endswith(("ых", "их")):
+        return value
     if gender == "female":
         if lower.endswith(("ова", "ева", "ёва", "ина", "ына")):
             return _match_case(value, lower[:-1] + "ой")
