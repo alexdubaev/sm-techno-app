@@ -56,19 +56,26 @@ class BrokerIntegration(unittest.TestCase):
         self.temp.cleanup()
 
     def test_success_error_and_cleanup(self):
+        def wait_for_cleanup():
+            # A response can arrive before the handler's finally releases the lease.
+            self.assertTrue(self.broker.busy.acquire(timeout=2), 'converter cleanup did not finish')
+            self.broker.busy.release()
+            self.assertEqual(list(self.broker.work_dir.iterdir()), [])
+
         self.source.write_bytes(b'synthetic')
         self.assertEqual(self.client.convert(self.source, self.workspace).read_bytes(), b'%PDF-synthetic')
+        wait_for_cleanup()
         self.source.write_bytes(b'error')
         with self.assertRaises(ExtractionError) as caught:
             self.client.convert(self.source, self.workspace)
         self.assertEqual(caught.exception.code, 'conversion_failed')
+        wait_for_cleanup()
         for content in (b'oversize',):
             self.source.write_bytes(content)
             with self.assertRaises(ExtractionError) as caught:
                 self.client.convert(self.source, self.workspace)
             self.assertEqual(caught.exception.code, 'conversion_failed')
-        time.sleep(.05)
-        self.assertEqual(list(self.broker.work_dir.iterdir()), [])
+            wait_for_cleanup()
 
     def test_converter_input_permissions_under_private_umask(self):
         self.source.write_bytes(b'synthetic')
