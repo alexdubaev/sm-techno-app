@@ -172,6 +172,43 @@ it('saves the number corrected by the manager instead of the recognised one',asy
   await waitFor(()=>expect(api.importClientDocument).toHaveBeenCalledWith(84,{type:'contract',assetId:51,number:'Д-7/2026',date:'2026-11-01'}));
 });
 
+it('asks which position to print when the preamble and the signature name it differently, and records the choice before saving',async()=>{
+  const twoPositions={signer_position_options:['Генеральный директор','Директор'],warnings:[]};
+  const job=contractJob({});const conflicting:DocumentAssistantJob={...job,result:{...job.result!,...twoPositions}};
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(84,null,'ООО Другой покупатель'));
+  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);
+  vi.mocked(api.startDocumentAssistantJob).mockResolvedValue(conflicting);
+  vi.mocked(api.confirmDocumentAssistantJob).mockResolvedValue({job:{...conflicting,status:'confirmed',version:2},resultType:'job',resultId:'contract-job',clientId:84});
+  vi.mocked(api.importClientDocument).mockResolvedValue({id:9} as never);
+  await userEvent.upload(await openClientWithoutContract(),new File(['c'],'contract.docx'));
+  const card=await recognisedCard();
+  const group=within(specView()).getByRole('group',{name:'Должность подписанта для спецификации'});
+  expect(within(group).getByText('В договоре должность указана по-разному: в начале договора «Генеральный директор», у подписи «Директор». Выберите, какую указать в спецификации.')).toBeVisible();
+  // The preamble position is the default; nothing is chosen silently beyond it.
+  expect(within(group).getByRole('radio',{name:/^Генеральный директор/})).toBeChecked();
+  expect(within(card).getByText('Подписант: Генеральный директор Петров Пётр Петрович')).toBeVisible();
+  fireEvent.click(within(group).getByRole('radio',{name:/^Директор/}));
+  expect(within(card).getByText('Подписант: Директор Петров Пётр Петрович')).toBeVisible();
+  fireEvent.click(within(specView()).getByRole('button',{name:'Сохранить договор'}));
+  await waitFor(()=>expect(api.importClientDocument).toHaveBeenCalledWith(84,{type:'contract',assetId:51,number:'Д-7',date:'2026-11-01'}));
+  expect(api.confirmDocumentAssistantJob).toHaveBeenCalledWith('contract-job',{version:1,action:'review',operationKey:expect.any(String),
+    fields:expect.objectContaining({number:'Д-7',legal_fields:{...contractLegal,signer_position:'Директор'}})});
+  expect(vi.mocked(api.confirmDocumentAssistantJob).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(api.importClientDocument).mock.invocationCallOrder[0]);
+});
+
+it('does not ask about the position when the contract names it once',async()=>{
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(84,null,'ООО Другой покупатель'));
+  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);
+  vi.mocked(api.startDocumentAssistantJob).mockResolvedValue(contractJob({}));
+  vi.mocked(api.importClientDocument).mockResolvedValue({id:9} as never);
+  await userEvent.upload(await openClientWithoutContract(),new File(['c'],'contract.docx'));
+  await recognisedCard();
+  expect(within(specView()).queryByRole('group',{name:'Должность подписанта для спецификации'})).not.toBeInTheDocument();
+  fireEvent.click(within(specView()).getByRole('button',{name:'Сохранить договор'}));
+  await waitFor(()=>expect(api.importClientDocument).toHaveBeenCalled());
+  expect(api.confirmDocumentAssistantJob).not.toHaveBeenCalled();
+});
+
 it('warns when the INN in the contract differs from the client, but still lets the manager save',async()=>{
   vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(84,null,'ООО Другой покупатель'));
   vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);

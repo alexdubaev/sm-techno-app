@@ -46,6 +46,19 @@ def _require_invoice_format(filename):
         raise ValueError('Счёт принимается в DOCX, PDF или фото.')
 
 
+
+def signer_position_options(legal):
+    """The «в лице …» clause and the signature block may name the position differently («Генеральный директор» / «Директор»).
+    Either can be right, so the difference is never resolved silently: the clause position is put first as the default and
+    both are returned for the manager to choose. An empty position is filled from the clause. Returns None without a conflict."""
+    from stock_sync_web.documents import position_nominative
+    preamble=position_nominative(legal.get('signer_position_genitive'))
+    printed=' '.join(str(legal.get('signer_position') or '').split())
+    if not preamble:return None
+    legal['signer_position']=preamble
+    same=lambda value:value.casefold().replace('ё','е')
+    return [preamble,printed] if printed and same(printed)!=same(preamble) else None
+
 def _digits(value):
     return ''.join(ch for ch in str(value or '') if ch.isdigit())
 
@@ -182,7 +195,12 @@ class DocumentAssistantService:
             if row['kind']=='contract' and len(row['input_asset_ids'])==1:
                 source=self.repository.get_asset(row['input_asset_ids'][0])
                 result.payload.update(document_id=source['document_id'],asset_id=source['id'],client_id=source['crm_client_id'],source_sha256=source['sha256'])
-            self.repository.transition_job(job_id,row['version'],'review',result=result.as_dict())
+            stored=result.as_dict()
+            if row['kind']=='contract' and isinstance(result.payload.get('legal_fields'),dict) and (options:=signer_position_options(result.payload['legal_fields'])):
+                stored['signer_position_options']=options
+                stored['warnings']=[*stored['warnings'],f'Должность подписанта в договоре указана по-разному: в начале договора «{options[0]}», '
+                    f'у подписи «{options[1]}». Выберите, какую указать в спецификации.']
+            self.repository.transition_job(job_id,row['version'],'review',result=stored)
         except Exception as exc:
             error={'code':exc.code,'message':exc.public_message} if isinstance(exc,ExtractionError) else {'code':'extraction_failed','message':'Не удалось распознать файл. Исходник сохранён; проверьте формат или повторите распознавание.'}
             try: self.repository.transition_job(job_id,row['version'],'failed',error=error)
@@ -405,7 +423,7 @@ class DocumentAssistantService:
 
     def _read_specification_contract(self,actor,client_id,state):
         from stock_sync_web.assistant_extraction import ExtractionRequest,validate_payload
-        from stock_sync_web.documents import format_document_date,format_person_short_name,generated_contract_fields_match,position_nominative
+        from stock_sync_web.documents import format_document_date,format_person_short_name,generated_contract_fields_match
         if not state['contract_document_id']:
             raise DocumentConflict('Сначала сохраните договор клиента.')
         document=self.repository.get_document(state['contract_document_id'],client_id)
@@ -422,11 +440,12 @@ class DocumentAssistantService:
             except (TypeError,ValueError):stored={}
             required=('document_name','inn','signer_position','signer_short_name')
             trusted=(Path(asset['originalFilename']).suffix.lower()=='.docx' and bool(stored) and generated_contract_fields_match(content,document,stored))
+            decided=trusted
             if trusted:
                 snapshot={'number':document['number'],'date':document['document_date'],'legal_fields':stored}
             elif (recognised:=self.repository.latest_contract_recognition(asset['id'])):
                 # Reuse the recognition shown to the manager when the contract was saved; re-reading may differ run to run.
-                snapshot={'legal_fields':recognised}
+                snapshot={'legal_fields':recognised[0]};decided=recognised[1]
             else:
                 result=self.extractor.extract(ExtractionRequest('contract',texts,images,[asset['id']]))
                 validate_payload('contract',result.payload,partial=True)
@@ -453,8 +472,9 @@ class DocumentAssistantService:
             # which the manager confirmed; the file is not re-searched for them or for literal field spellings.
             # The specification prints the position and «Иванов И.И.»; contracts often give the full name only in the genitive.
             if not legal.get('signer_short_name') and legal.get('signer_name'):legal['signer_short_name']=format_person_short_name(legal['signer_name'])
-            # The «в лице …» clause states the authority; a signature-block title («Директор») may be shortened, so the clause wins.
-            if (nominative:=position_nominative(legal.get('signer_position_genitive'))):legal['signer_position']=nominative
+            # A position the manager chose stays. Otherwise an empty or differing position is taken from the «в лице …» clause,
+            # the default the manager is offered when the contract is recognised.
+            if not decided:signer_position_options(legal)
             labels={'document_name':'наименование покупателя','inn':'ИНН покупателя','signer_position':'должность подписанта','signer_short_name':'подписант (Фамилия И.О.)'}
             for key in required:
                 if not legal.get(key):raise ValueError('В договоре не найдено: '+labels[key]+'. Проверьте файл договора.')

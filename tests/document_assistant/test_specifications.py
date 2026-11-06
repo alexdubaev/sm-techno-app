@@ -670,3 +670,45 @@ def test_preamble_position_wins_over_a_shorter_signature_title(api,monkeypatch):
     xml=ZipFile(BytesIO(http.get(f"/api/documents/{spec.json()['id']}/download",headers=users['alice']['headers']).content)).read('word/document.xml').decode('utf-8')
     texts=re.findall(r'<w:t[^>]*>([^<]*)</w:t>',xml)
     assert 'Директор' not in texts and texts.count('Генеральный директор')>=2
+
+
+def _recognise_contract_with_two_positions(api,monkeypatch,signature='Директор'):
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,_,users,cid=api;j,asset=_import_saved_contract(api,monkeypatch)
+    legal={**FIELDS,'signer_position':signature,'signer_position_genitive':'генерального директора','signer_short_name':'Иванов И.И.'}
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',lambda self,request:ExtractionResult('contract',{'number':'Д-37','date':'2026-10-30','legal_fields':dict(legal)}))
+    job=http.post('/api/document-assistant/jobs',headers=users['alice']['headers'],json={'kind':'contract','clientId':cid,'assetIds':[asset['id']]}).json()
+    job=http.get('/api/document-assistant/jobs/'+job['id'],headers=users['alice']['headers']).json()
+    assert job['status']=='review',job
+    return j,asset,job
+
+
+def _buyer_positions(api,spec):
+    return re.findall(r'<w:t[^>]*>([^<]*)</w:t>',_spec_xml(api,spec))
+
+
+def test_different_positions_in_the_preamble_and_by_the_signature_are_flagged_for_the_manager(api,monkeypatch):
+    _,_,job=_recognise_contract_with_two_positions(api,monkeypatch)
+    assert job['result']['signer_position_options']==['Генеральный директор','Директор']
+    assert job['result']['payload']['legal_fields']['signer_position']=='Генеральный директор'
+    assert any('по-разному' in warning and '«Генеральный директор»' in warning and '«Директор»' in warning for warning in job['warnings'])
+
+
+def test_the_same_position_written_twice_is_not_flagged(api,monkeypatch):
+    _,_,job=_recognise_contract_with_two_positions(api,monkeypatch,signature='Генеральный  директор')
+    assert 'signer_position_options' not in job['result'] and not any('по-разному' in warning for warning in job['warnings'])
+
+
+@pytest.mark.parametrize('chosen',['Директор','Генеральный директор'])
+def test_the_position_the_manager_chose_goes_into_the_specification(api,monkeypatch,chosen):
+    http,_,users,cid=api;j,asset,job=_recognise_contract_with_two_positions(api,monkeypatch)
+    payload=job['result']['payload'];fields={**payload,'legal_fields':{**payload['legal_fields'],'signer_position':chosen}}
+    confirmed=http.post(f"/api/document-assistant/jobs/{job['id']}/confirm",headers=users['alice']['headers'],
+                        json={'version':job['version'],'fields':fields,'action':'review','operationKey':'choose-signer-position-0001'})
+    assert confirmed.status_code==200,confirmed.text
+    assert http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':asset['id'],'number':'Д-37','date':'2026-10-30'}).status_code==200
+    spec=generate(api,j);assert spec.status_code==200,spec.text
+    texts=_buyer_positions(api,spec.json())
+    # The seller signs as «Генеральный директор»; the buyer line carries the chosen position.
+    assert texts.count('Директор')==(1 if chosen=='Директор' else 0)
+    assert texts.count('Генеральный директор')==(1 if chosen=='Директор' else 2)

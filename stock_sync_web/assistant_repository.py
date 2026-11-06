@@ -322,10 +322,11 @@ class AssistantRepository:
         return self.get_job(jid)
 
     def latest_contract_recognition(self, asset_id):
-        """Legal fields of the newest contract recognition of this exact file, as the manager saw them when saving it."""
+        """Legal fields of the newest contract recognition of this exact file, as the manager saw them when saving it,
+        and whether the manager confirmed them (a confirmed signer position is the manager's choice and is kept as is)."""
         from stock_sync_web.assistant_extraction import validate_payload
         with self.db.connect() as conn:
-            row=conn.execute("SELECT result_json FROM document_assistant_jobs WHERE kind='contract' AND status IN ('review','confirmed') AND input_asset_ids=? AND result_json IS NOT NULL ORDER BY updated_at DESC LIMIT 1",(json.dumps([asset_id]),)).fetchone()
+            row=conn.execute("SELECT status,result_json FROM document_assistant_jobs WHERE kind='contract' AND status IN ('review','confirmed') AND input_asset_ids=? AND result_json IS NOT NULL ORDER BY updated_at DESC LIMIT 1",(json.dumps([asset_id]),)).fetchone()
         if not row: return None
         # A stored result is reused only when it still passes the same validation as a fresh reading; otherwise the file is read again.
         try:
@@ -333,7 +334,7 @@ class AssistantRepository:
             validate_payload('contract',payload,partial=True)
             legal=payload.get('legal_fields')
         except (TypeError,ValueError,AttributeError): return None
-        return dict(legal) if isinstance(legal,dict) and legal else None
+        return (dict(legal),row['status']=='confirmed') if isinstance(legal,dict) and legal else None
 
     def get_job(self, job_id):
         with self.db.connect() as conn:

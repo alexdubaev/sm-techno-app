@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CircleAlert, CircleCheck, Download, FolderOpen, RefreshCw, Search, Upload } from 'lucide-react';
-import { downloadDocumentFile, fetchDocumentAssistantJob, importClientDocument, startDocumentAssistantJob, uploadClientDocumentAsset } from '@/lib/api';
+import { confirmDocumentAssistantJob, downloadDocumentFile, fetchDocumentAssistantJob, importClientDocument, startDocumentAssistantJob, uploadClientDocumentAsset } from '@/lib/api';
 import { formatElapsed, useElapsedSeconds } from '@/components/crm/document-extraction-panel';
 import type { ClientDocumentAsset, ClientDocumentsSummary, ClientStoredDocument, CrmClient, DocumentAssistantJob } from '@/lib/types';
 import { busyProps, card, cardTitle, compactSecondaryAction, control, fieldLabel, muted, primaryAction, secondaryAction } from './document-ui';
@@ -89,6 +89,12 @@ const digits=(value: string) => value.replace(/\D/g,'');
 type ContractPhase='idle'|'uploading'|'starting'|'saving';
 /** Only a contract job of this client is taken. */
 const ownContractJob=(job: DocumentAssistantJob,clientId: number) => job.kind==='contract' && job.clientId===clientId;
+/** Both positions when the contract names the signer's position differently in the preamble and by the signature. */
+const positionOptions=(job: DocumentAssistantJob) => {
+  const options=job.result?.signer_position_options as unknown;
+  return Array.isArray(options) && options.length===2 && options.every((option) => typeof option==='string' && option.trim()) ? options as string[] : [];
+};
+
 /** A recognised number and date fill the inputs; a value that was not recognised keeps what the manager typed. */
 function prefill(job: DocumentAssistantJob,setNumber: (value: string) => void,setDate: (value: string) => void) {
   if(job.status!=='review') return;
@@ -113,6 +119,9 @@ export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequi
   const [error,setError]=useState('');
   const [dragging,setDragging]=useState(false);
   const [revision,setRevision]=useState(0);
+  // The position for the specification when the contract names it differently in the preamble and by the signature.
+  const [position,setPosition]=useState('');
+  const confirmKey=useRef<string | null>(null);
   // Each file and each retry is a new attempt: answers of an older attempt, or after the client was changed, are ignored.
   const attempt=useRef(0);
   // A short network failure while polling is retried a few times before the recognition is given up.
@@ -124,6 +133,7 @@ export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequi
   function accept(mine: number,next: DocumentAssistantJob) {
     if(mine!==attempt.current || !ownContractJob(next,clientId)) return;
     setJob(next);prefill(next,setNumber,setDate);
+    if(next.status==='review') {setPosition(positionOptions(next)[0] ?? '');confirmKey.current=null;}
   }
   useEffect(() => {
     if(!job || (job.status!=='queued' && job.status!=='running')) return;
@@ -173,6 +183,16 @@ export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequi
     const mine=attempt.current;
     setPhase('saving');setError('');
     try {
+      // The chosen position is recorded on the recognition the specification reads; nothing else of the result changes.
+      if(job?.status==='review' && positionOptions(job).length>1) {
+        const payload=job.result?.payload ?? {};
+        const legalFields=(payload.legal_fields ?? {}) as Record<string,unknown>;
+        confirmKey.current ??= crypto.randomUUID();
+        const confirmed=await confirmDocumentAssistantJob(job.id,{version:job.version,action:'review',operationKey:confirmKey.current,
+          fields:{...payload,legal_fields:{...legalFields,signer_position:position}}});
+        if(mine!==attempt.current) return;
+        setJob(confirmed.job);
+      }
       await importClientDocument(clientId,{type:'contract',assetId:asset.id,number:number.trim(),date});
       if(mine===attempt.current) onSaved();
     } catch(failure: unknown) {if(mine===attempt.current) setError(failureText(failure,'Не удалось сохранить договор.'));}
@@ -180,11 +200,13 @@ export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequi
   }
   const saving=phase==='saving';
   const fileName=file?.name ?? asset?.originalFilename ?? '';
-  const reviewed=job?.status==='review' ? job : null;
+  const reviewed=job?.status==='review' || job?.status==='confirmed' ? job : null;
+  const options=reviewed ? positionOptions(reviewed) : [];
+  const choosing=options.length>1;
   const legal=(reviewed?.result?.payload.legal_fields ?? {}) as Record<string,unknown>;
   const party=textValue(legal.document_name) || textValue(legal.full_name);
   const partyInn=textValue(legal.inn);const partyKpp=textValue(legal.kpp);
-  const signer=[textValue(legal.signer_position),textValue(legal.signer_name)].filter(Boolean).join(' ');
+  const signer=[choosing ? position : textValue(legal.signer_position),textValue(legal.signer_name)].filter(Boolean).join(' ');
   const innMismatch=Boolean(partyInn && digits(clientInn) && digits(partyInn)!==digits(clientInn));
   const recognisedPayload=reviewed?.result?.payload ?? {};
   const missingNumber=reviewed!==null && !textValue(recognisedPayload.number);
@@ -226,6 +248,14 @@ export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequi
       {partyLine ? <p className="min-w-0 break-words text-sm text-[var(--text-primary)]">{partyLine}</p> : null}
       {signer ? <p className="min-w-0 break-words text-sm text-[var(--text-primary)]">{`Подписант: ${signer}`}</p> : null}
     </section> : null}
+    {choosing ? <fieldset className="grid min-w-0 gap-2 rounded-[12px] border border-[var(--border-color)] px-3 py-2.5">
+      <legend className="px-1 text-sm font-semibold text-[var(--text-primary)]">Должность подписанта для спецификации</legend>
+      <p className="app-notice app-notice--warning">{`В договоре должность указана по-разному: в начале договора «${options[0]}», у подписи «${options[1]}». Выберите, какую указать в спецификации.`}</p>
+      {options.map((option,index) => <label key={option} className="flex min-w-0 items-center gap-2 text-sm text-[var(--text-primary)]">
+        <input type="radio" name="signer-position" value={option} checked={position===option} disabled={saving || job?.status==='confirmed'} onChange={() => setPosition(option)} />
+        <span className="min-w-0 break-words">{option}<span className="text-[var(--text-secondary)]">{index===0 ? ' — в начале договора' : ' — у подписи'}</span></span>
+      </label>)}
+    </fieldset> : null}
     {innMismatch ? <p className="app-notice app-notice--warning">{`ИНН в договоре (${partyInn}) не совпадает с клиентом (${clientInn}). Проверьте, тот ли это файл.`}</p> : null}
     {missing ? <p className="app-notice app-notice--warning">{missingText}</p> : null}
     {showFields ? <div className="grid min-w-0 gap-3 sm:grid-cols-2">

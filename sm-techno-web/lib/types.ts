@@ -541,6 +541,8 @@ export type DocumentAssistantJob = {
     extracted_payload?: DocumentAssistantPayload;
     provenance: {assetId: number; method: string; reviewed: boolean; reviewedByUserId?: number}[];
     missing_fields: string[]; warnings: string[];
+    /** Contract only: the preamble and the signature name the position differently; the first is the default. */
+    signer_position_options?: string[];
   } | null;
   missingFields: string[]; warnings: string[]; error: {code: string; message: string} | null;
   createdAt: string; updatedAt: string;
