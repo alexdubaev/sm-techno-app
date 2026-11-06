@@ -300,6 +300,7 @@ def extraction_prompt(request):
         'Output only the requested JSON schema. Preserve article codes as exact text including leading zeros. '
         'All decimals are strings with a dot decimal separator and no thousands separators (e.g. 295081.97); do not compute totals or taxes. Return absent values as null and list their field paths in missing_fields. '
         'For requisites use the official full legal document name, never a software display alias or a document heading such as Карточка организации. '
+        'For contracts legal_fields describe the customer party (Покупатель/Заказчик), not ООО СМ ТЕХНО; document_name is the legal name of that party, never the contract title such as ДОГОВОР ПОСТАВКИ № …. '
         'Do not guess signers, positions or identity. Extract grammatical forms only when printed; missing grammatical forms and initials are completed separately before manager review. '
         'For articles extract ONLY article and optional quantity. '
         'For invoice and contract dates use ISO YYYY-MM-DD when the printed date is unambiguous. '

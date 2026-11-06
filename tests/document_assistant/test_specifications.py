@@ -291,3 +291,21 @@ def test_reread_contract_number_and_date_do_not_have_to_repeat_the_card(api,monk
     monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',
         lambda self,request:ExtractionResult('contract',{'number':'37','date':None,'legal_fields':dict(FIELDS)}))
     spec=generate(api,j);assert spec.status_code==200,spec.text
+
+
+def test_reread_contract_title_never_becomes_the_buyer_name(api,monkeypatch):
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,service,users,cid=api;j,_=setup_invoice(api,monkeypatch)
+    summary=http.get(f'/api/crm/clients/{cid}/documents',headers=users['alice']['headers']).json()
+    old=summary['contract'];content=http.get(f"/api/documents/{old['id']}/download",headers=users['alice']['headers']).content
+    assert http.delete(f"/api/documents/{old['id']}",headers=users['admin']['headers']).status_code==200
+    asset=upload(http,users,cid,content).json()
+    assert http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':asset['id'],'number':'Д-37','date':'2026-10-30'}).status_code==200
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',
+        lambda self,request:ExtractionResult('contract',{'number':'Д-37','date':'2026-10-30','legal_fields':{**FIELDS,'document_name':'ДОГОВОР ПОСТАВКИ № Д-37','full_name':'ДОГОВОР ПОСТАВКИ № Д-37'}}))
+    spec=generate(api,j);assert spec.status_code==200,spec.text
+    card=service.db.connect().execute('SELECT document_name,full_name FROM crm_clients WHERE id=?',(cid,)).fetchone()
+    expected=card[0] or card[1]
+    assert expected and spec.json()['clientName']==expected
+    text='\n'.join(p.text for p in Document(BytesIO(http.get(f"/api/documents/{spec.json()['id']}/download",headers=users['alice']['headers']).content)).paragraphs)
+    assert 'ДОГОВОР ПОСТАВКИ № Д-37' not in text.split('Покупатель',1)[-1].split('\n')[0]
