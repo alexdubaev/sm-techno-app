@@ -10,28 +10,11 @@ import {
   resolveCrmDisplayContact,
 } from '@/components/crm/crm-contact-selection';
 import { getSafeMailtoHref } from '@/components/crm/mobile/mobile-crm-utils';
+import { ROW_COLORS } from '@/components/crm/mobile/mobile-row-colors';
 import { MobileSheet } from '@/components/crm/mobile/mobile-sheets';
 import { MessengerLinks } from '@/components/crm/messenger-links';
 import { WorkOwnersStatus } from '@/components/crm/work-owners-status';
 import type { CrmReminder, CrmTab, CrmWorkspaceClient } from '@/lib/types';
-
-const cardThemeByColor: Record<
-  string,
-  { accent: string; border: string; surface: string }
-> = {
-  blue: { accent: '#2563EB', border: '#93C5FD', surface: '#DBEAFE' },
-  cyan: { accent: '#0891B2', border: '#67E8F9', surface: '#CFFAFE' },
-  teal: { accent: '#0F766E', border: '#5EEAD4', surface: '#CCFBF1' },
-  green: { accent: '#16A34A', border: '#86EFAC', surface: '#DCFCE7' },
-  lime: { accent: '#65A30D', border: '#BEF264', surface: '#ECFCCB' },
-  yellow: { accent: '#CA8A04', border: '#FDE047', surface: '#FEF9C3' },
-  amber: { accent: '#D97706', border: '#FCD34D', surface: '#FEF3C7' },
-  orange: { accent: '#EA580C', border: '#FDBA74', surface: '#FFEDD5' },
-  red: { accent: '#DC2626', border: '#FCA5A5', surface: '#FEE2E2' },
-  pink: { accent: '#DB2777', border: '#F9A8D4', surface: '#FCE7F3' },
-  purple: { accent: '#7E22CE', border: '#D8B4FE', surface: '#F3E8FF' },
-  gray: { accent: '#475569', border: '#CBD5E1', surface: '#F1F5F9' },
-};
 
 const reminderDate = new Intl.DateTimeFormat('ru-RU', {
   timeZone: 'Europe/Moscow',
@@ -80,7 +63,7 @@ export function MobileClientCard({
   onOpen,
 }: MobileClientCardProps) {
   const companyName = client.documentName || client.fullName || client.name;
-  const colorTheme = color ? cardThemeByColor[color] : undefined;
+  const accent = ROW_COLORS.find(([key]) => key === color)?.[2];
   const [contactSelection, setContactSelection] = useState<{
     revision: string;
     key: string;
@@ -98,16 +81,8 @@ export function MobileClientCard({
   return (
     <article
       data-mobile-crm-card-id={client.id}
-      style={
-        colorTheme
-          ? {
-              backgroundColor: colorTheme.surface,
-              borderColor: colorTheme.border,
-              borderLeftColor: colorTheme.accent,
-            }
-          : undefined
-      }
-      className={`rounded-[16px] border border-l-[7px] border-[var(--border-color)] bg-white p-3 shadow-[0_8px_22px_rgba(7,22,46,0.045)] ${dragControls?.isGrabbed ? 'ring-2 ring-[var(--brand-yellow)]' : ''}`}
+      style={{ borderColor: accent }}
+      className={`rounded-xl border border-[var(--border-color)] bg-white p-3 shadow-[0_1px_3px_rgba(7,22,46,0.05)] ${dragControls?.isGrabbed ? 'ring-2 ring-[var(--brand-yellow)]' : ''}`}
     >
       <div className="flex items-start gap-2">
         {dragControls ? (
@@ -135,8 +110,15 @@ export function MobileClientCard({
             className="w-full min-w-0 rounded-[8px] text-left outline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:cursor-default"
           >
             <div className="flex items-start justify-between gap-2">
-              <h2 className="min-w-0 text-[15px] font-bold leading-5 tracking-[-0.02em] text-[var(--text-primary)] [overflow-wrap:anywhere]">
-                {companyName}
+              <h2 className="flex min-w-0 items-start gap-1.5 text-[15px] font-bold leading-5 tracking-[-0.02em] text-[var(--text-primary)]">
+                {accent ? (
+                  <span
+                    aria-hidden="true"
+                    className="mt-1.5 size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: accent }}
+                  />
+                ) : null}
+                <span className="min-w-0 [overflow-wrap:anywhere]">{companyName}</span>
               </h2>
               <StatusBadge status={client.syncStatus} />
             </div>
