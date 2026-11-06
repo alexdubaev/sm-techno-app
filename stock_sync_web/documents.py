@@ -105,6 +105,22 @@ def format_document_date(value: str | date | datetime) -> str:
         return text
 
 
+_RU_GENITIVE_MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря")
+
+
+def document_date_in_text(normalized_text: str, iso_date: str) -> bool:
+    """True when the date is printed as DD.MM.YYYY or in words («29» июня 2026 г.) in text already passed through _normal_text."""
+    import re
+    try:
+        value = date.fromisoformat(str(iso_date or "")[:10])
+    except ValueError:
+        return False
+    if value.strftime("%d.%m.%Y") in normalized_text:
+        return True
+    pattern = r'(?<!\d)"?0?' + str(value.day) + r'"?\s+' + _RU_GENITIVE_MONTHS[value.month - 1] + r'\s+' + str(value.year) + r'(?!\d)'
+    return re.search(pattern, normalized_text) is not None
+
+
 def _client_to_context(client: dict[str, Any]) -> dict[str, str]:
     bank_name_or_bik = _get_value(client, "bank_name_or_bik", "bankNameOrBik")
     signer_position = _get_value(client, "signer_position", "signerPosition")
@@ -521,7 +537,8 @@ def docx_source_text(content):
 
 def _normal_text(value):
     import re
-    return re.sub(r'\s+',' ',str(value or '').replace('«','"').replace('»','"').replace('ё','е')).strip().casefold()
+    # Word and 1С print «», “”, „“ interchangeably; all of them are the same quote here.
+    return re.sub(r'\s+',' ',re.sub(r'[«»“”„]','"',str(value or ''))).strip().casefold().replace('ё','е')
 
 
 def _invoice_decimal(value, *, money=False):

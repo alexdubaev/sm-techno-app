@@ -236,3 +236,48 @@ def test_review_invoice_requires_confirmation_before_generation_and_replays(api,
     job=confirmed.json()['job']
     first=generate(api,job,key='confirm-required-test'); assert first.status_code==200,first.text
     assert generate(api,job,key='confirm-required-test').json()['id']==first.json()['id']
+
+
+def _with_written_date(content):
+    import zipfile
+    source=ZipFile(BytesIO(content));out=BytesIO()
+    with ZipFile(out,'w',zipfile.ZIP_DEFLATED) as target:
+        for item in source.infolist():
+            data=source.read(item.filename)
+            if item.filename=='word/document.xml':
+                xml=data.decode('utf-8');assert '30.10.2026' in xml
+                data=xml.replace('30.10.2026','«30»  октября  2026 г.').encode('utf-8')
+            target.writestr(item,data)
+    return out.getvalue()
+
+
+def test_imported_contract_with_date_written_in_words_is_accepted(api,monkeypatch):
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,_,users,cid=api;j,_=setup_invoice(api,monkeypatch)
+    summary=http.get(f'/api/crm/clients/{cid}/documents',headers=users['alice']['headers']).json()
+    old=summary['contract'];content=_with_written_date(http.get(f"/api/documents/{old['id']}/download",headers=users['alice']['headers']).content)
+    assert http.delete(f"/api/documents/{old['id']}",headers=users['admin']['headers']).status_code==200
+    asset=upload(http,users,cid,content).json()
+    imported=http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':asset['id'],'number':'Д-37','date':'2026-10-30'})
+    assert imported.status_code==200,imported.text
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',
+        lambda self,request:ExtractionResult('contract',{'number':'Д-37','date':'2026-10-30','legal_fields':dict(FIELDS)}))
+    spec=generate(api,j);assert spec.status_code==200,spec.text
+    assert spec.json()['contractId']==imported.json()['id']
+
+
+def test_contract_date_check_still_rejects_a_different_date(api,monkeypatch):
+    from stock_sync_web.documents import document_date_in_text
+    assert document_date_in_text('"30" октября 2026 г.','2026-10-30')
+    assert document_date_in_text('от 30.10.2026','2026-10-30')
+    assert document_date_in_text('«3» марта 2027 года'.replace('«','"').replace('»','"'),'2027-03-03')
+    assert not document_date_in_text('"31" октября 2026 г.','2026-10-30')
+    assert not document_date_in_text('"30" ноября 2026 г.','2026-10-30')
+    assert not document_date_in_text('"130" октября 2026 г.','2026-10-30')
+
+
+def test_invoice_and_contract_names_match_across_quote_styles():
+    from stock_sync_web.documents import _normal_text
+    names={'ООО “ВОЛГАГЛОБАЛСЕРВИС”','ООО «ВОЛГАГЛОБАЛСЕРВИС»','ООО "ВОЛГАГЛОБАЛСЕРВИС"','ООО „ВОЛГАГЛОБАЛСЕРВИС“'}
+    assert len({_normal_text(name) for name in names})==1
+    assert _normal_text('ООО «Ёлка»')==_normal_text('ООО "елка"')

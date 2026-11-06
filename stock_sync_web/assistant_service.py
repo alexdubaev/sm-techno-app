@@ -376,7 +376,7 @@ class DocumentAssistantService:
 
     def _read_specification_contract(self,actor,client_id,state):
         from stock_sync_web.assistant_extraction import ExtractionRequest,validate_payload
-        from stock_sync_web.documents import generated_contract_fields_match,_normal_text,format_document_date,format_person_short_name
+        from stock_sync_web.documents import document_date_in_text,generated_contract_fields_match,_normal_text,format_person_short_name
         if not state['contract_document_id'] or not state['contract_version_asset_id']:
             raise DocumentConflict('Сначала сохраните договор клиента и его версию файла.')
         document=self.repository.get_document(state['contract_document_id'],client_id)
@@ -408,7 +408,8 @@ class DocumentAssistantService:
                     raise ValueError('В сохранённом договоре не подтверждено поле: '+key+'. Проверьте файл договора.')
             if not snapshot.get('number') or (snapshot['number'],snapshot.get('date'))!=(document['number'],document['document_date']):
                 raise DocumentConflict('Номер или дата в файле договора не совпадают с карточкой документа.')
-            if _normal_text(snapshot['number']) not in text or _normal_text(format_document_date(snapshot['date'])) not in text:
+            # Ready contracts usually print the date in words («29» июня 2026 г.), generated ones as DD.MM.YYYY.
+            if _normal_text(snapshot['number']) not in text or not document_date_in_text(text,snapshot['date']):
                 raise ValueError('Номер и дата договора не подтверждены сохранённым файлом.')
             if legal.get('kpp') and _normal_text(legal['kpp']) not in text:raise ValueError('КПП не подтверждён сохранённым договором.')
             identity=self.service._normalize_client_card_payload({**legal,'legal_type':'individual_entrepreneur' if len(legal['inn'])==12 else 'legal_entity'})
