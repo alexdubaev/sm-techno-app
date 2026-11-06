@@ -35,12 +35,12 @@ const statusTone: Record<DocumentAssistantJob['status'],string>={queued:'text-[v
 
 const jobKey=(item: DocumentAssistantJob) => `${item.id}:${item.version}:${item.status}`;
 
-function formatElapsed(seconds: number) {
+export function formatElapsed(seconds: number) {
   return seconds<60 ? `${seconds} с` : `${Math.floor(seconds/60)} мин ${seconds%60} с`;
 }
 
 /** Ticks once a second while the job is waiting or running. */
-function useElapsedSeconds(since: number | null) {
+export function useElapsedSeconds(since: number | null) {
   const [now,setNow]=useState(() => Date.now());
   useEffect(() => {
     if(since===null) return;

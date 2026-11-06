@@ -128,6 +128,11 @@ def normalize_payload(kind, payload):
         for key in _NUMERIC_TOP_FIELDS:
             if payload.get(key) is not None: payload[key]=_plain_decimal(payload[key])
     if kind in {'invoice','contract'} and payload.get('date'): payload['date']=_printed_date(payload['date'])
+    # A printed «№ Д-7» and «Д-7» are one number; the card and every later re-reading must agree on the bare form.
+    key='number' if kind=='contract' else 'invoice_number' if kind=='invoice' else None
+    if key and isinstance(payload.get(key),str):
+        bare=re.sub(r'^\s*(?:№|No\.?|#)\s*','',payload[key]).strip()
+        if bare: payload[key]=bare
     return payload
 
 
