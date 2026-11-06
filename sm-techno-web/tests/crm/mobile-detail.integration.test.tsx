@@ -406,7 +406,7 @@ describe('mobile detail daily actions', () => {
     });
   });
 
-  it('renders a selected card color as a clear card surface', () => {
+  it('renders the selected palette color on the card border and title marker', () => {
     render(
       <MobileClientCard
         activeActionsClientId={null}
@@ -429,9 +429,12 @@ describe('mobile detail daily actions', () => {
       throw new Error('Окрашенная карточка клиента не отрисована.');
     }
 
-    expect(card.style.backgroundColor).toBe('rgb(219, 234, 254)');
-    expect(card.style.borderTopColor).toBe('rgb(147, 197, 253)');
-    expect(card.style.borderLeftColor).toBe('rgb(37, 99, 235)');
+    const heading = within(card).getByRole('heading', { name: client.documentName });
+    const marker = heading.querySelector('[aria-hidden="true"]');
+
+    expect(card.style.backgroundColor).toBe('');
+    expect(card).toHaveStyle({ borderColor: '#2563EB' });
+    expect(marker).toHaveStyle({ backgroundColor: '#2563EB' });
   });
 
   it('forwards primary-tab owner status in quiet informational order only', () => {

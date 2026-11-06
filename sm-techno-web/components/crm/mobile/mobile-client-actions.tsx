@@ -1,6 +1,7 @@
 'use client';
 
 import { MoreHorizontal } from 'lucide-react';
+import { ROW_COLORS } from '@/components/crm/mobile/mobile-row-colors';
 
 import {
   Dialog,
@@ -10,21 +11,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import type { CrmTab, CrmWorkspaceClient } from '@/lib/types';
-
-const ROW_COLORS = [
-  ['blue', 'Синий', '#2563EB'],
-  ['cyan', 'Бирюзовый', '#0891B2'],
-  ['teal', 'Тёмно-бирюзовый', '#0F766E'],
-  ['green', 'Зелёный', '#16A34A'],
-  ['lime', 'Лаймовый', '#65A30D'],
-  ['yellow', 'Жёлтый', '#CA8A04'],
-  ['amber', 'Янтарный', '#D97706'],
-  ['orange', 'Оранжевый', '#EA580C'],
-  ['red', 'Красный', '#DC2626'],
-  ['pink', 'Розовый', '#DB2777'],
-  ['purple', 'Фиолетовый', '#7E22CE'],
-  ['gray', 'Серый', '#475569'],
-] as const;
 
 type MobileClientActionsProps = {
   client: CrmWorkspaceClient;
