@@ -143,9 +143,9 @@ def test_usage_records_errors_and_sink_failure_never_breaks_success(stub):
 
 def test_deepseek_invoice_with_russian_formats_is_accepted(stub, tmp_path):
     state, factory = stub
-    payload={'invoice_number':'256','date':'6 ноября 2026 г.','buyer_inn':'6313562513','buyer_kpp':'631301001','buyer_document_name':'ООО Покупатель',
+    payload={'invoice_number':'256','date':'6 ноября 2026 г.','buyer_inn':'7709999999','buyer_kpp':'770901001','buyer_document_name':'ООО Покупатель',
         'currency':'RUB','total_amount':'360 000,00','vat_amount':'64 918,03','amount_in_words':'Триста шестьдесят тысяч рублей 00 копеек',
-        'lines':[{'article':'R220591','name':'R220591 Головка','qty':1,'unit':'шт','unit_price_incl_vat':'360 000','unit_price_excl_vat':'295 081,97',
+        'lines':[{'article':'SYN-220','name':'SYN-220 Головка','qty':1,'unit':'шт','unit_price_incl_vat':'360 000','unit_price_excl_vat':'295 081,97',
             'vat_amount':'64 918,03','total_amount':360000,'row_no':'1'}]}
     state['body'] = response({'payload': payload, 'missing_fields': [], 'warnings': []})
     result = DeepSeekDocumentExtractor(connection_factory=factory, timeout=5).extract(ExtractionRequest('invoice', ['счёт'], [], [7]))

@@ -30,6 +30,8 @@ const modes=()=>within(screen.getByRole('navigation',{name:'Действия с 
 const stepState=(label:string)=>within(screen.getByRole('list',{name:'Шаги'})).getByText(label).closest('li')!.getAttribute('data-state');
 const specView=()=>document.querySelector<HTMLElement>('[data-view="spec"]')!;
 const params=()=>new URL(window.location.href).searchParams;
+/** Today as YYYY-MM-DD in the manager's local time zone. */
+const today=()=>{const now=new Date();return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;};
 
 async function chooseClient(query:string,option:RegExp) {
   fireEvent.change(await screen.findByLabelText('Поиск клиента'),{target:{value:query}});
@@ -75,7 +77,7 @@ it('creates a specification client-first: client with a contract, invoice bound 
   const create=await within(specView()).findByRole('button',{name:'Создать спецификацию'});
   expect(stepState('Спецификация')).toBe('current');
   fireEvent.click(create);
-  await waitFor(()=>expect(api.generateClientSpecification).toHaveBeenCalledWith(42,{invoiceJobId:'invoice-new',operationKey:expect.any(String)}));
+  await waitFor(()=>expect(api.generateClientSpecification).toHaveBeenCalledWith(42,{invoiceJobId:'invoice-new',operationKey:expect.any(String),documentDate:today()}));
   fireEvent.click(await screen.findByRole('button',{name:'Скачать спецификацию'}));
   await waitFor(()=>expect(api.downloadDocumentFile).toHaveBeenCalledWith(33));
   expect(workflows.bindDocumentClient).not.toHaveBeenCalled();
@@ -405,4 +407,41 @@ it('R3: finds an old client by its program name when the document names are empt
   fireEvent.click(modes().getByRole('button',{name:'Создать спецификацию'}));
   fireEvent.change(await screen.findByLabelText('Поиск клиента'),{target:{value:'старое'}});
   expect(await within(specView()).findByRole('button',{name:/ИП Старое имя/})).toBeVisible();
+});
+
+it('dates the specification today by default and lets the manager choose a date not before the contract',async()=>{
+  vi.mocked(api.fetchDocumentAssistantJob).mockResolvedValue(confirmedInvoice);
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(42,contract));
+  vi.mocked(api.generateClientSpecification).mockResolvedValue({id:35,number:'5',documentDate:'2026-11-03'} as never);
+  window.history.replaceState(null,'','/documents?invoiceJob=invoice-job');
+  render(<DocumentsWorkspace/>);
+  const region=await screen.findByRole('region',{name:'Спецификация из счёта'});
+  const input=within(region).getByLabelText('Дата спецификации');
+  expect(input).toHaveValue(today());
+  expect(input).toHaveAttribute('min','2026-10-30');
+  fireEvent.change(input,{target:{value:'2026-11-03'}});
+  fireEvent.click(within(region).getByRole('button',{name:'Создать спецификацию'}));
+  await waitFor(()=>expect(api.generateClientSpecification).toHaveBeenCalledWith(42,{invoiceJobId:'invoice-job',operationKey:expect.any(String),documentDate:'2026-11-03'}));
+});
+
+it('treats a contract from 1С as the existing one and explains what to do when it has no file',async()=>{
+  const legacy={id:5,number:'42',documentDate:'2026-10-01',origin:'legacy',assets:[],fileAvailable:false} as unknown as ClientDocumentsSummary['contract'];
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(42,legacy));
+  window.history.replaceState(null,'','/documents?specClientId=42');
+  render(<DocumentsWorkspace/>);
+  expect(await within(specView()).findByText('Договор № 42 от 01.10.2026')).toBeVisible();
+  expect(await within(specView()).findByText(/Файл договора № 42 от 01\.10\.2026 не найден/)).toHaveClass('app-notice--warning');
+  expect(within(specView()).queryByLabelText('Документ или фото для распознавания')).not.toBeInTheDocument();
+  expect(within(specView()).queryByLabelText('Файл договора')).not.toBeInTheDocument();
+});
+
+it('uses a contract from 1С with a file like any saved contract',async()=>{
+  // Listing is read-only: an old contract with a readable file has no versions yet and is reported as usable.
+  const legacy={id:5,number:'42',documentDate:'2026-10-01',origin:'legacy',assets:[],fileAvailable:true} as unknown as ClientDocumentsSummary['contract'];
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(42,legacy));
+  window.history.replaceState(null,'','/documents?specClientId=42');
+  render(<DocumentsWorkspace/>);
+  expect(await within(specView()).findByText('Договор № 42 от 01.10.2026')).toBeVisible();
+  expect(await within(specView()).findByLabelText('Документ или фото для распознавания')).toBeInTheDocument();
+  expect(within(specView()).queryByText(/не найден/)).not.toBeInTheDocument();
 });

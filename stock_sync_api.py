@@ -2335,8 +2335,8 @@ def confirm_document_assistant_job(job_id: str,payload: dict[str,Any],current_us
 @app.post('/api/crm/clients/{client_id}/specifications')
 def generate_client_specification(client_id: int,payload: dict[str,Any],current_user: dict[str,Any]=Depends(_get_current_user)):
     try:
-        if set(payload)-{'invoiceJobId','operationKey'}:raise ValueError('Неизвестные поля запроса спецификации.')
-        return _document_assistant().generate_specification(current_user,client_id,payload.get('invoiceJobId'),payload.get('operationKey'))
+        if set(payload)-{'invoiceJobId','operationKey','documentDate'}:raise ValueError('Неизвестные поля запроса спецификации.')
+        return _document_assistant().generate_specification(current_user,client_id,payload.get('invoiceJobId'),payload.get('operationKey'),payload.get('documentDate'))
     except Exception as exc:_document_error(exc)
 
 

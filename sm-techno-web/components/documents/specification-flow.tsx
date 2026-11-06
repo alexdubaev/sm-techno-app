@@ -242,6 +242,17 @@ export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequi
   </form>;
 }
 
+/** True when the saved contract is known to have no file (an old contract, e.g. of a 1С counterparty, whose file was lost). */
+export const contractFileMissing=(contract: ClientDocumentsSummary['contract']) => contract?.fileAvailable===false;
+
+/** A contract without a file cannot be read for the specification; the manager is told what to do instead of uploading an invoice. */
+export function ContractFileMissing({contract}: {contract: NonNullable<ClientDocumentsSummary['contract']>}) {
+  return <section aria-label="Файл договора не найден" className={card}>
+    <p tabIndex={-1} data-step-anchor="invoice" className="app-notice app-notice--warning outline-none">{`Файл договора № ${contract.number} от ${formatDocumentDate(contract.documentDate)} не найден в программе, поэтому спецификацию к нему создать нельзя.`}</p>
+    <p className={muted}>Попросите администратора удалить эту запись договора в разделе «Загрузить готовый» и загрузите подписанный договор с теми же номером и датой.</p>
+  </section>;
+}
+
 /** The invoice already has a specification: it is offered for download instead of creating a duplicate. */
 export function ExistingSpecification({document,onOpenArchive}: {document: ClientStoredDocument;onOpenArchive: () => void}) {
   const [busy,setBusy]=useState(false);

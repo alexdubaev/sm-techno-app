@@ -107,7 +107,7 @@ it('creates a specification from a reviewed invoice in the same card and retries
   fireEvent.click(screen.getByRole('button',{name:'Создать спецификацию'}));
   await waitFor(() => expect(api.generateClientSpecification).toHaveBeenCalledTimes(2));
   const calls=vi.mocked(api.generateClientSpecification).mock.calls;
-  expect(calls[0]).toEqual([42,{invoiceJobId:'invoice-job',operationKey:expect.any(String)}]);
+  expect(calls[0]).toEqual([42,{invoiceJobId:'invoice-job',operationKey:expect.any(String),documentDate:expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)}]);
   expect(calls[1]).toEqual(calls[0]);
   await waitFor(() => expect(api.fetchClientDocuments).toHaveBeenCalledWith(42));
 });

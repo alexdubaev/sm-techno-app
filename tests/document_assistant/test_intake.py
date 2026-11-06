@@ -65,7 +65,7 @@ def test_malformed_job_requests_are_rejected_without_runtime(api,body):
 
 def test_failed_extraction_is_sanitized_and_invoice_requires_docx(api, monkeypatch):
     http,service,users,cid=api
-    response=http.post('/api/document-assistant/intake',headers=users['alice']['headers'],data={'kind':'invoice'},files={'file':('source.txt',b'00123')})
+    response=http.post('/api/document-assistant/intake',headers=users['alice']['headers'],data={'kind':'invoice'},files={'file':('source.json',b'{}')})
     assert response.status_code==422
     asset=upload(http,users,cid,docx_bytes('00123'),'requisites').json()
     def fail(self,request): raise RuntimeError('SECRET/path/database.db')

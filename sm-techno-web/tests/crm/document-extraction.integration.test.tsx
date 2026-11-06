@@ -71,17 +71,18 @@ it('restores a confirmed review and explicitly passes its fields to the existing
   expect(onConfirmed).toHaveBeenCalledWith(confirmed);
 });
 
-it('accepts a dropped DOCX invoice in the fixed specification flow',async () => {
+it('accepts a dropped invoice as DOCX, PDF or photo in the fixed specification flow',async () => {
   vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[]});
   vi.mocked(api.uploadDocumentAssistantIntake).mockResolvedValue({id:19} as Awaited<ReturnType<typeof api.uploadDocumentAssistantIntake>>);
   vi.mocked(api.startDocumentAssistantJob).mockResolvedValue({...job,id:'invoice-drop',kind:'invoice',status:'running',result:null});
   render(<DocumentExtractionPanel purpose="invoice" />);
   expect(screen.queryByLabelText('Что распознать')).not.toBeInTheDocument();
-  const file=new File(['synthetic invoice'],'invoice.docx',{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+  const file=new File(['synthetic invoice'],'invoice.pdf',{type:'application/pdf'});
   const input=screen.getByLabelText('Документ или фото для распознавания');
-  expect(input).toHaveAttribute('accept','.docx');
+  expect(input).toHaveAttribute('accept','.docx,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.heic,.heif');
+  expect(screen.getByText(/Счёт в DOCX, PDF или фото\./)).toBeInTheDocument();
   fireEvent.drop(input.closest('form')!,{dataTransfer:{files:[file]}});
-  expect(screen.getByText(/Выбран: invoice.docx/)).toBeVisible();
+  expect(screen.getByText(/Выбран: invoice.pdf/)).toBeVisible();
   fireEvent.submit(input.closest('form')!);
   await waitFor(() => expect(api.uploadDocumentAssistantIntake).toHaveBeenCalledWith(file,'invoice'));
   expect(api.startDocumentAssistantJob).toHaveBeenCalledWith({kind:'invoice',assetIds:[19]});

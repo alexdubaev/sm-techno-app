@@ -19,6 +19,12 @@ from stock_sync_web.vps_integrity import storage_operation_lock
 _extraction_slots=threading.BoundedSemaphore(2)
 
 
+def _entrepreneur_name(name):
+    """«ИП Петров Пётр Петрович» or «Индивидуальный предприниматель Петров Пётр Петрович» → «Петров Пётр Петрович»."""
+    import re
+    return re.sub(r'^\s*(?:ип|индивидуальный предприниматель)\s+','',' '.join(str(name or '').split()),flags=re.I).strip() or None
+
+
 def require_document_reader(actor):
     # The existing application's `user` role is its manager role.
     if not actor or not actor.get('id') or actor.get('role') not in {'user','manager','admin'} or not bool(actor.get('is_active',True)):
@@ -28,6 +34,20 @@ def require_document_reader(actor):
 def require_document_admin(actor):
     require_document_reader(actor)
     if actor.get('role')!='admin': raise DocumentPermissionError('Удалять документы и вложения может только администратор.')
+
+
+# DOCX is reconciled cell by cell with its goods table; a PDF or a photo is printed from the manager-reviewed lines.
+# Spreadsheets and text files are not invoice sources: they would skip the table reconciliation.
+INVOICE_FORMATS={'.docx','.pdf','.png','.jpg','.jpeg','.webp','.tif','.tiff','.heic','.heif'}
+
+
+def _require_invoice_format(filename):
+    if Path(filename or '').suffix.lower() not in INVOICE_FORMATS:
+        raise ValueError('Счёт принимается в DOCX, PDF или фото.')
+
+
+def _digits(value):
+    return ''.join(ch for ch in str(value or '') if ch.isdigit())
 
 
 def serialize_asset(row):
@@ -70,7 +90,7 @@ class DocumentAssistantService:
         from stock_sync_web.assistant_extraction import KINDS
         require_document_reader(actor)
         if kind not in KINDS: raise ValueError('Выберите тип распознавания.')
-        if kind=='invoice' and Path(file.filename or '').suffix.lower()!='.docx': raise ValueError('Для исходного счёта поддерживается DOCX.')
+        if kind=='invoice': _require_invoice_format(file.filename)
         staged=self.store.stage_upload(file.file,file.filename or '',file.content_type or '',self.limits)
         key=self.store.new_key(); published=False; metadata_committed=False
         try:
@@ -96,7 +116,7 @@ class DocumentAssistantService:
             asset=self.repository.get_asset(aid)
             if asset['crm_client_id']!=client_id: raise DocumentNotFound('Исходный файл не найден у клиента.')
             self.read_asset(actor,aid)
-            if kind=='invoice' and Path(asset['original_filename']).suffix.lower()!='.docx': raise ValueError('Для исходного счёта поддерживается DOCX.')
+            if kind=='invoice': _require_invoice_format(asset['original_filename'])
         return self.serialize_job(self.repository.create_job(int(actor['id']),kind,client_id,asset_ids))
 
     @staticmethod
@@ -303,8 +323,9 @@ class DocumentAssistantService:
                 self.repository.mark_operation_unknown(operation_key)
                 raise
 
-    def _validate_document_client_identity(self,client_id,card):
+    def _validate_document_client_identity(self,client_id,card,check_kpp=True):
         # Only immutable identity is consulted; no private contact/activity serializer is exposed.
+        # Specifications identify the buyer by INN only: a branch KPP may differ between invoice, contract and card.
         row=self.service.db.get_crm_client(client_id)
         if not row: raise DocumentNotFound('Клиент не найден.')
         if row.get('crm_archived_at'): raise DocumentConflict('Клиент находится в архиве.')
@@ -313,6 +334,9 @@ class DocumentAssistantService:
             remote=self.repository.get_counterparty_identity(row['linked_counterparty_id'])
             if remote:
                 inn=inn or str(remote.get('inn') or '').strip(); kpp=kpp or str(remote.get('kpp') or '').strip()
+        if not check_kpp:
+            if inn and inn!=card['inn']: raise DocumentConflict(f"ИНН покупателя ({card['inn']}) не совпадает с ИНН клиента ({inn}). Выберите правильную карточку.")
+            return
         if inn and inn!=card['inn'] or card['legal_type']=='legal_entity' and kpp and kpp!=card['kpp']:
             raise DocumentConflict('ИНН/КПП реквизитов не совпадают с клиентом. Выберите правильную карточку.')
 
@@ -381,10 +405,14 @@ class DocumentAssistantService:
 
     def _read_specification_contract(self,actor,client_id,state):
         from stock_sync_web.assistant_extraction import ExtractionRequest,validate_payload
-        from stock_sync_web.documents import generated_contract_fields_match
-        if not state['contract_document_id'] or not state['contract_version_asset_id']:
-            raise DocumentConflict('Сначала сохраните договор клиента и его версию файла.')
+        from stock_sync_web.documents import format_document_date,format_person_short_name,generated_contract_fields_match,position_nominative
+        if not state['contract_document_id']:
+            raise DocumentConflict('Сначала сохраните договор клиента.')
         document=self.repository.get_document(state['contract_document_id'],client_id)
+        if not state['contract_version_asset_id']:
+            raise DocumentConflict(f"Файл договора № {document['number']} от {format_document_date(document['document_date'])} не найден или не читается, "
+                'поэтому спецификацию к нему создать нельзя. Попросите администратора удалить эту запись договора в разделе «Загрузить готовый» '
+                'и загрузите подписанный договор с теми же номером и датой.')
         content,asset=self.read_asset(actor,state['contract_version_asset_id'])
         if asset['documentId']!=document['id']: raise DocumentConflict('Версия не относится к действующему договору.')
         with tempfile.TemporaryDirectory(prefix='sm-techno-contract-read-') as directory:
@@ -392,10 +420,13 @@ class DocumentAssistantService:
             texts,images=self.source_reader.read(source,workspace)
             try:stored=json.loads(document.get('legal_snapshot_json') or '{}')
             except (TypeError,ValueError):stored={}
-            required=('document_name','inn','signer_position','signer_name')
+            required=('document_name','inn','signer_position','signer_short_name')
             trusted=(Path(asset['originalFilename']).suffix.lower()=='.docx' and bool(stored) and generated_contract_fields_match(content,document,stored))
             if trusted:
                 snapshot={'number':document['number'],'date':document['document_date'],'legal_fields':stored}
+            elif (recognised:=self.repository.latest_contract_recognition(asset['id'])):
+                # Reuse the recognition shown to the manager when the contract was saved; re-reading may differ run to run.
+                snapshot={'legal_fields':recognised}
             else:
                 result=self.extractor.extract(ExtractionRequest('contract',texts,images,[asset['id']]))
                 validate_payload('contract',result.payload,partial=True)
@@ -410,25 +441,74 @@ class DocumentAssistantService:
                     legal['document_name']=card_name
                     legal['full_name']=client.get('full_name') or card_name
             if not legal.get('document_name') and legal.get('full_name'):legal['document_name']=legal['full_name']
+            legal['inn']=_digits(legal.get('inn'))
+            # The card decides: an individual entrepreneur signs personally (no KPP, usually no «в лице»), the name gives the signer.
+            # A 12-digit INN alone may be a physical person, who is never turned into «Индивидуальный предприниматель».
+            card=self.service.db.get_crm_client(client_id) or {}
+            if card.get('legal_type')=='individual_entrepreneur':
+                legal['kpp']=None
+                if not legal.get('signer_position'):legal['signer_position']='Индивидуальный предприниматель'
+                if not legal.get('signer_name') and not legal.get('signer_short_name'):legal['signer_name']=_entrepreneur_name(legal.get('document_name') or legal.get('full_name'))
             # The contract supplies the party and signer for the specification. Number and date come from the saved card,
             # which the manager confirmed; the file is not re-searched for them or for literal field spellings.
+            # The specification prints the position and «Иванов И.И.»; contracts often give the full name only in the genitive.
+            if not legal.get('signer_short_name') and legal.get('signer_name'):legal['signer_short_name']=format_person_short_name(legal['signer_name'])
+            if not legal.get('signer_position') and (nominative:=position_nominative(legal.get('signer_position_genitive'))):legal['signer_position']=nominative
+            labels={'document_name':'наименование покупателя','inn':'ИНН покупателя','signer_position':'должность подписанта','signer_short_name':'подписант (Фамилия И.О.)'}
             for key in required:
-                if not legal.get(key):raise ValueError('В договоре не распознано поле: '+key+'. Проверьте файл договора.')
-            identity=self.service._normalize_client_card_payload({**legal,'legal_type':'individual_entrepreneur' if len(legal['inn'])==12 else 'legal_entity'})
-            self._validate_document_client_identity(client_id,identity)
+                if not legal.get(key):raise ValueError('В договоре не найдено: '+labels[key]+'. Проверьте файл договора.')
+            self._validate_document_client_identity(client_id,{'inn':legal['inn'],'kpp':'','legal_type':'individual_entrepreneur' if len(legal['inn'])==12 else 'legal_entity'},check_kpp=False)
             return {'document_id':document['id'],'asset_id':asset['id'],'client_id':client_id,'number':document['number'],
                 'date':document['document_date'],'legal_fields':legal,'source_sha256':asset['sha256']}
 
-    def generate_specification(self,actor,client_id,invoice_job_id,operation_key):
-        from stock_sync_web.documents import validate_invoice_source,generate_invoice_specification
+    def _legacy_contract_file(self,client_id,document):
+        """Readable file of a contract made by the earlier program (often for a 1С counterparty), kept only at output_path."""
+        if not document.get('output_path') or self.repository.list_client_assets(client_id,document['id']): return None
+        try: legacy=self.service._resolve_document_stored_path(document['output_path'])
+        except Exception: return None
+        return legacy if legacy.is_file() else None
+
+    def _adopt_legacy_contract_file(self,actor,client_id):
+        """Only for specification generation: a COPY of the old file becomes contract version 1.
+        The original at output_path is neither moved nor deleted; without a readable file the state is left as is."""
+        with storage_operation_lock(self.service._storage_operation_root()):
+            state=self.repository.get_client_document_state(client_id)
+            if not state['contract_document_id'] or state['contract_version_asset_id']: return state
+            document=self.repository.get_document(state['contract_document_id'],client_id)
+            legacy=self._legacy_contract_file(client_id,document)
+            if legacy is None: return state
+            filename=self.service._build_document_filename(document_type='contract',client_name=document['client_name_snapshot'],document_number=document['number'])
+            if legacy.suffix.lower()!=Path(filename).suffix: filename=Path(filename).stem+legacy.suffix.lower()
+            staged=None; key=self.store.new_key(); published=False; committed=False
+            try:
+                with legacy.open('rb') as source: staged=self.store.stage_upload(source,filename,'',self.limits)
+                stored=self.store.publish(staged,key); published=True
+                self.repository.adopt_legacy_contract_file(client_id,document['id'],stored,int(actor['id']))
+                committed=True
+            except Exception:
+                # An unreadable or invalid old file is reported by the specification request as a missing contract file.
+                if published and not committed: self.store.delete(key)
+                return self.repository.get_client_document_state(client_id)
+            finally:
+                if staged: staged.path.unlink(missing_ok=True)
+            return self.repository.get_client_document_state(client_id)
+
+    def generate_specification(self,actor,client_id,invoice_job_id,operation_key,document_date=None):
+        import re
+        from stock_sync_web.documents import format_document_date,validate_invoice_lines,validate_invoice_source,generate_invoice_specification
         from stock_sync_web.assistant_extraction import validate_payload
+        from stock_sync_web.assistant_repository import duplicate_specification_message
         require_document_reader(actor)
         if type(invoice_job_id) is not str or not invoice_job_id: raise ValueError('Выберите проверенное задание исходного счёта.')
+        if document_date is not None:
+            if type(document_date) is not str or not re.fullmatch(r'\d{4}-\d{2}-\d{2}',document_date): raise ValueError('Дата спецификации должна быть в формате YYYY-MM-DD.')
+            try: document_date=date.fromisoformat(document_date)
+            except ValueError: raise ValueError('Проверьте дату спецификации.') from None
         self.repository.get_client_display(client_id)
         job=self.get_extraction(actor,invoice_job_id)
         if job['clientId']!=client_id:raise DocumentNotFound('Счёт не найден у клиента.')
         if job['kind']!='invoice' or job['status']!='confirmed' or len(job['assetIds'])!=1:
-            raise ValueError('Сначала распознайте и проверьте один исходный счёт DOCX.')
+            raise ValueError('Сначала распознайте и проверьте один исходный счёт.')
         with storage_operation_lock(self.service._storage_operation_root()):
             # Existing receipt binds the server-owned job/actor/action. Replay survives later contract revisions.
             operation=self.repository.get_operation(operation_key)
@@ -439,18 +519,32 @@ class DocumentAssistantService:
                     return serialize_document(row,self.repository.list_client_assets(client_id,row['id']))
                 if operation['status']!='pending':raise DocumentConflict('Операция требует проверки; создайте новое задание.')
             content,asset=self.read_asset(actor,job['assetIds'][0])
-            if asset['clientId']!=client_id or Path(asset['originalFilename']).suffix.lower()!='.docx':raise ValueError('Требуется исходный счёт DOCX этого клиента.')
+            suffix=Path(asset['originalFilename']).suffix.lower()
+            if asset['clientId']!=client_id:raise DocumentNotFound('Счёт не найден у клиента.')
+            _require_invoice_format(asset['originalFilename'])
+            if (duplicate:=self.repository.specification_for_invoice(asset['id'])):raise DocumentConflict(duplicate_specification_message(duplicate))
             payload=(job['result'] or {}).get('payload') or {};validate_payload('invoice',payload,partial=True)
-            invoice=validate_invoice_source(content,payload)
-            state=self.repository.get_client_document_state(client_id)
+            # A Word invoice is reconciled with its goods table; a PDF or photo has no table, so the reviewed lines are printed.
+            invoice=validate_invoice_source(content,payload) if suffix=='.docx' else validate_invoice_lines(payload)
+            buyer_inn=_digits(payload.get('buyer_inn'))
+            if not buyer_inn:raise ValueError('Укажите ИНН покупателя в проверке счёта.')
+            state=self._adopt_legacy_contract_file(actor,client_id)
+            if not state['contract_document_id']:raise DocumentConflict('Сначала сохраните договор клиента.')
             state=self.repository.reconcile_specification_sequence(client_id,state['contract_document_id'])
+            canonical=self.repository.get_document(state['contract_document_id'],client_id)
+            spec_date=document_date or date.today()
+            try:contract_date=date.fromisoformat(str(canonical['document_date'])[:10])
+            except ValueError:contract_date=None
+            if contract_date and spec_date<contract_date:
+                raise ValueError(f"Дата спецификации не может быть раньше даты договора ({format_document_date(contract_date)}).")
             contract=self._read_specification_contract(actor,client_id,state)
             legal=contract['legal_fields']
-            if (payload.get('buyer_inn') or '')!=(legal.get('inn') or '') or (payload.get('buyer_kpp') or '')!=(legal.get('kpp') or ''):
-                raise DocumentConflict('ИНН/КПП покупателя счёта не совпадают с сохранённым договором.')
-            self._validate_document_client_identity(client_id,{'inn':payload['buyer_inn'],'kpp':payload.get('buyer_kpp') or '', 'legal_type':'individual_entrepreneur' if len(payload['buyer_inn'])==12 else 'legal_entity'})
+            # The buyer is identified by INN only; a branch KPP may differ between the invoice, the contract and the card.
+            if buyer_inn!=legal['inn']:
+                raise DocumentConflict(f"ИНН покупателя в счёте ({buyer_inn}) не совпадает с ИНН в договоре ({legal['inn']}).")
+            self._validate_document_client_identity(client_id,{'inn':buyer_inn,'kpp':'','legal_type':'individual_entrepreneur' if len(buyer_inn)==12 else 'legal_entity'},check_kpp=False)
             template=Path(__file__).resolve().parent.parent/'assets/templates/specification_invoice_template.docx'
-            number=state['next_spec_number'];document_date=date.today().isoformat()
+            number=state['next_spec_number'];document_date=spec_date.isoformat()
             filename=self.service._build_document_filename(document_type='specification',client_name=legal['document_name'],document_number=str(number))
             with tempfile.TemporaryDirectory(prefix='sm-techno-specification-') as directory:
                 output=Path(directory)/'specification.docx'
@@ -574,8 +668,12 @@ class DocumentAssistantService:
         state=self.repository.get_client_document_state(client_id)
         assets=self.repository.list_client_assets(client_id)
         documents=[serialize_document(d,[a for a in assets if a['document_id']==d['id']]) for d in self.repository.list_client_documents(client_id)]
+        contract=next((d for d in documents if d['id']==state['contract_document_id']),None)
+        if contract:
+            # Read-only: an old contract without versions is usable when its original file is readable.
+            contract={**contract,'fileAvailable':bool(contract['assets']) or self._legacy_contract_file(client_id,self.repository.get_document(contract['id'],client_id)) is not None}
         return {'clientId':client_id,'documentDisplayName':client['document_name'] or client['full_name'] or client['name'],
-            'contract':next((d for d in documents if d['id']==state['contract_document_id']),None),
+            'contract':contract,
             'documents':documents,'attachments':[serialize_asset(a) for a in assets if a['document_id'] is None],
             'stateVersion':state['version'],'nextSpecNumber':state['next_spec_number']}
 
@@ -585,7 +683,7 @@ class DocumentAssistantService:
         if document_id is not None:
             return self.upload_version(actor,client_id,document_id,role,file,expected_version)
         if role not in {'requisites','source_invoice','attachment','archive'}: raise ValueError('Выберите назначение исходного файла или вложение.')
-        if role=='source_invoice' and Path(file.filename or '').suffix.lower()!='.docx': raise ValueError('Для исходного счёта поддерживается DOCX.')
+        if role=='source_invoice': _require_invoice_format(file.filename)
         staged=self.store.stage_upload(file.file,file.filename or '',file.content_type or '',self.limits)
         key=self.store.new_key(); published=False; metadata_committed=False
         try:

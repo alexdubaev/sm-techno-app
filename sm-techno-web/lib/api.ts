@@ -1794,7 +1794,7 @@ export function confirmDocumentAssistantJob(jobId: string,payload: {version: num
   },'Не удалось подтвердить результат.');
 }
 
-export function generateClientSpecification(clientId: number,payload: {invoiceJobId: string;operationKey: string}) {
+export function generateClientSpecification(clientId: number,payload: {invoiceJobId: string;operationKey: string;documentDate?: string}) {
   return requestJsonWithInit<import('@/lib/types').ClientStoredDocument>(`/api/crm/clients/${clientId}/specifications`,{
     method:'POST',headers:createHeaders({'Content-Type':'application/json'}),body:JSON.stringify(payload),
   },'Не удалось сформировать спецификацию.',{timeoutMs:420_000});

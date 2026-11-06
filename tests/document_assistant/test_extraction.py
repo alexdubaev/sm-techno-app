@@ -127,10 +127,10 @@ def test_deepseek_provider_requires_key_without_network(monkeypatch):
 
 
 def _russian_invoice_payload():
-    return {'invoice_number':'256','date':'6 ноября 2026 г.','buyer_inn':'6313562513','buyer_kpp':'631301001',
-        'buyer_document_name':'ООО “ВОЛГАГЛОБАЛСЕРВИС”','currency':'RUB','total_amount':'360\u00a0000,00','vat_amount':'64 918,03',
+    return {'invoice_number':'256','date':'6 ноября 2026 г.','buyer_inn':'7709999999','buyer_kpp':'770901001',
+        'buyer_document_name':'ООО “ТЕСТОВЫЙ ПОКУПАТЕЛЬ”','currency':'RUB','total_amount':'360\u00a0000,00','vat_amount':'64 918,03',
         'amount_in_words':'Триста шестьдесят тысяч рублей 00 копеек',
-        'lines':[{'article':'R220591','name':'R220591 Головка блока John Deere','qty':1,'unit':'шт','unit_price_incl_vat':'360\u00a0000',
+        'lines':[{'article':'SYN-220','name':'SYN-220 Головка блока John Deere','qty':1,'unit':'шт','unit_price_incl_vat':'360\u00a0000',
             'unit_price_excl_vat':'295\u202f081,97','vat_amount':64918.03,'total_amount':'360 000,00','row_no':'1'}]}
 
 
@@ -141,7 +141,7 @@ def test_invoice_with_russian_number_and_date_formats_is_normalized():
     assert (payload['total_amount'],payload['vat_amount'])==('360000.00','64918.03')
     assert (line['qty'],line['unit_price_incl_vat'],line['unit_price_excl_vat'],line['vat_amount'],line['total_amount'],line['row_no'])==('1','360000','295081.97','64918.03','360000.00',1)
     # Text fields are never rewritten.
-    assert (payload['buyer_inn'],line['article'],payload['buyer_document_name'])==('6313562513','R220591','ООО “ВОЛГАГЛОБАЛСЕРВИС”')
+    assert (payload['buyer_inn'],line['article'],payload['buyer_document_name'])==('7709999999','SYN-220','ООО “ТЕСТОВЫЙ ПОКУПАТЕЛЬ”')
 
 
 @pytest.mark.parametrize('printed,iso',[('06 ноября 2026','2026-11-06'),('«6» ноября 2026 г.','2026-11-06'),('1 марта 2027г.','2027-03-01'),('06.11.2026','2026-11-06'),('2026-11-06','2026-11-06')])
