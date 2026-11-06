@@ -10,7 +10,7 @@ import time
 
 from stock_sync_web.assistant_extraction import (
     KINDS, ExtractionError, ExtractionResult, _validate_shape,
-    extraction_prompt, extraction_schema, validate_payload,
+    extraction_prompt, extraction_schema, normalize_payload, validate_payload,
 )
 
 MAX_INPUT_BYTES = 20 * 1024 * 1024
@@ -120,6 +120,7 @@ class DeepSeekDocumentExtractor:
             message = choice['message']
             if choice.get('finish_reason') != 'stop' or message.get('tool_calls') or message.get('function_call') or message.get('role') != 'assistant': raise ValueError()
             result = json.loads(message['content'])
+            if isinstance(result, dict): normalize_payload(request.kind, result.get('payload'))
             _validate_shape(result, extraction_schema(request.kind), 'result')
             validate_payload(request.kind, result['payload'])
             if request.kind == 'contract':
