@@ -453,7 +453,8 @@ class DocumentAssistantService:
             # which the manager confirmed; the file is not re-searched for them or for literal field spellings.
             # The specification prints the position and «Иванов И.И.»; contracts often give the full name only in the genitive.
             if not legal.get('signer_short_name') and legal.get('signer_name'):legal['signer_short_name']=format_person_short_name(legal['signer_name'])
-            if not legal.get('signer_position') and (nominative:=position_nominative(legal.get('signer_position_genitive'))):legal['signer_position']=nominative
+            # The «в лице …» clause states the authority; a signature-block title («Директор») may be shortened, so the clause wins.
+            if (nominative:=position_nominative(legal.get('signer_position_genitive'))):legal['signer_position']=nominative
             labels={'document_name':'наименование покупателя','inn':'ИНН покупателя','signer_position':'должность подписанта','signer_short_name':'подписант (Фамилия И.О.)'}
             for key in required:
                 if not legal.get(key):raise ValueError('В договоре не найдено: '+labels[key]+'. Проверьте файл договора.')

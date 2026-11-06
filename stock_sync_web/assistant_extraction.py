@@ -305,6 +305,7 @@ def extraction_prompt(request):
         'When the signer is printed only in the genitive, e.g. «в лице генерального директора Иванова Ивана Ивановича», '
         'return signer_position in the nominative («Генеральный директор») and signer_name in the nominative («Иванов Иван Иванович»), '
         'put the printed genitive forms into signer_position_genitive and signer_name_genitive, and signer_short_name («Иванов И.И.») only if it is printed. '
+        'For contracts the signer position is the one in the «в лице …» clause of the preamble (the basis of authority); a shorter title printed by the signature, such as «Директор», never replaces it. '
         'Otherwise extract grammatical forms only when printed; missing grammatical forms and initials are completed separately before manager review. '
         'For articles extract ONLY article and optional quantity. '
         'For invoice and contract dates use ISO YYYY-MM-DD when the printed date is unambiguous. '
