@@ -140,6 +140,6 @@ export function SpecificationGeneration({job,clientId,hasContract,onGenerated}: 
     <p className="text-sm text-[var(--text-secondary)]">Номер присвоится автоматически в рамках договора клиента. Условия оплаты, поставки и гарантии дополните в Word и верните готовый файл в эту же запись.</p>
     {!hasContract ? <p className="app-notice app-notice--warning">Сначала сохраните договор клиента. Перед генерацией проверяется его текущий файл.</p> : null}
     {error ? <p role="alert" className="app-notice app-notice--error">{error}</p> : null}
-    <button type="button" className={`${primaryAction} w-full sm:w-auto sm:justify-self-start`} disabled={busy} {...busyProps(busy)} onClick={() => void generate()}>{busy ? 'Формируем спецификацию…' : 'Сформировать спецификацию из счёта'}</button>
+    <button type="button" className={`${primaryAction} w-full sm:w-auto sm:justify-self-start`} disabled={busy} {...busyProps(busy)} onClick={() => void generate()}>{busy ? 'Создаём спецификацию…' : 'Создать спецификацию'}</button>
   </section>;
 }

@@ -102,9 +102,9 @@ it('creates a specification from a reviewed invoice in the same card and retries
   vi.mocked(api.generateClientSpecification).mockRejectedValueOnce(new Error('Проверьте договор клиента')).mockResolvedValueOnce({id:20} as Awaited<ReturnType<typeof api.generateClientSpecification>>);
   render(<SpecificationGeneration job={job} clientId={42} hasContract onGenerated={async () => {await api.fetchClientDocuments(42);}} />);
   expect(screen.getByText(/Условия оплаты, поставки и гарантии дополните в Word/)).toBeVisible();
-  fireEvent.click(screen.getByRole('button',{name:'Сформировать спецификацию из счёта'}));
+  fireEvent.click(screen.getByRole('button',{name:'Создать спецификацию'}));
   expect(await screen.findByText('Проверьте договор клиента')).toBeVisible();
-  fireEvent.click(screen.getByRole('button',{name:'Сформировать спецификацию из счёта'}));
+  fireEvent.click(screen.getByRole('button',{name:'Создать спецификацию'}));
   await waitFor(() => expect(api.generateClientSpecification).toHaveBeenCalledTimes(2));
   const calls=vi.mocked(api.generateClientSpecification).mock.calls;
   expect(calls[0]).toEqual([42,{invoiceJobId:'invoice-job',operationKey:expect.any(String)}]);
