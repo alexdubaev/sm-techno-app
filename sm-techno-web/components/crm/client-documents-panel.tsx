@@ -70,7 +70,7 @@ export function ClientDocumentsPanel({clientId, isAdmin, manage=false, onChanged
     {!manage ? <Link href={`/documents?clientId=${clientId}`} className="text-sm font-semibold underline">Открыть в разделе документов</Link> : null}
     {manage ? <form onSubmit={(event) => void submit(event)} className="grid min-w-0 gap-3 rounded-[12px] border border-[var(--border-color)] bg-[var(--panel-muted)] p-3 sm:grid-cols-2">
       <label className={fieldLabel}>Назначение файла<select className={control} value={purpose} disabled={busy} onChange={(event) => setPurpose(event.target.value)}>
-        <option value="attachment">Вложение</option><option value="requisites">Реквизиты</option><option value="source_invoice">Исходный счёт DOCX</option>
+        <option value="attachment">Вложение</option><option value="requisites">Реквизиты</option><option value="source_invoice">Исходный счёт</option>
         <option value="contract">Готовый договор</option><option value="specification">Архивная спецификация</option>
       </select></label>
       <label className={fieldLabel}>Файл клиента<input key={inputRevision} type="file" className={`${control} file:mr-3 file:rounded-[8px] file:border-0 file:bg-[#eef2f7] file:px-3 file:py-1 file:text-xs file:font-semibold`} required={!pendingAsset} disabled={busy} onChange={(event) => {setFile(event.target.files?.[0] ?? null); setPendingAsset(null);}} /></label>
@@ -125,13 +125,24 @@ function VersionUpload({document,busy,upload}: {document: ClientStoredDocument; 
 }
 
 
-export function SpecificationGeneration({job,clientId,hasContract,onGenerated}: {job: DocumentAssistantJob;clientId: number;hasContract: boolean;onGenerated: (document: ClientStoredDocument) => Promise<void>}) {
+/** Today as YYYY-MM-DD in the manager's local time zone (toISOString would give the UTC date). */
+function localToday() {
+  const now=new Date();
+  return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+}
+const printedDate=(value: string) => value.split('-').reverse().join('.');
+
+export function SpecificationGeneration({job,clientId,hasContract,contractDate,onGenerated}: {job: DocumentAssistantJob;clientId: number;hasContract: boolean;contractDate?: string;onGenerated: (document: ClientStoredDocument) => Promise<void>}) {
   const operationKey=useRef<string | null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string | null>(null);
+  const [documentDate,setDocumentDate]=useState(localToday);
+  const earliest=contractDate && /^\d{4}-\d{2}-\d{2}/.test(contractDate) ? contractDate.slice(0,10) : undefined;
   async function generate() {
+    if(!documentDate) {setError('Укажите дату спецификации.');return;}
+    if(earliest && documentDate<earliest) {setError(`Дата спецификации не может быть раньше даты договора (${printedDate(earliest)}).`);return;}
     setBusy(true);setError(null);operationKey.current ??= crypto.randomUUID();
-    try {const document=await generateClientSpecification(clientId,{invoiceJobId:job.id,operationKey:operationKey.current});await onGenerated(document);}
+    try {const document=await generateClientSpecification(clientId,{invoiceJobId:job.id,operationKey:operationKey.current,documentDate});await onGenerated(document);}
     catch(failure: unknown) {setError(errorMessage(failure));}
     finally {setBusy(false);}
   }
@@ -140,6 +151,9 @@ export function SpecificationGeneration({job,clientId,hasContract,onGenerated}: 
     <p className="text-sm text-[var(--text-secondary)]">Номер присвоится автоматически в рамках договора клиента. Условия оплаты, поставки и гарантии дополните в Word и верните готовый файл в эту же запись.</p>
     {!hasContract ? <p className="app-notice app-notice--warning">Сначала сохраните договор клиента. Перед генерацией проверяется его текущий файл.</p> : null}
     {error ? <p role="alert" className="app-notice app-notice--error">{error}</p> : null}
-    <button type="button" className={`${primaryAction} w-full sm:w-auto sm:justify-self-start`} disabled={busy} {...busyProps(busy)} onClick={() => void generate()}>{busy ? 'Создаём спецификацию…' : 'Создать спецификацию'}</button>
+    <div className="flex min-w-0 flex-wrap items-end gap-3">
+      <label className={`${fieldLabel} w-full sm:w-48`}>Дата спецификации<input type="date" className={control} value={documentDate} min={earliest} required disabled={busy} onChange={(event) => {operationKey.current=null;setError(null);setDocumentDate(event.target.value);}} /></label>
+      <button type="button" className={`${primaryAction} w-full sm:w-auto`} disabled={busy} {...busyProps(busy)} onClick={() => void generate()}>{busy ? 'Создаём спецификацию…' : 'Создать спецификацию'}</button>
+    </div>
   </section>;
 }

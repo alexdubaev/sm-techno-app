@@ -23,6 +23,11 @@ class DocumentNotFound(ValueError):
     pass
 
 
+def duplicate_specification_message(row):
+    from stock_sync_web.documents import format_document_date
+    return f"По этому счёту уже создана спецификация № {row['number']} от {format_document_date(row['document_date'])}"
+
+
 DOCUMENT_COLUMNS = {
     'contract_document_id': 'INTEGER REFERENCES documents(id)',
     'contract_version_asset_id': 'INTEGER REFERENCES client_document_assets(id)',
@@ -261,6 +266,25 @@ class AssistantRepository:
             aid=cursor.lastrowid
             return self._row(conn.execute('SELECT * FROM client_document_assets WHERE id=?',(aid,)).fetchone())
 
+    def adopt_legacy_contract_file(self, client_id, document_id, stored, actor_user_id):
+        """The earlier program kept a contract only at output_path; a copy becomes version 1. The document row is not changed."""
+        with self.db.transaction(immediate=True) as conn:
+            document = conn.execute('SELECT * FROM documents WHERE id=?',(document_id,)).fetchone()
+            if not document or document['document_type']!='contract' or not self._belongs_to_client(conn,document,client_id): raise DocumentNotFound('Договор не найден.')
+            state = self._state(conn,client_id)
+            if state['contract_document_id']!=document_id or state['contract_version_asset_id'] is not None or conn.execute('SELECT 1 FROM client_document_assets WHERE document_id=?',(document_id,)).fetchone():
+                raise DocumentConflict('Договор клиента уже изменён. Обновите документы.')
+            now = utc_now()
+            cursor = conn.execute('''INSERT INTO client_document_assets(crm_client_id,document_id,role,original_filename,media_type,byte_size,sha256,storage_key,created_by_user_id,created_at,version)
+                VALUES(?,?,'generated',?,?,?,?,?,?,?,1)''',(client_id,document_id,stored.original_filename,stored.media_type,stored.byte_size,stored.sha256,stored.storage_key,actor_user_id,now))
+            conn.execute('UPDATE client_document_state SET contract_version_asset_id=?,version=version+1 WHERE crm_client_id=?',(cursor.lastrowid,client_id))
+            return cursor.lastrowid
+
+    def specification_for_invoice(self, invoice_asset_id):
+        with self.db.connect() as conn:
+            row = conn.execute("SELECT id,number,document_date FROM documents WHERE document_type='specification' AND invoice_asset_id=? ORDER BY id LIMIT 1",(invoice_asset_id,)).fetchone()
+        return dict(row) if row else None
+
     @staticmethod
     def _assert_asset_unreferenced(conn, asset_id):
         if conn.execute('SELECT 1 FROM documents WHERE contract_version_asset_id=? OR invoice_asset_id=?',(asset_id,asset_id)).fetchone():
@@ -296,6 +320,20 @@ class AssistantRepository:
             jid=uuid.uuid4().hex; now=utc_now()
             conn.execute("INSERT INTO document_assistant_jobs(id,actor_user_id,crm_client_id,kind,input_asset_ids,status,created_at,updated_at) VALUES(?,?,?,?,?,'queued',?,?)",(jid,actor_user_id,client_id,kind,json.dumps(asset_ids),now,now))
         return self.get_job(jid)
+
+    def latest_contract_recognition(self, asset_id):
+        """Legal fields of the newest contract recognition of this exact file, as the manager saw them when saving it."""
+        from stock_sync_web.assistant_extraction import validate_payload
+        with self.db.connect() as conn:
+            row=conn.execute("SELECT result_json FROM document_assistant_jobs WHERE kind='contract' AND status IN ('review','confirmed') AND input_asset_ids=? AND result_json IS NOT NULL ORDER BY updated_at DESC LIMIT 1",(json.dumps([asset_id]),)).fetchone()
+        if not row: return None
+        # A stored result is reused only when it still passes the same validation as a fresh reading; otherwise the file is read again.
+        try:
+            payload=json.loads(row['result_json']).get('payload')
+            validate_payload('contract',payload,partial=True)
+            legal=payload.get('legal_fields')
+        except (TypeError,ValueError,AttributeError): return None
+        return dict(legal) if isinstance(legal,dict) and legal else None
 
     def get_job(self, job_id):
         with self.db.connect() as conn:
@@ -581,6 +619,8 @@ class AssistantRepository:
             job = conn.execute('SELECT * FROM document_assistant_jobs WHERE id=?',(op['job_id'],)).fetchone()
             if op['action']!='generate_specification' or not job or job['kind']!='invoice' or job['crm_client_id']!=client_id or invoice_asset_id not in json.loads(job['input_asset_ids']) or job['status']!='confirmed':
                 raise DocumentConflict('Операция не соответствует проверенному исходному счёту клиента.')
+            duplicate=conn.execute("SELECT number,document_date FROM documents WHERE document_type='specification' AND invoice_asset_id=? ORDER BY id LIMIT 1",(invoice_asset_id,)).fetchone()
+            if duplicate: raise DocumentConflict(duplicate_specification_message(duplicate))
             state=self._specification_sequence_state(conn,client_id,contract_document_id)
             if (state['contract_document_id'],state['contract_version_asset_id']) != (contract_document_id,contract_version_asset_id): raise DocumentConflict('Версия договора изменилась. Повторите проверку.')
             for aid in (contract_version_asset_id,invoice_asset_id):

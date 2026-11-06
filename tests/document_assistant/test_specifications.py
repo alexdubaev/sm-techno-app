@@ -20,7 +20,7 @@ def invoice_bytes(payload=None, extra_rows=False):
     p=payload or INVOICE; d=Document()
     d.add_paragraph('Счет на оплату № '+p['invoice_number']+' от 30.10.2026')
     d.add_paragraph('Поставщик: ООО Продавец, ИНН 7804702073, КПП 780401001')
-    d.add_paragraph('Покупатель: '+p['buyer_document_name']+', ИНН '+p['buyer_inn']+', КПП '+p['buyer_kpp'])
+    d.add_paragraph('Покупатель: '+p['buyer_document_name']+', ИНН '+p['buyer_inn']+', КПП '+(p.get('buyer_kpp') or ''))
     d.add_paragraph('Основной договор: НЕ ИСПОЛЬЗОВАТЬ 999')
     t=d.add_table(rows=0,cols=9)
     for values in [['']*9,['','№','Товар (Услуга)','Кол-во','Ед.','Цена с НДС','Цена без ндс','Сумма НДС','Сумма'],['']+list(map(str,range(1,9)))]:
@@ -60,9 +60,22 @@ def setup_invoice(api,monkeypatch,payload=None,source=None,review_only=False):
     return j,a
 
 
-def generate(api,job,key='generate-specification-0001',cid=None):
+def generate(api,job,key='generate-specification-0001',cid=None,**extra):
     http,_,users,client=api
-    return http.post(f'/api/crm/clients/{cid or client}/specifications',headers=users['boris']['headers'],json={'invoiceJobId':job['id'],'operationKey':key})
+    return http.post(f'/api/crm/clients/{cid or client}/specifications',headers=users['boris']['headers'],json={'invoiceJobId':job['id'],'operationKey':key,**extra})
+
+
+def another_invoice(api,payload=None,key='review-another-invoice',monkeypatch=None):
+    """A second reviewed invoice of the same client; by default the extractor double set by setup_invoice is reused."""
+    http,_,users,cid=api
+    if monkeypatch:
+        from stock_sync_web.assistant_extraction import ExtractionResult
+        monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',lambda self,request:ExtractionResult('invoice',json.loads(json.dumps(payload or INVOICE))))
+    a=upload(http,users,cid,invoice_bytes(payload),role='source_invoice',name='invoice-2.docx').json()
+    j=http.post('/api/document-assistant/jobs',headers=users['alice']['headers'],json={'kind':'invoice','clientId':cid,'assetIds':[a['id']]}).json()
+    j=http.get('/api/document-assistant/jobs/'+j['id'],headers=users['alice']['headers']).json()
+    response=confirm(http,users,j,'review',key=key);assert response.status_code==200,response.text
+    return response.json()['job']
 
 
 def test_invoice_to_specification_final_retains_original_and_exact_sources(api,monkeypatch):
@@ -101,7 +114,8 @@ def test_archive_sequence_parallel_and_replay_are_atomic(api,monkeypatch):
     a=upload(http,users,cid,docx_bytes('Архивная спецификация №5')).json()
     r=http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'specification','assetId':a['id'],'number':'5','date':'2026-10-29'})
     assert r.status_code==200,r.text
-    with ThreadPoolExecutor(max_workers=2) as w:results=list(w.map(lambda k:generate(api,j,k),['parallel-spec-0001','parallel-spec-0002']))
+    second=another_invoice(api)
+    with ThreadPoolExecutor(max_workers=2) as w:results=list(w.map(lambda pair:generate(api,pair[0],pair[1]),[(j,'parallel-spec-0001'),(second,'parallel-spec-0002')]))
     assert [r.status_code for r in results]==[200,200],[r.text for r in results]
     assert {r.json()['number'] for r in results}=={'6','7'}
     assert generate(api,j,'parallel-spec-0001').json()['id']==results[0].json()['id']
@@ -115,7 +129,8 @@ def test_changed_canonical_file_is_read_and_foreign_job_rejected(api,monkeypatch
     replacement=docx_bytes('Нечитаемый договор без юридических данных')
     r=http.post(f"/api/crm/clients/{cid}/documents/{first['contractId']}/versions",headers=users['alice']['headers'],data={'role':'contract_version','expectedVersion':1},files={'file':('changed.docx',replacement)})
     assert r.status_code==200,r.text
-    failed=generate(api,j,'changed-contract-001');assert failed.status_code in (409,422),failed.text
+    failed=generate(api,another_invoice(api),'changed-contract-001');assert failed.status_code in (409,422),failed.text
+    assert 'уже создана' not in failed.text
     assert generate(api,j).json()['contractVersionId']==first['contractVersionId']
 
 
@@ -132,9 +147,10 @@ def test_rounding_service_rows_and_missing_image_relationship_do_not_lose_goods(
     assert generate(api,j).status_code==200
 
 
-def test_source_invoice_date_cannot_be_changed_by_model(api,monkeypatch):
-    j,_=setup_invoice(api,monkeypatch,{**INVOICE,'date':'2025-10-30'})
-    r=generate(api,j);assert r.status_code==422,r.text
+def test_invoice_number_and_date_of_the_review_do_not_block(api,monkeypatch):
+    # D3: the specification does not print the invoice number or date; the manager reviewed them on screen.
+    j,_=setup_invoice(api,monkeypatch,{**INVOICE,'date':'2025-10-30','invoice_number':'НЕТ-В-ФАЙЛЕ'})
+    r=generate(api,j);assert r.status_code==200,r.text
 
 
 def test_source_rounding_multiple_goods_and_new_contract_version_keep_old_snapshot(api,monkeypatch):
@@ -152,7 +168,7 @@ def test_source_rounding_multiple_goods_and_new_contract_version_keep_old_snapsh
     q,_=requisites(http,users,monkeypatch,{**FIELDS,'signer_name':'Петров Пётр Петрович'},cid)
     updated=confirm(http,users,q,'generate_contract',{**FIELDS,'signer_name':'Петров Пётр Петрович','contract_number':'Д-37','contract_date':'2026-10-30'},key='new-signer-contract')
     assert updated.status_code==200,updated.text
-    second=generate(api,j,'second-spec-new-version');assert second.status_code==200,second.text
+    second=generate(api,another_invoice(api,p,monkeypatch=monkeypatch),'second-spec-new-version');assert second.status_code==200,second.text
     assert second.json()['contractVersionId']!=first['contractVersionId']
     new=json.loads(repo.get_document(second.json()['id'])['legal_snapshot_json'])
     assert new['legal_fields']['signer_name']=='Петров Пётр Петрович'
@@ -309,3 +325,335 @@ def test_reread_contract_title_never_becomes_the_buyer_name(api,monkeypatch):
     assert expected and spec.json()['clientName']==expected
     text='\n'.join(p.text for p in Document(BytesIO(http.get(f"/api/documents/{spec.json()['id']}/download",headers=users['alice']['headers']).content)).paragraphs)
     assert 'ДОГОВОР ПОСТАВКИ № Д-37' not in text.split('Покупатель',1)[-1].split('\n')[0]
+
+
+def _import_saved_contract(api,monkeypatch):
+    http,_,users,cid=api;j,_=setup_invoice(api,monkeypatch)
+    summary=http.get(f'/api/crm/clients/{cid}/documents',headers=users['alice']['headers']).json()
+    old=summary['contract'];content=http.get(f"/api/documents/{old['id']}/download",headers=users['alice']['headers']).content
+    assert http.delete(f"/api/documents/{old['id']}",headers=users['admin']['headers']).status_code==200
+    asset=upload(http,users,cid,content).json()
+    return j,asset
+
+
+def test_signer_given_only_in_genitive_and_initials_is_enough(api,monkeypatch):
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,_,users,cid=api;j,asset=_import_saved_contract(api,monkeypatch)
+    assert http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':asset['id'],'number':'Д-37','date':'2026-10-30'}).status_code==200
+    legal={**FIELDS,'signer_name':None,'signer_name_genitive':'Алексеева Александра Владимировича','signer_short_name':'Алексеев А.В.','signer_position':'Директор'}
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',lambda self,request:ExtractionResult('contract',{'number':'Д-37','date':'2026-10-30','legal_fields':legal}))
+    spec=generate(api,j);assert spec.status_code==200,spec.text
+    content=http.get(f"/api/documents/{spec.json()['id']}/download",headers=users['alice']['headers']).content
+    assert 'Алексеев А.В.' in ZipFile(BytesIO(content)).read('word/document.xml').decode('utf-8')
+
+
+def test_specification_reuses_the_contract_recognition_seen_when_saving(api,monkeypatch):
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,_,users,cid=api;j,asset=_import_saved_contract(api,monkeypatch)
+    seen={**FIELDS,'signer_short_name':'Алексеев А.В.'}
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',lambda self,request:ExtractionResult('contract',{'number':'Д-37','date':'2026-10-30','legal_fields':seen}))
+    job=http.post('/api/document-assistant/jobs',headers=users['alice']['headers'],json={'kind':'contract','clientId':cid,'assetIds':[asset['id']]}).json()
+    assert http.get('/api/document-assistant/jobs/'+job['id'],headers=users['alice']['headers']).json()['status']=='review'
+    assert http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':asset['id'],'number':'Д-37','date':'2026-10-30'}).status_code==200
+    def must_not_reread(self,request): raise AssertionError('contract must not be re-read when its recognition is saved')
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',must_not_reread)
+    spec=generate(api,j);assert spec.status_code==200,spec.text
+
+
+
+def _spec_xml(api,spec):
+    http,_,users,_=api
+    return ZipFile(BytesIO(http.get(f"/api/documents/{spec['id']}/download",headers=users['alice']['headers']).content)).read('word/document.xml').decode('utf-8')
+
+
+def _invoice_with_rows(rows,paragraphs=()):
+    """A 1С-like invoice table: header, numbering row and the given raw rows (8 cells after the leading blank)."""
+    d=Document()
+    for text in paragraphs:d.add_paragraph(text)
+    t=d.add_table(rows=0,cols=9)
+    for values in [['','№','Товар (Услуга)','Кол-во','Ед.','Цена с НДС','Цена без ндс','Сумма НДС','Сумма'],['']+list(map(str,range(1,9))),*rows]:
+        for c,v in zip(t.add_row().cells,values):c.text=v
+    b=BytesIO();d.save(b);return b.getvalue()
+
+
+SOURCE_ROW=['','1','SYN-795 Тестовая шестерня','1','шт','310000.00','254098.36','55901.64','310000.00']
+
+
+def test_source_name_and_unit_are_printed_even_when_the_review_spells_them_differently(api,monkeypatch):
+    # D1 + D2: the specification prints the source cell; the reviewed spelling and a stray article never block.
+    p=json.loads(json.dumps(INVOICE));p['lines'][0].update(name='Шестерня тестовая (исправлено)',unit='шт.',article='НЕТ-ТАКОГО')
+    j,_=setup_invoice(api,monkeypatch,p,invoice_bytes(INVOICE))
+    r=generate(api,j);assert r.status_code==200,r.text
+    http,_,users,_=api
+    d=Document(BytesIO(http.get(f"/api/documents/{r.json()['id']}/download",headers=users['alice']['headers']).content))
+    assert [c.text for c in d.tables[1].rows[1].cells][1:4]==['SYN-795 Тестовая шестерня','1','шт']
+
+
+def test_buyer_block_and_printed_totals_are_not_searched(api,monkeypatch):
+    # D4 + D5 + D6: no buyer block, no «Итого» labels, a wrong «Всего наименований» and a wrong service total row.
+    rows=[SOURCE_ROW,['','','Всего наименований 7','','','','','',''],['','','Итого:','','','','','','999.00']]
+    source=_invoice_with_rows(rows,['Счет № 254','Всего наименований 7, на сумму 1,00 руб.'])
+    j,_=setup_invoice(api,monkeypatch,{**INVOICE,'buyer_kpp':'000000000'},source)
+    r=generate(api,j);assert r.status_code==200,r.text
+
+
+def test_unnumbered_incomplete_and_label_rows_are_skipped_not_raised(api,monkeypatch):
+    # D7: service rows of any shape are skipped; the goods row is still found and reconciled.
+    rows=[['','','Скидка по акции','','','','','',''],['','Раздел: шестерни','','','','','','',''],SOURCE_ROW,['','','','','','','','','Без НДС'],['','Всего:','310000.00']]
+    j,_=setup_invoice(api,monkeypatch,source=_invoice_with_rows(rows))
+    r=generate(api,j);assert r.status_code==200,r.text
+    assert 'SYN-795 Тестовая шестерня' in _spec_xml(api,r.json())
+
+
+def test_line_numbers_must_still_match_the_source_table(api,monkeypatch):
+    # K1: a consistent but different quantity and sum is rejected; every number is compared with the DOCX cell.
+    p=json.loads(json.dumps(INVOICE));p['lines'][0].update(qty='2',vat_amount='111803.28',unit_price_excl_vat='254098.36',total_amount='620000.00')
+    p.update(total_amount='620000.00',vat_amount='111803.28')
+    j,_=setup_invoice(api,monkeypatch,p,invoice_bytes(INVOICE))
+    r=generate(api,j);assert r.status_code==422 and 'не совпадают с исходным счётом' in r.json()['detail'],r.text
+
+
+def test_branch_kpp_of_invoice_and_card_does_not_block(api,monkeypatch):
+    # R1: only the INN identifies the buyer; a branch KPP differs between documents.
+    http,service,users,cid=api
+    j,_=setup_invoice(api,monkeypatch,{**INVOICE,'buyer_kpp':'770145001'})
+    with service.db.transaction(immediate=True) as c:c.execute('UPDATE crm_clients SET kpp=? WHERE id=?',('770199001',cid))
+    r=generate(api,j);assert r.status_code==200,r.text
+
+
+def test_specification_date_is_chosen_and_validated(api,monkeypatch):
+    # R3: optional documentDate, today by default, never before the contract date (30.10.2026).
+    from datetime import date
+    j,_=setup_invoice(api,monkeypatch)
+    assert generate(api,j,'spec-date-bad-0001',documentDate='30.11.2026').status_code==422
+    early=generate(api,j,'spec-date-early-01',documentDate='2026-10-29')
+    assert early.status_code==422 and '30.10.2026' in early.json()['detail'],early.text
+    chosen=generate(api,j,'spec-date-chosen-1',documentDate='2026-11-03');assert chosen.status_code==200,chosen.text
+    assert chosen.json()['documentDate']=='2026-11-03' and '03.11.2026' in _spec_xml(api,chosen.json())
+    today=generate(api,another_invoice(api),'spec-date-today-01');assert today.status_code==200,today.text
+    assert today.json()['documentDate']==date.today().isoformat()
+
+
+def test_second_specification_for_the_same_invoice_is_refused_but_replay_returns_it(api,monkeypatch):
+    # R5: the server guards duplicates; the same operation key still replays the original.
+    j,_=setup_invoice(api,monkeypatch)
+    first=generate(api,j,'first-spec-key-01',documentDate='2026-11-02');assert first.status_code==200,first.text
+    second=generate(api,j,'second-spec-key-1')
+    assert second.status_code==409 and second.json()['detail']=='По этому счёту уже создана спецификация № 1 от 02.11.2026',second.text
+    assert generate(api,j,'first-spec-key-01').json()['id']==first.json()['id']
+
+
+def test_signer_prompt_allows_nominative_from_a_printed_genitive_without_inventing():
+    # S1
+    from stock_sync_web.assistant_extraction import ExtractionRequest,extraction_prompt
+    prompt=extraction_prompt(ExtractionRequest('contract',['текст'],[],[1]))
+    assert 'в лице генерального директора Иванова Ивана Ивановича' in prompt
+    assert 'Генеральный директор' in prompt and 'Иванов Иван Иванович' in prompt and 'Иванов И.И.' in prompt
+    assert 'Алексеев' not in prompt
+    assert 'Never invent a person' in prompt
+
+
+IP_INN='770123456789'
+IP_INVOICE={**INVOICE,'buyer_inn':IP_INN,'buyer_kpp':None,'buyer_document_name':'ИП Петров Пётр Петрович'}
+
+
+def setup_imported_contract(api,monkeypatch,*,card,legal,invoice,invoice_source=None,invoice_name='invoice.docx',media=None):
+    """Client whose contract was uploaded as a ready file; the extractor answers each kind with the given double."""
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,service,users,cid=api
+    with service.db.transaction(immediate=True) as c:
+        c.execute('UPDATE crm_clients SET inn=?,kpp=?,document_name=?,full_name=?,legal_type=? WHERE id=?',(card['inn'],card.get('kpp') or '',card['document_name'],card['document_name'],card.get('legal_type') or 'legal_entity',cid))
+    answers={'contract':{'number':'Д-50','date':'2026-10-30','legal_fields':legal},'invoice':invoice}
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',lambda self,request:ExtractionResult(request.kind,json.loads(json.dumps(answers[request.kind]))))
+    contract=upload(http,users,cid,docx_bytes('Договор поставки № Д-50')).json()
+    assert http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':contract['id'],'number':'Д-50','date':'2026-10-30'}).status_code==200
+    media=media or ('image/png' if invoice_name.endswith('.png') else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    a=http.post(f'/api/crm/clients/{cid}/document-assets',headers=users['alice']['headers'],data={'role':'source_invoice'},files={'file':(invoice_name,invoice_source or invoice_bytes(invoice),media)})
+    assert a.status_code==200,a.text
+    j=http.post('/api/document-assistant/jobs',headers=users['alice']['headers'],json={'kind':'invoice','clientId':cid,'assetIds':[a.json()['id']]})
+    assert j.status_code==200,j.text
+    j=http.get('/api/document-assistant/jobs/'+j.json()['id'],headers=users['alice']['headers']).json()
+    assert j['status']=='review',j.get('error')
+    response=confirm(http,users,j,'review',key='review-imported-invoice');assert response.status_code==200,response.text
+    return response.json()['job']
+
+
+def test_individual_entrepreneur_signer_comes_from_the_name(api,monkeypatch):
+    # R4: ИП has no KPP and no «в лице»; the signer is the entrepreneur named in the card.
+    card={'inn':IP_INN,'document_name':'ИП Петров Пётр Петрович','legal_type':'individual_entrepreneur'}
+    legal={'document_name':'ИП Петров Пётр Петрович','inn':IP_INN,'kpp':None,'signer_position':None,'signer_name':None,'signer_short_name':None}
+    j=setup_imported_contract(api,monkeypatch,card=card,legal=legal,invoice=IP_INVOICE)
+    r=generate(api,j);assert r.status_code==200,r.text
+    xml=_spec_xml(api,r.json())
+    assert 'Индивидуальный предприниматель' in xml and 'Петров П.П.' in xml
+
+
+def _png_bytes():
+    from PIL import Image
+    b=BytesIO();Image.new('RGB',(40,20),'white').save(b,format='PNG');return b.getvalue()
+
+
+def test_scanned_invoice_builds_the_specification_from_the_reviewed_lines(api,monkeypatch):
+    # R6: a photo/PDF has no DOCX table; reviewed lines, K2 arithmetic and K3 identity are enforced.
+    p=json.loads(json.dumps(INVOICE));p['lines'][0].update(name='Шестерня по фото',unit='компл')
+    p['amount_in_words']='Неверная пропись'
+    j=setup_imported_contract(api,monkeypatch,card=FIELDS,legal=dict(FIELDS),invoice=p,invoice_source=_png_bytes(),invoice_name='invoice.png')
+    r=generate(api,j);assert r.status_code==200,r.text
+    http,_,users,_=api
+    d=Document(BytesIO(http.get(f"/api/documents/{r.json()['id']}/download",headers=users['alice']['headers']).content))
+    assert [c.text for c in d.tables[1].rows[1].cells]==['1','Шестерня по фото','1','компл','310 000,00','254 098,36','55 901,64','310 000,00']
+    assert 'Триста десять тысяч рублей 00 копеек' in '\n'.join(x.text for x in d.paragraphs)
+
+
+@pytest.mark.parametrize('change',[{'qty':'2'},{'vat_amount':'1.00'}])
+def test_scanned_invoice_arithmetic_still_blocks(api,monkeypatch,change):
+    p=json.loads(json.dumps(INVOICE));p['lines'][0].update(change)
+    j=setup_imported_contract(api,monkeypatch,card=FIELDS,legal=dict(FIELDS),invoice=p,invoice_source=_png_bytes(),invoice_name='invoice.png')
+    assert generate(api,j).status_code==422
+
+
+def test_scanned_invoice_buyer_inn_must_match(api,monkeypatch):
+    j=setup_imported_contract(api,monkeypatch,card=FIELDS,legal=dict(FIELDS),invoice={**INVOICE,'buyer_inn':'7712345678'},invoice_source=_png_bytes(),invoice_name='invoice.png')
+    assert generate(api,j).status_code==409
+
+
+def test_invoice_intake_accepts_photos_and_pdf(api):
+    http,_,users,_=api
+    r=http.post('/api/document-assistant/intake',headers=users['alice']['headers'],data={'kind':'invoice'},files={'file':('invoice.png',_png_bytes(),'image/png')})
+    assert r.status_code==200,r.text
+
+
+def _legacy_onec_contract(api,with_file=True):
+    http,service,users,cid=api
+    with service.db.transaction(immediate=True) as conn:
+        conn.execute("INSERT INTO counterparties(id,onec_key,name,full_name,inn,kpp,updated_at) VALUES(901,'synthetic-901','Program name',?,?,?,'2026-10-30')",(FIELDS['document_name'],FIELDS['inn'],FIELDS['kpp']))
+        conn.execute('UPDATE crm_clients SET linked_counterparty_id=901,inn=?,kpp=? WHERE id=?',(FIELDS['inn'],FIELDS['kpp'],cid))
+    output=service.document_exports_dir/'legacy-contract.docx'
+    if with_file:output.write_bytes(docx_bytes('Договор поставки № 42 от 01.10.2026'))
+    return service.db.create_document(document_type='contract',number='42',client_source='onec',counterparty_id=901,crm_client_id=None,commercial_offer_id=None,
+        client_name=FIELDS['document_name'],document_date='2026-10-01',output_path=service._store_path(output),notes='',missing_fields='[]',created_by_user_id=users['alice']['id'])
+
+
+def _reviewed_invoice_for_existing_contract(api,monkeypatch):
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,_,users,cid=api
+    answers={'contract':{'number':'42','date':'2026-10-01','legal_fields':dict(FIELDS)},'invoice':INVOICE}
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',lambda self,request:ExtractionResult(request.kind,json.loads(json.dumps(answers[request.kind]))))
+    a=upload(http,users,cid,invoice_bytes(),role='source_invoice',name='invoice.docx').json()
+    j=http.post('/api/document-assistant/jobs',headers=users['alice']['headers'],json={'kind':'invoice','clientId':cid,'assetIds':[a['id']]}).json()
+    j=http.get('/api/document-assistant/jobs/'+j['id'],headers=users['alice']['headers']).json()
+    return confirm(http,users,j,'review',key='review-legacy-invoice').json()['job']
+
+
+def test_contract_from_1c_with_a_file_is_used_for_the_specification(api,monkeypatch):
+    # R2: the earlier program's contract of a 1С counterparty is the client's contract; its file becomes version 1.
+    http,service,users,cid=api;did=_legacy_onec_contract(api)
+    original=service.document_exports_dir/'legacy-contract.docx';content=original.read_bytes()
+    def stored_assets():
+        with service.db.connect() as conn:return conn.execute('SELECT COUNT(*) FROM client_document_assets').fetchone()[0]
+    before=stored_assets()
+    # Listing is read-only: it reports the contract as usable without copying or moving its file.
+    summary=http.get(f'/api/crm/clients/{cid}/documents',headers=users['alice']['headers']).json()
+    assert summary['contract']['id']==did and summary['contract']['assets']==[] and summary['contract']['fileAvailable'] is True
+    assert stored_assets()==before and original.read_bytes()==content
+    j=_reviewed_invoice_for_existing_contract(api,monkeypatch)
+    r=generate(api,j);assert r.status_code==200,r.text
+    # Generation copies the old file in as version 1; the original stays where it was.
+    assert original.read_bytes()==content
+    summary=http.get(f'/api/crm/clients/{cid}/documents',headers=users['alice']['headers']).json()
+    assert r.json()['contractId']==did and r.json()['contractVersionId']==summary['contract']['assets'][0]['id']
+    assert http.get(f"/api/document-assets/{summary['contract']['assets'][0]['id']}/download",headers=users['alice']['headers']).content==content
+    assert http.get(f'/api/documents/{did}/download',headers=users['alice']['headers']).content==content
+
+
+def test_contract_from_1c_without_a_file_explains_what_to_do(api,monkeypatch):
+    http,service,users,cid=api;did=_legacy_onec_contract(api,with_file=False)
+    summary=http.get(f'/api/crm/clients/{cid}/documents',headers=users['alice']['headers']).json()
+    assert summary['contract']['id']==did and summary['contract']['assets']==[] and summary['contract']['fileAvailable'] is False
+    j=_reviewed_invoice_for_existing_contract(api,monkeypatch)
+    r=generate(api,j);assert r.status_code==409,r.text
+    assert 'Файл договора № 42 от 01.10.2026 не найден' in r.json()['detail']
+
+
+def test_position_given_only_in_genitive_is_turned_into_the_signature_title():
+    from stock_sync_web.documents import position_nominative
+    assert position_nominative('генерального директора')=='Генеральный директор'
+    assert position_nominative(' Директора ')=='Директор'
+    assert position_nominative('главного бухгалтера по особым поручениям') is None
+
+
+def test_twelve_digit_inn_without_an_entrepreneur_card_gets_no_invented_signer(api,monkeypatch):
+    # Review R2: a physical person (card is not an ИП) must not become «Индивидуальный предприниматель».
+    card={'inn':IP_INN,'document_name':'Петров Пётр Петрович','legal_type':'legal_entity'}
+    legal={'document_name':'Петров Пётр Петрович','inn':IP_INN,'kpp':None,'signer_position':None,'signer_name':None,'signer_short_name':None}
+    j=setup_imported_contract(api,monkeypatch,card=card,legal=legal,invoice={**IP_INVOICE,'buyer_document_name':'Петров Пётр Петрович'})
+    r=generate(api,j);assert r.status_code==422 and 'должность подписанта' in r.json()['detail'],r.text
+
+
+@pytest.mark.parametrize('name,media',[('invoice.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),('invoice.txt','text/plain'),('invoice.csv','text/csv')])
+def test_invoice_sources_are_only_docx_pdf_or_photo(api,name,media):
+    # Review F1: a table or text file would skip the DOCX reconciliation, so it is not an invoice source.
+    http,_,users,cid=api
+    content=b'1;2;3\n' if name!='invoice.xlsx' else _xlsx_bytes()
+    for response in (http.post('/api/document-assistant/intake',headers=users['alice']['headers'],data={'kind':'invoice'},files={'file':(name,content,media)}),
+                     http.post(f'/api/crm/clients/{cid}/document-assets',headers=users['alice']['headers'],data={'role':'source_invoice'},files={'file':(name,content,media)})):
+        assert response.status_code==422 and 'Счёт принимается в DOCX, PDF или фото' in response.json()['detail'],response.text
+    attachment=http.post(f'/api/crm/clients/{cid}/document-assets',headers=users['alice']['headers'],data={'role':'attachment'},files={'file':(name,content,media)})
+    assert attachment.status_code==200,attachment.text
+    job=http.post('/api/document-assistant/jobs',headers=users['alice']['headers'],json={'kind':'invoice','clientId':cid,'assetIds':[attachment.json()['id']]})
+    assert job.status_code==422 and 'Счёт принимается в DOCX, PDF или фото' in job.json()['detail'],job.text
+
+
+def _xlsx_bytes():
+    from openpyxl import Workbook
+    b=BytesIO();book=Workbook();book.active['A1']='Счёт';book.save(b);return b.getvalue()
+
+
+@pytest.mark.parametrize('missing',['total_amount','vat_amount'])
+def test_reviewed_totals_are_required(api,monkeypatch,missing):
+    # Review F2: the reviewed totals must be given and equal the sum of the lines (VAT when the lines carry VAT).
+    j,_=setup_invoice(api,monkeypatch,{**INVOICE,missing:None})
+    r=generate(api,j);assert r.status_code==422,r.text
+
+
+def test_scanned_invoice_without_vat_needs_no_vat_total(api,monkeypatch):
+    p=json.loads(json.dumps(INVOICE));p['lines'][0].update(unit_price_excl_vat='310000.00',vat_amount='0.00')
+    p.update(vat_amount=None)
+    j=setup_imported_contract(api,monkeypatch,card=FIELDS,legal=dict(FIELDS),invoice=p,invoice_source=_png_bytes(),invoice_name='invoice.png')
+    r=generate(api,j);assert r.status_code==200,r.text
+
+
+def _invoice_with_merged_goods_row():
+    d=Document();t=d.add_table(rows=0,cols=9)
+    for values in [['','№','Товар (Услуга)','Кол-во','Ед.','Цена с НДС','Цена без ндс','Сумма НДС','Сумма'],['']+list(map(str,range(1,9))),SOURCE_ROW]:
+        for c,v in zip(t.add_row().cells,values):c.text=v
+    r=t.add_row();r.cells[1].text='2';r.cells[2].merge(r.cells[3]).text='Деталь в объединённых ячейках'
+    for index,value in zip(range(4,9),['шт','10.00','8.33','1.67','10.00']):r.cells[index].text=value
+    b=BytesIO();d.save(b);return b.getvalue()
+
+
+@pytest.mark.parametrize('source',['unnumbered','merged'])
+def test_unparsed_row_with_money_under_the_goods_header_blocks(api,monkeypatch,source):
+    # Review F2: a row with amounts that is neither a goods row nor a summary is not dropped silently.
+    content=_invoice_with_rows([SOURCE_ROW,['','','Доставка','1','усл','500.00','416.67','83.33','500.00']]) if source=='unnumbered' else _invoice_with_merged_goods_row()
+    j,_=setup_invoice(api,monkeypatch,source=content)
+    r=generate(api,j);assert r.status_code==422 and 'Строка счёта с суммами не разобрана' in r.json()['detail'],r.text
+
+
+@pytest.mark.parametrize('status,payload',[('failed',{'number':'Д-37','legal_fields':{**FIELDS,'signer_short_name':'Сохранён И.И.'}}),
+    ('review',{'number':'Д-37','legal_fields':{**FIELDS,'signer_short_name':'Сохранён И.И.'},'unexpected':'field'})])
+def test_saved_recognition_is_reused_only_when_it_is_a_valid_review(api,monkeypatch,status,payload):
+    # Review R1: failed jobs and invalid stored payloads are not reused; the contract is read again.
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,service,users,cid=api;j,asset=_import_saved_contract(api,monkeypatch)
+    assert http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':asset['id'],'number':'Д-37','date':'2026-10-30'}).status_code==200
+    with service.db.transaction(immediate=True) as conn:
+        conn.execute("INSERT INTO document_assistant_jobs(id,actor_user_id,crm_client_id,kind,input_asset_ids,status,result_json,created_at,updated_at) VALUES('stored-contract-job',?,?,'contract',?,?,?,'2026-11-06','2099-01-01')",
+            (users['alice']['id'],cid,json.dumps([asset['id']]),status,json.dumps({'payload':payload})))
+    read=[]
+    def extract(self,request):
+        read.append(request.kind);return ExtractionResult('contract',{'number':'Д-37','date':'2026-10-30','legal_fields':{**FIELDS,'signer_short_name':'Перечитан И.И.'}})
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',extract)
+    spec=generate(api,j);assert spec.status_code==200,spec.text
+    xml=_spec_xml(api,spec.json())
+    assert read==['contract'] and 'Перечитан И.И.' in xml and 'Сохранён И.И.' not in xml

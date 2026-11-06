@@ -337,6 +337,26 @@ def decline_person_name_genitive(value: str) -> str:
     return " ".join(declined)
 
 
+_POSITION_NOMINATIVE = {
+    "генерального директора": "Генеральный директор",
+    "исполнительного директора": "Исполнительный директор",
+    "коммерческого директора": "Коммерческий директор",
+    "финансового директора": "Финансовый директор",
+    "директора": "Директор",
+    "президента": "Президент",
+    "председателя правления": "Председатель правления",
+    "управляющего": "Управляющий",
+    "руководителя": "Руководитель",
+    "индивидуального предпринимателя": "Индивидуальный предприниматель",
+}
+
+
+def position_nominative(genitive: str | None) -> str | None:
+    """«генерального директора» → «Генеральный директор» for the usual contract positions; unknown wording stays unknown."""
+    key = " ".join(str(genitive or "").casefold().replace("ё", "е").split())
+    return _POSITION_NOMINATIVE.get(key)
+
+
 def format_person_short_name(value: str) -> str:
     text = _normalize_spaces(value)
     if not text or not _has_cyrillic(text) or "." in text:
@@ -565,11 +585,56 @@ def rubles_in_words(value):
     return ' '.join(words).capitalize()
 
 
-def validate_invoice_source(content,payload):
-    """Reconcile every goods row with immutable DOCX body XML, independently of model arithmetic."""
+_LINE_NUMBERS=(('qty','количество'),('unit_price_incl_vat','цена с НДС'),('unit_price_excl_vat','цена без НДС'),('vat_amount','сумма НДС'),('total_amount','сумма'))
+
+
+def _verify_invoice_lines(lines,payload):
+    """Arithmetic of every line and of the totals. Names, units and numbers are already the ones to print."""
     from decimal import Decimal,ROUND_HALF_UP
+    if not lines:raise ValueError('В счёте не найдено товарных строк.')
+    if len(lines)>1000:raise ValueError('Слишком много товарных строк.')
+    def cents(n):return n.quantize(Decimal('.01'),rounding=ROUND_HALF_UP)
+    total=Decimal(0);vat=Decimal(0)
+    for line in lines:
+        try:qty,incl,excl,tax,amount=[_invoice_decimal(line.get(key),money=key!='qty') for key,_ in _LINE_NUMBERS]
+        except ValueError:raise ValueError(f"Проверьте числа в строке {line['row_no']} счёта.") from None
+        if qty<=0 or excl>incl or tax>amount:raise ValueError(f"Строка {line['row_no']}: недопустимые количество, цена или НДС.")
+        if cents(qty*incl)!=amount:raise ValueError(f"Строка {line['row_no']}: количество × цена с НДС не равно сумме строки.")
+        # Source may round a unit price to kopecks before multiplying; tax is already a line amount.
+        tolerance=max(Decimal('.01'),qty*Decimal('.005'))
+        if abs(amount-tax-qty*excl)>tolerance:raise ValueError(f"Строка {line['row_no']}: цена без НДС и сумма НДС не сходятся с суммой строки.")
+        total+=amount;vat+=tax
+    # The reviewed totals must be the sum of the lines (VAT only when the lines carry VAT); printed «Итого» labels are not searched.
+    for key,expected,label in (('total_amount',total,'Сумма счёта с НДС'),('vat_amount',vat,'Сумма НДС счёта')):
+        if payload.get(key) in (None,''):
+            if key=='vat_amount' and not vat:continue
+            raise ValueError(f'{label} не указана в проверке счёта. Укажите её как в счёте ({format_money(expected)} по строкам).')
+        try:given=_invoice_decimal(payload[key],money=True)
+        except ValueError:raise ValueError(f'{label}: проверьте число.') from None
+        if given!=expected:raise ValueError(f'{label} не равна сумме строк ({format_money(expected)}).')
+    # Amount in words is derived from the verified total, never taken from the model; currency is not re-checked here.
+    return {'total':total,'vat':vat,'lines':lines,'amount_in_words':rubles_in_words(total)}
+
+
+def validate_invoice_lines(payload):
+    """An invoice without a Word table (PDF, scan, photo): the manager-reviewed lines are printed as they are."""
+    lines=[]
+    for index,line in enumerate(payload.get('lines') or [],1):
+        name=' '.join(str(line.get('name') or '').split())
+        if not name:raise ValueError(f'Укажите наименование в строке {index} счёта.')
+        lines.append({**line,'row_no':index,'name':name,'unit':' '.join(str(line.get('unit') or '').split())})
+    return _verify_invoice_lines(lines,payload)
+
+
+_INVOICE_MONEY=r'\d[\d\s\u00a0\u202f]*[.,]\d{2}'
+_INVOICE_SUMMARY=r'итог|всего|в том числе|ндс'
+
+
+def _invoice_goods_rows(root):
+    """Goods rows of the 1С goods table. Numbering, section and labelled summary rows are skipped;
+    any other row with amounts is a row that could not be read, and it blocks instead of being dropped."""
     import re
-    root=read_docx_xml(content);rows=[];summaries=[];found=False
+    rows=[];found=False
     for table in root.xpath('.//w:tbl',namespaces=_WORD_NS):
         header=False
         for row in table.findall('w:tr',_WORD_NS):
@@ -577,78 +642,45 @@ def validate_invoice_source(content,payload):
             normalized=[_normal_text(c) for c in cells]
             if '№' in normalized and any('цен' in c and 'ндс' in c for c in normalized) and any('товар' in c or 'наименование' in c for c in normalized):
                 start=normalized.index('№');header=True;found=True;continue
-            if not header or not any(cells):continue
+            if not header:continue
             values=cells[start:start+8]
+            # A goods row has all eight columns and a row number; the 1..8 column numbering row is not goods.
             if values==list(map(str,range(1,9))):continue
-            if len(values)<8:
-                numeric=[v for v in values if v.strip()]
-                if rows and values and not values[0] and len(numeric)==2 and all(re.fullmatch(r'[\d\s\u00a0\u202f.,]+',v) for v in numeric) and row.xpath('./w:tc/w:tcPr/w:gridSpan',namespaces=_WORD_NS):
-                    summaries.append([_invoice_decimal(v) for v in numeric]);continue
-                if any(re.search(r'итого|всего|ндс|наименований',v,re.I) for v in values):continue
-                if any(values):raise ValueError('Неполная товарная строка исходного счёта.')
-                continue
-            if not values[0]:
-                if any(values[1:]) and not any(re.search(r'итого|всего|ндс',v,re.I) for v in values):raise ValueError('Строка счёта без номера требует исправления.')
-                continue
-            if not re.fullmatch(r'[1-9]\d*',values[0]):raise ValueError('Проверьте товарные строки исходного счёта.')
-            rows.append(values)
+            numbered=bool(values) and re.fullmatch(r'[1-9]\d*',values[0]) is not None
+            if len(values)==8 and numbered:
+                rows.append(values);continue
+            # 1С prints its service total (quantity and sum) as an unnumbered row of merged cells.
+            if len(values)<8 and not numbered:continue
+            text=' '.join(values)
+            money=any(re.fullmatch(_INVOICE_MONEY,value) for value in (values[4:] if len(values)==8 else values[1:]))
+            if money and (numbered or not re.search(_INVOICE_SUMMARY,_normal_text(text))):
+                raise ValueError('Строка счёта с суммами не разобрана: проверьте счёт ('+' '.join(text.split())[:80]+').')
+            continue
+    if not found:raise ValueError('В счёте не найдена таблица товаров с колонками «№», «Товар» и «Цена с НДС».')
+    return rows
+
+
+def validate_invoice_source(content,payload):
+    """Every reviewed line is reconciled with the immutable DOCX goods table; the specification prints the source cells."""
+    rows=_invoice_goods_rows(read_docx_xml(content))
     lines=payload.get('lines') or []
-    if not found or not rows or len(lines)!=len(rows):raise ValueError('Количество товарных строк не совпадает с исходным счётом.')
-    if len(rows)>1000:raise ValueError('Слишком много товарных строк.')
-    total=Decimal(0);vat=Decimal(0);seen=set()
-    def cents(n):return n.quantize(Decimal('.01'),rounding=ROUND_HALF_UP)
-    canonical_lines=[]
-    for raw,line in zip(rows,lines):
-        if int(raw[0]) in seen or line.get('row_no')!=int(raw[0]):raise ValueError('Номера товарных строк не совпадают с источником.')
-        seen.add(int(raw[0]))
-        if _normal_text(raw[1]) not in {_normal_text(line.get('name')),_normal_text(str(line.get('article') or '')+' '+str(line.get('name') or ''))} or _normal_text(line.get('unit'))!=_normal_text(raw[3]):
-            raise ValueError('Наименование или единица товара не совпадают с исходным счётом.')
-        article=str(line.get('article') or '').strip()
-        if article and not re.search(r'(?<![\w-])'+re.escape(article)+r'(?![\w-])',raw[1],re.I):raise ValueError('Артикул не найден в строке счёта.')
-        numbers=[]
-        for key,index in [('qty',2),('unit_price_incl_vat',4),('unit_price_excl_vat',5),('vat_amount',6),('total_amount',7)]:
-            expected=_invoice_decimal(raw[index],money=key!='qty');actual=_invoice_decimal(line.get(key),money=key!='qty')
-            if expected!=actual:raise ValueError('Числа строки не совпадают с исходным счётом: '+key)
-            numbers.append(actual)
-        qty,incl,excl,tax,amount=numbers
-        if qty<=0 or excl>incl or tax>amount:raise ValueError('Недопустимые количество, цена или НДС.')
-        if cents(qty*incl)!=amount:raise ValueError('Количество × цена с НДС не совпадает с суммой строки.')
-        # Source may round a unit price to kopecks before multiplying; tax is already a line amount.
-        tolerance=max(Decimal('.01'),qty*Decimal('.005'))
-        if abs(amount-tax-qty*excl)>tolerance:raise ValueError('Цена без НДС и сумма НДС не сходятся с суммой строки.')
-        canonical_lines.append({**line,'name':raw[1]})
-        total+=amount;vat+=tax
-    if total!=_invoice_decimal(payload.get('total_amount'),money=True) or vat!=_invoice_decimal(payload.get('vat_amount'),money=True):
-        raise ValueError('Итоги товаров и НДС не сходятся со счётом.')
-    if any(summary!=[sum(_invoice_decimal(line['qty']) for line in lines),total] for summary in summaries):
-        raise ValueError('Служебный итог количества и суммы не совпадает с товарами счёта.')
-    texts=[_xml_text(p) for p in root.xpath('.//w:p',namespaces=_WORD_NS)]
-    # Includes table rows because totals are often split between label and value cells.
-    texts += [' '.join(_xml_text(c) for c in r.findall('w:tc',_WORD_NS)) for r in root.xpath('.//w:tr',namespaces=_WORD_NS)]
-    text='\n'.join(texts)
-    for label,expected in [(r'Итого',total),(r'В том числе НДС',vat),(r'Всего к оплате',total)]:
-        matches=re.findall(label+r'\s*:?\s*([\d][\d \u00a0\u202f]*(?:[,.]\d{1,2})?)',text,re.I)
-        if not matches or any(_invoice_decimal(m,money=True)!=expected for m in matches):raise ValueError('Итог не подтверждён исходным счётом: '+label)
-    count=re.search(r'Всего наименований\s+(\d+)',text,re.I)
-    if count and int(count.group(1))!=len(rows):raise ValueError('Число наименований счёта не совпадает с таблицей.')
-    # Amount in words is derived from the verified total, never taken from the model; currency is not re-checked here.
-    words=rubles_in_words(total)
-    buyer=re.search(r'(?:Покупатель|Заказчик)\s*:?([^\n]*(?:\n[^\n]*)?)',text,re.I)
-    if not buyer:raise ValueError('Не найден блок покупателя исходного счёта.')
-    buyer_text=_normal_text(buyer.group(1))
-    # The buyer is identified by INN/KPP; the printed name and its quotes are the manager's to check on screen.
-    if not payload.get('buyer_inn') or str(payload['buyer_inn']) not in buyer_text:raise ValueError('ИНН покупателя не найден в счёте.')
-    if payload.get('buyer_kpp') and str(payload['buyer_kpp']) not in buyer_text:raise ValueError('КПП покупателя не подтверждён счётом.')
-    if not payload.get('invoice_number') or not re.search(r'сч[её]т(?: на оплату)?\s*№\s*'+re.escape(payload['invoice_number'])+r'(?![\w-])',text,re.I):
-        raise ValueError('Номер исходного счёта не подтверждён.')
-    try:invoice_date=date.fromisoformat(payload.get('date'))
-    except (TypeError,ValueError):raise ValueError('Проверьте дату исходного счёта.') from None
-    months=('января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря')
-    title=re.search(r'сч[её]т(?: на оплату)?\s*№\s*'+re.escape(payload['invoice_number'])+r'\s+от\s+([^\n]+)',text,re.I)
-    if not title or not (invoice_date.strftime('%d.%m.%Y') in title.group(1) or re.search(
-        r'[«"“]?0?'+str(invoice_date.day)+r'[»"”]?\s+'+months[invoice_date.month-1]+r'\s+'+str(invoice_date.year)+r'(?!\d)',title.group(1),re.I)):
-        raise ValueError('Дата исходного счёта не совпадает с файлом.')
-    return {'total':total,'vat':vat,'lines':canonical_lines,'amount_in_words':words}
+    if len(lines)!=len(rows):raise ValueError(f'В таблице счёта товарных строк: {len(rows)}, в проверке: {len(lines)}. Проверьте строки счёта.')
+    numbers=[line.get('row_no') for line in lines]
+    source_numbers=[int(raw[0]) for raw in rows]
+    # Reviewed lines are matched by their row number when it identifies them, otherwise in table order.
+    pairs=list(zip(rows,lines))
+    if len(set(source_numbers))==len(rows) and all(type(n) is int for n in numbers) and sorted(numbers)==sorted(source_numbers):
+        by_number={line['row_no']:line for line in lines}
+        pairs=[(raw,by_number[int(raw[0])]) for raw in rows]
+    canonical=[]
+    for raw,line in pairs:
+        for (key,label),index in zip(_LINE_NUMBERS,(2,4,5,6,7)):
+            try:same=_invoice_decimal(raw[index],money=key!='qty')==_invoice_decimal(line.get(key),money=key!='qty')
+            except ValueError:same=False
+            if not same:raise ValueError(f'Числа строки {raw[0]} не совпадают с исходным счётом ({label}).')
+        # The source name and unit are printed; the reviewed spelling and article never block.
+        canonical.append({**line,'row_no':int(raw[0]),'name':raw[1],'unit':raw[3]})
+    return _verify_invoice_lines(canonical,payload)
 
 
 def generate_invoice_specification(*,template_path,output_path,number,document_date,contract,invoice):

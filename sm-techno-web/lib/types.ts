@@ -524,6 +524,8 @@ export type ClientStoredDocument = {
   contractId: number | null; contractVersionId: number | null; invoiceAssetId: number | null; specSequence: number | null;
   createdAt: string; updatedAt: string; createdByUserId: number | null; createdByName: string; assets: ClientDocumentAsset[];
   missingFields?: string[];
+  /** Summary contract only: false when it has no versions and its original file is not readable. */
+  fileAvailable?: boolean;
 };
 export type ClientDocumentsSummary = {
   clientId: number; documentDisplayName: string; contract: ClientStoredDocument | null;

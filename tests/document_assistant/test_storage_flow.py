@@ -209,14 +209,24 @@ def test_archive_sequence_allocation_is_concurrent_and_replay_bound_to_source(ap
     with pytest.raises(DocumentConflict,match='проверенному'):
         repo.allocate_specification(cid,contract['id'],state['contract_version_asset_id'],invoice['id'],'unconfirmed-repository-test',payload)
     job=repo.confirm_review(job['id'],users['alice']['id'],job['version'],{'synthetic':True},'review-storage-invoice')
+    # One specification per source invoice: every parallel allocation has its own reviewed invoice.
+    sources=[(invoice,job)]
+    for index in range(1,8):
+        extra=upload(http,users,cid,docx_bytes(f'Invoice {index}'),role='source_invoice').json()
+        extra_job=repo.create_job(users['alice']['id'],'invoice',cid,[extra['id']]); extra_job=repo.transition_job(extra_job['id'],extra_job['version'],'running')
+        extra_job=repo.transition_job(extra_job['id'],extra_job['version'],'review',result={'synthetic':True})
+        sources.append((extra,repo.confirm_review(extra_job['id'],users['alice']['id'],extra_job['version'],{'synthetic':True},f'review-storage-invoice-{index}')))
     def allocate(index):
-        key=f'specification-{index}'
-        repo.begin_operation(key,users['alice']['id'],job['id'],'generate_specification')
-        return repo.allocate_specification(cid,contract['id'],state['contract_version_asset_id'],invoice['id'],key,payload)
+        key=f'specification-{index}';source,source_job=sources[index]
+        repo.begin_operation(key,users['alice']['id'],source_job['id'],'generate_specification')
+        return repo.allocate_specification(cid,contract['id'],state['contract_version_asset_id'],source['id'],key,payload)
     with ThreadPoolExecutor(max_workers=4) as workers: results=list(workers.map(allocate,range(8)))
     assert sorted(row['spec_sequence'] for row in results)==list(range(6,14))
     replay=allocate(0); assert replay['id']==results[0]['id']
     assert repo.get_client_document_state(cid)['next_spec_number']==14
+    repo.begin_operation('specification-again',users['alice']['id'],job['id'],'generate_specification')
+    with pytest.raises(DocumentConflict,match='уже создана спецификация'):
+        repo.allocate_specification(cid,contract['id'],state['contract_version_asset_id'],invoice['id'],'specification-again',payload)
     with pytest.raises(DocumentConflict):
         repo.allocate_specification(cid,contract['id'],state['contract_version_asset_id'],archived['id'],'specification-0',payload)
 

@@ -13,7 +13,7 @@ import { bindDocumentClient, matchDocumentClient, type ClientMatch } from '@/lib
 import type { ClientDocumentsSummary, CrmClient, DocumentAssistantJob, GeneratedDocument } from '@/lib/types';
 import { DocumentSteps, documentStep, specificationStep } from './document-steps';
 import { GeneratedResult, type GeneratedInfo } from './generated-result';
-import { ContractInlineForm, SpecClientCard, ExistingSpecification, SpecClientPicker, crmClientId, documentClients, formatDocumentDate } from './specification-flow';
+import { ContractFileMissing, ContractInlineForm, SpecClientCard, ExistingSpecification, SpecClientPicker, contractFileMissing, crmClientId, documentClients, formatDocumentDate } from './specification-flow';
 import { busyProps, card, cardTitle, control, fieldLabel, muted, primaryAction, secondaryAction } from './document-ui';
 
 type View='contract'|'spec'|'archive';
@@ -172,7 +172,9 @@ export default function DocumentsWorkspace() {
   const activeJob=view==='contract' ? contractJob : view==='spec' ? invoiceJob : null;
   const shownResult=generated && activeJob && generated.jobId===activeJob.id && generated.view===view ? generated : null;
   const specDocs=specClientId && specSummary?.clientId===specClientId ? specSummary : null;
-  const invoiceReady=Boolean(specDocs?.contract) && invoiceJob?.status==='confirmed' && invoiceJob.clientId===specClientId;
+  // A contract whose file is known to be missing cannot be read, so the invoice step does not open for it.
+  const usableContract=specDocs?.contract && !contractFileMissing(specDocs.contract) ? specDocs.contract : null;
+  const invoiceReady=Boolean(usableContract) && invoiceJob?.status==='confirmed' && invoiceJob.clientId===specClientId;
   const contractStep=documentStep(contractJob,shownResult!==null);
   const specStep=specificationStep({clientLoaded:specDocs!==null,hasContract:Boolean(specDocs?.contract),invoiceReady,generated:shownResult!==null});
   useFocusNextStep(root,view,view==='archive' ? null : view==='contract' ? contractStep : specStep);
@@ -211,10 +213,11 @@ export default function DocumentsWorkspace() {
           {specNotice ? <p className="app-notice app-notice--warning">{specNotice}</p> : null}
           {specClientId ? <SpecClientCard client={specClient} summary={specDocs} error={specError} onChange={() => chooseSpecClient(null)} onRetry={() => {setSpecError('');setSpecSummaryRevision((value) => value+1);}} /> : <SpecClientPicker clients={clients} loading={clientsLoading} onChoose={chooseSpecClient} />}
           {specClientId && specDocs && !specDocs.contract ? <ContractInlineForm key={`contract-${specClientId}`} clientId={specClientId} clientInn={specClient?.inn ?? ''} onSaved={() => {setRecent(null);setRecentRevision((value) => value+1);setSpecSummaryRevision((value) => value+1);}} onCreateFromRequisites={() => switchMode('contract')} /> : null}
-          {specClientId && specDocs?.contract ? <DocumentExtractionPanel key={`invoice-${specClientId}`} purpose="invoice" clientId={specClientId} autoStart hideUseConfirmedAction stepAnchor="invoice" autoSelectLatest={false} restoredJob={invoiceJob} onActiveJobChange={(job) => selectInvoice(specClientId,job)} onConfirmed={(job) => selectInvoice(specClientId,job)} /> : null}
+          {specClientId && specDocs?.contract && !usableContract ? <ContractFileMissing contract={specDocs.contract} /> : null}
+          {specClientId && usableContract ? <DocumentExtractionPanel key={`invoice-${specClientId}`} purpose="invoice" clientId={specClientId} autoStart hideUseConfirmedAction stepAnchor="invoice" autoSelectLatest={false} restoredJob={invoiceJob} onActiveJobChange={(job) => selectInvoice(specClientId,job)} onConfirmed={(job) => selectInvoice(specClientId,job)} /> : null}
           {invoiceReady && invoiceJob && specClientId && specDocs && shownResult ? <GeneratedResult result={shownResult} fallbackDocumentId={null} onOpenArchive={() => openArchive(shownResult.clientId)} onCreateAnother={() => chooseAnotherFile('spec')} /> : null}
           {existingSpec && specClientId && !shownResult ? <ExistingSpecification document={existingSpec} onOpenArchive={() => openArchive(specClientId)} /> : null}
-          {invoiceReady && invoiceJob && specClientId && specDocs && !shownResult && !existingSpec ? <SpecificationGeneration key={`spec-${invoiceJob.id}`} job={invoiceJob} clientId={specClientId} hasContract onGenerated={async (document) => {
+          {invoiceReady && invoiceJob && specClientId && specDocs && !shownResult && !existingSpec ? <SpecificationGeneration key={`spec-${invoiceJob.id}`} job={invoiceJob} clientId={specClientId} hasContract contractDate={usableContract?.documentDate} onGenerated={async (document) => {
             refreshRecent();setSpecSummaryRevision((value) => value+1);
             setGenerated({view:'spec',jobId:invoiceJob.id,documentId:document?.id ?? null,number:document?.number ?? '',date:formatDocumentDate(document?.documentDate ?? ''),clientId:specClientId,clientName:specDocs.documentDisplayName});
           }} /> : null}
