@@ -143,6 +143,20 @@ it('recognises the chosen contract file and saves it only after the manager conf
   expect(api.fetchDocumentAssistantJobs).toHaveBeenCalledWith(84);
 });
 
+it('keeps polling the contract recognition after a single network failure',async()=>{
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(84,null,'ООО Другой покупатель'));
+  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);
+  vi.mocked(api.startDocumentAssistantJob).mockResolvedValue(contractJob({status:'running',result:null}));
+  vi.mocked(api.fetchDocumentAssistantJob).mockRejectedValueOnce(new Error('Сеть недоступна.')).mockResolvedValue(contractJob({version:2}));
+  const input=await openClientWithoutContract();
+  await userEvent.upload(input,new File(['contract'],'contract.docx'));
+  const card=await within(specView()).findByRole('region',{name:'Распознано из договора'},{timeout:6000});
+  expect(within(card).getByText('Договор № Д-7 от 01.11.2026')).toBeVisible();
+  expect(api.fetchDocumentAssistantJob).toHaveBeenCalledTimes(2);
+  expect(api.startDocumentAssistantJob).toHaveBeenCalledTimes(1);
+  expect(within(specView()).queryByText('Сеть недоступна.')).not.toBeInTheDocument();
+},10000);
+
 it('saves the number corrected by the manager instead of the recognised one',async()=>{
   vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(84,null,'ООО Другой покупатель'));
   vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);

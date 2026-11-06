@@ -115,6 +115,8 @@ export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequi
   const [revision,setRevision]=useState(0);
   // Each file and each retry is a new attempt: answers of an older attempt, or after the client was changed, are ignored.
   const attempt=useRef(0);
+  // A short network failure while polling is retried a few times before the recognition is given up.
+  const pollFailures=useRef(0);
   useEffect(() => () => {attempt.current+=1;},[]);
   const recognising=phase==='uploading' || phase==='starting' || job?.status==='queued' || job?.status==='running';
   const elapsed=useElapsedSeconds(recognising ? startedAt : null);
@@ -128,10 +130,12 @@ export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequi
     const mine=attempt.current;
     const timer=window.setTimeout(() => {fetchDocumentAssistantJob(job.id).then((next) => {
       if(mine!==attempt.current || !ownContractJob(next,clientId)) return;
-      setJob(next);prefill(next,setNumber,setDate);
+      pollFailures.current=0;setJob(next);prefill(next,setNumber,setDate);
     },(failure: unknown) => {
       if(mine!==attempt.current) return;
-      setJob(null);setError(failureText(failure,'Не удалось получить результат распознавания.'));
+      pollFailures.current+=1;
+      if(pollFailures.current<3) {setJob({...job});return;}
+      pollFailures.current=0;setJob(null);setError(failureText(failure,'Не удалось получить результат распознавания.'));
     });},1500);
     return () => window.clearTimeout(timer);
   },[job,clientId]);
@@ -213,7 +217,7 @@ export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequi
     </label>
     </div>
     {recognising ? <output className="flex min-w-0 flex-wrap items-center gap-2 rounded-[10px] bg-[var(--panel-muted)] px-3 py-2 text-sm font-semibold text-[var(--text-primary)]">
-      <span className="app-spinner" aria-hidden="true" />{phase==='uploading' ? 'Загружаем файл…' : 'Распознаём договор…'}<span className="font-normal tabular-nums text-[var(--text-secondary)]">{formatElapsed(elapsed)}</span>
+      <span className="app-spinner" aria-hidden="true" />{phase==='uploading' ? 'Загружаем файл…' : 'Распознаём договор…'}<span aria-hidden="true" className="font-normal tabular-nums text-[var(--text-secondary)]">{formatElapsed(elapsed)}</span>
     </output> : null}
     {jobError ? <p role="alert" className="app-notice app-notice--error">{jobError}</p> : null}
     {reviewed ? <section aria-label="Распознано из договора" className="grid min-w-0 gap-1 rounded-[12px] border border-[var(--border-color)] bg-[var(--panel-muted)] px-3 py-2.5">

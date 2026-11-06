@@ -157,3 +157,9 @@ def test_normalization_does_not_relax_real_number_errors():
     payload=_russian_invoice_payload();payload['date']='31 февраля 2026 г.'
     with pytest.raises(ValueError): validate_payload('invoice',payload)
     with pytest.raises(ValueError): validate_payload('articles',{'rows':[{'article':123,'requested_qty':'2','source_row':1}]})
+
+
+@pytest.mark.parametrize('printed,bare',[('№ Д-7','Д-7'),('№Д-25/114','Д-25/114'),(' No. 15 ','15'),('Д-7','Д-7'),('N-15','N-15')])
+def test_contract_and_invoice_numbers_drop_the_printed_number_sign(printed,bare):
+    assert validate_payload('contract',{'number':printed},partial=True)['number']==bare
+    assert validate_payload('invoice',{'invoice_number':printed},partial=True)['invoice_number']==bare
