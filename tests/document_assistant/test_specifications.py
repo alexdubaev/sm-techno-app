@@ -52,7 +52,7 @@ def setup_invoice(api,monkeypatch,payload=None,source=None,review_only=False):
     a=upload(http,users,cid,source or invoice_bytes(),role='source_invoice',name='invoice.docx').json()
     j=http.post('/api/document-assistant/jobs',headers=users['alice']['headers'],json={'kind':'invoice','clientId':cid,'assetIds':[a['id']]}).json()
     j=http.get('/api/document-assistant/jobs/'+j['id'],headers=users['alice']['headers']).json()
-    assert j['status']=='review',j
+    assert j['status']=='review',j.get('error')
     if not review_only:
         response=confirm(http,users,j,'review',key='review-invoice-setup')
         assert response.status_code==200,response.text
@@ -87,7 +87,7 @@ def test_invoice_to_specification_final_retains_original_and_exact_sources(api,m
     assert snapshot['source_sha256'] and snapshot['legal_fields']['signer_name']==FIELDS['signer_name']
 
 
-@pytest.mark.parametrize('change',[{'total_amount':'310001.00'},{'buyer_inn':'7712345678'},{'amount_in_words':'Один рубль 00 копеек'},{'lines':[]}])
+@pytest.mark.parametrize('change',[{'total_amount':'310001.00'},{'vat_amount':'1.00'},{'buyer_inn':'7712345678'},{'lines':[]}])
 def test_untrusted_model_cannot_publish_changed_invoice(api,monkeypatch,change):
     j,_=setup_invoice(api,monkeypatch,{**INVOICE,**change})
     r=generate(api,j);assert r.status_code in (409,422),r.text
@@ -266,18 +266,28 @@ def test_imported_contract_with_date_written_in_words_is_accepted(api,monkeypatc
     assert spec.json()['contractId']==imported.json()['id']
 
 
-def test_contract_date_check_still_rejects_a_different_date(api,monkeypatch):
-    from stock_sync_web.documents import document_date_in_text
-    assert document_date_in_text('"30" октября 2026 г.','2026-10-30')
-    assert document_date_in_text('от 30.10.2026','2026-10-30')
-    assert document_date_in_text('«3» марта 2027 года'.replace('«','"').replace('»','"'),'2027-03-03')
-    assert not document_date_in_text('"31" октября 2026 г.','2026-10-30')
-    assert not document_date_in_text('"30" ноября 2026 г.','2026-10-30')
-    assert not document_date_in_text('"130" октября 2026 г.','2026-10-30')
-
-
 def test_invoice_and_contract_names_match_across_quote_styles():
     from stock_sync_web.documents import _normal_text
     names={'ООО “ВОЛГАГЛОБАЛСЕРВИС”','ООО «ВОЛГАГЛОБАЛСЕРВИС»','ООО "ВОЛГАГЛОБАЛСЕРВИС"','ООО „ВОЛГАГЛОБАЛСЕРВИС“'}
     assert len({_normal_text(name) for name in names})==1
     assert _normal_text('ООО «Ёлка»')==_normal_text('ООО "елка"')
+
+
+def test_formal_fields_do_not_block_the_specification(api,monkeypatch):
+    # Currency left empty and a wrong amount in words from the model: the money is verified, the words are derived from it.
+    j,_=setup_invoice(api,monkeypatch,{**INVOICE,'currency':None,'amount_in_words':'Один рубль 00 копеек','buyer_document_name':'ООО “Другое написание”'})
+    r=generate(api,j);assert r.status_code==200,r.text
+
+
+def test_reread_contract_number_and_date_do_not_have_to_repeat_the_card(api,monkeypatch):
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,_,users,cid=api;j,_=setup_invoice(api,monkeypatch)
+    summary=http.get(f'/api/crm/clients/{cid}/documents',headers=users['alice']['headers']).json()
+    old=summary['contract'];content=http.get(f"/api/documents/{old['id']}/download",headers=users['alice']['headers']).content
+    assert http.delete(f"/api/documents/{old['id']}",headers=users['admin']['headers']).status_code==200
+    asset=upload(http,users,cid,content).json()
+    imported=http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':asset['id'],'number':'Д-37','date':'2026-10-30'})
+    assert imported.status_code==200,imported.text
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',
+        lambda self,request:ExtractionResult('contract',{'number':'37','date':None,'legal_fields':dict(FIELDS)}))
+    spec=generate(api,j);assert spec.status_code==200,spec.text

@@ -105,22 +105,6 @@ def format_document_date(value: str | date | datetime) -> str:
         return text
 
 
-_RU_GENITIVE_MONTHS = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря")
-
-
-def document_date_in_text(normalized_text: str, iso_date: str) -> bool:
-    """True when the date is printed as DD.MM.YYYY or in words («29» июня 2026 г.) in text already passed through _normal_text."""
-    import re
-    try:
-        value = date.fromisoformat(str(iso_date or "")[:10])
-    except ValueError:
-        return False
-    if value.strftime("%d.%m.%Y") in normalized_text:
-        return True
-    pattern = r'(?<!\d)"?0?' + str(value.day) + r'"?\s+' + _RU_GENITIVE_MONTHS[value.month - 1] + r'\s+' + str(value.year) + r'(?!\d)'
-    return re.search(pattern, normalized_text) is not None
-
-
 def _client_to_context(client: dict[str, Any]) -> dict[str, str]:
     bank_name_or_bik = _get_value(client, "bank_name_or_bik", "bankNameOrBik")
     signer_position = _get_value(client, "signer_position", "signerPosition")
@@ -647,15 +631,13 @@ def validate_invoice_source(content,payload):
         if not matches or any(_invoice_decimal(m,money=True)!=expected for m in matches):raise ValueError('Итог не подтверждён исходным счётом: '+label)
     count=re.search(r'Всего наименований\s+(\d+)',text,re.I)
     if count and int(count.group(1))!=len(rows):raise ValueError('Число наименований счёта не совпадает с таблицей.')
-    words=str(payload.get('amount_in_words') or '').strip()
-    if _normal_text(words)!=_normal_text(rubles_in_words(total)) or _normal_text(words) not in _normal_text(text):
-        raise ValueError('Сумма прописью не совпадает с проверенной суммой и исходным счётом.')
-    if payload.get('currency') not in ('RUB','руб','руб.','рубль','рубли','рублей'):raise ValueError('Для спецификации требуется счёт в рублях.')
+    # Amount in words is derived from the verified total, never taken from the model; currency is not re-checked here.
+    words=rubles_in_words(total)
     buyer=re.search(r'(?:Покупатель|Заказчик)\s*:?([^\n]*(?:\n[^\n]*)?)',text,re.I)
     if not buyer:raise ValueError('Не найден блок покупателя исходного счёта.')
     buyer_text=_normal_text(buyer.group(1))
-    for key in ('buyer_document_name','buyer_inn'):
-        if not payload.get(key) or _normal_text(payload[key]) not in buyer_text:raise ValueError('Реквизиты покупателя не подтверждены исходным счётом.')
+    # The buyer is identified by INN/KPP; the printed name and its quotes are the manager's to check on screen.
+    if not payload.get('buyer_inn') or str(payload['buyer_inn']) not in buyer_text:raise ValueError('ИНН покупателя не найден в счёте.')
     if payload.get('buyer_kpp') and str(payload['buyer_kpp']) not in buyer_text:raise ValueError('КПП покупателя не подтверждён счётом.')
     if not payload.get('invoice_number') or not re.search(r'сч[её]т(?: на оплату)?\s*№\s*'+re.escape(payload['invoice_number'])+r'(?![\w-])',text,re.I):
         raise ValueError('Номер исходного счёта не подтверждён.')

@@ -93,6 +93,7 @@ def _validate_shape(value, schema, path='payload', partial=False):
 
 _NUMERIC_LINE_FIELDS=('requested_qty','qty','unit_price_incl_vat','unit_price_excl_vat','vat_amount','total_amount')
 _NUMERIC_TOP_FIELDS=('total_amount','vat_amount')
+_RUBLE_SPELLINGS={'rub','rur','руб','рубль','рубли','рублей','₽','российский рубль'}
 _RU_MONTHS=('января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря')
 
 
@@ -127,6 +128,8 @@ def normalize_payload(kind, payload):
     if kind=='invoice':
         for key in _NUMERIC_TOP_FIELDS:
             if payload.get(key) is not None: payload[key]=_plain_decimal(payload[key])
+        currency=payload.get('currency')
+        if isinstance(currency,str) and currency.strip().casefold().rstrip('.') in _RUBLE_SPELLINGS: payload['currency']='RUB'
     if kind in {'invoice','contract'} and payload.get('date'): payload['date']=_printed_date(payload['date'])
     # A printed «№ Д-7» and «Д-7» are one number; the card and every later re-reading must agree on the bare form.
     key='number' if kind=='contract' else 'invoice_number' if kind=='invoice' else None
@@ -303,6 +306,8 @@ def extraction_prompt(request):
         'For invoices buyer_document_name is the printed legal customer name in the Покупатель/Заказчик block; do not substitute the supplier. '
         'Preserve the complete printed goods name cell, including its article code (also copy article separately). '
         'Empty service cells, the separate 1..8 column-numbering row and summary rows are not goods. '
+        'For invoices currency is RUB when amounts are in рублях, even without a separate currency field. '
+        'Warnings are shown to a Russian-speaking manager: write them in Russian and only when a value needs the manager to check it; never describe table layout or skipped service rows. '
         'Images are numbered pages in attachment order. Extraction kind: '+request.kind+'\n<customer_data>\n'+
         json.dumps(request.texts,ensure_ascii=False)+'\n</customer_data>')
 
