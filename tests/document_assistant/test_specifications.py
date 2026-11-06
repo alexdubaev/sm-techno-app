@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 import json
+import re
 from zipfile import ZipFile
 
 from docx import Document
@@ -657,3 +658,15 @@ def test_saved_recognition_is_reused_only_when_it_is_a_valid_review(api,monkeypa
     spec=generate(api,j);assert spec.status_code==200,spec.text
     xml=_spec_xml(api,spec.json())
     assert read==['contract'] and 'Перечитан И.И.' in xml and 'Сохранён И.И.' not in xml
+
+
+def test_preamble_position_wins_over_a_shorter_signature_title(api,monkeypatch):
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    http,_,users,cid=api;j,asset=_import_saved_contract(api,monkeypatch)
+    assert http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':asset['id'],'number':'Д-37','date':'2026-10-30'}).status_code==200
+    legal={**FIELDS,'signer_position':'Директор','signer_position_genitive':'генерального директора','signer_short_name':'Иванов И.И.'}
+    monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',lambda self,request:ExtractionResult('contract',{'number':'Д-37','date':'2026-10-30','legal_fields':legal}))
+    spec=generate(api,j);assert spec.status_code==200,spec.text
+    xml=ZipFile(BytesIO(http.get(f"/api/documents/{spec.json()['id']}/download",headers=users['alice']['headers']).content)).read('word/document.xml').decode('utf-8')
+    texts=re.findall(r'<w:t[^>]*>([^<]*)</w:t>',xml)
+    assert 'Директор' not in texts and texts.count('Генеральный директор')>=2
