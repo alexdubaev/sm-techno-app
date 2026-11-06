@@ -191,7 +191,7 @@ it('keeps the archive entry by clientId unchanged',async()=>{
   expect(params().get('specClientId')).toBeNull();
 });
 
-const existingSpec={id:33,documentType:'specification',number:'3',documentDate:'2026-11-06',invoiceAssetId:61} as never;
+const existingSpec:ClientDocumentsSummary['documents'][number]={id:33,documentType:'specification',number:'3',clientId:42,clientName:'ООО Проверено',documentDate:'2026-11-06',status:'generated',origin:'generated',version:1,contractId:5,contractVersionId:7,invoiceAssetId:61,specSequence:3,createdAt:'2026-11-06T10:00:00Z',updatedAt:'2026-11-06T10:00:00Z',createdByUserId:1,createdByName:'Менеджер',missingFields:[],assets:[]};
 
 it('F1: does not offer a second specification for an invoice that already has one',async()=>{
   vi.mocked(api.fetchDocumentAssistantJob).mockResolvedValue(confirmedInvoice);
