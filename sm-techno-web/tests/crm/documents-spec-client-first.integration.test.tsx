@@ -2,7 +2,7 @@ import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import {beforeEach, expect, it, vi} from 'vitest';
 import DocumentsWorkspace from '@/components/documents/documents-workspace';
-import type {ClientDocumentsSummary, CrmClient, DocumentAssistantJob} from '@/lib/types';
+import type {ClientDocumentAsset, ClientDocumentsSummary, CrmClient, DocumentAssistantJob} from '@/lib/types';
 import * as api from '@/lib/api';
 import * as workflows from '@/lib/document-workflows-api';
 
@@ -41,6 +41,8 @@ beforeEach(()=>{
   vi.mocked(api.fetchClients).mockResolvedValue(clients);
   vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[]});
   vi.mocked(api.fetchDocuments).mockResolvedValue([]);
+  // One-time answers left by a failed test must not leak into the next one.
+  for(const mock of [api.fetchClientDocuments,api.uploadClientDocumentAsset,api.startDocumentAssistantJob,api.fetchDocumentAssistantJob,api.importClientDocument]) vi.mocked(mock).mockReset();
 });
 
 it('creates a specification client-first: client with a contract, invoice bound to it, no client binding step',async()=>{
@@ -82,9 +84,24 @@ it('creates a specification client-first: client with a contract, invoice bound 
   expect(params().get('invoiceJob')).toBe('invoice-new');
 });
 
-it('saves a ready contract inline when the client has none, then moves on to the invoice',async()=>{
+const contractAsset:ClientDocumentAsset={id:51,clientId:84,documentId:null,role:'archive',originalFilename:'contract.docx',mediaType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',byteSize:1024,sha256:'abc',createdByUserId:1,createdByName:'Менеджер',createdAt:'2026-11-06T10:00:00Z',version:1};
+const contractLegal={document_name:'ООО Другой покупатель',full_name:'Общество с ограниченной ответственностью Другой покупатель',inn:'7709999999',kpp:'770901001',signer_position:'Генеральный директор',signer_name:'Петров Пётр Петрович'};
+const contractJob=(fields:Partial<DocumentAssistantJob>,payload:Record<string,unknown>={}):DocumentAssistantJob=>({id:'contract-job',kind:'contract',clientId:84,assetIds:[51],status:'review',version:1,
+  result:{kind:'contract',payload:{document_id:null,asset_id:51,number:'Д-7',date:'2026-11-01',client_id:84,source_sha256:'abc',legal_fields:contractLegal,...payload},provenance:[],missing_fields:[],warnings:[]},
+  missingFields:[],warnings:[],error:null,createdAt:'2026-11-06T10:00:00Z',updatedAt:'2026-11-06T10:00:00Z',...fields});
+const recognisedCard=()=>within(specView()).findByRole('region',{name:'Распознано из договора'},{timeout:4000});
+
+async function openClientWithoutContract() {
+  window.history.replaceState(null,'','/documents?specClientId=84');
+  render(<DocumentsWorkspace/>);
+  return within(specView()).findByLabelText('Файл договора');
+}
+
+it('recognises the chosen contract file and saves it only after the manager confirms, then moves on to the invoice',async()=>{
   vi.mocked(api.fetchClientDocuments).mockResolvedValueOnce(summary(84,null,'ООО Другой покупатель')).mockResolvedValue(summary(84,{id:9,number:'Д-7',documentDate:'2026-11-01'} as never,'ООО Другой покупатель'));
-  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue({id:51} as never);
+  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);
+  vi.mocked(api.startDocumentAssistantJob).mockResolvedValue(contractJob({status:'running',result:null}));
+  vi.mocked(api.fetchDocumentAssistantJob).mockResolvedValue(contractJob({version:2}));
   vi.mocked(api.importClientDocument).mockRejectedValueOnce(new Error('Номер договора не найден в файле.')).mockResolvedValue({id:9} as never);
   render(<DocumentsWorkspace/>);
   fireEvent.click(modes().getByRole('button',{name:'Создать спецификацию'}));
@@ -95,32 +112,117 @@ it('saves a ready contract inline when the client has none, then moves on to the
   expect(await within(specView()).findByText('Договора нет')).toBeVisible();
   await waitFor(()=>expect(stepState('Договор')).toBe('current'));
   expect(within(specView()).queryByRole('heading',{name:'Счёт для спецификации'})).not.toBeInTheDocument();
+  // Number and date are no longer typed before recognition.
+  expect(within(specView()).queryByLabelText('Номер договора')).not.toBeInTheDocument();
   const file=new File(['contract'],'contract.docx');
   await userEvent.upload(within(specView()).getByLabelText('Файл договора'),file);
-  fireEvent.change(within(specView()).getByLabelText('Номер договора'),{target:{value:'Д-7'}});
-  fireEvent.change(within(specView()).getByLabelText('Дата договора'),{target:{value:'2026-11-01'}});
+  await waitFor(()=>expect(api.startDocumentAssistantJob).toHaveBeenCalledWith({kind:'contract',clientId:84,assetIds:[51]}));
+  expect(api.uploadClientDocumentAsset).toHaveBeenCalledWith(84,{file,role:'archive'});
+  expect(await within(specView()).findByText('Распознаём договор…')).toBeVisible();
+  const card=await recognisedCard();
+  expect(api.fetchDocumentAssistantJob).toHaveBeenCalledWith('contract-job');
+  expect(within(card).getByText('Договор № Д-7 от 01.11.2026')).toBeVisible();
+  expect(within(card).getByText('Сторона: ООО Другой покупатель · ИНН 7709999999 · КПП 770901001')).toBeVisible();
+  expect(within(card).getByText('Подписант: Генеральный директор Петров Пётр Петрович')).toBeVisible();
+  expect(within(specView()).getByLabelText('Номер договора')).toHaveValue('Д-7');
+  expect(within(specView()).getByLabelText('Дата договора')).toHaveValue('2026-11-01');
+  expect(within(specView()).queryByText(/не совпадает с клиентом/)).not.toBeInTheDocument();
+  // Nothing is saved without the explicit click.
+  expect(api.importClientDocument).not.toHaveBeenCalled();
   fireEvent.click(within(specView()).getByRole('button',{name:'Сохранить договор'}));
   expect(await within(specView()).findByText('Номер договора не найден в файле.')).toHaveClass('app-notice--error');
   fireEvent.click(within(specView()).getByRole('button',{name:'Сохранить договор'}));
   await waitFor(()=>expect(api.importClientDocument).toHaveBeenCalledTimes(2));
-  // The saved file is reused on retry, it is not uploaded twice.
+  // The recognised file is reused, it is not uploaded twice.
   expect(api.uploadClientDocumentAsset).toHaveBeenCalledTimes(1);
-  expect(api.uploadClientDocumentAsset).toHaveBeenCalledWith(84,{file,role:'archive'});
   expect(api.importClientDocument).toHaveBeenLastCalledWith(84,{type:'contract',assetId:51,number:'Д-7',date:'2026-11-01'});
-  expect(await within(specView()).findByText('Договор № Д-7 от 01.11.2026')).toBeVisible();
   expect(await within(specView()).findByRole('heading',{name:'Счёт для спецификации'})).toBeVisible();
+  expect(screen.queryByRole('region',{name:'Распознано из договора'})).not.toBeInTheDocument();
+  expect(within(screen.getByRole('region',{name:'Выбранный клиент'})).getByText('Договор № Д-7 от 01.11.2026')).toBeVisible();
   expect(stepState('Счёт')).toBe('current');
   expect(api.fetchDocumentAssistantJobs).toHaveBeenCalledWith(84);
 });
 
-it('asks for the contract number and date before saving the contract',async()=>{
-  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(42,null));
-  window.history.replaceState(null,'','/documents?specClientId=42');
-  render(<DocumentsWorkspace/>);
-  await userEvent.upload(await within(specView()).findByLabelText('Файл договора'),new File(['c'],'c.docx'));
+it('saves the number corrected by the manager instead of the recognised one',async()=>{
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(84,null,'ООО Другой покупатель'));
+  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);
+  vi.mocked(api.startDocumentAssistantJob).mockResolvedValue(contractJob({}));
+  vi.mocked(api.importClientDocument).mockResolvedValue({id:9} as never);
+  await userEvent.upload(await openClientWithoutContract(),new File(['c'],'contract.docx'));
+  const card=await recognisedCard();
+  fireEvent.change(within(specView()).getByLabelText('Номер договора'),{target:{value:'Д-7/2026'}});
+  expect(within(card).getByText('Договор № Д-7/2026 от 01.11.2026')).toBeVisible();
+  fireEvent.click(within(specView()).getByRole('button',{name:'Сохранить договор'}));
+  await waitFor(()=>expect(api.importClientDocument).toHaveBeenCalledWith(84,{type:'contract',assetId:51,number:'Д-7/2026',date:'2026-11-01'}));
+});
+
+it('warns when the INN in the contract differs from the client, but still lets the manager save',async()=>{
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(84,null,'ООО Другой покупатель'));
+  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);
+  vi.mocked(api.startDocumentAssistantJob).mockResolvedValue(contractJob({},{legal_fields:{...contractLegal,inn:'7700000001'}}));
+  await userEvent.upload(await openClientWithoutContract(),new File(['c'],'contract.docx'));
+  await recognisedCard();
+  expect(within(specView()).queryByText(/распознать не удалось/)).not.toBeInTheDocument();
+  expect(within(specView()).getByText('ИНН в договоре (7700000001) не совпадает с клиентом (7709999999). Проверьте, тот ли это файл.')).toHaveClass('app-notice--warning');
+  expect(within(specView()).getByRole('button',{name:'Сохранить договор'})).toBeEnabled();
+});
+
+it('after a failed recognition retries from the same uploaded file or takes the number and date typed by hand',async()=>{
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary(84,null,'ООО Другой покупатель'));
+  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);
+  vi.mocked(api.startDocumentAssistantJob)
+    .mockResolvedValueOnce(contractJob({status:'failed',result:null,error:{code:'extraction_failed',message:'Не удалось распознать файл.'}}))
+    .mockResolvedValueOnce(contractJob({id:'contract-job-2'},{number:null,date:null}));
+  vi.mocked(api.importClientDocument).mockResolvedValue({id:9} as never);
+  await userEvent.upload(await openClientWithoutContract(),new File(['c'],'contract.docx'));
+  expect(await within(specView()).findByText('Не удалось распознать файл.')).toHaveClass('app-notice--error');
+  expect(within(specView()).getByLabelText('Номер договора')).toHaveValue('');
+  // Saving without the number and date is not sent to the server.
   fireEvent.submit(within(specView()).getByRole('button',{name:'Сохранить договор'}).closest('form')!);
   expect(await within(specView()).findByText('Укажите номер и дату договора.')).toHaveClass('app-notice--error');
-  expect(api.uploadClientDocumentAsset).not.toHaveBeenCalled();
+  expect(api.importClientDocument).not.toHaveBeenCalled();
+  fireEvent.click(within(specView()).getByRole('button',{name:'Распознать заново'}));
+  await recognisedCard();
+  expect(api.startDocumentAssistantJob).toHaveBeenCalledTimes(2);
+  expect(api.startDocumentAssistantJob).toHaveBeenLastCalledWith({kind:'contract',clientId:84,assetIds:[51]});
+  expect(api.uploadClientDocumentAsset).toHaveBeenCalledTimes(1);
+  expect(within(specView()).getByText('Номер и дату договора распознать не удалось. Укажите их как в файле или распознайте заново.')).toHaveClass('app-notice--warning');
+  fireEvent.change(within(specView()).getByLabelText('Номер договора'),{target:{value:'Д-8'}});
+  fireEvent.change(within(specView()).getByLabelText('Дата договора'),{target:{value:'2026-11-02'}});
+  fireEvent.click(within(specView()).getByRole('button',{name:'Сохранить договор'}));
+  await waitFor(()=>expect(api.importClientDocument).toHaveBeenCalledWith(84,{type:'contract',assetId:51,number:'Д-8',date:'2026-11-02'}));
+});
+
+it('ignores the contract recognition of the previous client after the client was changed',async()=>{
+  vi.mocked(api.fetchClientDocuments).mockImplementation(async(id)=>id===84 ? summary(84,null,'ООО Другой покупатель') : summary(42,contract));
+  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);
+  let finish!:(job:DocumentAssistantJob)=>void;
+  vi.mocked(api.startDocumentAssistantJob).mockImplementation(()=>new Promise((resolve)=>{finish=resolve;}));
+  await userEvent.upload(await openClientWithoutContract(),new File(['c'],'contract.docx'));
+  await waitFor(()=>expect(api.startDocumentAssistantJob).toHaveBeenCalled());
+  expect(within(specView()).getByText('Распознаём договор…')).toBeVisible();
+  fireEvent.click(within(specView()).getByRole('button',{name:'Сменить клиента'}));
+  await chooseClient('7701234567',/ООО Проверено/);
+  await within(specView()).findByRole('heading',{name:'Счёт для спецификации'});
+  await act(async()=>finish(contractJob({status:'running',result:null})));
+  await act(async()=>new Promise((resolve)=>setTimeout(resolve,1700)));
+  expect(api.fetchDocumentAssistantJob).not.toHaveBeenCalled();
+  expect(screen.queryByRole('region',{name:'Распознано из договора'})).not.toBeInTheDocument();
+  expect(api.importClientDocument).not.toHaveBeenCalled();
+  expect(params().get('specClientId')).toBe('42');
+  expect(stepState('Счёт')).toBe('current');
+});
+
+it('stops polling the contract recognition when the client is changed',async()=>{
+  vi.mocked(api.fetchClientDocuments).mockImplementation(async(id)=>id===84 ? summary(84,null,'ООО Другой покупатель') : summary(42,contract));
+  vi.mocked(api.uploadClientDocumentAsset).mockResolvedValue(contractAsset);
+  vi.mocked(api.startDocumentAssistantJob).mockResolvedValue(contractJob({status:'running',result:null}));
+  vi.mocked(api.fetchDocumentAssistantJob).mockResolvedValue(contractJob({version:2}));
+  await userEvent.upload(await openClientWithoutContract(),new File(['c'],'contract.docx'));
+  expect(await within(specView()).findByText('Распознаём договор…')).toBeVisible();
+  fireEvent.click(within(specView()).getByRole('button',{name:'Сменить клиента'}));
+  await act(async()=>new Promise((resolve)=>setTimeout(resolve,1700)));
+  expect(api.fetchDocumentAssistantJob).not.toHaveBeenCalled();
 });
 
 it('restores the chosen client after reload from specClientId',async()=>{
@@ -260,7 +362,7 @@ it('F4: accepts only contract files with a text layer',async()=>{
   window.history.replaceState(null,'','/documents?specClientId=42');
   render(<DocumentsWorkspace/>);
   expect(await within(specView()).findByLabelText('Файл договора')).toHaveAttribute('accept','.docx,.doc,.rtf,.odt,.pdf,.txt');
-  expect(within(specView()).getByText('Word или PDF с текстовым слоем. До 25 МБ.')).toBeVisible();
+  expect(within(specView()).getByText('Word или PDF с текстовым слоем. Номер, дату и реквизиты распознаем сами.')).toBeVisible();
 });
 
 it('F5: shows the requisites of the CRM card, not of a 1С client with the same numeric id',async()=>{

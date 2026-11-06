@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { CircleAlert, CircleCheck, Download, FolderOpen, Search, Upload } from 'lucide-react';
-import { downloadDocumentFile, importClientDocument, uploadClientDocumentAsset } from '@/lib/api';
-import type { ClientDocumentAsset, ClientDocumentsSummary, ClientStoredDocument, CrmClient } from '@/lib/types';
+import { useEffect, useRef, useState } from 'react';
+import { CircleAlert, CircleCheck, Download, FolderOpen, RefreshCw, Search, Upload } from 'lucide-react';
+import { downloadDocumentFile, fetchDocumentAssistantJob, importClientDocument, startDocumentAssistantJob, uploadClientDocumentAsset } from '@/lib/api';
+import { formatElapsed, useElapsedSeconds } from '@/components/crm/document-extraction-panel';
+import type { ClientDocumentAsset, ClientDocumentsSummary, ClientStoredDocument, CrmClient, DocumentAssistantJob } from '@/lib/types';
 import { busyProps, card, cardTitle, compactSecondaryAction, control, fieldLabel, muted, primaryAction, secondaryAction } from './document-ui';
 
 const failureText=(failure: unknown,fallback: string) => failure instanceof Error ? failure.message : fallback;
@@ -74,58 +75,165 @@ export function SpecClientCard({client,summary,error,onChange,onRetry}: {client:
   </section>;
 }
 
-// Only files with text: number, date and requisites of the contract are checked against its text.
+// Only files with text: number, date and requisites of the contract are recognised from its text.
 const contractAccept='.docx,.doc,.rtf,.odt,.pdf,.txt';
+const textValue=(value: unknown) => typeof value==='string' ? value.trim() : '';
+/** Recognised date as YYYY-MM-DD for the date input; DD.MM.YYYY is converted, anything else is dropped. */
+function isoDate(value: unknown) {
+  const text=textValue(value);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const printed=/^(\d{2})\.(\d{2})\.(\d{4})$/.exec(text);
+  return printed ? `${printed[3]}-${printed[2]}-${printed[1]}` : '';
+}
+const digits=(value: string) => value.replace(/\D/g,'');
+type ContractPhase='idle'|'uploading'|'starting'|'saving';
+/** Only a contract job of this client is taken. */
+const ownContractJob=(job: DocumentAssistantJob,clientId: number) => job.kind==='contract' && job.clientId===clientId;
+/** A recognised number and date fill the inputs; a value that was not recognised keeps what the manager typed. */
+function prefill(job: DocumentAssistantJob,setNumber: (value: string) => void,setDate: (value: string) => void) {
+  if(job.status!=='review') return;
+  const payload=job.result?.payload ?? {};
+  const recognisedNumber=textValue(payload.number);const recognisedDate=isoDate(payload.date);
+  if(recognisedNumber) setNumber(recognisedNumber);
+  if(recognisedDate) setDate(recognisedDate);
+}
 
-/** Step 2 when the client has no contract: save the signed contract right here. */
-export function ContractInlineForm({clientId,onSaved,onCreateFromRequisites}: {clientId: number;onSaved: () => void;onCreateFromRequisites: () => void}) {
+/**
+ * Step 2 when the client has no contract: the chosen file is uploaded and recognised at once,
+ * the manager checks the recognised number and date and saves the contract with one click.
+ */
+export function ContractInlineForm({clientId,clientInn,onSaved,onCreateFromRequisites}: {clientId: number;clientInn: string;onSaved: () => void;onCreateFromRequisites: () => void}) {
   const [file,setFile]=useState<File | null>(null);
+  const [asset,setAsset]=useState<ClientDocumentAsset | null>(null);
+  const [job,setJob]=useState<DocumentAssistantJob | null>(null);
   const [number,setNumber]=useState('');
   const [date,setDate]=useState('');
-  const [busy,setBusy]=useState(false);
+  const [phase,setPhase]=useState<ContractPhase>('idle');
+  const [startedAt,setStartedAt]=useState<number | null>(null);
   const [error,setError]=useState('');
   const [dragging,setDragging]=useState(false);
-  // The uploaded file is reused when only the number or date has to be corrected.
-  const [saved,setSaved]=useState<ClientDocumentAsset | null>(null);
-  function choose(next: File | null) {setFile(next);setSaved(null);setError('');}
-  async function save() {
-    if(!file && !saved) {setError('Выберите файл договора.');return;}
-    if(!number.trim() || !date) {setError('Укажите номер и дату договора.');return;}
-    setBusy(true);setError('');
-    try {
-      const asset=saved ?? await uploadClientDocumentAsset(clientId,{file:file!,role:'archive'});
-      setSaved(asset);
-      await importClientDocument(clientId,{type:'contract',assetId:asset.id,number:number.trim(),date});
-      onSaved();
-    } catch(failure: unknown) {setError(failureText(failure,'Не удалось сохранить договор.'));}
-    finally {setBusy(false);}
+  const [revision,setRevision]=useState(0);
+  // Each file and each retry is a new attempt: answers of an older attempt, or after the client was changed, are ignored.
+  const attempt=useRef(0);
+  useEffect(() => () => {attempt.current+=1;},[]);
+  const recognising=phase==='uploading' || phase==='starting' || job?.status==='queued' || job?.status==='running';
+  const elapsed=useElapsedSeconds(recognising ? startedAt : null);
+  /** Takes only a job of the current attempt. */
+  function accept(mine: number,next: DocumentAssistantJob) {
+    if(mine!==attempt.current || !ownContractJob(next,clientId)) return;
+    setJob(next);prefill(next,setNumber,setDate);
   }
-  const fileName=file?.name ?? saved?.originalFilename ?? '';
+  useEffect(() => {
+    if(!job || (job.status!=='queued' && job.status!=='running')) return;
+    const mine=attempt.current;
+    const timer=window.setTimeout(() => {fetchDocumentAssistantJob(job.id).then((next) => {
+      if(mine!==attempt.current || !ownContractJob(next,clientId)) return;
+      setJob(next);prefill(next,setNumber,setDate);
+    },(failure: unknown) => {
+      if(mine!==attempt.current) return;
+      setJob(null);setError(failureText(failure,'Не удалось получить результат распознавания.'));
+    });},1500);
+    return () => window.clearTimeout(timer);
+  },[job,clientId]);
+  async function recognise(mine: number,source: ClientDocumentAsset) {
+    setPhase('starting');setError('');setStartedAt(Date.now());
+    try {accept(mine,await startDocumentAssistantJob({kind:'contract',clientId,assetIds:[source.id]}));}
+    catch(failure: unknown) {if(mine===attempt.current) setError(failureText(failure,'Не удалось запустить распознавание договора.'));}
+    finally {if(mine===attempt.current) setPhase('idle');}
+  }
+  /** A new file replaces everything: the previous file, its recognition and the entered values. */
+  async function choose(next: File | null) {
+    if(!next) return;
+    attempt.current+=1;const mine=attempt.current;
+    setFile(next);setAsset(null);setJob(null);setNumber('');setDate('');setError('');setPhase('uploading');setStartedAt(Date.now());
+    let source: ClientDocumentAsset;
+    try {source=await uploadClientDocumentAsset(clientId,{file:next,role:'archive'});}
+    catch(failure: unknown) {
+      if(mine!==attempt.current) return;
+      setError(failureText(failure,'Не удалось загрузить файл договора.'));setPhase('idle');setRevision((value) => value+1);
+      return;
+    }
+    if(mine!==attempt.current) return;
+    setAsset(source);
+    await recognise(mine,source);
+  }
+  /** Recognises the already uploaded file again; the typed number and date stay until a new result fills them. */
+  function retry() {
+    if(!asset) return;
+    attempt.current+=1;setJob(null);
+    void recognise(attempt.current,asset);
+  }
+  async function save() {
+    if(!asset) {setError('Выберите файл договора.');return;}
+    if(!number.trim() || !date) {setError('Укажите номер и дату договора.');return;}
+    const mine=attempt.current;
+    setPhase('saving');setError('');
+    try {
+      await importClientDocument(clientId,{type:'contract',assetId:asset.id,number:number.trim(),date});
+      if(mine===attempt.current) onSaved();
+    } catch(failure: unknown) {if(mine===attempt.current) setError(failureText(failure,'Не удалось сохранить договор.'));}
+    finally {if(mine===attempt.current) setPhase('idle');}
+  }
+  const saving=phase==='saving';
+  const fileName=file?.name ?? asset?.originalFilename ?? '';
+  const reviewed=job?.status==='review' ? job : null;
+  const legal=(reviewed?.result?.payload.legal_fields ?? {}) as Record<string,unknown>;
+  const party=textValue(legal.document_name) || textValue(legal.full_name);
+  const partyInn=textValue(legal.inn);const partyKpp=textValue(legal.kpp);
+  const signer=[textValue(legal.signer_position),textValue(legal.signer_name)].filter(Boolean).join(' ');
+  const innMismatch=Boolean(partyInn && digits(clientInn) && digits(partyInn)!==digits(clientInn));
+  const recognisedPayload=reviewed?.result?.payload ?? {};
+  const missingNumber=reviewed!==null && !textValue(recognisedPayload.number);
+  const missingDate=reviewed!==null && !isoDate(recognisedPayload.date);
+  const missing=missingNumber || missingDate;
+  const missingText=missingNumber && missingDate ? 'Номер и дату договора распознать не удалось. Укажите их как в файле или распознайте заново.'
+    : missingNumber ? 'Номер договора распознать не удалось. Укажите его как в файле или распознайте заново.'
+    : 'Дату договора распознать не удалось. Укажите её как в файле или распознайте заново.';
+  // The inputs appear once there is something to check: a recognised result, a failure or a lost answer.
+  const showFields=asset!==null && !recognising && (reviewed!==null || job===null || job.status==='failed');
+  const canRetry=showFields && !saving && (reviewed===null || missing);
+  const jobError=job?.status==='failed' ? job.error?.message || 'Не удалось распознать договор.' : '';
+  const contractLine=`Договор${number.trim() ? ` № ${number.trim()}` : ''}${date ? ` от ${formatDocumentDate(date)}` : ''}`;
+  const partyLine=party || partyInn ? `Сторона: ${[party,partyInn ? `ИНН ${partyInn}` : '',partyKpp ? `КПП ${partyKpp}` : ''].filter(Boolean).join(' · ')}` : '';
   return <form aria-label="Договор клиента" className={card} onSubmit={(event) => {event.preventDefault();void save();}}>
     <div><h3 tabIndex={-1} data-step-anchor="contract" className={cardTitle}>Загрузите договор клиента</h3>
-      <p className="mt-1 text-sm text-[var(--text-secondary)]">Спецификация оформляется к договору. Укажите номер и дату точно как в файле — при создании спецификации они сверяются с текстом.</p></div>
+      <p className="mt-1 text-sm text-[var(--text-secondary)]">Спецификация оформляется к договору. Выберите подписанный файл — номер, дату и реквизиты мы распознаем, вам останется проверить и сохранить.</p></div>
     <div role="presentation" className="grid min-w-0"
       onDragEnter={(event) => {event.preventDefault();setDragging(true);}}
       onDragOver={(event) => {event.preventDefault();if(!dragging) setDragging(true);}}
       onDragLeave={(event) => {if(!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);}}
-      onDrop={(event) => {event.preventDefault();setDragging(false);if(busy) return;const next=event.dataTransfer.files[0];if(next) choose(next);}}>
-    <label className={`app-dropzone min-w-0 ${fileName ? 'app-dropzone--compact' : ''} ${busy ? 'cursor-progress' : 'cursor-pointer'}`} data-dragging={dragging ? 'true' : 'false'}>
+      onDrop={(event) => {event.preventDefault();setDragging(false);if(saving) return;const next=event.dataTransfer.files[0];if(next) void choose(next);}}>
+    <label className={`app-dropzone min-w-0 ${fileName ? 'app-dropzone--compact' : ''} ${saving ? 'cursor-progress' : 'cursor-pointer'}`} data-dragging={dragging ? 'true' : 'false'}>
       <span className={`flex shrink-0 items-center justify-center rounded-full bg-white text-[var(--brand-dark)] shadow-[0_2px_8px_rgba(7,22,46,0.08)] ${fileName ? 'h-8 w-8' : 'h-10 w-10'}`} aria-hidden="true"><Upload className={fileName ? 'h-4 w-4' : 'h-5 w-5'} /></span>
       {fileName ? <span className="min-w-0 max-w-full flex-1 truncate text-sm font-semibold text-[var(--text-primary)]" title={fileName}>{fileName}</span>
         : <span className="text-sm font-semibold text-[var(--text-primary)]">{dragging ? 'Отпустите файл здесь' : 'Перетащите договор сюда'}</span>}
       <span className="app-action-button app-action-button--secondary min-h-9 rounded-[10px] px-3 text-xs" aria-hidden="true">{fileName ? 'Другой файл' : 'Выбрать файл'}</span>
-      <input aria-label="Файл договора" className="sr-only" type="file" accept={contractAccept} disabled={busy} onChange={(event) => choose(event.target.files?.[0] ?? null)} />
-      {!fileName ? <span className="max-w-full break-words text-xs text-[var(--text-secondary)]">Word или PDF с текстовым слоем. До 25 МБ.</span> : null}
+      <input key={revision} aria-label="Файл договора" className="sr-only" type="file" accept={contractAccept} disabled={saving} onChange={(event) => void choose(event.target.files?.[0] ?? null)} />
+      {!fileName ? <span className="max-w-full break-words text-xs text-[var(--text-secondary)]">Word или PDF с текстовым слоем. Номер, дату и реквизиты распознаем сами.</span> : null}
     </label>
     </div>
-    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-      <label className={fieldLabel}>Номер договора<input className={control} value={number} required maxLength={100} disabled={busy} onChange={(event) => setNumber(event.target.value)} /></label>
-      <label className={fieldLabel}>Дата договора<input type="date" className={control} value={date} required disabled={busy} onChange={(event) => setDate(event.target.value)} /></label>
-    </div>
+    {recognising ? <output className="flex min-w-0 flex-wrap items-center gap-2 rounded-[10px] bg-[var(--panel-muted)] px-3 py-2 text-sm font-semibold text-[var(--text-primary)]">
+      <span className="app-spinner" aria-hidden="true" />{phase==='uploading' ? 'Загружаем файл…' : 'Распознаём договор…'}<span className="font-normal tabular-nums text-[var(--text-secondary)]">{formatElapsed(elapsed)}</span>
+    </output> : null}
+    {jobError ? <p role="alert" className="app-notice app-notice--error">{jobError}</p> : null}
+    {reviewed ? <section aria-label="Распознано из договора" className="grid min-w-0 gap-1 rounded-[12px] border border-[var(--border-color)] bg-[var(--panel-muted)] px-3 py-2.5">
+      <p className="flex min-w-0 items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.04em] text-[var(--text-secondary)]"><CircleCheck className="h-3.5 w-3.5 shrink-0 text-[#14532d]" aria-hidden="true" />Распознано из договора</p>
+      <p className="min-w-0 break-words text-sm font-bold text-[var(--text-primary)]">{contractLine}</p>
+      {partyLine ? <p className="min-w-0 break-words text-sm text-[var(--text-primary)]">{partyLine}</p> : null}
+      {signer ? <p className="min-w-0 break-words text-sm text-[var(--text-primary)]">{`Подписант: ${signer}`}</p> : null}
+    </section> : null}
+    {innMismatch ? <p className="app-notice app-notice--warning">{`ИНН в договоре (${partyInn}) не совпадает с клиентом (${clientInn}). Проверьте, тот ли это файл.`}</p> : null}
+    {missing ? <p className="app-notice app-notice--warning">{missingText}</p> : null}
+    {showFields ? <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+      <label className={fieldLabel}>Номер договора<input className={control} value={number} required maxLength={100} disabled={saving} onChange={(event) => setNumber(event.target.value)} /></label>
+      <label className={fieldLabel}>Дата договора<input type="date" className={control} value={date} required disabled={saving} onChange={(event) => setDate(event.target.value)} /></label>
+    </div> : null}
     {error ? <p role="alert" className="app-notice app-notice--error">{error}</p> : null}
     <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <button type="submit" className={`${primaryAction} w-full sm:w-auto`} disabled={busy} {...busyProps(busy)}>{busy ? 'Сохраняем договор…' : 'Сохранить договор'}</button>
-      <button type="button" className={`${secondaryAction} w-full sm:w-auto`} disabled={busy} onClick={onCreateFromRequisites}>Создать договор из реквизитов</button>
+      {showFields ? <button type="submit" className={`${primaryAction} w-full sm:w-auto`} disabled={saving} {...busyProps(saving)}>{saving ? 'Сохраняем договор…' : 'Сохранить договор'}</button> : null}
+      {canRetry ? <button type="button" className={`${secondaryAction} w-full sm:w-auto`} onClick={retry}><RefreshCw className="h-4 w-4" aria-hidden="true" />Распознать заново</button> : null}
+      {!asset && file && !recognising ? <button type="button" className={`${secondaryAction} w-full sm:w-auto`} onClick={() => void choose(file)}>Повторить загрузку файла</button> : null}
+      <button type="button" className={`${secondaryAction} w-full sm:w-auto`} disabled={saving} onClick={onCreateFromRequisites}>Создать договор из реквизитов</button>
     </div>
   </form>;
 }

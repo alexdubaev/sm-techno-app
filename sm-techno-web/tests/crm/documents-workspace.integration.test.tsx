@@ -19,16 +19,21 @@ it('restores a bound invoice after reload, asks for the contract first and keeps
   vi.mocked(api.fetchClientDocuments).mockResolvedValueOnce({clientId:42,documentDisplayName:'ООО Тест',contract:null,documents:[],attachments:[],stateVersion:1,nextSpecNumber:1})
     .mockResolvedValue({clientId:42,documentDisplayName:'ООО Тест',contract:{id:5,number:'Д-1',documentDate:'2026-10-30'},documents:[],attachments:[],stateVersion:2,nextSpecNumber:1} as never);
   const upload=vi.spyOn(api,'uploadClientDocumentAsset').mockResolvedValue({id:51} as never);
-  vi.spyOn(api,'importClientDocument').mockResolvedValue({id:5} as never);
+  const save=vi.spyOn(api,'importClientDocument').mockResolvedValue({id:5} as never);
+  vi.spyOn(api,'startDocumentAssistantJob').mockResolvedValue({id:'contract-job',kind:'contract',clientId:42,assetIds:[51],status:'review',version:1,
+    result:{kind:'contract',payload:{document_id:null,asset_id:51,number:'Д-1',date:'2026-10-30',client_id:42,source_sha256:'abc',legal_fields:{document_name:'ООО Тест',inn:'7701234567'}},provenance:[],missing_fields:[],warnings:[]},
+    missingFields:[],warnings:[],error:null,createdAt:'2026-10-30T10:00:00Z',updatedAt:'2026-10-30T10:00:00Z'});
   render(<DocumentsWorkspace/>);
   await waitFor(()=>expect(api.fetchDocumentAssistantJob).toHaveBeenCalledWith('invoice-persisted'));
   expect(await screen.findByRole('heading',{name:'Загрузите договор клиента'})).toBeVisible();
   expect(screen.queryByLabelText('Количество, строка 1')).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Файл договора'),{target:{files:[new File(['c'],'contract.docx')]}});
-  fireEvent.change(screen.getByLabelText('Номер договора'),{target:{value:'Д-1'}});
-  fireEvent.change(screen.getByLabelText('Дата договора'),{target:{value:'2026-10-30'}});
-  fireEvent.click(screen.getByRole('button',{name:'Сохранить договор'}));
   await waitFor(()=>expect(upload).toHaveBeenCalledWith(42,expect.objectContaining({role:'archive'})));
+  // Number and date come from the recognised contract; the manager only confirms them.
+  expect(await screen.findByLabelText('Номер договора')).toHaveValue('Д-1');
+  expect(screen.getByLabelText('Дата договора')).toHaveValue('2026-10-30');
+  fireEvent.click(screen.getByRole('button',{name:'Сохранить договор'}));
+  await waitFor(()=>expect(save).toHaveBeenCalledWith(42,{type:'contract',assetId:51,number:'Д-1',date:'2026-10-30'}));
   expect(await screen.findByLabelText('Количество, строка 1')).toHaveValue('7');
   fireEvent.click(nav().getByRole('button',{name:'Создать договор'}));
   fireEvent.click(nav().getByRole('button',{name:'Создать спецификацию'}));
