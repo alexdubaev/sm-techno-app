@@ -284,7 +284,7 @@ def test_imported_contract_with_date_written_in_words_is_accepted(api,monkeypatc
 
 def test_invoice_and_contract_names_match_across_quote_styles():
     from stock_sync_web.documents import _normal_text
-    names={'ООО “ВОЛГАГЛОБАЛСЕРВИС”','ООО «ВОЛГАГЛОБАЛСЕРВИС»','ООО "ВОЛГАГЛОБАЛСЕРВИС"','ООО „ВОЛГАГЛОБАЛСЕРВИС“'}
+    names={'ООО “ТЕСТОВЫЙ ПОКУПАТЕЛЬ”','ООО «ТЕСТОВЫЙ ПОКУПАТЕЛЬ»','ООО "ТЕСТОВЫЙ ПОКУПАТЕЛЬ"','ООО „ТЕСТОВЫЙ ПОКУПАТЕЛЬ“'}
     assert len({_normal_text(name) for name in names})==1
     assert _normal_text('ООО «Ёлка»')==_normal_text('ООО "елка"')
 
@@ -340,17 +340,17 @@ def test_signer_given_only_in_genitive_and_initials_is_enough(api,monkeypatch):
     from stock_sync_web.assistant_extraction import ExtractionResult
     http,_,users,cid=api;j,asset=_import_saved_contract(api,monkeypatch)
     assert http.post(f'/api/crm/clients/{cid}/documents/import',headers=users['alice']['headers'],json={'type':'contract','assetId':asset['id'],'number':'Д-37','date':'2026-10-30'}).status_code==200
-    legal={**FIELDS,'signer_name':None,'signer_name_genitive':'Алексеева Александра Владимировича','signer_short_name':'Алексеев А.В.','signer_position':'Директор'}
+    legal={**FIELDS,'signer_name':None,'signer_name_genitive':'Иванова Ивана Ивановича','signer_short_name':'Иванов И.И.','signer_position':'Директор'}
     monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',lambda self,request:ExtractionResult('contract',{'number':'Д-37','date':'2026-10-30','legal_fields':legal}))
     spec=generate(api,j);assert spec.status_code==200,spec.text
     content=http.get(f"/api/documents/{spec.json()['id']}/download",headers=users['alice']['headers']).content
-    assert 'Алексеев А.В.' in ZipFile(BytesIO(content)).read('word/document.xml').decode('utf-8')
+    assert 'Иванов И.И.' in ZipFile(BytesIO(content)).read('word/document.xml').decode('utf-8')
 
 
 def test_specification_reuses_the_contract_recognition_seen_when_saving(api,monkeypatch):
     from stock_sync_web.assistant_extraction import ExtractionResult
     http,_,users,cid=api;j,asset=_import_saved_contract(api,monkeypatch)
-    seen={**FIELDS,'signer_short_name':'Алексеев А.В.'}
+    seen={**FIELDS,'signer_short_name':'Иванов И.И.'}
     monkeypatch.setattr('stock_sync_web.assistant_extraction.CodexDocumentExtractor.extract',lambda self,request:ExtractionResult('contract',{'number':'Д-37','date':'2026-10-30','legal_fields':seen}))
     job=http.post('/api/document-assistant/jobs',headers=users['alice']['headers'],json={'kind':'contract','clientId':cid,'assetIds':[asset['id']]}).json()
     assert http.get('/api/document-assistant/jobs/'+job['id'],headers=users['alice']['headers']).json()['status']=='review'
@@ -449,7 +449,7 @@ def test_signer_prompt_allows_nominative_from_a_printed_genitive_without_inventi
     prompt=extraction_prompt(ExtractionRequest('contract',['текст'],[],[1]))
     assert 'в лице генерального директора Иванова Ивана Ивановича' in prompt
     assert 'Генеральный директор' in prompt and 'Иванов Иван Иванович' in prompt and 'Иванов И.И.' in prompt
-    assert 'Алексеев' not in prompt
+    assert 'Иванова Ивана Ивановича' in prompt
     assert 'Never invent a person' in prompt
 
 
