@@ -45,7 +45,8 @@ it('marks the selected mode and starts recognition as soon as a file is chosen',
   fireEvent.click(modes().getByRole('button',{name:'Создать спецификацию'}));
   expect(modes().getByRole('button',{name:'Создать спецификацию'})).toHaveAttribute('aria-pressed','true');
   expect(modes().getByRole('button',{name:'Создать договор'})).toHaveAttribute('aria-pressed','false');
-  expect(stepState('Счёт')).toBe('current');
+  // The specification starts from the client now.
+  expect(stepState('Клиент')).toBe('current');
 });
 
 it('fills today as the contract date, then offers to download exactly the generated contract',async()=>{
@@ -80,7 +81,7 @@ it('offers to download the generated specification by its id',async()=>{
   vi.mocked(api.fetchClientDocuments).mockResolvedValue(summary({id:5,number:'Д-1',documentDate:'2026-10-30'} as never));
   vi.mocked(api.generateClientSpecification).mockResolvedValue({id:33,documentType:'specification',number:'7',documentDate:'2026-11-02',clientName:'ООО Проверено'} as never);
   render(<DocumentsWorkspace/>);
-  fireEvent.click(await screen.findByRole('button',{name:'Сформировать спецификацию из счёта'}));
+  fireEvent.click(await within(await screen.findByRole('region',{name:'Спецификация из счёта'})).findByRole('button',{name:'Создать спецификацию'}));
   fireEvent.click(await screen.findByRole('button',{name:'Скачать спецификацию'}));
   await waitFor(()=>expect(api.downloadDocumentFile).toHaveBeenCalledWith(33));
   expect(screen.getByRole('heading',{name:'Спецификация сформирована'})).toBeVisible();

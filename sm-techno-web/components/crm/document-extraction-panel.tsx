@@ -24,6 +24,10 @@ type PanelProps = {
   autoStart?: boolean;
   /** The host moves on by itself after review (onConfirmed), so the extra button is not shown. */
   hideUseConfirmedAction?: boolean;
+  /** Lets the host move focus to this card when its step is reached. */
+  stepAnchor?: string;
+  /** Select the latest saved job by itself; off when the manager must start from a new file. */
+  autoSelectLatest?: boolean;
 };
 
 const confirmedActionLabels: Partial<Record<DocumentAssistantKind,string>>={requisites:'Использовать проверенные реквизиты',invoice:'Использовать проверенный счёт',articles:'Сформировать КП по проверенным артикулам'};
@@ -47,7 +51,7 @@ function useElapsedSeconds(since: number | null) {
 }
 
 /** Reusable intake for the same client card and for a not-yet-created client. */
-export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJob,onActiveJobChange,autoStart=false,hideUseConfirmedAction=false}: PanelProps) {
+export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJob,onActiveJobChange,autoStart=false,hideUseConfirmedAction=false,stepAnchor,autoSelectLatest=true}: PanelProps) {
   const [kind,setKind]=useState<DocumentAssistantKind>(purpose ?? 'requisites');
   const [file,setFile]=useState<File | null>(null);
   const [assetId,setAssetId]=useState<number | null>(null);
@@ -77,9 +81,9 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
   function update(next: DocumentAssistantJob) { setJobs((current) => [next,...current.filter((item) => item.id!==next.id)]); }
   useEffect(() => {
     let active=true;
-    fetchDocumentAssistantJobs(clientId).then((data) => {if(active) {const items=purpose ? data.items.filter((item) => item.kind===purpose) : data.items; setJobs((current) => [...current,...items.filter((item) => !current.some((candidate) => candidate.id===item.id))]); if(!selectionTouched.current && items[0]) {setSelected(items[0].id);announce(items[0]);}}},(failure: unknown) => {if(active) setError(message(failure));});
+    fetchDocumentAssistantJobs(clientId).then((data) => {if(active) {const items=purpose ? data.items.filter((item) => item.kind===purpose) : data.items; setJobs((current) => [...current,...items.filter((item) => !current.some((candidate) => candidate.id===item.id))]); if(autoSelectLatest && !selectionTouched.current && items[0]) {setSelected(items[0].id);announce(items[0]);}}},(failure: unknown) => {if(active) setError(message(failure));});
     return () => {active=false;};
-  },[clientId,purpose]);
+  },[clientId,purpose,autoSelectLatest]);
   useEffect(() => {let active=true;if(restoredJob) {selectionTouched.current=true;announced.current=jobKey(restoredJob);void Promise.resolve().then(() => {if(active){update(restoredJob);setSelected(restoredJob.id);}});}return () => {active=false;};},[restoredJob]);
   useEffect(() => {
     if(!job || !['queued','running'].includes(job.status)) return;
@@ -127,7 +131,7 @@ export function DocumentExtractionPanel({clientId,onConfirmed,purpose,restoredJo
   const confirmedActionLabel=job ? confirmedActionLabels[job.kind] : undefined;
   const title=purpose==='invoice' ? 'Счёт для спецификации' : purpose==='requisites' ? 'Реквизиты клиента' : 'Распознать документ клиента';
   return <section aria-label="Распознавание документов" className={card}>
-    <div><h3 className={cardTitle}>{title}</h3><p className="mt-1 text-sm text-[var(--text-secondary)]">{autoStart ? 'Выберите или перетащите файл — распознавание начнётся сразу. Затем проверьте поля.' : 'Загрузите документ или фото. Проверьте результат и исправьте поля перед использованием.'}</p></div>
+    <div><h3 className={cardTitle} {...(stepAnchor ? {tabIndex:-1,'data-step-anchor':stepAnchor} : {})}>{title}</h3><p className="mt-1 text-sm text-[var(--text-secondary)]">{autoStart ? 'Выберите или перетащите файл — распознавание начнётся сразу. Затем проверьте поля.' : 'Загрузите документ или фото. Проверьте результат и исправьте поля перед использованием.'}</p></div>
     <form role="presentation" className="grid min-w-0 gap-3"
       onDragEnter={(event) => {event.preventDefault();setDragging(true);}}
       onDragOver={(event) => {event.preventDefault();if(!dragging) setDragging(true);}}
@@ -191,7 +195,7 @@ export function ExtractionReview({job,onSaved}: {job: DocumentAssistantJob;onSav
     {job.kind==='contract' ? <fieldset className="grid gap-3 sm:grid-cols-2"><legend className="mb-2 font-semibold">Реквизиты из договора</legend>{Object.keys(legal).map((key) => <label className={fieldLabel} key={key}>{labels[key] ?? key}<input className={control} value={scalar(legal[key])} disabled={busy || confirmed} onChange={(event) => {operationKey.current=null;setFields((current) => ({...current,legal_fields:{...legal,[key]:event.target.value || null}}));}} /></label>)}</fieldset> : null}
     {['articles','invoice'].includes(job.kind) ? <div className="min-w-0 overflow-x-auto"><table className="w-full text-left text-sm"><caption className="mb-2 text-left font-semibold">Строки источника</caption><thead><tr>{columns.map((key) => <th className="p-1" key={key}>{labels[key]}</th>)}<th>Действия</th></tr></thead><tbody>{rows.map((row,index) => <tr key={index}>{columns.map((key) => <td key={key} className="min-w-28 p-1"><input aria-label={`${labels[key]}, строка ${index+1}`} className={control} value={scalar(row[key])} disabled={busy || confirmed} onChange={(event) => {
       operationKey.current=null;setFields((current) => ({...current,[rowsKey]:rows.map((item,i) => i===index ? {...item,[key]:['row_no','source_row'].includes(key) ? Number(event.target.value) : event.target.value || null} : item)}));
-    }} /></td>)}<td className="p-1"><button type="button" className={dangerAction} disabled={busy || confirmed} onClick={() => {operationKey.current=null;setFields((current) => ({...current,[rowsKey]:rows.filter((_,i) => i!==index)}));}}>Удалить строку {index+1}</button></td></tr>)}</tbody></table>
+    }} /></td>)}<td className="min-w-44 p-1"><button type="button" className={dangerAction} disabled={busy || confirmed} onClick={() => {operationKey.current=null;setFields((current) => ({...current,[rowsKey]:rows.filter((_,i) => i!==index)}));}}>Удалить строку {index+1}</button></td></tr>)}</tbody></table>
       {!confirmed ? <button type="button" className={`${secondaryAction} mt-2`} disabled={busy} onClick={() => {operationKey.current=null;setFields((current) => ({...current,[rowsKey]:[...rows,Object.fromEntries(columns.map((key) => [key,['row_no','source_row'].includes(key) ? rows.length+1 : null]))]}));}}>Добавить строку</button> : null}
     </div> : null}
     {!confirmed && job.clientId===null && ['requisites','invoice'].includes(job.kind) ? <div className="grid justify-items-start gap-2"><button type="button" className={secondaryAction} disabled={busy} onClick={() => {setBusy(true);setError(null);void matchDocumentClient(job.id,job.version,fields).then(setPreview,(failure:unknown) => setError(message(failure))).finally(() => setBusy(false));}}>Найти клиента по указанным ИНН и КПП</button>{preview ? <p className="app-notice">{preview.candidates.length ? preview.candidates.map((candidate) => `${candidate.documentName} · ИНН ${candidate.inn} · КПП ${candidate.kpp || '—'}`).join('; ') : 'Совпадений не найдено.'} После проверки полей подтвердите клиента отдельно.</p> : null}</div> : null}

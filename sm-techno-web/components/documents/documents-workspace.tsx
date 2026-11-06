@@ -11,8 +11,9 @@ import { RequisitesContractForm } from '@/components/crm/requisites-contract-for
 import { confirmDocumentAssistantJob, fetchClientDocuments, fetchClients, fetchDocuments, fetchDocumentAssistantJob } from '@/lib/api';
 import { bindDocumentClient, matchDocumentClient, type ClientMatch } from '@/lib/document-workflows-api';
 import type { ClientDocumentsSummary, CrmClient, DocumentAssistantJob, GeneratedDocument } from '@/lib/types';
-import { DocumentSteps, documentStep, type DocumentStep } from './document-steps';
+import { DocumentSteps, documentStep, specificationStep } from './document-steps';
 import { GeneratedResult, type GeneratedInfo } from './generated-result';
+import { ContractInlineForm, SpecClientCard, ExistingSpecification, SpecClientPicker, crmClientId, documentClients, formatDocumentDate } from './specification-flow';
 import { busyProps, card, cardTitle, control, fieldLabel, muted, primaryAction, secondaryAction } from './document-ui';
 
 type View='contract'|'spec'|'archive';
@@ -22,13 +23,16 @@ const modes: {view: View; label: string; Icon: typeof FileText}[]=[
   {view:'archive',label:'Загрузить готовый',Icon:FolderOpen},
 ];
 const failureText=(failure: unknown,fallback: string) => failure instanceof Error ? failure.message : fallback;
+/** Steps whose block takes the focus when the flow reaches them. */
+const focusSteps: Record<'contract'|'spec',string[]>={contract:['client','document','done'],spec:['client','contract','invoice','document','done']};
+const unboundInvoiceNotice='Этот счёт загружен без клиента. Выберите клиента и загрузите счёт заново.';
 
 /**
  * Moves focus to the block of a newly reached step, so the manager does not have to scroll.
  * The block may appear later than the step itself (it waits for the client documents), so the
  * step stays pending until its block is in the DOM.
  */
-function useFocusNextStep(root: React.RefObject<HTMLElement | null>,view: View,step: DocumentStep | null) {
+function useFocusNextStep(root: React.RefObject<HTMLElement | null>,view: View,step: string | null) {
   const previous=useRef<string | null>(null);
   const pending=useRef<string | null>(null);
   useEffect(() => {
@@ -36,7 +40,7 @@ function useFocusNextStep(root: React.RefObject<HTMLElement | null>,view: View,s
     const before=previous.current;
     if(key===before) return;
     previous.current=key;
-    pending.current=key && before?.startsWith(`${view}:`) && (step==='client' || step==='document' || step==='done') ? key : null;
+    pending.current=key && view!=='archive' && before?.startsWith(`${view}:`) && step && focusSteps[view].includes(step) ? key : null;
   },[view,step]);
   // Runs after every render: the pending block is focused as soon as it is rendered.
   useEffect(() => {
@@ -67,17 +71,38 @@ export default function DocumentsWorkspace() {
   const [recent,setRecent]=useState<GeneratedDocument[] | null>(null);
   const [recentError,setRecentError]=useState('');
   const [generated,setGenerated]=useState<GeneratedInfo|null>(null);
+  const [clientsLoading,setClientsLoading]=useState(true);
+  // The specification starts from the client; its documents are read separately from the contract/archive client.
+  const [specClientId,setSpecClientId]=useState<number|null>(null);
+  const [specSummary,setSpecSummary]=useState<ClientDocumentsSummary|null>(null);
+  const [specSummaryRevision,setSpecSummaryRevision]=useState(0);
+  const [specError,setSpecError]=useState('');
+  const [specNotice,setSpecNotice]=useState('');
+  const specTouched=useRef(false);
+  // Current specification client for async answers that arrive after the client was changed.
+  const specClientRef=useRef<number|null>(null);
 
   function selectClient(id:number|null) {contextVersion.current+=1;setSummary(null);setClientId(id);setSummaryRevision((value) => value+1);}
   useEffect(() => {
-    void fetchClients().then(setClients,() => setClients([]));
+    void fetchClients().then(setClients,() => setClients([])).finally(() => setClientsLoading(false));
     const params=new URLSearchParams(window.location.search);
     const id=Number(params.get('clientId'));
+    const specId=Number(params.get('specClientId'));
     if(Number.isSafeInteger(id) && id>0) void Promise.resolve().then(() => {selectClient(id);setView('archive');});
+    else if(Number.isSafeInteger(specId) && specId>0) void Promise.resolve().then(() => {specClientRef.current=specId;setSpecClientId(specId);setView('spec');});
     const invoice=params.get('invoiceJob');const contract=params.get('contractJob');
     const restore=(jobId:string,kind:'invoice'|'requisites') => {void fetchDocumentAssistantJob(jobId).then((job) => {
       if(job.kind!==kind) return;
-      if(kind==='invoice') {setInvoiceJob(job);setView('spec');selectClient(job.clientId);}
+      if(kind==='invoice') {
+        // The manager has already picked a client by hand: the late restore does not override it.
+        if(specTouched.current) return;
+        setView('spec');
+        const url=new URL(window.location.href);
+        // An old invoice without a client is not bound here: the flow now starts from the client.
+        if(!job.clientId) {url.searchParams.delete('invoiceJob');window.history.replaceState(null,'',url);setSpecNotice(unboundInvoiceNotice);return;}
+        url.searchParams.set('specClientId',String(job.clientId));window.history.replaceState(null,'',url);
+        specClientRef.current=job.clientId;setInvoiceJob(job);setSpecClientId(job.clientId);
+      }
       else {setContractJob(job);if(!invoice){setView('contract');selectClient(job.clientId);}}
     },(e:unknown) => setError(failureText(e,'Не удалось восстановить задание.')));};
     if(contract) restore(contract,'requisites');if(invoice) restore(invoice,'invoice');
@@ -91,6 +116,14 @@ export default function DocumentsWorkspace() {
     return () => {alive=false;};
   },[clientId,view,summaryRevision]);
   useEffect(() => {
+    if(!specClientId || view!=='spec') return;
+    let alive=true;
+    void fetchClientDocuments(specClientId).then(
+      (data) => {if(alive){setSpecError('');setSpecSummary(data);}},
+      (e:unknown) => {if(alive)setSpecError(failureText(e,'Не удалось открыть документы клиента.'));});
+    return () => {alive=false;};
+  },[specClientId,view,specSummaryRevision]);
+  useEffect(() => {
     let alive=true;
     void fetchDocuments().then(
       (items) => {if(alive){setRecent(items);setRecentError('');}},
@@ -103,7 +136,22 @@ export default function DocumentsWorkspace() {
     if(job) url.searchParams.set(key,job.id);else url.searchParams.delete(key);
     window.history.replaceState(null,'',url);
     if(kind==='invoice') setInvoiceJob(job);else setContractJob(job);
-    if((kind==='invoice' && view==='spec') || (kind==='requisites' && view==='contract')) selectClient(job?.clientId ?? null);
+    // The invoice belongs to the chosen client; only the contract flow takes its client from the job.
+    if(kind==='requisites' && view==='contract') selectClient(job?.clientId ?? null);
+  }
+  /** Chooses (or with null clears) the specification client; the invoice of another client is dropped. */
+  function chooseSpecClient(id:number|null) {
+    specTouched.current=true;
+    const url=new URL(window.location.href);
+    if(id) url.searchParams.set('specClientId',String(id));else url.searchParams.delete('specClientId');
+    url.searchParams.delete('invoiceJob');
+    window.history.replaceState(null,'',url);
+    specClientRef.current=id;setSpecNotice('');setSpecError('');setInvoiceJob(null);setSpecClientId(id);
+  }
+  /** Takes an invoice job only from the panel of the current client and only of that client. */
+  function selectInvoice(owner:number,job:DocumentAssistantJob|null) {
+    if(owner!==specClientRef.current || (job && job.clientId!==owner)) return;
+    selectJob('invoice',job);
   }
   function rememberJob(job:DocumentAssistantJob) {const url=new URL(window.location.href);url.searchParams.set(job.kind==='invoice' ? 'invoiceJob' : 'contractJob',job.id);window.history.replaceState(null,'',url);}
   async function updated(job:DocumentAssistantJob) {rememberJob(job);selectClient(job.clientId);}
@@ -111,7 +159,8 @@ export default function DocumentsWorkspace() {
   function openArchive(id:number|null) {if(id!==null) selectClient(id);setView('archive');}
   function switchMode(next:View) {
     if(next==='contract') selectClient(contractJob?.clientId ?? null);
-    if(next==='spec') selectClient(invoiceJob?.clientId ?? null);
+    // The archive opens on the client the manager was just working with.
+    if(next==='archive' && view==='spec' && specClientId) selectClient(specClientId);
     setView(next);
   }
   function chooseAnotherFile(target:View) {
@@ -122,11 +171,15 @@ export default function DocumentsWorkspace() {
 
   const activeJob=view==='contract' ? contractJob : view==='spec' ? invoiceJob : null;
   const shownResult=generated && activeJob && generated.jobId===activeJob.id && generated.view===view ? generated : null;
-  const step=view==='archive' ? null : documentStep(activeJob,shownResult!==null);
-  useFocusNextStep(root,view,step);
+  const specDocs=specClientId && specSummary?.clientId===specClientId ? specSummary : null;
+  const invoiceReady=Boolean(specDocs?.contract) && invoiceJob?.status==='confirmed' && invoiceJob.clientId===specClientId;
+  const contractStep=documentStep(contractJob,shownResult!==null);
+  const specStep=specificationStep({clientLoaded:specDocs!==null,hasContract:Boolean(specDocs?.contract),invoiceReady,generated:shownResult!==null});
+  useFocusNextStep(root,view,view==='archive' ? null : view==='contract' ? contractStep : specStep);
 
   const contractReady=contractJob?.status==='confirmed' && contractJob.clientId && summary?.clientId===contractJob.clientId;
-  const invoiceReady=invoiceJob?.status==='confirmed' && invoiceJob.clientId && summary?.clientId===invoiceJob.clientId;
+  const specClient=specClientId ? documentClients(clients).find((c) => crmClientId(c)===specClientId) ?? null : null;
+  const existingSpec=invoiceReady && invoiceJob && specDocs ? specDocs.documents.find((d) => d.documentType==='specification' && d.invoiceAssetId!==null && d.invoiceAssetId===invoiceJob.assetIds[0]) ?? null : null;
   const archiveOptions=clients.filter((c) => c.crmClientId || c.source==='local');
   const archiveHasClient=clientId===null || archiveOptions.some((c) => (c.crmClientId ?? c.id)===clientId);
 
@@ -141,7 +194,8 @@ export default function DocumentsWorkspace() {
           <div className="app-segmented">{modes.map(({view:mode,label,Icon}) => <button key={mode} type="button" className="app-segmented__item gap-2" aria-pressed={view===mode} onClick={() => switchMode(mode)}><Icon className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden="true" />{label}</button>)}</div>
         </nav>
         {error ? <p role="alert" className="app-notice app-notice--error">{error}</p> : null}
-        {view!=='archive' && step ? <DocumentSteps kind={view} step={step} /> : null}
+        {view==='contract' ? <DocumentSteps kind="contract" step={contractStep} /> : null}
+        {view==='spec' ? <DocumentSteps kind="spec" step={specStep} /> : null}
 
         <div data-view="contract" className={view==='contract' ? 'grid min-w-0 gap-4' : 'hidden'}>
           <DocumentExtractionPanel purpose="requisites" autoStart hideUseConfirmedAction restoredJob={contractJob} onActiveJobChange={(job) => selectJob('requisites',job)} onConfirmed={(job) => selectJob('requisites',job)} />
@@ -154,16 +208,15 @@ export default function DocumentsWorkspace() {
         </div>
 
         <div data-view="spec" className={view==='spec' ? 'grid min-w-0 gap-4' : 'hidden'}>
-          <DocumentExtractionPanel purpose="invoice" autoStart hideUseConfirmedAction restoredJob={invoiceJob} onActiveJobChange={(job) => selectJob('invoice',job)} onConfirmed={(job) => selectJob('invoice',job)} />
-          {invoiceJob?.status==='confirmed' ? <ClientBinding key={`binding-${invoiceJob.id}`} active={view==='spec'} job={invoiceJob} clientName={summary?.clientId===invoiceJob.clientId ? summary.documentDisplayName : ''} onBound={async (job) => {setInvoiceJob(job);await updated(job);}} /> : null}
-          {invoiceReady && shownResult ? <GeneratedResult result={shownResult} fallbackDocumentId={null} onOpenArchive={() => openArchive(shownResult.clientId)} onCreateAnother={() => chooseAnotherFile('spec')} /> : null}
-          {invoiceReady && !shownResult && !summary.contract ? <div className="app-notice app-notice--warning grid gap-2">
-            <p tabIndex={-1} data-step-anchor="document" className="outline-none">Сначала сохраните договор. Счёт и проверенные позиции сохранятся.</p>
-            <div className="flex flex-wrap gap-2"><button type="button" className={secondaryAction} onClick={() => switchMode('contract')}>Создать договор</button><button type="button" className={secondaryAction} onClick={() => setView('archive')}>Загрузить готовый</button></div>
-          </div> : null}
-          {invoiceReady && !shownResult && summary.contract ? <SpecificationGeneration key={`spec-${invoiceJob.id}`} job={invoiceJob} clientId={summary.clientId} hasContract onGenerated={async (document) => {
-            refreshRecent();await updated(invoiceJob);
-            setGenerated({view:'spec',jobId:invoiceJob.id,documentId:document?.id ?? null,number:document?.number ?? '',date:document?.documentDate ?? '',clientId:summary.clientId,clientName:summary.documentDisplayName});
+          {specNotice ? <p className="app-notice app-notice--warning">{specNotice}</p> : null}
+          {specClientId ? <SpecClientCard client={specClient} summary={specDocs} error={specError} onChange={() => chooseSpecClient(null)} onRetry={() => {setSpecError('');setSpecSummaryRevision((value) => value+1);}} /> : <SpecClientPicker clients={clients} loading={clientsLoading} onChoose={chooseSpecClient} />}
+          {specClientId && specDocs && !specDocs.contract ? <ContractInlineForm key={`contract-${specClientId}`} clientId={specClientId} onSaved={() => {setRecent(null);setRecentRevision((value) => value+1);setSpecSummaryRevision((value) => value+1);}} onCreateFromRequisites={() => switchMode('contract')} /> : null}
+          {specClientId && specDocs?.contract ? <DocumentExtractionPanel key={`invoice-${specClientId}`} purpose="invoice" clientId={specClientId} autoStart hideUseConfirmedAction stepAnchor="invoice" autoSelectLatest={false} restoredJob={invoiceJob} onActiveJobChange={(job) => selectInvoice(specClientId,job)} onConfirmed={(job) => selectInvoice(specClientId,job)} /> : null}
+          {invoiceReady && invoiceJob && specClientId && specDocs && shownResult ? <GeneratedResult result={shownResult} fallbackDocumentId={null} onOpenArchive={() => openArchive(shownResult.clientId)} onCreateAnother={() => chooseAnotherFile('spec')} /> : null}
+          {existingSpec && specClientId && !shownResult ? <ExistingSpecification document={existingSpec} onOpenArchive={() => openArchive(specClientId)} /> : null}
+          {invoiceReady && invoiceJob && specClientId && specDocs && !shownResult && !existingSpec ? <SpecificationGeneration key={`spec-${invoiceJob.id}`} job={invoiceJob} clientId={specClientId} hasContract onGenerated={async (document) => {
+            refreshRecent();setSpecSummaryRevision((value) => value+1);
+            setGenerated({view:'spec',jobId:invoiceJob.id,documentId:document?.id ?? null,number:document?.number ?? '',date:formatDocumentDate(document?.documentDate ?? ''),clientId:specClientId,clientName:specDocs.documentDisplayName});
           }} /> : null}
         </div>
 

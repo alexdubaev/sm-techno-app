@@ -1,4 +1,4 @@
-import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {it, expect, vi} from 'vitest';
 import DocumentsWorkspace from '@/components/documents/documents-workspace';
 import type {DocumentAssistantJob} from '@/lib/types';
@@ -9,16 +9,31 @@ vi.mock('@/components/app-shell',()=>({AppShell:({children}:{children:React.Reac
 vi.mock('@/components/auth-provider',()=>({useAuth:()=>({isAdmin:false})}));
 vi.mock('@/lib/api',async (original)=>({...await original<typeof import('@/lib/api')>(),fetchDocuments:vi.fn(async()=>[]),fetchClients:vi.fn(async()=>[]),fetchDocumentAssistantJobs:vi.fn(async()=>({items:[]})),fetchDocumentAssistantJob:vi.fn(async()=>invoice),fetchClientDocuments:vi.fn(async()=>({clientId:42,documentDisplayName:'ООО Тест',contract:null,documents:[],attachments:[],stateVersion:1,nextSpecNumber:1}))}));
 
-it('restores a bound invoice after reload and keeps reviewed quantity while visiting contract creation',async()=>{
+const specRegion=()=>screen.getByRole('region',{name:'Спецификация из счёта'});
+const createSpec='Создать спецификацию';
+const findCreateSpec=async()=>within(await screen.findByRole('region',{name:'Спецификация из счёта'})).findByRole('button',{name:createSpec});
+const nav=()=>within(screen.getByRole('navigation',{name:'Действия с документами'}));
+
+it('restores a bound invoice after reload, asks for the contract first and keeps reviewed quantity while visiting contract creation',async()=>{
   window.history.replaceState(null,'','/documents?invoiceJob=invoice-persisted');
+  vi.mocked(api.fetchClientDocuments).mockResolvedValueOnce({clientId:42,documentDisplayName:'ООО Тест',contract:null,documents:[],attachments:[],stateVersion:1,nextSpecNumber:1})
+    .mockResolvedValue({clientId:42,documentDisplayName:'ООО Тест',contract:{id:5,number:'Д-1',documentDate:'2026-10-30'},documents:[],attachments:[],stateVersion:2,nextSpecNumber:1} as never);
+  const upload=vi.spyOn(api,'uploadClientDocumentAsset').mockResolvedValue({id:51} as never);
+  vi.spyOn(api,'importClientDocument').mockResolvedValue({id:5} as never);
   render(<DocumentsWorkspace/>);
   await waitFor(()=>expect(api.fetchDocumentAssistantJob).toHaveBeenCalledWith('invoice-persisted'));
-  expect(await screen.findByText(/Сначала сохраните договор/)).toBeVisible();
+  expect(await screen.findByRole('heading',{name:'Загрузите договор клиента'})).toBeVisible();
+  expect(screen.queryByLabelText('Количество, строка 1')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Файл договора'),{target:{files:[new File(['c'],'contract.docx')]}});
+  fireEvent.change(screen.getByLabelText('Номер договора'),{target:{value:'Д-1'}});
+  fireEvent.change(screen.getByLabelText('Дата договора'),{target:{value:'2026-10-30'}});
+  fireEvent.click(screen.getByRole('button',{name:'Сохранить договор'}));
+  await waitFor(()=>expect(upload).toHaveBeenCalledWith(42,expect.objectContaining({role:'archive'})));
+  expect(await screen.findByLabelText('Количество, строка 1')).toHaveValue('7');
+  fireEvent.click(nav().getByRole('button',{name:'Создать договор'}));
+  fireEvent.click(nav().getByRole('button',{name:'Создать спецификацию'}));
   expect(screen.getByLabelText('Количество, строка 1')).toHaveValue('7');
-  fireEvent.click(within(screen.getByRole('navigation',{name:'Действия с документами'})).getByRole('button',{name:'Создать договор'}));
-  fireEvent.click(within(screen.getByRole('navigation',{name:'Действия с документами'})).getByRole('button',{name:'Создать спецификацию'}));
-  expect(screen.getByLabelText('Количество, строка 1')).toHaveValue('7');
-  expect(screen.queryByRole('button',{name:'Сформировать спецификацию из счёта'})).not.toBeInTheDocument();
+  expect(within(specRegion()).getByRole('button',{name:createSpec})).toBeVisible();
 });
 
 
@@ -42,58 +57,43 @@ it('switching to a review job hides actions for the old confirmed invoice and up
   vi.mocked(api.fetchDocuments).mockResolvedValueOnce([{id:31,documentType:'contract',number:'OLD',clientName:'Тест',documentDate:'2026-10-30'} as never]).mockResolvedValueOnce([{id:32,documentType:'specification',number:'NEW',clientName:'Тест',documentDate:'2026-10-30'} as never]);
   window.history.replaceState(null,'','/documents?invoiceJob=invoice-persisted');
   vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[invoice,review]} as never);
-  vi.mocked(api.fetchClientDocuments).mockResolvedValue({clientId:42,contract:{id:5},documents:[],attachments:[]} as never);
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue({clientId:42,contract:{id:5,number:'Д-1',documentDate:'2026-10-30'},documents:[],attachments:[]} as never);
   render(<DocumentsWorkspace/>);
-  expect(await screen.findByRole('button',{name:'Сформировать спецификацию из счёта'})).toBeVisible();
+  expect(await findCreateSpec()).toBeVisible();
+  // Only the invoices of the chosen client are offered.
+  expect(api.fetchDocumentAssistantJobs).toHaveBeenCalledWith(42);
   fireEvent.change(screen.getByLabelText('Сохранённые задания'),{target:{value:'invoice-b'}});
-  expect(screen.queryByRole('button',{name:'Сформировать спецификацию из счёта'})).not.toBeInTheDocument();
+  expect(screen.queryByRole('region',{name:'Спецификация из счёта'})).not.toBeInTheDocument();
   expect(new URL(window.location.href).searchParams.get('invoiceJob')).toBe('invoice-b');
   vi.spyOn(api,'confirmDocumentAssistantJob').mockResolvedValue({job:{...review,status:'confirmed',version:2}} as never);
   const generate=vi.spyOn(api,'generateClientSpecification').mockResolvedValue({} as never);
   fireEvent.click(screen.getByRole('button',{name:'Подтвердить проверенные поля'}));
-  fireEvent.click(await screen.findByRole('button',{name:'Сформировать спецификацию из счёта'}));
+  fireEvent.click(await findCreateSpec());
   await waitFor(()=>expect(generate).toHaveBeenCalledWith(42,expect.objectContaining({invoiceJobId:'invoice-b'})));
   expect(await screen.findByText(/NEW/)).toBeVisible();
   expect(screen.queryByText(/OLD/)).not.toBeInTheDocument();
 });
 
 
-it('new file clears the previously confirmed invoice and starts the new job',async()=>{
-  const review={...invoice,id:'invoice-new',clientId:null,status:'review' as const,version:1};
+it('new file clears the previously confirmed invoice and starts the new job for the same client',async()=>{
+  const review={...invoice,id:'invoice-new',status:'review' as const,version:1};
   window.history.replaceState(null,'','/documents?invoiceJob=invoice-persisted');
   vi.mocked(api.fetchDocumentAssistantJob).mockResolvedValue(invoice);
-  vi.mocked(api.fetchClientDocuments).mockResolvedValue({clientId:42,contract:{id:5},documents:[],attachments:[]} as never);
-  vi.spyOn(api,'uploadDocumentAssistantIntake').mockResolvedValue({id:12} as never);
-  vi.spyOn(api,'startDocumentAssistantJob').mockResolvedValue(review);
+  vi.mocked(api.fetchClientDocuments).mockResolvedValue({clientId:42,contract:{id:5,number:'Д-1',documentDate:'2026-10-30'},documents:[],attachments:[]} as never);
+  const upload=vi.spyOn(api,'uploadClientDocumentAsset').mockResolvedValue({id:12} as never);
+  const start=vi.spyOn(api,'startDocumentAssistantJob').mockResolvedValue(review);
   render(<DocumentsWorkspace/>);
-  expect(await screen.findByRole('button',{name:'Сформировать спецификацию из счёта'})).toBeVisible();
-  expect(screen.getByLabelText('Документы клиента')).toBeInTheDocument();
-  fireEvent.change(screen.getAllByLabelText('Документ или фото для распознавания')[1],{target:{files:[new File(['new'],'new.docx')]}});
-  expect(screen.queryByRole('button',{name:'Сформировать спецификацию из счёта'})).not.toBeInTheDocument();
+  expect(await findCreateSpec()).toBeVisible();
+  const file=new File(['new'],'new.docx');
+  fireEvent.change(screen.getAllByLabelText('Документ или фото для распознавания')[1],{target:{files:[file]}});
+  expect(screen.queryByRole('region',{name:'Спецификация из счёта'})).not.toBeInTheDocument();
   expect(new URL(window.location.href).searchParams.get('invoiceJob')).toBeNull();
-  expect(screen.queryByLabelText('Документы клиента')).not.toBeInTheDocument();
+  // The client stays chosen: the new invoice is uploaded straight into its card.
+  expect(new URL(window.location.href).searchParams.get('specClientId')).toBe('42');
+  expect(screen.getByRole('region',{name:'Выбранный клиент'})).toBeInTheDocument();
   // Recognition starts by itself right after the file is chosen.
   await waitFor(()=>expect(new URL(window.location.href).searchParams.get('invoiceJob')).toBe('invoice-new'));
-  expect(screen.queryByLabelText('Документы клиента')).not.toBeInTheDocument();
-  expect(screen.queryByRole('button',{name:'Сформировать спецификацию из счёта'})).not.toBeInTheDocument();
-});
-
-
-it('loads the selected linked client and ignores a late response for the previous invoice',async()=>{
-  const other={...invoice,id:'invoice-client-b',clientId:84,result:{...invoice.result!,payload:{...invoice.result!.payload,invoice_number:'B-84'}}};
-  window.history.replaceState(null,'','/documents?invoiceJob=invoice-persisted');
-  vi.mocked(api.fetchDocumentAssistantJob).mockResolvedValue(invoice);
-  vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[invoice,other]} as never);
-  let resolveA!: (value: Awaited<ReturnType<typeof api.fetchClientDocuments>>) => void;
-  const delayedA=new Promise<Awaited<ReturnType<typeof api.fetchClientDocuments>>>((resolve)=>{resolveA=resolve;});
-  vi.mocked(api.fetchClientDocuments).mockImplementation((id)=>id===42 ? delayedA : Promise.resolve({clientId:84,contract:{id:84},documents:[],attachments:[]} as never));
-  const generate=vi.spyOn(api,'generateClientSpecification').mockResolvedValue({} as never);
-  render(<DocumentsWorkspace/>);
-  await waitFor(()=>expect(api.fetchClientDocuments).toHaveBeenCalledWith(42));
-  fireEvent.change(screen.getByLabelText('Сохранённые задания'),{target:{value:'invoice-client-b'}});
-  expect(await screen.findByText(/Спецификация из проверенного счёта № B-84/)).toBeVisible();
-  await act(async()=>resolveA({clientId:42,contract:null,documents:[],attachments:[]} as never));
-  expect(screen.getByText(/Спецификация из проверенного счёта № B-84/)).toBeVisible();
-  fireEvent.click(screen.getByRole('button',{name:'Сформировать спецификацию из счёта'}));
-  await waitFor(()=>expect(generate).toHaveBeenCalledWith(84,expect.objectContaining({invoiceJobId:'invoice-client-b'})));
+  expect(upload).toHaveBeenCalledWith(42,{file,role:'source_invoice'});
+  expect(start).toHaveBeenCalledWith({kind:'invoice',clientId:42,assetIds:[12]});
+  expect(screen.queryByRole('region',{name:'Спецификация из счёта'})).not.toBeInTheDocument();
 });
