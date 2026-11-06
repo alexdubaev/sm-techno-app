@@ -401,6 +401,14 @@ class DocumentAssistantService:
                 validate_payload('contract',result.payload,partial=True)
                 snapshot=result.payload
             legal=snapshot.get('legal_fields') or {}
+            if not trusted:
+                # A re-read contract may return its own title («ДОГОВОР ПОСТАВКИ № …») as the party name.
+                # Client documents use the card's document_name / full_name; the contract supplies INN/KPP and the signer.
+                client=self.repository.get_client_display(client_id)
+                card_name=client.get('document_name') or client.get('full_name')
+                if card_name:
+                    legal['document_name']=card_name
+                    legal['full_name']=client.get('full_name') or card_name
             if not legal.get('document_name') and legal.get('full_name'):legal['document_name']=legal['full_name']
             # The contract supplies the party and signer for the specification. Number and date come from the saved card,
             # which the manager confirmed; the file is not re-searched for them or for literal field spellings.
