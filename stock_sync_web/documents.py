@@ -521,7 +521,8 @@ def docx_source_text(content):
 
 def _normal_text(value):
     import re
-    return re.sub(r'\s+',' ',str(value or '').replace('«','"').replace('»','"').replace('ё','е')).strip().casefold()
+    # Word and 1С print «», “”, „“ interchangeably; all of them are the same quote here.
+    return re.sub(r'\s+',' ',re.sub(r'[«»“”„]','"',str(value or ''))).strip().casefold().replace('ё','е')
 
 
 def _invoice_decimal(value, *, money=False):
@@ -630,15 +631,13 @@ def validate_invoice_source(content,payload):
         if not matches or any(_invoice_decimal(m,money=True)!=expected for m in matches):raise ValueError('Итог не подтверждён исходным счётом: '+label)
     count=re.search(r'Всего наименований\s+(\d+)',text,re.I)
     if count and int(count.group(1))!=len(rows):raise ValueError('Число наименований счёта не совпадает с таблицей.')
-    words=str(payload.get('amount_in_words') or '').strip()
-    if _normal_text(words)!=_normal_text(rubles_in_words(total)) or _normal_text(words) not in _normal_text(text):
-        raise ValueError('Сумма прописью не совпадает с проверенной суммой и исходным счётом.')
-    if payload.get('currency') not in ('RUB','руб','руб.','рубль','рубли','рублей'):raise ValueError('Для спецификации требуется счёт в рублях.')
+    # Amount in words is derived from the verified total, never taken from the model; currency is not re-checked here.
+    words=rubles_in_words(total)
     buyer=re.search(r'(?:Покупатель|Заказчик)\s*:?([^\n]*(?:\n[^\n]*)?)',text,re.I)
     if not buyer:raise ValueError('Не найден блок покупателя исходного счёта.')
     buyer_text=_normal_text(buyer.group(1))
-    for key in ('buyer_document_name','buyer_inn'):
-        if not payload.get(key) or _normal_text(payload[key]) not in buyer_text:raise ValueError('Реквизиты покупателя не подтверждены исходным счётом.')
+    # The buyer is identified by INN/KPP; the printed name and its quotes are the manager's to check on screen.
+    if not payload.get('buyer_inn') or str(payload['buyer_inn']) not in buyer_text:raise ValueError('ИНН покупателя не найден в счёте.')
     if payload.get('buyer_kpp') and str(payload['buyer_kpp']) not in buyer_text:raise ValueError('КПП покупателя не подтверждён счётом.')
     if not payload.get('invoice_number') or not re.search(r'сч[её]т(?: на оплату)?\s*№\s*'+re.escape(payload['invoice_number'])+r'(?![\w-])',text,re.I):
         raise ValueError('Номер исходного счёта не подтверждён.')

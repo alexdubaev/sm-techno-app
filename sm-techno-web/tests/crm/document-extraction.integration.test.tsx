@@ -7,15 +7,18 @@ import * as api from '@/lib/api';
 
 vi.mock('@/lib/api',() => ({fetchDocumentAssistantJobs:vi.fn(),fetchDocumentAssistantJob:vi.fn(),startDocumentAssistantJob:vi.fn(),uploadDocumentAssistantIntake:vi.fn(),uploadClientDocumentAsset:vi.fn(),confirmDocumentAssistantJob:vi.fn()}));
 const job: DocumentAssistantJob={id:'job01',kind:'requisites',clientId:null,assetIds:[10],status:'review',version:3,
-  result:{kind:'requisites',payload:{document_name:'ООО Источник',inn:'7701234567',signer_name:null},provenance:[{assetId:10,method:'gpt-6.1-terra',reviewed:false}],missing_fields:['signer_name'],warnings:[]},
-  missingFields:['signer_name'],warnings:[],error:null,createdAt:'2026-10-30T12:00:00Z',updatedAt:'2026-10-30T12:00:00Z'};
+  result:{kind:'requisites',payload:{document_name:'ООО Источник',inn:'7701234567',signer_name:null},provenance:[{assetId:10,method:'gpt-6.1-terra',reviewed:false}],missing_fields:['signer_name'],warnings:['Contact person name is not printed.']},
+  missingFields:['signer_name'],warnings:['Contact person name is not printed.'],error:null,createdAt:'2026-10-30T12:00:00Z',updatedAt:'2026-10-30T12:00:00Z'};
 
 it('restores a persisted review after refresh, retains corrections on error and confirms edited fields',async () => {
   vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[job]});
   vi.mocked(api.confirmDocumentAssistantJob).mockRejectedValueOnce(new Error('Проверьте реквизиты')).mockResolvedValueOnce({job:{...job,status:'confirmed',version:4},resultType:'job',resultId:job.id,clientId:null});
   render(<DocumentExtractionPanel />);
   const name=await screen.findByLabelText('Наименование для документов');
-  expect(screen.getByText(/Не найдено в источнике: ФИО подписанта/)).toBeVisible();
+  // Model notes and «not found» lists are not shown; the empty field itself is what the manager fills.
+  expect(screen.queryByText(/Не найдено в источнике/)).not.toBeInTheDocument();
+  expect(screen.queryByText('Contact person name is not printed.')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('ФИО подписанта')).toHaveValue('');
   fireEvent.change(name,{target:{value:'ООО Исправлено'}});
   fireEvent.change(screen.getByLabelText('ФИО подписанта'),{target:{value:'Тестовый Подписант'}});
   fireEvent.change(screen.getByLabelText('Должность подписанта'),{target:{value:'Директор'}});

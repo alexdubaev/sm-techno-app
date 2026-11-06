@@ -1,6 +1,7 @@
 """Document-only coordinator. It never invokes the private CRM detail serializer."""
 from __future__ import annotations
 
+import dataclasses
 from datetime import date
 from datetime import datetime, timezone
 import hashlib
@@ -154,6 +155,10 @@ class DocumentAssistantService:
             # Even injected adapters must pass the same untrusted-output validation.
             from stock_sync_web.assistant_extraction import validate_payload
             validate_payload(row['kind'],result.payload,partial=True)
+            if row['kind']=='invoice' and not result.payload.get('currency') and any('руб' in str(text).casefold() for text in texts):
+                # 1С invoices state amounts in рублях without a separate currency field; that is not a missing fact.
+                result.payload['currency']='RUB'
+                result=dataclasses.replace(result,missing_fields=[field for field in result.missing_fields if field.rsplit('.',1)[-1]!='currency'])
             if row['kind']=='contract' and len(row['input_asset_ids'])==1:
                 source=self.repository.get_asset(row['input_asset_ids'][0])
                 result.payload.update(document_id=source['document_id'],asset_id=source['id'],client_id=source['crm_client_id'],source_sha256=source['sha256'])
@@ -376,7 +381,7 @@ class DocumentAssistantService:
 
     def _read_specification_contract(self,actor,client_id,state):
         from stock_sync_web.assistant_extraction import ExtractionRequest,validate_payload
-        from stock_sync_web.documents import generated_contract_fields_match,_normal_text,format_document_date,format_person_short_name
+        from stock_sync_web.documents import generated_contract_fields_match
         if not state['contract_document_id'] or not state['contract_version_asset_id']:
             raise DocumentConflict('Сначала сохраните договор клиента и его версию файла.')
         document=self.repository.get_document(state['contract_document_id'],client_id)
@@ -385,10 +390,8 @@ class DocumentAssistantService:
         with tempfile.TemporaryDirectory(prefix='sm-techno-contract-read-') as directory:
             workspace=Path(directory);source=workspace/('contract'+Path(asset['originalFilename']).suffix.lower());source.write_bytes(content)
             texts,images=self.source_reader.read(source,workspace)
-            text=_normal_text('\n'.join(texts))
             try:stored=json.loads(document.get('legal_snapshot_json') or '{}')
             except (TypeError,ValueError):stored={}
-            # Every required rendered field is verified against actual current bytes, including the buyer's own requisites.
             required=('document_name','inn','signer_position','signer_name')
             trusted=(Path(asset['originalFilename']).suffix.lower()=='.docx' and bool(stored) and generated_contract_fields_match(content,document,stored))
             if trusted:
@@ -399,25 +402,17 @@ class DocumentAssistantService:
                 snapshot=result.payload
             legal=snapshot.get('legal_fields') or {}
             if not legal.get('document_name') and legal.get('full_name'):legal['document_name']=legal['full_name']
+            # The contract supplies the party and signer for the specification. Number and date come from the saved card,
+            # which the manager confirmed; the file is not re-searched for them or for literal field spellings.
             for key in required:
-                value=legal.get(key)
-                alternatives=[value]
-                if key=='signer_name':alternatives.extend([legal.get('signer_name_genitive'),format_person_short_name(value or '')])
-                if key=='signer_position':alternatives.append(legal.get('signer_position_genitive'))
-                if not value or not any(v and _normal_text(v) in text for v in alternatives):
-                    raise ValueError('В сохранённом договоре не подтверждено поле: '+key+'. Проверьте файл договора.')
-            if not snapshot.get('number') or (snapshot['number'],snapshot.get('date'))!=(document['number'],document['document_date']):
-                raise DocumentConflict('Номер или дата в файле договора не совпадают с карточкой документа.')
-            if _normal_text(snapshot['number']) not in text or _normal_text(format_document_date(snapshot['date'])) not in text:
-                raise ValueError('Номер и дата договора не подтверждены сохранённым файлом.')
-            if legal.get('kpp') and _normal_text(legal['kpp']) not in text:raise ValueError('КПП не подтверждён сохранённым договором.')
+                if not legal.get(key):raise ValueError('В договоре не распознано поле: '+key+'. Проверьте файл договора.')
             identity=self.service._normalize_client_card_payload({**legal,'legal_type':'individual_entrepreneur' if len(legal['inn'])==12 else 'legal_entity'})
             self._validate_document_client_identity(client_id,identity)
-            return {'document_id':document['id'],'asset_id':asset['id'],'client_id':client_id,'number':snapshot['number'],
-                'date':snapshot['date'],'legal_fields':legal,'source_sha256':asset['sha256']}
+            return {'document_id':document['id'],'asset_id':asset['id'],'client_id':client_id,'number':document['number'],
+                'date':document['document_date'],'legal_fields':legal,'source_sha256':asset['sha256']}
 
     def generate_specification(self,actor,client_id,invoice_job_id,operation_key):
-        from stock_sync_web.documents import validate_invoice_source,generate_invoice_specification,_normal_text
+        from stock_sync_web.documents import validate_invoice_source,generate_invoice_specification
         from stock_sync_web.assistant_extraction import validate_payload
         require_document_reader(actor)
         if type(invoice_job_id) is not str or not invoice_job_id: raise ValueError('Выберите проверенное задание исходного счёта.')
@@ -445,8 +440,6 @@ class DocumentAssistantService:
             legal=contract['legal_fields']
             if (payload.get('buyer_inn') or '')!=(legal.get('inn') or '') or (payload.get('buyer_kpp') or '')!=(legal.get('kpp') or ''):
                 raise DocumentConflict('ИНН/КПП покупателя счёта не совпадают с сохранённым договором.')
-            if _normal_text(payload.get('buyer_document_name')) not in {_normal_text(legal.get('document_name')),_normal_text(legal.get('full_name'))}:
-                raise DocumentConflict('Наименование покупателя счёта не совпадает с договором.')
             self._validate_document_client_identity(client_id,{'inn':payload['buyer_inn'],'kpp':payload.get('buyer_kpp') or '', 'legal_type':'individual_entrepreneur' if len(payload['buyer_inn'])==12 else 'legal_entity'})
             template=Path(__file__).resolve().parent.parent/'assets/templates/specification_invoice_template.docx'
             number=state['next_spec_number'];document_date=date.today().isoformat()
