@@ -79,9 +79,22 @@ jobs:
         working-directory: sm-techno-web
         run: npm ci
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('sm-techno-web/package-lock.json') }}
+
+      # The browser CDN occasionally stalls; a bounded retry keeps a hung download from eating the whole job.
       - name: Install Playwright Chromium and WebKit
         working-directory: sm-techno-web
-        run: npx playwright install --with-deps chromium webkit
+        timeout-minutes: 12
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 240 npx playwright install --with-deps chromium webkit; then exit 0; fi
+            echo "Playwright install attempt $attempt failed or timed out; retrying"
+          done
+          exit 1
 
       - name: Backend auth integration tests
         run: python -m pytest tests/auth -q --strict-markers
