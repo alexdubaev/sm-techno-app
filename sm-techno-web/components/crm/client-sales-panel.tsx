@@ -37,6 +37,7 @@ export function ClientSalesPanel({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [revision, setRevision] = useState(0);
+  const initialAssignment = data?.version === 0 && !data.assignment && data.history.length === 0;
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1);
     window.addEventListener('smtechno-bank-changed', refresh);
@@ -69,7 +70,7 @@ export function ClientSalesPanel({
   }, [clientId, isAdmin, revision]);
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!data || !reason.trim() || !startDate) return;
+    if (!data || !startDate || (initialAssignment ? !managerId : !reason.trim())) return;
     setBusy(true);
     setError('');
     setNotice('');
@@ -78,7 +79,7 @@ export function ClientSalesPanel({
         version: data.version,
         managerId: managerId ? Number(managerId) : null,
         startDate,
-        reason: reason.trim(),
+        reason: initialAssignment ? 'Первичное закрепление менеджера по продажам' : reason.trim(),
       });
       setData(result);
       setReason('');
@@ -148,7 +149,7 @@ export function ClientSalesPanel({
                     disabled={busy}
                     onChange={(e) => setManagerId(e.target.value)}
                   >
-                    <option value="">Снять закрепление</option>
+                    <option value="">{initialAssignment ? 'Выберите менеджера' : 'Снять закрепление'}</option>
                     {data.assignment?.managerId &&
                       !managers.some(
                         (m) =>
@@ -183,7 +184,7 @@ export function ClientSalesPanel({
                     onChange={(e) => setStartDate(e.target.value)}
                   />
                 </label>
-                <label className={`${styles.field} ${styles.full}`}>
+                {!initialAssignment && <label className={`${styles.field} ${styles.full}`}>
                   Причина изменения закрепления
                   <input
                     required
@@ -192,12 +193,12 @@ export function ClientSalesPanel({
                     disabled={busy}
                     onChange={(e) => setReason(e.target.value)}
                   />
-                </label>
+                </label>}
                 <div className={styles.full}>
                   <button
                     className={styles.button}
                     type="submit"
-                    disabled={busy || !startDate || !reason.trim()}
+                    disabled={busy || !startDate || (initialAssignment ? !managerId : !reason.trim())}
                   >
                     {busy ? 'Сохраняем…' : 'Сохранить закрепление'}
                   </button>

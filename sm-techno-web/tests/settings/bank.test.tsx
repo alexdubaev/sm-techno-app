@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ManagerSales } from '@/components/manager/manager-sales';
 import { ManagerWorkspace } from '@/components/manager/manager-workspace';
@@ -102,7 +103,7 @@ const upload: BankUploadDetail = {
   debitTotal: 0,
   creditTotal: 36000100,
   errors: [],
-  metadata: { openingBalance: null, closingBalance: null },
+  metadata: { bik: '044525225', openingBalance: null, closingBalance: null },
   reconciliation: {
     debit: { expected: 0, read: 0, difference: 0 },
     credit: { expected: 36000100, read: 36000100, difference: 0 },
@@ -210,6 +211,40 @@ beforeEach(() => {
 });
 
 describe('Bank payments in existing sales', () => {
+  it('reads a file without loading or confirming organization accounts and preserves payment selection', async () => {
+    mocks.accounts.mockResolvedValue({ organizations: [], accounts: [] });
+    render(<BankImportContent userId={8} onChanged={() => {}} />);
+    const read = screen.getByRole('button', { name: 'Прочитать выписку' });
+    expect(read).toBeDisabled();
+    expect(screen.queryByLabelText('Организация и счёт')).not.toBeInTheDocument();
+    expect(screen.queryByText('Подтвердить счёт организации для импорта')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('ИНН владельца счёта')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Расчётный счёт')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('БИК банка')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Основание подтверждения счёта')).not.toBeInTheDocument();
+    const file = new File(['synthetic'], 'synthetic.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    await userEvent.upload(screen.getByLabelText('Файл выписки XLSX'), file);
+    expect(read).toBeEnabled();
+    fireEvent.submit(read.closest('form')!);
+    await waitFor(() => expect(mocks.upload).toHaveBeenCalledWith(null, file));
+    const result = await screen.findByRole('region', { name: 'Результат чтения выписки' });
+    expect(result).toHaveTextContent('Тестовая организация');
+    expect(result).toHaveTextContent('00000000000000000001');
+    expect(result).toHaveTextContent('БИК 044525225');
+    expect(result).toHaveTextContent('01.11.2026');
+    expect(screen.getByRole('checkbox', { name: 'Выбрать оплату 2810' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Выбрать оплату 2811' })).toBeDisabled();
+    expect(mocks.accounts).not.toHaveBeenCalled();
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.commit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить итог перед добавлением' }));
+    expect(await screen.findByRole('button', { name: 'Подтвердить 1 оплат' })).toBeEnabled();
+    expect(mocks.preview).toHaveBeenCalledWith([
+      { operationId: 11, version: 2, fingerprint: 'synthetic-fingerprint' },
+    ]);
+  });
   it('confirms company sales without a manager and explains the pending manager posting', async () => {
     const companyOnly = { ...operation, managerId: null, managerName: null, status: 'manager_missing' as const, companyCanConfirm: true };
     mocks.detail.mockResolvedValue({ ...upload, operations: [companyOnly] });
@@ -447,7 +482,28 @@ describe('Bank payments in existing sales', () => {
       screen.getByRole('article', { name: 'Оплата 2811' }),
     ).toHaveTextContent('Клиент не найден');
   });
-  it('sends manager account identity and the explicit effective date for a CRM assignment', async () => {
+  it('assigns a manager initially with an automatic reason and requires the manager and date', async () => {
+    const clientData = { clientId: 3, version: 0, assignment: null, history: [], payments: [], pending: null };
+    mocks.client.mockResolvedValue(clientData);
+    mocks.assignment.mockResolvedValue(clientData);
+    render(<ClientSalesPanel clientId={3} isAdmin />);
+    await screen.findByText('Не назначен');
+    fireEvent.click(screen.getByText('Назначить или изменить менеджера'));
+    expect(screen.queryByLabelText('Причина изменения закрепления')).not.toBeInTheDocument();
+    const save = screen.getByRole('button', { name: 'Сохранить закрепление' });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Менеджер по продажам'), { target: { value: '31' } });
+    fireEvent.change(screen.getByLabelText('Дата начала закрепления'), { target: { value: '' } });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Дата начала закрепления'), { target: { value: '2026-11-01' } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(mocks.assignment).toHaveBeenCalledWith(3, {
+      version: 0, managerId: 31, startDate: '2026-11-01',
+      reason: 'Первичное закрепление менеджера по продажам',
+    }));
+  });
+  it('requires an explicit reason for a previously changed CRM assignment and sends the manager account identity and date', async () => {
     const clientData = {
       clientId: 3,
       version: 4,

@@ -56,7 +56,7 @@ export function ManagerWorkspace() {
   }, [isAdmin, user.id, managerRetry]);
   return (
     <div className={styles.workspace}>
-      <div className={styles.toolbar}>
+      <fieldset className={styles.toolbar} aria-label="Управление кабинетом">
         <div className={styles.period}>
           <button
             aria-label="Предыдущий месяц"
@@ -131,11 +131,11 @@ export function ManagerWorkspace() {
           )}
         </div>
       )}
-      </div>
-      {isAdmin && <div className={styles.bottomActions}>
+      {isAdmin && <div className={styles.bankActions}>
         <button className={styles.primary} onClick={() => setBankImportOpen(true)}>Загрузить выписку</button>
         <button className={styles.secondary} onClick={() => setBankImportOpen(true)}>История выписок</button>
       </div>}
+      </fieldset>
       <CabinetLoader
         key={`${user.id}:${managerId ?? 'self'}:${month}:${revision}`}
         month={month}

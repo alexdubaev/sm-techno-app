@@ -91,6 +91,19 @@
 .field input[type='file'] {
   font-size: 12px;
 }
+.field input[type='date'] {
+  appearance: none;
+  display: block;
+  box-sizing: border-box;
+}
+.field input[type='date']::-webkit-date-and-time-value {
+  min-width: 0;
+  text-align: left;
+}
+.field input[type='date']::-webkit-datetime-edit {
+  min-width: 0;
+  padding: 0;
+}
 .field select {
   appearance: none;
   overflow: hidden;
@@ -236,6 +249,7 @@
 }
 .details {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
 }
 .details summary {
@@ -326,6 +340,9 @@
   }
   .form {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .field :is(input, select, textarea) {
+    font-size: 16px;
   }
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
