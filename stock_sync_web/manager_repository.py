@@ -394,6 +394,89 @@ class ManagerRepository:
             after['changedSaleId'] = sale_id
         return after
 
+    def record_bank_link_in_transaction(self, conn, actor, manager_id, month, expected_version,
+                                        sale_id, reason, operation_id):
+        """Audit 1:1 bank confirmation without rewriting the historical sale.
+
+        The caller inserts bank_sale_links in the same outer transaction; no
+        commit, snapshot rewrite, or remuneration-rate replacement happens here.
+        """
+        if not conn.in_transaction:
+            raise ValueError('Банковское подтверждение требует открытую транзакцию.')
+        self._admin(actor)
+        month_key(month)
+        integer(expected_version, 'Версия', 2**31-1)
+        integer(manager_id, 'Менеджер', 2**53-1)
+        integer(sale_id, 'Продажа', 2**53-1)
+        integer(operation_id, 'Банковская операция', 2**53-1)
+        reason = text(reason, 'Причина банковского подтверждения', 500)
+        self._sync_accounts(conn)
+        account = self._account(conn, actor, manager_id)
+        before = self._data(conn, account, month)
+        if before['version'] != expected_version:
+            raise ManagerConflict('Данные изменились. Обновите результат и повторите действие.')
+        if before['closed']:
+            raise ManagerConflict('Месяц закрыт. Сначала откройте его с указанием причины.')
+        if before['terms'] is None:
+            raise ManagerConflict('Не заданы условия месяца.')
+        if before['summary']['salesTotal'] > MAX_MONTH_TOTAL:
+            raise ValueError('Сумма продаж месяца превышает допустимый лимит.')
+        sale = conn.execute('SELECT * FROM manager_sales WHERE id=? AND manager_id=? AND month=?',
+                            (sale_id, manager_id, month)).fetchone()
+        if not sale or sale['cancelled'] or sale['source'] not in ('manual', 'onec') or sale['bank_operation_id'] is not None:
+            raise ManagerConflict('Продажа недоступна для банковского подтверждения.')
+        if conn.execute('SELECT 1 FROM bank_sale_links WHERE sale_id=? OR operation_id=?',
+                        (sale_id, operation_id)).fetchone():
+            raise ManagerConflict('Продажа или банковская операция уже связана.')
+        operation = conn.execute('SELECT * FROM bank_operations WHERE id=?', (operation_id,)).fetchone()
+        decision = conn.execute('SELECT client_id,manager_id FROM bank_decisions WHERE operation_id=?',
+                                (operation_id,)).fetchone()
+        if not operation or operation['direction'] != 'credit' or operation['currency'] != 'RUB':
+            raise ManagerConflict('Требуется рублёвое входящее банковское поступление.')
+        if operation['date'] != sale['date'] or operation['amount'] != sale['amount']:
+            raise ManagerConflict('Дата или сумма продажи не совпадает с банковской операцией.')
+        if not decision or decision['client_id'] is None or decision['manager_id'] != manager_id:
+            raise ManagerConflict('Сопоставление клиента или менеджера изменилось. Обновите результат.')
+        client = conn.execute('SELECT * FROM crm_clients WHERE id=?', (decision['client_id'],)).fetchone()
+        if not client or client['is_inactive'] or client['crm_archived_at']:
+            raise ManagerConflict('Клиент недоступен или архивирован.')
+        if sale['crm_client_id'] is not None:
+            client_agrees = sale['crm_client_id'] == client['id']
+        else:
+            document_names = [client['document_name'], client['full_name']]
+            if not any(name and name.strip() for name in document_names):
+                document_names = [client['name']]
+            normalize_name = lambda value: re.sub(r'\s+', ' ', value or '').strip().casefold()
+            client_agrees = normalize_name(sale['client']) in {normalize_name(name) for name in document_names if name}
+        if not client_agrees:
+            raise ManagerConflict('Клиент продажи не совпадает с выбранной карточкой CRM.')
+        if not conn.execute('''SELECT 1 FROM manager_accounts a JOIN users u ON u.id=a.user_id
+            WHERE a.id=? AND u.is_active=1''', (manager_id,)).fetchone():
+            raise ManagerConflict('Менеджер неактивен или удалён.')
+        assignment = conn.execute('''SELECT manager_id FROM crm_sales_assignments WHERE client_id=?
+            AND start_date<=? AND (end_date IS NULL OR end_date>?)''',
+            (client['id'], operation['date'], operation['date'])).fetchone()
+        if not assignment or assignment['manager_id'] != manager_id:
+            raise ManagerConflict('Закрепление клиента изменилось. Обновите результат.')
+        updated = conn.execute('''UPDATE manager_periods SET version=version+1
+            WHERE manager_id=? AND month=? AND version=? AND closed=0''', (manager_id, month, expected_version))
+        if updated.rowcount != 1:
+            raise ManagerConflict('Период изменился. Обновите результат.')
+        after = self._data(conn, account, month)
+        sale_snapshot = dict(sale)
+        sale_snapshot['invoiceNumber'] = sale_snapshot['invoice_number']
+        sale_snapshot['invoiceDate'] = sale_snapshot['invoice_date']
+        before_record = dict(terms=before['terms'], summary=before['summary'], closed=before['closed'],
+                             version=expected_version, sale=sale_snapshot)
+        after_record = dict(terms=after['terms'], summary=after['summary'], closed=after['closed'],
+                            version=expected_version+1, sale=sale_snapshot, bankOperationId=operation_id)
+        actor_name = actor.get('full_name') or actor.get('username') or str(actor['id'])
+        conn.execute('''INSERT INTO manager_audit(manager_id,month,actor_id,actor_name,at,kind,reason,before_json,after_json)
+            VALUES(?,?,?,?,?,'bank_link',?,?,?)''', (manager_id, month, actor['id'], actor_name, now(), reason,
+                json.dumps(before_record, ensure_ascii=False), json.dumps(after_record, ensure_ascii=False)))
+        after['changedSaleId'] = sale_id
+        return after
+
     def history(self, actor, manager_id, month, page=1):
         self._admin(actor)
         month_key(month)

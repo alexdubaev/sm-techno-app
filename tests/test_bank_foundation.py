@@ -234,3 +234,65 @@ def test_existing_sale_link_is_exposed_without_rewriting_source_and_preserved_on
     assert cancelled['cancelled'] and cancelled['bankOperationId'] == operation_id
     with db.connect() as conn:
         assert conn.execute('SELECT sale_id FROM bank_sale_links WHERE operation_id=?', (operation_id,)).fetchone()[0] == sale['id']
+
+
+def existing_sale_to_confirm(ledger):
+    db, repository, admin, _, manager_id, client_id = ledger
+    BankAssignmentRepository(db).set_assignment(admin, client_id, manager_id, '2026-11-01', 'Initial', 0)
+    operation_id = seed_operation(db, admin)
+    sale_id = repository.mutate(admin, manager_id, '2026-11', dict(kind='sale', version=1,
+        date='2026-11-03', client='Synthetic legal document', amount=36000000, rate=400))['sales'][0]['id']
+    with db.transaction() as conn:
+        conn.execute('''INSERT INTO bank_decisions(operation_id,client_id,manager_id,rate,classification,status,updated_at)
+            VALUES(?,?,?,500,'sale','ready','now')''', (operation_id, client_id, manager_id))
+    return operation_id, sale_id
+
+
+@pytest.mark.parametrize('source', ['manual', 'onec'])
+def test_bank_link_common_ledger_audit_increments_version_without_rewriting_sale(ledger, source):
+    db, repository, admin, _, manager_id, client_id = ledger
+    operation_id, sale_id = existing_sale_to_confirm(ledger)
+    with db.transaction() as conn:
+        conn.execute('UPDATE manager_sales SET source=?,external_id=? WHERE id=?', (source, 'synthetic-legacy', sale_id))
+        original = dict(conn.execute('SELECT * FROM manager_sales WHERE id=?', (sale_id,)).fetchone())
+    before = repository.dashboard(admin, manager_id, '2026-11')
+    with db.transaction(immediate=True) as conn:
+        result = repository.record_bank_link_in_transaction(conn, admin, manager_id, '2026-11', 2, sale_id,
+                                                            'Confirm synthetic bank payment', operation_id)
+        conn.execute('''INSERT INTO bank_sale_links(operation_id,sale_id,client_id,manager_id,amount,kind,
+            linked_by,linked_at,reason) VALUES(?,?,?,?,?,'existing',?,'now','Synthetic confirmation')''',
+            (operation_id, sale_id, client_id, manager_id, 36000000, admin['id']))
+        assert dict(conn.execute('SELECT * FROM manager_sales WHERE id=?', (sale_id,)).fetchone()) == original
+    assert result['version'] == 3 and result['summary'] == before['summary']
+    audit = repository.history(admin, manager_id, '2026-11')['items'][0]
+    assert audit['kind'] == 'bank_link' and audit['reason'] == 'Confirm synthetic bank payment'
+    assert audit['before']['sale'] == audit['after']['sale']
+    assert audit['after']['sale']['rate'] == 400 and audit['after']['sale']['source'] == source
+    assert audit['before']['summary'] == audit['after']['summary']
+    assert audit['after']['bankOperationId'] == operation_id
+
+
+@pytest.mark.parametrize('invalid', ['stale', 'closed', 'duplicate', 'different_client', 'nonadmin', 'missing_reason'])
+def test_bank_link_validation_failure_keeps_period_and_sale_unchanged(ledger, invalid):
+    db, repository, admin, user, manager_id, client_id = ledger
+    operation_id, sale_id = existing_sale_to_confirm(ledger)
+    with db.transaction() as conn:
+        if invalid == 'closed':
+            conn.execute("UPDATE manager_periods SET closed=1 WHERE manager_id=? AND month='2026-11'", (manager_id,))
+        if invalid == 'duplicate':
+            conn.execute('''INSERT INTO bank_sale_links(operation_id,sale_id,client_id,manager_id,amount,kind,
+                linked_by,linked_at,reason) VALUES(?,?,?,?,?,'existing',?,'now','Already linked')''',
+                (operation_id, sale_id, client_id, manager_id, 36000000, admin['id']))
+        if invalid == 'different_client':
+            conn.execute("UPDATE manager_sales SET client='Different synthetic client' WHERE id=?", (sale_id,))
+        original = dict(conn.execute('SELECT * FROM manager_sales WHERE id=?', (sale_id,)).fetchone())
+        audit_count = conn.execute('SELECT COUNT(*) FROM manager_audit').fetchone()[0]
+    with pytest.raises((ManagerConflict, PermissionError, ValueError)):
+        with db.transaction(immediate=True) as conn:
+            repository.record_bank_link_in_transaction(conn, user if invalid == 'nonadmin' else admin,
+                manager_id, '2026-11', 1 if invalid == 'stale' else 2, sale_id,
+                '' if invalid == 'missing_reason' else 'Synthetic confirmation', operation_id)
+    with db.connect() as conn:
+        assert dict(conn.execute('SELECT * FROM manager_sales WHERE id=?', (sale_id,)).fetchone()) == original
+        assert conn.execute('SELECT COUNT(*) FROM manager_audit').fetchone()[0] == audit_count
+        assert conn.execute("SELECT version FROM manager_periods WHERE manager_id=? AND month='2026-11'", (manager_id,)).fetchone()[0] == 2
