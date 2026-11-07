@@ -353,8 +353,10 @@ class BankRepository:
             # Confirmation pins the chosen CRM identity and document snapshot.
             client = self._row(conn, 'crm_clients', company['client_id'])
             classification = company['classification']
-        assignment = self.assignments.assignment_at(conn, client['id'], op['date']) if client else None
-        assignment_version = conn.execute('SELECT version FROM crm_sales_assignment_versions WHERE client_id=?', (client['id'],)).fetchone() if client else None
+        attribution = self.assignments.resolve_payment_assignment(conn, client['id'], op['date']) if client else None
+        assignment = attribution['assignment'] if attribution else None
+        if attribution and attribution['warning']:
+            warnings.append(attribution['warning'])
         manager_id = assignment['manager_id'] if assignment else None
         period = self.managers._period(conn, manager_id, op['date'][:7]) if manager_id else None
         link_row = conn.execute('''SELECT l.*,s.cancelled,s.client AS sale_client,s.rate AS sale_rate,s.updated_at,
@@ -390,7 +392,7 @@ class BankRepository:
         elif not client:
             status = 'multiple_clients' if len(candidates) > 1 else 'client_not_found'
             explanation = ('Несколько карточек CRM с одинаковыми реквизитами.' if len(candidates) > 1 else
-                           'Клиент не найден однозначно по ИНН/КПП; выберите карточку вручную с причиной.')
+                           'Клиент не найден однозначно по ИНН/КПП; выберите карточку CRM.')
         elif client['is_inactive'] or client['crm_archived_at']:
             status, explanation = 'client_archived', 'Клиент неактивен или архивирован.'
         elif manual.get('duplicateAction') == 'link' and not self._link_compatible(conn, op, client, manager_id, link_sale):
@@ -401,7 +403,7 @@ class BankRepository:
         company_eligible = status == 'ready'
         if status == 'ready':
             if not assignment or manager_id is None:
-                status, explanation = 'manager_missing', 'На дату оплаты не назначен менеджер по продажам.'
+                status, explanation = 'manager_missing', attribution['explanation']
             elif not assignment['user_id'] or not assignment['manager_active']:
                 status, explanation = 'manager_inactive', 'Закреплённый менеджер неактивен или удалён.'
             elif period['plan'] is None:
@@ -441,7 +443,7 @@ class BankRepository:
             rule=dict(version=1, **rule))
         deps = dict(operation=op, manual=manual, account=account, organization=org, sources=sources,
             clients=inn_candidates, chosenClient=client, assignment=assignment,
-            assignmentVersion=assignment_version[0] if assignment_version else 0, period=period,
+            assignmentDependencies=attribution['dependencies'] if attribution else None, period=period,
             probable=probable, sales=old_sales, link=link, linkSale=link_sale, company=company, rule=rule, result={k:v for k,v in result.items() if k not in ('version','fingerprint')})
         result['fingerprint'] = digest(deps)
         return result, duplicate_signature

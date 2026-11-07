@@ -341,6 +341,48 @@ describe('Bank payments in existing sales', () => {
     expect(screen.getByText(/Исправьте исходные данные в XLSX/)).toBeVisible();
     expect(screen.getByText('Назначение и банковские реквизиты')).toBeVisible();
   });
+  it('applies a matching INN client without asking for a reason and refreshes attribution', async () => {
+    const saved = vi.fn().mockResolvedValue(undefined);
+    render(<BankOperationCard operation={{ ...operation, clientId: null, clientName: null,
+      managerId: null, managerName: null, status: 'multiple_clients', candidateClients: [
+        { id: 42, name: 'Полное название клиента', inn: operation.inn, kpp: null },
+      ] }} selected={false} disabled={false} onSelect={() => {}} onSaved={saved} />);
+    fireEvent.click(screen.getByText('Проверить и изменить решение'));
+    expect(screen.queryByLabelText('Причина решения')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Выбранный клиент'), { target: { value: '42' } });
+    expect(screen.getByText(/Клиент выбран, но ещё не применён/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Применить клиента' }));
+    await waitFor(() => expect(mocks.decision).toHaveBeenCalledWith(operation.id, expect.objectContaining({
+      clientId: 42, version: operation.version,
+      reason: 'Выбран клиент CRM с совпадающими ИНН и КПП',
+    })));
+    await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  });
+  it.each(['inn', 'kpp'] as const)('requires a reason for a different client %s', async (field) => {
+    render(<BankOperationCard operation={{ ...operation, kpp: '000001001', candidateClients: [
+      { id: 42, name: 'Другой клиент', inn: operation.inn, kpp: '000001001',
+        [field]: field === 'inn' ? '7700000010' : '000002001' },
+    ] }} selected={false} disabled={false} onSelect={() => {}} onSaved={async () => {}} />);
+    fireEvent.click(screen.getByText('Проверить и изменить решение'));
+    fireEvent.change(screen.getByLabelText('Выбранный клиент'), { target: { value: '42' } });
+    expect(screen.getByLabelText('Причина решения')).toBeRequired();
+    expect(screen.getByRole('button', { name: 'Применить клиента' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Причина решения'), { target: { value: 'Оплата за выбранного клиента' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Применить клиента' }));
+    await waitFor(() => expect(mocks.decision).toHaveBeenCalledWith(operation.id, expect.objectContaining({
+      clientId: 42, reason: 'Оплата за выбранного клиента',
+    })));
+  });
+  it('keeps a reason required when a matching client selection also changes classification', () => {
+    render(<BankOperationCard operation={{ ...operation, clientId: null, candidateClients: [
+      { id: 42, name: 'Клиент', inn: operation.inn, kpp: null },
+    ] }} selected={false} disabled={false} onSelect={() => {}} onSaved={async () => {}} />);
+    fireEvent.click(screen.getByText('Проверить и изменить решение'));
+    fireEvent.change(screen.getByLabelText('Выбранный клиент'), { target: { value: '42' } });
+    fireEvent.change(screen.getByLabelText('Тип поступления'), { target: { value: 'excluded' } });
+    expect(screen.getByLabelText('Причина решения')).toBeRequired();
+    expect(screen.getByRole('button', { name: 'Применить клиента' })).toBeDisabled();
+  });
   it('explains bank confirmation of an existing sale in manager audit history', async () => {
     const data = await mocks.dashboard();
     const state = {
