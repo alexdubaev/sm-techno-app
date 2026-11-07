@@ -39,3 +39,6 @@ $out
 # Task-local Shortcut compiler and inspection cache
 /artifacts/cherri/
 /artifacts/graph.txt
+
+# Task-local Linux verification environment and archived source
+/.autopilot/linux-check-env/

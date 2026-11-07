@@ -1,9 +1,9 @@
 # 04 — Импорт и поступления в CRM
 
 **Требования:** R04, R06, R08, R10, R12, R16, R23, R24, R25, R26, R27, R28, R30, R33, R34, R46, R47, R49, R52, R53, R54, R58, R59, R61, R62, R65, R71, R72, R74, R78, R81, R82, R84, R85, R87, R89, R90, R91, R92, R93, R94, R98, R101
-**Зависит от:** 01
+**Зависит от:** —
 **Зона:** `sm-techno-web/components/manager` · `sm-techno-web/components/crm` · `sm-techno-web/components/crm-workspace.tsx` · `sm-techno-web/lib/api.ts` · `sm-techno-web/lib/manager-types.ts` · `sm-techno-web/lib/bank-types.ts` · `sm-techno-web/tests/settings/bank.test.tsx`
-**Волна:** 2
+**Волна:** 1
 **Ревью:** нет — единое независимое ревью
 **Модель:** сильная
 

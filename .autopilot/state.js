@@ -11,9 +11,9 @@ window.STATE =
   "memoryFile": "AGENTS.md",
   "memoryOwner": "user",
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
-  "baseCommit": null,
+  "baseCommit": "8bebcb8",
   "startedAt": "2026-11-07T15:56:46+03:00",
-  "updatedAt": "2026-11-07T16:07:40+03:00",
+  "updatedAt": "2026-11-07T18:09:07+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -43,26 +43,32 @@ window.STATE =
     },
     {
       "id": "plan",
-      "status": "active",
-      "startedAt": "2026-11-07T16:07:17+03:00"
+      "status": "done",
+      "startedAt": "2026-11-07T16:07:17+03:00",
+      "finishedAt": "2026-11-07T16:07:43+03:00"
     },
     {
       "id": "build",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-07T16:07:43+03:00",
+      "finishedAt": "2026-11-07T17:01:20+03:00"
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-07T17:01:20+03:00",
+      "finishedAt": "2026-11-07T17:37:00+03:00"
     },
     {
       "id": "final",
-      "status": "pending"
+      "status": "active",
+      "startedAt": "2026-11-07T17:37:00+03:00"
     }
   ],
   "requirements": {
     "total": 106,
-    "done": 0,
-    "inTicket": 106,
+    "done": 105,
+    "inTicket": 1,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -116,9 +122,16 @@ window.STATE =
       ],
       "review": "нет — единое независимое ревью всей ветки по owner policy",
       "model": "сильная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-07T16:07:44+03:00",
+      "finishedAt": "2026-11-07T16:26:23+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 76,
+        "failed": 0
+      },
+      "commit": "6a7fdba"
     },
     {
       "id": "02",
@@ -159,10 +172,8 @@ window.STATE =
         "R98",
         "R101"
       ],
-      "blockedBy": [
-        "01"
-      ],
-      "wave": 2,
+      "blockedBy": [],
+      "wave": 1,
       "zone": [
         "stock_sync_web/bank_parser.py",
         "tests/test_bank_parser.py",
@@ -170,9 +181,16 @@ window.STATE =
       ],
       "review": "нет — единое независимое ревью",
       "model": "сильная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-07T16:08:17+03:00",
+      "finishedAt": "2026-11-07T16:22:04+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 34,
+        "failed": 0
+      },
+      "commit": "175215a"
     },
     {
       "id": "03",
@@ -258,7 +276,7 @@ window.STATE =
         "01",
         "02"
       ],
-      "wave": 3,
+      "wave": 2,
       "zone": [
         "stock_sync_web/bank_repository.py",
         "stock_sync_web/bank_api.py",
@@ -269,9 +287,16 @@ window.STATE =
       ],
       "review": "нет — единое независимое ревью",
       "model": "сильная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-07T16:26:24+03:00",
+      "finishedAt": "2026-11-07T16:59:40+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 85,
+        "failed": 0
+      },
+      "commit": "6d867c08"
     },
     {
       "id": "04",
@@ -321,10 +346,8 @@ window.STATE =
         "R98",
         "R101"
       ],
-      "blockedBy": [
-        "01"
-      ],
-      "wave": 2,
+      "blockedBy": [],
+      "wave": 1,
       "zone": [
         "sm-techno-web/components/manager",
         "sm-techno-web/components/crm",
@@ -336,9 +359,19 @@ window.STATE =
       ],
       "review": "нет — единое независимое ревью",
       "model": "сильная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-07T16:10:10+03:00",
+      "finishedAt": "2026-11-07T17:01:19+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 1,
+      "repairFindings": [
+        "WebKit390: dialog364/scroll422, native select overflow; browser closure pending"
+      ],
+      "tests": {
+        "passed": 77,
+        "failed": 0
+      },
+      "commit": "d66e5e08"
     },
     {
       "id": "05",
@@ -388,23 +421,64 @@ window.STATE =
         "R106"
       ],
       "blockedBy": [
-        "03",
+        "01",
+        "02",
         "04"
       ],
-      "wave": 4,
+      "wave": 2,
       "zone": [
+        "tests/support/run_auth_backend.py",
+        "tests/support/bank_e2e.py",
         "sm-techno-web/tests/e2e/manager-bank-import.spec.ts",
         "tests/test_bank_acceptance.py",
         "docs/domains/bank-statement-import.md"
       ],
       "review": "нет — единое независимое ревью",
       "model": "сильная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-07T16:29:51+03:00",
+      "finishedAt": "2026-11-07T16:59:42+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 3,
+        "failed": 0
+      },
+      "commit": "6dc9513a"
+    },
+    {
+      "id": "F1",
+      "title": "Контекст номера счёта в назначении",
+      "requirements": [
+        "R17",
+        "R60",
+        "R61",
+        "R62"
+      ],
+      "blockedBy": [],
+      "wave": 3,
+      "zone": [
+        "stock_sync_web/bank_parser.py",
+        "tests/test_bank_parser.py"
+      ],
+      "review": "нет — подтверждённое замечание единственного независимого ревью, закрывается affected check",
+      "model": "сильная",
+      "status": "done",
+      "retries": 0,
+      "repairs": 0,
+      "startedAt": "2026-11-07T17:07:37+03:00",
+      "finishedAt": "2026-11-07T17:11:27+03:00",
+      "tests": {
+        "passed": 92,
+        "failed": 0
+      },
+      "commit": "b85631a8"
     }
   ],
-  "tests": null,
+  "tests": {
+    "passed": 940,
+    "failed": 0
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [],
@@ -418,7 +492,11 @@ window.STATE =
     "items": []
   },
   "concerns": [],
-  "blind": null,
+  "blind": {
+    "checked": 11,
+    "matched": 11,
+    "mismatches": []
+  },
   "beats": [
     "2026-11-07T15:56:46+03:00",
     "2026-11-07T15:57:33+03:00",
@@ -435,9 +513,43 @@ window.STATE =
     "2026-11-07T16:07:17+03:00",
     "2026-11-07T16:07:18+03:00",
     "2026-11-07T16:07:19+03:00",
-    "2026-11-07T16:07:40+03:00"
+    "2026-11-07T16:07:40+03:00",
+    "2026-11-07T16:07:42+03:00",
+    "2026-11-07T16:07:43+03:00",
+    "2026-11-07T16:07:44+03:00",
+    "2026-11-07T16:08:15+03:00",
+    "2026-11-07T16:08:16+03:00",
+    "2026-11-07T16:08:17+03:00",
+    "2026-11-07T16:10:08+03:00",
+    "2026-11-07T16:10:09+03:00",
+    "2026-11-07T16:10:10+03:00",
+    "2026-11-07T16:14:25+03:00",
+    "2026-11-07T16:14:26+03:00",
+    "2026-11-07T16:22:04+03:00",
+    "2026-11-07T16:26:23+03:00",
+    "2026-11-07T16:26:24+03:00",
+    "2026-11-07T16:27:57+03:00",
+    "2026-11-07T16:29:49+03:00",
+    "2026-11-07T16:29:50+03:00",
+    "2026-11-07T16:29:51+03:00",
+    "2026-11-07T16:31:38+03:00",
+    "2026-11-07T16:31:39+03:00",
+    "2026-11-07T16:47:19+03:00",
+    "2026-11-07T16:56:31+03:00",
+    "2026-11-07T16:59:40+03:00",
+    "2026-11-07T16:59:42+03:00",
+    "2026-11-07T17:01:19+03:00",
+    "2026-11-07T17:01:20+03:00",
+    "2026-11-07T17:07:36+03:00",
+    "2026-11-07T17:07:37+03:00",
+    "2026-11-07T17:11:27+03:00",
+    "2026-11-07T17:37:00+03:00",
+    "2026-11-07T17:37:01+03:00",
+    "2026-11-07T17:40:09+03:00",
+    "2026-11-07T17:40:10+03:00",
+    "2026-11-07T18:09:07+03:00"
   ],
-  "rev": 18,
+  "rev": 53,
   "waiting": null,
   "waits": [],
   "log": [
@@ -537,533 +649,804 @@ window.STATE =
       "found": 0,
       "fixed": 0,
       "deferred": 0
+    },
+    {
+      "t": "2026-11-07T16:07:43+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-07T16:07:44+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-07T16:08:15+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-07T16:08:16+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-07T16:08:17+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-07T16:10:08+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-07T16:10:09+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-07T16:10:10+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-07T16:14:25+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-07T16:14:26+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-07T16:22:04+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 34,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-07T16:26:23+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 76,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-07T16:26:24+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-07T16:27:57+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 331,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-07T16:29:49+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-07T16:29:50+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-07T16:29:51+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-07T16:31:38+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-07T16:31:39+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-07T16:47:19+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "repair",
+      "note": "WebKit390: dialog364/scroll422, native select overflow; browser closure pending"
+    },
+    {
+      "t": "2026-11-07T16:56:31+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 8,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-07T16:59:40+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 85,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-07T16:59:42+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 3,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-07T17:01:19+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 77,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-07T17:01:20+03:00",
+      "k": "stage",
+      "id": "review",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-07T17:07:36+03:00",
+      "k": "tickets",
+      "n": 6
+    },
+    {
+      "t": "2026-11-07T17:07:36+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-07T17:07:37+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-07T17:11:27+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 92,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-07T17:37:00+03:00",
+      "k": "stage",
+      "id": "final",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-07T17:37:01+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": true,
+      "checked": 14,
+      "matched": 14
+    },
+    {
+      "t": "2026-11-07T17:40:09+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": true,
+      "checked": 11,
+      "matched": 11
+    },
+    {
+      "t": "2026-11-07T17:40:10+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 1
+    },
+    {
+      "t": "2026-11-07T18:09:07+03:00",
+      "k": "tests",
+      "passed": 940,
+      "failed": 0
     }
   ],
   "reqList": [
     {
       "id": "R01",
       "text": "«Это задание на реализацию работающей функции»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R02",
       "text": "«DeepSeek, другие нейросети, OCR и внешние сервисы распознавания для этой задачи НЕ использовать.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R03",
       "text": "«В ПРОДАЖИ МЕНЕДЖЕРА ЗАСЧИТЫВАЕТСЯ ВСЯ СУММА ОПЛАТЫ С НДС.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R04",
       "text": "«Загружает банковскую выписку XLSX один раз на организацию.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R05",
       "text": "«Не создавать отдельную параллельную систему расчёта зарплат.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R06",
       "text": "«сохранение проблемных операций для последующей обработки.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R07",
       "text": "«рублёвые операции»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R08",
       "text": "«Не включать:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R09",
       "text": "«Начинай от актуального origin/main и проверь изменения после этого SHA.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R10",
       "text": "«Проверь фактические миграции, авторизацию, хранение файлов, инвалидацию кеша, тесты менеджерского кабинета и CRM.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R11",
       "text": "«Перед кодом составь краткий план реализации и миграций.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R12",
       "text": "«Не переписывай существующие модули целиком и не начинай общий рефакторинг приложения.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R13",
       "text": "«Деньги хранить в целых копейках.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R14",
       "text": "«Не выполнять денежные расчёты через float.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R15",
       "text": "«Датой продажи для этого импорта является дата банковской операции.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R16",
       "text": "«Дата операции — календарная дата, её нельзя сдвигать преобразованием UTC/local time.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R17",
       "text": "«Номер и дату счёта хранить отдельно от номера платёжного документа и даты поступления.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R18",
       "text": "«Два разных платежа по одному счёту — две операции.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R19",
       "text": "«Сохранить текущую функцию расчёта:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R20",
       "text": "«Ставку новой продажи брать из условий выбранного менеджера за месяц банковской операции и фиксировать в записи продажи.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R21",
       "text": "«Если условия месяца не заданы — платёж сохраняется, но проведение блокируется до настройки условий.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R22",
       "text": "«Явно установленная нулевая ставка допустима.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R23",
       "text": "«Менеджер по продажам»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R24",
       "text": "«Это отдельная общая бизнес-связь.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R25",
       "text": "«Выбирать можно существующий активный аккаунт менеджерского кабинета.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R26",
       "text": "«Назначение, изменение и снятие закрепления — только администратором.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R27",
       "text": "«Не изменять при этом существующие права доступа к персональной CRM, личные заметки, контакты, вкладки и историю звонков.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R28",
       "text": "«Хранить историю закреплений:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R29",
       "text": "«Интервалы не должны пересекаться.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R30",
       "text": "«В интерфейсе дата начала действия обязательна.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R31",
       "text": "«При разборе выписки определять менеджера на дату оплаты.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R32",
       "text": "«не переносит автоматически ранее проведённые продажи»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R33",
       "text": "«После назначения менеджера автоматически пересчитать предложения по ожидающим оплатам клиента.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R34",
       "text": "«Архивный клиент или неактивный/удалённый сотрудник: не подставлять другого менеджера автоматически»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R35",
       "text": "«Использовать существующий серверный стек чтения Excel.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R36",
       "text": "«Лист: «Выписка по счёту».»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R37",
       "text": "«Не привязывать чтение исключительно к номеру строки.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R38",
       "text": "«Считывать метаданные:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R39",
       "text": "«Колонки операций:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R40",
       "text": "«ИНН владельца выписки не путать с ИНН контрагента.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R41",
       "text": "«Не терять ведущие нули.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R42",
       "text": "«Суммы брать из колонок дебета/кредита, не из текста назначения.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R43",
       "text": "«Формулы не исполнять.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R44",
       "text": "«принадлежность дат периоду»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R45",
       "text": "«отсутствие одновременных положительных дебета и кредита»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R46",
       "text": "«соответствие организации и счёта выписки выбранной нашей организации.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R47",
       "text": "«Суммы всех прочитанных операций сверять с оборотами файла отдельно по дебету и кредиту ДО отбора продаж.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R48",
       "text": "«Это «не указано», а не ноль.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R49",
       "text": "«Неизвестный формат, повреждённый файл, неподдерживаемая валюта или неоднозначная структура — понятная ошибка без создания продаж.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R50",
       "text": "«Основной ключ — нормализованный ИНН контрагента.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R51",
       "text": "«Проверять формат и контрольные цифры ИНН.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R52",
       "text": "«Проводить только при однозначной связи с конкретной карточкой CRM.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R53",
       "text": "«Повторно загружать выписку после исправления не требуется.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R54",
       "text": "«Ручное сопоставление с отличающимся ИНН: только администратором, с предупреждением и обязательной причиной.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R55",
       "text": "«Не считать любое поступление продажей только потому, что найден клиент.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R56",
       "text": "«оплата/предоплата покупателя за товары или услуги — кандидат в продажи»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R57",
       "text": "«собственный перевод, заём, кредит, возврат от поставщика, внесение средств и другие непокупательские поступления — не включать автоматически»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R58",
       "text": "«противоречивое или неизвестное назначение — ручная проверка»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R59",
       "text": "«Администратор может подтвердить/изменить классификацию с причиной.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R60",
       "text": "«Извлекать из назначения по ограниченным проверяемым шаблонам:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R61",
       "text": "«Если указано несколько счетов — сохранить список ссылок/текст»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R62",
       "text": "«При неоднозначной дате оставить поле незаполненным и показать предупреждение.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R63",
       "text": "«Исходное назначение всегда сохранять без переписывания.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R64",
       "text": "«Разделить сущности:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R65",
       "text": "«источник bank_statement»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R66",
       "text": "«Старые продажи без связи с CRM должны продолжить работать.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R67",
       "text": "«Расширить ограничение source безопасной миграцией.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R68",
       "text": "«Проверить миграцию:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R69",
       "text": "«Повторная загрузка показывает существующий результат»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R70",
       "text": "«Если банк предоставляет устойчивый ID операции — использовать его в пределах организации/счёта.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R71",
       "text": "«отдельный поиск вероятных дублей при изменившемся назначении или неполных реквизитах.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R72",
       "text": "«При неоднозначных повторениях одинаковых реквизитов сохранить все исходные строки и отправить группу на проверку.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R73",
       "text": "«Проверять возможные совпадения с manual/onec:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R74",
       "text": "«связать платёж с уже существующей продажей без увеличения итога»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R75",
       "text": "«Не переписывать исторический источник ручной продажи»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R76",
       "text": "«Защиту обеспечить ограничениями БД и транзакциями»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R77",
       "text": "«Разбор и preview не создают manager_sales.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R78",
       "text": "«Разрешить подтвердить готовые выбранные строки, оставив остальные в ожидании.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R79",
       "text": "«Сам выбранный пакет проводить атомарно: либо все выбранные строки, либо ни одной.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R80",
       "text": "«Перед commit на сервере повторно проверить:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R81",
       "text": "«Изменение данных после preview — конфликт 409»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R82",
       "text": "«Использовать idempotency key подтверждения, связанный с содержимым запроса.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R83",
       "text": "«Проведение должно проходить через общий доменный механизм менеджерского учёта»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R84",
       "text": "«Перед подтверждением показать изменение продаж, комиссии и итогового вознаграждения по затронутым менеджерам/месяцам.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R85",
       "text": "«проведение блокировать»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R86",
       "text": "«использовать штатную отмену с причиной и аудитом»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R87",
       "text": "«Возвраты покупателям в первой версии:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R88",
       "text": "«Не менять задним числом сохранённые снимки закрытых месяцев.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R89",
       "text": "«В существующем разделе продаж добавить для администратора: «Загрузить выписку» и доступ к истории загрузок.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R90",
       "text": "«Добавить N оплат на … ₽ с НДС»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R91",
       "text": "«История поступлений — представление тех же банковских операций и продаж»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R92",
       "text": "«Показывать источник «Банковская выписка».»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R93",
       "text": "«Проверить на 390 × 844 CSS px и desktop.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R94",
       "text": "«Не менять действующие фильтры, прямой звонок, цветовые отметки и персональные вкладки CRM.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R95",
       "text": "«Все ограничения проверять на backend, включая прямой запрос по ID.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R96",
       "text": "«Хранить файл в приватном storage вне public.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R97",
       "text": "«Ограничить размер файла, число строк и распакованный размер XLSX.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R98",
       "text": "«Для публичных тестов использовать синтетическую выписку с такой же структурой и контрольными суммами.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R99",
       "text": "«создано ровно 6 продаж на 1 989 063,00 ₽ С НДС.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R100",
       "text": "«Повторный импорт и повторный commit: 0 новых продаж, итоги не изменились.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R101",
       "text": "«На каждом этапе: сначала тесты требуемого поведения, затем реализация, потом фактический запуск проверок.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R102",
       "text": "«Запустить существующие проверки проекта и новые тесты.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R103",
       "text": "«Не выполнять деплой или merge без отдельного разрешения.»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R104",
       "text": "«В отчёте предоставить:»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R105",
       "text": "«Если исходный файл недоступен в окружении агента: не утверждать, что он проверен»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R106",
@@ -1074,7 +1457,7 @@ window.STATE =
   "gates": {
     "G3": {
       "ok": true,
-      "at": "2026-11-07T16:07:19+03:00",
+      "at": "2026-11-07T17:07:36+03:00",
       "problems": 0
     },
     "G2": {
@@ -1083,7 +1466,16 @@ window.STATE =
       "found": 0,
       "fixed": 0,
       "deferred": 0
+    },
+    "G4": {
+      "ok": true,
+      "at": "2026-11-07T17:40:09+03:00",
+      "checked": 11,
+      "matched": 11
     }
   },
-  "result": null
+  "result": null,
+  "report": [
+    "G4: fully assessed11 product sections; process2/13 and delivery14 owned by parent, not independently re-certified. Original XLSX unavailable."
+  ]
 }
