@@ -233,6 +233,9 @@ export function BankImportContent({
     detail?.operations.filter(
       (op) => selected.includes(op.id) && op.status === 'ready',
     ) ?? [];
+  const selectedAccount = accounts?.accounts.find(
+    (account) => String(account.id) === accountId,
+  );
   return (
     <div className={styles.body}>
       {error && (
@@ -287,6 +290,7 @@ export function BankImportContent({
                 <label className={styles.field}>
                   Организация и счёт
                   <select
+                    aria-label="Организация и счёт"
                     required
                     value={accountId}
                     disabled={frozen}
@@ -301,6 +305,12 @@ export function BankImportContent({
                         </option>
                       ))}
                   </select>
+                  {selectedAccount && (
+                    <output className={styles.selectedValue}>
+                      {selectedAccount.organizationName} ·{' '}
+                      {selectedAccount.account}
+                    </output>
+                  )}
                 </label>
                 <label className={styles.field}>
                   Файл выписки XLSX

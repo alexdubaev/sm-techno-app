@@ -212,6 +212,7 @@ export function BankOperationCard({
             <label className={styles.field}>
               Выбранный клиент
               <select
+                aria-label="Выбранный клиент"
                 value={clientId}
                 disabled={locked}
                 onChange={(e) => setClientId(e.target.value)}
@@ -230,6 +231,13 @@ export function BankOperationCard({
                   </option>
                 ))}
               </select>
+              {(chosenClient?.name || op.clientName) && (
+                <output className={styles.selectedValue}>
+                  {chosenClient?.name || op.clientName}
+                  {chosenClient?.inn ? ` · ИНН ${chosenClient.inn}` : ''}
+                  {chosenClient?.kpp ? ` / ${chosenClient.kpp}` : ''}
+                </output>
+              )}
             </label>
             <div className={`${styles.field} ${styles.full}`}>
               <label>
