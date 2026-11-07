@@ -12,7 +12,7 @@ const { JSDOM } = require("jsdom");
 const { act } = React;
 
 function resolveTestModule(path) {
-  const candidates = /\.tsx?$/.test(path) ? [path] : [`${path}.ts`, `${path}.tsx`];
+  const candidates = /\.(?:tsx?|module\.css)$/.test(path) ? [path] : [`${path}.ts`, `${path}.tsx`];
   for (const candidate of candidates) {
     if (existsSync(new URL(`../${candidate}`, import.meta.url))) return candidate;
   }
@@ -24,8 +24,10 @@ test("VM resolver supports TypeScript and TSX aliases and fails on missing modul
   assert.equal(resolveTestModule("lib/api.ts"), "lib/api.ts");
   assert.equal(resolveTestModule("components/crm/messenger-links"), "components/crm/messenger-links.tsx");
   assert.equal(resolveTestModule("components/crm/messenger-links.tsx"), "components/crm/messenger-links.tsx");
+  assert.equal(resolveTestModule("components/manager/bank.module.css"), "components/manager/bank.module.css");
   assert.throws(() => resolveTestModule("lib/__missing_test_module__"), /Cannot resolve test module.*\.ts.*\.tsx/);
   assert.throws(() => resolveTestModule("components/crm/messenger-links.ts"), /Cannot resolve test module/);
+  assert.throws(() => resolveTestModule("components/__missing_test_style__.module.css"), /Cannot resolve test module/);
 });
 
 function deferred() {
@@ -61,6 +63,11 @@ async function workspaceHarness(t, { localGate, cached = false } = {}) {
     if (modules.has(path)) return modules.get(path).exports;
     const commonJsModule = { exports: {} };
     modules.set(path, commonJsModule);
+    if (path.endsWith(".module.css")) {
+      // CSS-module names have no behavior in this lifecycle test; real components still load.
+      commonJsModule.exports = { default: new Proxy({}, { get: (_target, name) => String(name) }) };
+      return commonJsModule.exports;
+    }
     const source = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
     const compiled = ts.transpileModule(source, {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
@@ -212,5 +219,6 @@ test("VM cache shares explicit and extensionless imports within one isolated har
   assert.equal(first.load("lib/api"), first.api);
   assert.equal(first.load("lib/api.ts"), first.api);
   assert.equal(first.load("components/crm/messenger-links"), first.load("components/crm/messenger-links.tsx"));
+  assert.equal(first.load("components/manager/bank.module.css").default.panel, "panel");
   assert.throws(() => first.load("lib/__missing_test_module__"), /Cannot resolve test module/);
 });

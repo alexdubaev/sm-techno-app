@@ -22,6 +22,7 @@ import {
 } from '@/components/crm/use-crm-client-detail';
 import { ClientDocumentsPanel } from '@/components/crm/client-documents-panel';
 import { MobileClientOverview } from '@/components/crm/mobile/mobile-client-overview';
+import { ClientSalesPanel } from '@/components/crm/client-sales-panel';
 import { MobileClientNote } from '@/components/crm/mobile/mobile-client-note';
 import {
   MobileClientHistory,
@@ -513,7 +514,7 @@ function MobileClientDetailContent({
           >
             {section === 'documents' ? <ClientDocumentsPanel key={client.id} clientId={client.id} isAdmin={options.isAdmin} /> : null}
             {section === 'note' ? <MobileClientNote controller={controller} /> : null}
-            {section === 'overview' ? (
+            {section === 'overview' ? (<>
               <MobileClientOverview
                 controller={controller}
                 onEdit={() => setSheet({ kind: 'requisites' })}
@@ -533,7 +534,8 @@ function MobileClientDetailContent({
                   setSheet({ kind: 'contact' });
                 }}
               />
-            ) : null}
+              <ClientSalesPanel key={client.id} clientId={client.id} isAdmin={options.isAdmin} />
+            </>) : null}
             {section === 'history' ? (
               <MobileClientHistory
                 controller={controller}

@@ -61,13 +61,17 @@ it('switching to a review job hides actions for the old confirmed invoice and up
   const review={...invoice,id:'invoice-b',status:'review' as const,version:1};
   vi.mocked(api.fetchDocuments).mockResolvedValueOnce([{id:31,documentType:'contract',number:'OLD',clientName:'Тест',documentDate:'2026-10-30'} as never]).mockResolvedValueOnce([{id:32,documentType:'specification',number:'NEW',clientName:'Тест',documentDate:'2026-10-30'} as never]);
   window.history.replaceState(null,'','/documents?invoiceJob=invoice-persisted');
-  vi.mocked(api.fetchDocumentAssistantJobs).mockResolvedValue({items:[invoice,review]} as never);
+  let resolveJobs!: (value: Awaited<ReturnType<typeof api.fetchDocumentAssistantJobs>>) => void;
+  const savedJobs = new Promise<Awaited<ReturnType<typeof api.fetchDocumentAssistantJobs>>>((resolve) => { resolveJobs = resolve; });
+  vi.mocked(api.fetchDocumentAssistantJobs).mockReturnValue(savedJobs);
   vi.mocked(api.fetchClientDocuments).mockResolvedValue({clientId:42,contract:{id:5,number:'Д-1',documentDate:'2026-10-30'},documents:[],attachments:[]} as never);
   render(<DocumentsWorkspace/>);
   expect(await findCreateSpec()).toBeVisible();
   // Only the invoices of the chosen client are offered.
   expect(api.fetchDocumentAssistantJobs).toHaveBeenCalledWith(42);
-  fireEvent.change(screen.getByLabelText('Сохранённые задания'),{target:{value:'invoice-b'}});
+  // A started request does not mean its response or the saved-jobs control is ready.
+  void Promise.resolve().then(() => resolveJobs({items:[invoice,review]}));
+  fireEvent.change(await screen.findByLabelText('Сохранённые задания'),{target:{value:'invoice-b'}});
   expect(screen.queryByRole('region',{name:'Спецификация из счёта'})).not.toBeInTheDocument();
   expect(new URL(window.location.href).searchParams.get('invoiceJob')).toBe('invoice-b');
   vi.spyOn(api,'confirmDocumentAssistantJob').mockResolvedValue({job:{...review,status:'confirmed',version:2}} as never);

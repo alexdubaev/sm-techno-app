@@ -23,7 +23,8 @@ export type ManagerSale = {
   amount: number;
   rate: number;
   cancelled: boolean;
-  source: 'manual' | 'onec';
+  source: 'manual' | 'onec' | 'bank_statement';
+  bankOperationId?: number | null;
   invoiceNumber?: string | null;
   invoiceDate?: string | null;
   base: number | null;
@@ -82,7 +83,7 @@ export type ManagerAudit = {
   id: number;
   actor_name: string;
   at: string;
-  kind: ManagerChange['kind'];
+  kind: ManagerChange['kind'] | 'bank_link';
   reason: string;
   before: ManagerAuditState;
   after: ManagerAuditState;

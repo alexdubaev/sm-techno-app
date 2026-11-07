@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import re
 import sqlite3
 import threading
@@ -184,6 +185,28 @@ def validate_database_storage_pair(
                     raise RuntimeError("client_document_assets.storage_key escapes storage or uses a symbolic link.")
                 if not candidate.is_file() or candidate.is_symlink():
                     raise RuntimeError("client_document_assets.storage_key references a missing storage file.")
+        # Statements are organization-wide private assets, separate from client
+        # document authorization. They still belong to the same atomic backup.
+        if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bank_uploads'").fetchone():
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(bank_uploads)")}
+            if not {'storage_key','byte_size','sha256'} <= columns:
+                raise RuntimeError("bank_uploads contains an unsafe storage schema.")
+            base = storage_root.resolve()
+            for key, size, expected in connection.execute("SELECT storage_key,byte_size,sha256 FROM bank_uploads"):
+                if not isinstance(key,str) or not re.fullmatch(r"[0-9a-f]{32}\.xlsx",key):
+                    raise RuntimeError("bank_uploads.storage_key contains an unsafe storage key.")
+                candidate = base / "bank_statements" / key
+                if candidate.resolve() != candidate or not candidate.is_file() or candidate.is_symlink():
+                    raise RuntimeError("bank_uploads references a missing or unsafe private file.")
+                info = candidate.stat()
+                if info.st_nlink != 1 or info.st_size != size or not isinstance(expected,str) or not re.fullmatch(r"[0-9a-f]{64}",expected):
+                    raise RuntimeError("bank_uploads private file size or reference is invalid.")
+                sha = hashlib.sha256()
+                with candidate.open("rb") as handle:
+                    for chunk in iter(lambda:handle.read(1024*1024),b""):
+                        sha.update(chunk)
+                if sha.hexdigest() != expected:
+                    raise RuntimeError("bank_uploads private file integrity check failed.")
     except sqlite3.DatabaseError as exc:
         raise RuntimeError(f"SQLite validation failed: {exc}") from exc
     finally:

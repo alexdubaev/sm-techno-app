@@ -22,6 +22,7 @@ const labels = {
   cancel: 'Отмена продажи',
   close: 'Закрытие месяца',
   reopen: 'Повторное открытие',
+  bank_link: 'Подтверждение банковским платежом',
 };
 function AuditState({ state }: { state: ManagerAuditState }) {
   return (
