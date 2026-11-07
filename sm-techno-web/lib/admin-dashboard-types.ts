@@ -1,11 +1,11 @@
 export type PeriodKind = 'week' | 'month' | 'quarter' | 'year';
 export type Period = {kind: PeriodKind; start: string; end: string; anchorDate: string};
 export type SalesOverview = {
-  period: Period; totals: {salesTotal: number; count: number};
+  period: Period; totals: {salesTotal: number; count: number; unallocatedSalesTotal?: number; unallocatedCount?: number};
   series: {date: string; amount: number; count: number}[];
   managers: {id: number; userId: number | null; name: string; active: boolean; archived: boolean; salesTotal: number; count: number}[];
   monthlyPlans: {month: string; managers: {id: number; name: string; plan: number | null; salesTotal: number; progress: number | null; status: 'unset' | 'no_plan' | 'planned'}[]};
-  sources: {manualCount: number; onecCount: number; odataConnected: boolean};
+  sources: {bankCount?: number; manualCount: number; onecCount: number; odataConnected: boolean};
 };
 export type UsageOverview = {period: Period; trackingStartedAt: string | null; recordingDegraded: boolean;
   totals: {requests: number; failedRequests: number; promptTokens: number | null; completionTokens: number | null; totalTokens: number | null; unknownUsageRequests: number};

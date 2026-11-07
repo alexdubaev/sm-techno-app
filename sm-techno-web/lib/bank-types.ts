@@ -85,6 +85,9 @@ export type BankOperation = {
   }[];
   saleId: number | null;
   cancelled: boolean;
+  companyAccounted?: boolean;
+  companyCanConfirm?: boolean;
+  companyCancelled?: boolean;
 };
 export type BankUpload = {
   id: number;
@@ -124,6 +127,8 @@ export type BankUploadDetail = BankUpload & {
   summary: {
     readyCount: number;
     readyAmount: number;
+    companyReadyCount?: number;
+    companyReadyAmount?: number;
     accountedCount: number;
     reviewCount: number;
     excludedCount: number;
@@ -144,6 +149,10 @@ export type BankEffectSummary = {
 export type BankPreview = {
   count: number;
   amount: number;
+  companyCount?: number;
+  companyAmount?: number;
+  managerCount?: number;
+  pendingManagerCount?: number;
   linkedCount: number;
   effects: {
     managerId: number;
@@ -202,6 +211,8 @@ export type BankClientSummary = {
     status: BankStatus;
     saleId: number | null;
     cancelled: boolean;
+    companyAccounted?: boolean;
+    companyCancelled?: boolean;
   }[];
   pending: {
     count: number;

@@ -12,7 +12,7 @@ from stock_sync_web.bank_assignment_repository import BankAssignmentRepository
 def test_bank_schema_clean_and_repeated_initialization(tmp_path):
     db = WebDatabase(tmp_path / 'clean.db')
     expected = {'bank_import_accounts', 'bank_uploads', 'bank_source_rows', 'bank_operations',
-                'bank_decisions', 'bank_decision_audit', 'bank_sale_links', 'bank_commits',
+                'bank_decisions', 'bank_decision_audit', 'bank_sale_links', 'bank_commits', 'bank_company_sales',
                 'crm_sales_assignments', 'crm_sales_assignment_versions', 'crm_sales_assignment_audit'}
     with db.connect() as conn:
         assert expected <= {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

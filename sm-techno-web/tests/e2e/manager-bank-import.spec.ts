@@ -77,24 +77,6 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.addInitScript((session) => localStorage.setItem('sm-techno-auth-session', JSON.stringify(session)), admin);
 
-  // One actual CRM assignment through the shared desktop/mobile panel.
-  const sales = await openClientSales(page, clientIds[0]);
-  await sales.getByText('Назначить или изменить менеджера', { exact: true }).click();
-  await sales.getByLabel('Менеджер по продажам').selectOption(String(managerId));
-  await sales.getByLabel('Дата начала закрепления').fill('2026-11-01');
-  await sales.getByLabel('Причина изменения закрепления').fill('Первоначальное закрепление в браузере');
-  const assignmentRefresh = Promise.all([
-    page.waitForResponse((response) => response.request().method() === 'GET'
-      && response.url().endsWith(`/api/bank-statements/clients/${clientIds[0]}`) && response.status() === 200),
-    page.waitForResponse((response) => response.request().method() === 'GET'
-      && response.url().endsWith('/api/manager/managers') && response.status() === 200),
-  ]);
-  await sales.getByRole('button', { name: 'Сохранить закрепление', exact: true }).click();
-  await expect(sales.getByText('Закрепление сохранено.', { exact: false })).toBeVisible();
-  // Finish the successful save's explicit refresh before this test's document navigation.
-  // WebKit reports an artificial hard-navigation abort as an access-control page error.
-  await Promise.all((await assignmentRefresh).map((response) => response.finished()));
-
   await page.goto('/manager');
   await page.getByLabel('Месяц', { exact: true }).fill('2026-11');
   await page.getByLabel('Кабинет сотрудника').selectOption(String(managerId));
@@ -120,13 +102,19 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   const read = await json(await request.get('/api/bank-statements/uploads', { headers }));
   const upload = read.items.find((item: { account: string }) => item.account === dataset.account);
   const before = await json(await request.get(`/api/bank-statements/uploads/${upload.id}`, { headers }));
-  expect(before.summary).toMatchObject({ readyCount: 6, readyAmount: 198906300 });
+  expect(before.summary).toMatchObject({ companyReadyCount: 6, companyReadyAmount: 198906300, readyCount: 5 });
+  const firstOperation = before.operations.find((op: { clientId: number }) => op.clientId === clientIds[0]);
+  expect(firstOperation.status).toBe('manager_missing');
+  const company = () => request.get('/api/admin/dashboard/sales?period=month&date=2026-11-07', { headers }).then((response) => json(response));
+  const companyBefore = await company();
   expect(before.operations.find((op: { documentNumber: string }) => op.documentNumber === '606').invoiceDate).toBeNull();
   await dialog.getByRole('button', { name: 'Выбрать готовые', exact: true }).click();
   await dialog.getByRole('button', { name: 'Проверить итог перед добавлением', exact: true }).click();
-  const effect = dialog.getByRole('region', { name: 'Изменение вознаграждения' });
-  await expect(effect).toContainText(/99\s453,15/);
-  const confirm = effect.getByRole('button', { name: /^Добавить 6 оплат на/ });
+  const effect = dialog.getByRole('region', { name: 'Изменение продаж и вознаграждения' });
+  await expect(effect).toContainText('Изменение общих продаж: 6 оплат');
+  await expect(effect).toContainText('Начисление менеджерам: 5 оплат');
+  await expect(effect).toContainText('Не начислено менеджерам: 1');
+  const confirm = effect.getByRole('button', { name: 'Подтвердить 6 оплат' });
   await confirm.scrollIntoViewIfNeeded();
   await confirm.evaluate((button) => button.scrollIntoView({ block: 'center', inline: 'nearest' }));
   await expect(confirm).toBeVisible();
@@ -163,10 +151,58 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   const commitRequest = page.waitForRequest((req) => req.method() === 'POST' && req.url().endsWith('/api/bank-statements/commit'));
   await confirm.click();
   const savedRequest = (await commitRequest).postDataJSON();
-  await expect(dialog.getByText('Добавлено продаж: 6.', { exact: false })).toBeVisible();
+  await expect(dialog.locator('output').filter({ hasText: 'Изменение общих продаж: 6' })).toBeVisible();
+  const companyAfter = await company();
+  const dashboard = () => request.get('/api/manager/dashboard?month=2026-11', { headers: employeeHeaders }).then((response) => json(response));
+  expect((await dashboard()).summary).toMatchObject({ salesTotal: 198906300 - firstOperation.amount, count: 5 });
+  expect(companyAfter.totals.salesTotal - companyBefore.totals.salesTotal).toBe(198906300);
+  expect(companyAfter.totals.unallocatedSalesTotal - companyBefore.totals.unallocatedSalesTotal).toBe(firstOperation.amount);
+  expect(companyAfter.totals.unallocatedCount - companyBefore.totals.unallocatedCount).toBe(1);
+  const companyOnlyCard = dialog.getByRole('article', { name: `Оплата ${firstOperation.documentNumber}`, exact: true });
+  await expect(companyOnlyCard).toContainText('Учтено в общих продажах');
+  await expect(companyOnlyCard).toContainText('Не начислено менеджеру');
+  await expect(companyOnlyCard.getByRole('checkbox')).toBeDisabled();
+  await companyOnlyCard.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('bank-company-only-synthetic.png'), fullPage: false });
+  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  // One actual CRM assignment through the shared desktop/mobile panel.
+  const sales = await openClientSales(page, clientIds[0]);
+  await sales.getByText('Назначить или изменить менеджера', { exact: true }).click();
+  await sales.getByLabel('Менеджер по продажам').selectOption(String(managerId));
+  await sales.getByLabel('Дата начала закрепления').fill('2026-11-01');
+  await sales.getByLabel('Причина изменения закрепления').fill('Первоначальное закрепление в браузере');
+  const assignmentRefresh = Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'GET'
+      && response.url().endsWith(`/api/bank-statements/clients/${clientIds[0]}`) && response.status() === 200),
+    page.waitForResponse((response) => response.request().method() === 'GET'
+      && response.url().endsWith('/api/manager/managers') && response.status() === 200),
+  ]);
+  await sales.getByRole('button', { name: 'Сохранить закрепление', exact: true }).click();
+  await expect(sales.getByText('Закрепление сохранено.', { exact: false })).toBeVisible();
+  // Finish the successful save's explicit refresh before this test's document navigation.
+  // WebKit reports an artificial hard-navigation abort as an access-control page error.
+  await Promise.all((await assignmentRefresh).map((response) => response.finished()));
+
+
+  // Attribution creates the manager ledger entry without adding a second company sale.
+  await page.goto('/manager');
+  await page.getByLabel('Месяц', { exact: true }).fill('2026-11');
+  await page.getByLabel('Кабинет сотрудника').selectOption(String(managerId));
+  await page.getByRole('button', { name: 'История выписок', exact: true }).click();
+  await dialog.getByRole('button', { name: new RegExp(`synthetic-control-${scope}`) }).click();
+  await dialog.getByRole('button', { name: 'Проверить итог перед добавлением', exact: true }).click();
+  await expect(effect).toContainText('Изменение общих продаж: 0 оплат · 0 ₽');
+  await expect(effect).toContainText('Начисление менеджерам: 1 оплат');
+  await page.screenshot({ path: info.outputPath('bank-later-manager-preview-synthetic.png'), fullPage: false });
+  await effect.getByRole('button', { name: 'Подтвердить 1 оплат', exact: true }).click();
+  await expect(dialog.locator('output').filter({ hasText: 'Изменение общих продаж: 0' })).toBeVisible();
+  const attributed = await company();
+  expect(attributed.totals.salesTotal).toBe(companyAfter.totals.salesTotal);
+  expect(attributed.totals.count).toBe(companyAfter.totals.count);
+  expect(attributed.totals.unallocatedSalesTotal).toBe(companyBefore.totals.unallocatedSalesTotal);
+  expect(attributed.totals.unallocatedCount).toBe(companyBefore.totals.unallocatedCount);
   const posted = await json(await request.get(`/api/bank-statements/uploads/${upload.id}`, { headers }));
   expect(posted.summary.accountedCount).toBe(6);
-  const dashboard = () => request.get('/api/manager/dashboard?month=2026-11', { headers: employeeHeaders }).then((response) => json(response));
   expect((await dashboard()).summary).toMatchObject({ salesTotal: 198906300, commission: 9945315, income: 9945315, count: 6 });
   // Lost-response retry is the original saved payload/key; totals remain unchanged.
   await json(await request.post('/api/bank-statements/commit', { headers, data: savedRequest }));

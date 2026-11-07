@@ -49,7 +49,8 @@ def test_control_six_gross_payments_preview_and_durable_idempotency(bank):
     db, repo, admin, seller, managers, mid, account, clients = bank
     raw = make_statement()
     upload = repo.upload(admin, account, 'synthetic.xlsx', raw)
-    assert upload['summary'] == dict(readyCount=6, readyAmount=198906300, accountedCount=0, reviewCount=0, excludedCount=0)
+    assert upload['summary'] == dict(readyCount=6, readyAmount=198906300, companyReadyCount=6,
+        companyReadyAmount=198906300, accountedCount=0, reviewCount=0, excludedCount=0)
     assert managers.dashboard(admin, mid, '2026-11')['summary']['salesTotal'] == 0
     items = selected(upload)
     effect = repo.preview(admin, items)

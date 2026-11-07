@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/dialog';
 import { dateLabel, money, errorMessage, monthLabel } from './format';
 import { BankOperationCard } from './bank-operation-card';
+import { canSelectBankPayment } from './bank-format';
 import styles from './bank.module.css';
 
 type PendingConfirmation = { uploadId: number; request: BankCommitRequest };
@@ -81,8 +82,7 @@ export function BankImport({
             </button>
           </div>
           <DialogDescription className={styles.muted}>
-            Общий импорт по организации. Оплаты распределяются по закреплениям
-            клиентов на дату поступления.
+            Общий импорт по организации. Подтверждённые оплаты входят в общие продажи. Начисление менеджеру зависит от закрепления на дату поступления и условий месяца.
           </DialogDescription>
           <BankImportContent userId={userId} onChanged={onChanged} />
         </DialogPopup>
@@ -137,7 +137,7 @@ export function BankImportContent({
   function acceptDetail(value: BankUploadDetail) {
     setDetail(value);
     setSelected(
-      value.operations.filter((op) => op.status === 'ready').map((op) => op.id),
+      value.operations.filter(canSelectBankPayment).map((op) => op.id),
     );
     setPreview(null);
   }
@@ -181,7 +181,7 @@ export function BankImportContent({
   async function calculatePreview() {
     if (!detail) return;
     const items = detail.operations
-      .filter((op) => selected.includes(op.id) && op.status === 'ready')
+      .filter((op) => selected.includes(op.id) && canSelectBankPayment(op))
       .map((op) => ({
         operationId: op.id,
         version: op.version,
@@ -214,7 +214,7 @@ export function BankImportContent({
       storePending(null);
       setPreview(null);
       setNotice(
-        `Добавлено продаж: ${result.createdCount}. Связано с существующими: ${result.linkedCount}. Проблемные операции сохранены.`,
+        `Изменение общих продаж: ${result.companyCount ?? result.createdCount} · ${money(result.companyAmount ?? result.amount)}. Менеджерам: ${result.managerCount ?? result.createdCount + result.linkedCount}. Ожидают начисления менеджеру: ${result.pendingManagerCount ?? 0}. Связано с существующими: ${result.linkedCount}.`,
       );
       onChanged();
       window.dispatchEvent(new Event('smtechno-bank-changed'));
@@ -231,7 +231,7 @@ export function BankImportContent({
   const frozen = busy || pending !== null;
   const selectedOps =
     detail?.operations.filter(
-      (op) => selected.includes(op.id) && op.status === 'ready',
+      (op) => selected.includes(op.id) && canSelectBankPayment(op),
     ) ?? [];
   const selectedAccount = accounts?.accounts.find(
     (account) => String(account.id) === accountId,
@@ -435,7 +435,11 @@ export function BankImportContent({
             <div className={styles.metrics}>
               {[
                 [
-                  'Готово',
+                  'Готово в общие продажи',
+                  `${detail.summary.companyReadyCount ?? detail.summary.readyCount} · ${money(detail.summary.companyReadyAmount ?? detail.summary.readyAmount)}`,
+                ],
+                [
+                  'Готово менеджерам',
                   `${detail.summary.readyCount} · ${money(detail.summary.readyAmount)}`,
                 ],
                 ['Уже учтено', String(detail.summary.accountedCount)],
@@ -493,7 +497,7 @@ export function BankImportContent({
               onClick={() => {
                 setSelected(
                   detail.operations
-                    .filter((op) => op.status === 'ready')
+                    .filter(canSelectBankPayment)
                     .map((op) => op.id),
                 );
                 setPreview(null);
@@ -520,6 +524,7 @@ export function BankImportContent({
                 onSaved={() =>
                   action(async () => {
                     await refresh(detail.id);
+                    onChanged();
                     window.dispatchEvent(new Event('smtechno-bank-changed'));
                   })
                 }
@@ -552,9 +557,13 @@ export function BankImportContent({
           {preview && (
             <section
               className={styles.confirmation}
-              aria-label="Изменение вознаграждения"
+              aria-label="Изменение продаж и вознаграждения"
             >
               <h3>Результат выбранных оплат</h3>
+              <p>Изменение общих продаж: {preview.data.companyCount ?? preview.data.count - preview.data.linkedCount} оплат · {money(preview.data.companyAmount ?? preview.data.amount)} с НДС.</p>
+              <p>Начисление менеджерам: {preview.data.managerCount ?? preview.data.count} оплат.</p>
+              {(preview.data.pendingManagerCount ?? 0) > 0 && <p className={styles.warning}>Не начислено менеджерам: {preview.data.pendingManagerCount}. Оплаты сохранятся в общих продажах; закрепление и условия можно проверить позже.</p>}
+              <h4>Изменение продаж и вознаграждения менеджеров</h4>
               <p className={styles.muted}>
                 Связанных с существующими продажами: {preview.data.linkedCount}.
                 Они не увеличивают итог повторно.
@@ -600,8 +609,7 @@ export function BankImportContent({
                   disabled={frozen}
                   onClick={() => void confirm()}
                 >
-                  Добавить {preview.data.count} оплат на{' '}
-                  {money(preview.data.amount)} с НДС
+                  Подтвердить {preview.data.count} оплат
                 </button>
               </div>
             </section>

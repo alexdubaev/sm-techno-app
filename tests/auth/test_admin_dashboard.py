@@ -5,7 +5,7 @@ def test_admin_sales_access_and_empty_period(auth_api):
     response = client.get('/api/admin/dashboard/sales?period=month&date=2026-10-15', headers=admin)
     assert response.status_code == 200
     data = response.json()
-    assert data['totals'] == {'salesTotal': 0, 'count': 0}
+    assert data['totals'] == {'salesTotal': 0, 'count': 0, 'unallocatedSalesTotal': 0, 'unallocatedCount': 0}
     assert len(data['series']) == 31
     assert data['period']['start'] == '2026-10-01'
 
@@ -24,10 +24,10 @@ def test_sales_periods_cancellations_and_plans(auth_api):
     result = c.get('/api/admin/dashboard/sales?period=quarter&date=2026-10-15', headers=admin)
     assert result.status_code == 200 and result.headers['cache-control'] == 'no-store'
     data = result.json()
-    assert data['totals'] == {'salesTotal':2000, 'count':2}
+    assert data['totals'] == {'salesTotal':2000, 'count':2, 'unallocatedSalesTotal':0, 'unallocatedCount':0}
     assert sum(x['amount'] for x in data['series']) == 2000
     assert sum(x['salesTotal'] for x in data['managers']) == 2000
-    assert data['sources'] == {'manualCount':1,'onecCount':1,'odataConnected':False}
+    assert data['sources'] == {'manualCount':1,'onecCount':1,'bankCount':0,'odataConnected':False}
     plan = next(x for x in data['monthlyPlans']['managers'] if x['id'] == manager['id'])
     assert (plan['status'],plan['progress']) == ('planned',200)
     assert c.get('/api/admin/dashboard/sales?period=month&date=2026-02-30', headers=admin).status_code == 400
@@ -65,7 +65,7 @@ def test_week_year_history_and_plan_states(auth_api):
     db.update_user_account(uid,role='user',is_active=False)
     week=c.get('/api/admin/dashboard/sales?period=week&date=2026-01-01',headers=admin).json()
     assert (week['period']['start'],week['period']['end']) == ('2025-12-29','2026-01-04')
-    assert week['totals'] == {'salesTotal':600,'count':3}
+    assert week['totals'] == {'salesTotal':600,'count':3,'unallocatedSalesTotal':0,'unallocatedCount':0}
     assert sum(x['salesTotal'] for x in week['managers']) == 600
     assert next(x for x in week['managers'] if x['id']==inactive_id)['active'] is False
     assert next(x for x in week['managers'] if x['id']==archive_id)['archived'] is True

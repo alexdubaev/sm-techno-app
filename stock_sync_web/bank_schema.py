@@ -116,6 +116,39 @@ LINK_SCHEMA = (
     'CREATE INDEX IF NOT EXISTS bank_sale_links_client ON bank_sale_links(client_id,operation_id)',
 )
 
+COMPANY_SCHEMA = (
+    '''CREATE TABLE IF NOT EXISTS bank_company_sales (
+        operation_id INTEGER PRIMARY KEY REFERENCES bank_operations(id),
+        client_id INTEGER NOT NULL REFERENCES crm_clients(id),
+        client_name TEXT NOT NULL, classification TEXT NOT NULL CHECK(classification='sale'),
+        decision_json TEXT NOT NULL,
+        confirmed_by INTEGER NOT NULL REFERENCES users(id), confirmed_at TEXT NOT NULL, reason TEXT NOT NULL,
+        cancelled_at TEXT, cancelled_by INTEGER REFERENCES users(id), cancellation_reason TEXT,
+        CHECK((cancelled_at IS NULL AND cancelled_by IS NULL AND cancellation_reason IS NULL)
+          OR (cancelled_at IS NOT NULL AND cancelled_by IS NOT NULL AND length(cancellation_reason)>0)))''',
+    'CREATE INDEX IF NOT EXISTS bank_company_sales_client ON bank_company_sales(client_id,operation_id)',
+    '''CREATE TRIGGER IF NOT EXISTS bank_company_sales_frozen BEFORE UPDATE ON bank_company_sales
+        WHEN NEW.operation_id IS NOT OLD.operation_id OR NEW.client_id IS NOT OLD.client_id
+          OR NEW.client_name IS NOT OLD.client_name OR NEW.classification IS NOT OLD.classification
+          OR NEW.decision_json IS NOT OLD.decision_json OR NEW.confirmed_by IS NOT OLD.confirmed_by
+          OR NEW.confirmed_at IS NOT OLD.confirmed_at OR NEW.reason IS NOT OLD.reason
+          OR OLD.cancelled_at IS NOT NULL
+        BEGIN SELECT RAISE(ABORT,'Company confirmation is immutable'); END''',
+    '''CREATE TRIGGER IF NOT EXISTS bank_company_sales_no_delete BEFORE DELETE ON bank_company_sales
+        BEGIN SELECT RAISE(ABORT,'Company confirmation must be cancelled'); END''',
+)
+
+
+def migrate_company_sales(conn: sqlite3.Connection) -> None:
+    for statement in COMPANY_SCHEMA:
+        conn.execute(statement)
+
+
+def company_migration_present(conn: sqlite3.Connection) -> bool:
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+    return {'bank_company_sales', 'bank_company_sales_client', 'bank_company_sales_frozen',
+            'bank_company_sales_no_delete'} <= names
+
 
 def _upgrade_sales(conn: sqlite3.Connection) -> None:
     columns = {r['name'] for r in conn.execute('PRAGMA table_info(manager_sales)')}
