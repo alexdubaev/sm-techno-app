@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   preview: vi.fn(),
   commit: vi.fn(),
   decision: vi.fn(),
+  cancelCompany: vi.fn(),
   client: vi.fn(),
   assignment: vi.fn(),
   history: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock('@/lib/api', async (original) => ({
   previewBankPayments: mocks.preview,
   commitBankPayments: mocks.commit,
   changeBankDecision: mocks.decision,
+  cancelBankCompanyPayment: mocks.cancelCompany,
   fetchBankClient: mocks.client,
   saveClientSalesManager: mocks.assignment,
   fetchManagerHistory: mocks.history,
@@ -129,6 +131,7 @@ const upload: BankUploadDetail = {
 };
 beforeEach(() => {
   sessionStorage.clear();
+  mocks.cancelCompany.mockResolvedValue(operation);
   mocks.admin = true;
   mocks.dashboard.mockResolvedValue({
     account: {
@@ -207,6 +210,75 @@ beforeEach(() => {
 });
 
 describe('Bank payments in existing sales', () => {
+  it('confirms company sales without a manager and explains the pending manager posting', async () => {
+    const companyOnly = { ...operation, managerId: null, managerName: null, status: 'manager_missing' as const, companyCanConfirm: true };
+    mocks.detail.mockResolvedValue({ ...upload, operations: [companyOnly] });
+    mocks.preview.mockResolvedValue({ count: 1, amount: operation.amount, companyCount: 1, companyAmount: operation.amount, managerCount: 0, pendingManagerCount: 1, linkedCount: 0, effects: [] });
+    mocks.commit.mockResolvedValue({ companyCount: 1, companyAmount: operation.amount, managerCount: 0, pendingManagerCount: 1, createdCount: 0, linkedCount: 0 });
+    render(<BankImportContent userId={8} onChanged={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Тестовая организация.*synthetic.xlsx/ }));
+    expect(await screen.findByRole('checkbox', { name: 'Выбрать оплату 2810' })).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить итог перед добавлением' }));
+    expect(await screen.findByText(/Изменение общих продаж: 1/)).toHaveTextContent('360');
+    expect(screen.getByText(/Не начислено менеджерам: 1/)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить 1 оплат' }));
+    expect(await screen.findByText(/Изменение общих продаж: 1.*Менеджерам: 0/)).toBeVisible();
+    expect(mocks.commit).toHaveBeenCalledWith(expect.objectContaining({ items: [{ operationId: 11, version: 2, fingerprint: 'synthetic-fingerprint' }] }));
+  });
+  it('shows zero company addition when a confirmed company receipt becomes ready for its manager', async () => {
+    mocks.detail.mockResolvedValue({ ...upload, operations: [{ ...operation, companyAccounted: true }] });
+    mocks.preview.mockResolvedValue({ count: 1, amount: operation.amount, companyCount: 0, companyAmount: 0, managerCount: 1, pendingManagerCount: 0, linkedCount: 0, effects: [] });
+    render(<BankImportContent userId={8} onChanged={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Тестовая организация.*synthetic.xlsx/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Проверить итог перед добавлением' }));
+    expect(await screen.findByText(/Изменение общих продаж: 0/)).toHaveTextContent('0 ₽');
+    expect(screen.getByText('Начисление менеджерам: 1 оплат.')).toBeVisible();
+    expect(screen.queryByText('Проверить и изменить решение')).not.toBeInTheDocument();
+  });
+  it('requires a reason to cancel an unallocated company receipt and refreshes it', async () => {
+    const saved = vi.fn().mockResolvedValue(undefined);
+    render(<BankOperationCard operation={{ ...operation, status: 'manager_missing', companyAccounted: true }} selected={false} disabled={false} onSelect={() => {}} onSaved={saved} />);
+    expect(screen.getByRole('checkbox')).toBeDisabled();
+    expect(screen.queryByText('Проверить и изменить решение')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Отменить учёт в общих продажах'));
+    const cancel = screen.getByRole('button', { name: 'Отменить общую продажу' });
+    expect(cancel).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Причина отмены общей продажи'), { target: { value: 'Ошибочное подтверждение' } });
+    fireEvent.click(cancel);
+    await waitFor(() => expect(mocks.cancelCompany).toHaveBeenCalledWith(11, { version: 2, reason: 'Ошибочное подтверждение' }));
+    await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  });
+  it('shows the negative company delta when linking two previously counted receipts', async () => {
+    mocks.detail.mockResolvedValue({ ...upload, operations: [{ ...operation, companyAccounted: true }] });
+    mocks.preview.mockResolvedValue({ count: 1, amount: operation.amount, companyCount: -1, companyAmount: -operation.amount!, managerCount: 1, pendingManagerCount: 0, linkedCount: 1, effects: [] });
+    render(<BankImportContent userId={8} onChanged={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Тестовая организация.*synthetic.xlsx/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Проверить итог перед добавлением' }));
+    const delta = await screen.findByText(/Изменение общих продаж: -1/);
+    expect(delta.textContent?.replace(/\s/g, '')).toContain('-360000₽');
+    expect(screen.getByRole('button', { name: 'Подтвердить 1 оплат' })).toBeEnabled();
+  });
+  it('keeps cancelled company receipts unselectable and explains their state', () => {
+    render(<BankOperationCard operation={{ ...operation, companyAccounted: true, companyCanConfirm: true, companyCancelled: true }} selected={false} disabled={false} onSelect={() => {}} onSaved={async () => {}} />);
+    expect(screen.getByRole('checkbox')).toBeDisabled();
+    expect(screen.getByText('Общая продажа отменена')).toBeVisible();
+    expect(screen.queryByText('Отменить учёт в общих продажах')).not.toBeInTheDocument();
+  });
+  it('resolves a later duplicate of a company receipt without changing its frozen identity', async () => {
+    mocks.decision.mockResolvedValue(operation);
+    const saved = vi.fn().mockResolvedValue(undefined);
+    render(<BankOperationCard operation={{ ...operation, companyAccounted: true, status: 'possible_duplicate', candidateSales: [{ id: 71, date: '2026-11-06', client: 'Тестовый клиент', amount: 36000000, managerId: 31, managerName: 'Тестовый менеджер', source: 'manual', invoiceNumber: null }] }} selected={false} disabled={false} onSelect={() => {}} onSaved={saved} />);
+    fireEvent.click(screen.getByText('Разрешить возможный дубль'));
+    expect(screen.queryByLabelText('Тип поступления')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Выбранный клиент')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Номер счёта на оплату')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Решение по возможному дублю'), { target: { value: 'link' } });
+    fireEvent.change(screen.getByLabelText('Существующая продажа'), { target: { value: '71' } });
+    fireEvent.change(screen.getByLabelText('Причина решения по дублю'), { target: { value: 'Оплата подтверждает ручную продажу' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить решение по дублю' }));
+    await waitFor(() => expect(mocks.decision).toHaveBeenCalledWith(11, { version: 2, duplicateAction: 'link', linkSaleId: 71, reason: 'Оплата подтверждает ручную продажу' }));
+    await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  });
   it('retains invalid source rows for inspection while requiring corrected XLSX for critical bank fields', () => {
     render(
       <BankOperationCard
@@ -347,14 +419,14 @@ describe('Bank payments in existing sales', () => {
       screen.getByRole('button', { name: 'Проверить итог перед добавлением' }),
     );
     const confirm = await screen.findByRole('button', {
-      name: /Добавить 1 оплат на/,
+      name: 'Подтвердить 1 оплат',
     });
     expect(mocks.preview).toHaveBeenCalledWith([
       { operationId: 11, version: 2, fingerprint: 'synthetic-fingerprint' },
     ]);
     expect(mocks.commit).not.toHaveBeenCalled();
     expect(
-      screen.getByRole('region', { name: 'Изменение вознаграждения' }),
+      screen.getByRole('region', { name: 'Изменение продаж и вознаграждения' }),
     ).toHaveTextContent('Комиссия:');
     fireEvent.click(confirm);
     expect(await screen.findByText('Ответ потерян')).toBeVisible();
@@ -368,7 +440,7 @@ describe('Bank payments in existing sales', () => {
     );
     await waitFor(() => expect(mocks.commit).toHaveBeenCalledTimes(2));
     expect(mocks.commit.mock.calls[1][0]).toEqual(request);
-    await screen.findByText(/Добавлено продаж: 1/);
+    await screen.findByText(/Изменение общих продаж: 1.*Менеджерам:/);
     expect(sessionStorage.getItem('smtechno-bank-confirm:8')).toBeNull();
     expect(changed).toHaveBeenCalledOnce();
     expect(
@@ -435,5 +507,13 @@ describe('Bank payments in existing sales', () => {
     expect(
       screen.queryByLabelText('Дата начала закрепления'),
     ).not.toBeInTheDocument();
+  });
+  it('explains company-only payments separately from the missing manager in the admin CRM card', async () => {
+    mocks.client.mockResolvedValue({ clientId: 3, version: 0, assignment: null, history: [], pending: null,
+      payments: [{ id: 11, date: '2026-11-06', amount: 36000000, managerId: null, managerName: null, invoiceNumber: null, invoiceDate: null, status: 'manager_missing', saleId: null, cancelled: false, companyAccounted: true, companyCancelled: false }] });
+    render(<ClientSalesPanel clientId={3} isAdmin />);
+    expect(await screen.findByText('Учтено в общих продажах')).toBeVisible();
+    expect(screen.getByText('Не начислено менеджеру')).toBeVisible();
+    expect(screen.getByText('Менеджер не назначен')).toBeVisible();
   });
 });

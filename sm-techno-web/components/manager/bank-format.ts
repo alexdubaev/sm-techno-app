@@ -1,4 +1,7 @@
-import type { BankStatus } from '@/lib/bank-types';
+import type { BankOperation, BankStatus } from '@/lib/bank-types';
+export function canSelectBankPayment(op: BankOperation) {
+  return !op.cancelled && !op.companyCancelled && (op.status === 'ready' || op.companyCanConfirm === true);
+}
 export const bankStatusLabel: Record<BankStatus, string> = {
   ready: 'Готово',
   client_not_found: 'Клиент не найден',

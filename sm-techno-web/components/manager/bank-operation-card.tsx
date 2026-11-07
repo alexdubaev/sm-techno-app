@@ -1,14 +1,14 @@
 'use client';
 import Link from 'next/link';
 import { useState, type SubmitEvent } from 'react';
-import { changeBankDecision, searchBankClients } from '@/lib/api';
+import { cancelBankCompanyPayment, changeBankDecision, searchBankClients } from '@/lib/api';
 import type {
   BankClassification,
   BankClientChoice,
   BankDecisionChange,
   BankOperation,
 } from '@/lib/bank-types';
-import { bankStatusLabel } from './bank-format';
+import { bankStatusLabel, canSelectBankPayment } from './bank-format';
 import { dateLabel, errorMessage, money } from './format';
 import styles from './bank.module.css';
 
@@ -44,6 +44,7 @@ export function BankOperationCard({
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   const chosenClient = clients.find((client) => String(client.id) === clientId);
   const mismatch =
     chosenClient &&
@@ -84,6 +85,25 @@ export function BankOperationCard({
       setBusy(false);
     }
   }
+  async function saveDuplicate(event: SubmitEvent) {
+    event.preventDefault();
+    if (!reason.trim() || !duplicate || (duplicate === 'link' && !saleId)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await changeBankDecision(op.id, {
+        version: op.version,
+        reason: reason.trim(),
+        duplicateAction: duplicate,
+        ...(duplicate === 'link' ? { linkSaleId: Number(saleId) } : {}),
+      });
+      await onSaved();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   const locked = disabled || busy;
   return (
     <article
@@ -95,7 +115,7 @@ export function BankOperationCard({
           type="checkbox"
           aria-label={`Выбрать оплату ${op.documentNumber ?? op.id}`}
           checked={selected}
-          disabled={locked || op.status !== 'ready'}
+          disabled={locked || !canSelectBankPayment(op)}
           onChange={(e) => onSelect(e.target.checked)}
         />
         <div className={styles.operationInfo}>
@@ -125,10 +145,18 @@ export function BankOperationCard({
       <span
         className={`${styles.badge} ${op.status === 'ready' || op.status === 'accounted' ? styles.ready : op.status !== 'excluded' ? styles.review : ''}`}
       >
-        {op.cancelled
+        {op.companyCancelled
+          ? 'Общая продажа отменена'
+          : op.cancelled
           ? 'Учтённая продажа отменена'
           : bankStatusLabel[op.status]}
       </span>
+      {op.companyAccounted && !op.companyCancelled && (
+        <p className={styles.notice}>Учтено в общих продажах</p>
+      )}
+      {op.companyAccounted && !op.companyCancelled && !op.saleId && (
+        <p className={styles.warning}>Не начислено менеджеру · {bankStatusLabel[op.status]}</p>
+      )}
       <p className={styles.muted}>{op.explanation}</p>
       {op.errors.map((error, index) => (
         <p key={index} className={styles.error}>
@@ -186,7 +214,75 @@ export function BankOperationCard({
           вручную в предварительном результате.
         </p>
       )}
-      {op.id > 0 && op.status !== 'accounted' && (
+      {op.id > 0 && op.companyAccounted && !op.companyCancelled && !op.saleId && op.status === 'possible_duplicate' && (
+        <details className={styles.details}>
+          <summary>Разрешить возможный дубль</summary>
+          <p className={styles.muted}>
+            Оплата уже учтена в общих продажах. Проверьте совпадения перед начислением менеджеру.
+            Связывание с существующей продажей не увеличивает итог повторно.
+          </p>
+          {error && <p role="alert" className={styles.error}>{error}</p>}
+          <form className={styles.form} onSubmit={(event) => void saveDuplicate(event)}>
+            {op.probableDuplicates.map((item) => (
+              <p className={`${styles.muted} ${styles.full}`} key={item.id}>
+                Банковская операция № {item.id} · {dateLabel(item.date)} · документ {item.documentNumber || '—'} · {money(item.amount)}
+                {item.saleId ? ` · продажа № ${item.saleId}` : ''}
+              </p>
+            ))}
+            <label className={styles.field}>
+              Решение по возможному дублю
+              <select required value={duplicate} disabled={locked} onChange={(event) => setDuplicate(event.target.value as typeof duplicate)}>
+                <option value="">Выберите решение</option>
+                <option value="review">Оставить на проверку</option>
+                <option value="new">Это отдельная новая оплата</option>
+                <option value="link">Связать с существующей продажей</option>
+              </select>
+            </label>
+            {duplicate === 'link' && (
+              <label className={styles.field}>
+                Существующая продажа
+                <select required value={saleId} disabled={locked} onChange={(event) => setSaleId(event.target.value)}>
+                  <option value="">Выберите продажу 1:1</option>
+                  {op.candidateSales.map((sale) => (
+                    <option key={sale.id} value={sale.id}>№ {sale.id} · {sale.managerName} · {dateLabel(sale.date)} · {money(sale.amount)} · {sale.client}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className={`${styles.field} ${styles.full}`}>
+              Причина решения по дублю
+              <input required maxLength={500} disabled={locked} value={reason} onChange={(event) => setReason(event.target.value)} />
+            </label>
+            <div className={styles.full}>
+              <button type="submit" className={styles.button} disabled={locked || !reason.trim() || !duplicate || (duplicate === 'link' && !saleId)}>Сохранить решение по дублю</button>
+            </div>
+          </form>
+        </details>
+      )}
+      {op.id > 0 && op.companyAccounted && !op.companyCancelled && !op.saleId && (
+        <details className={styles.details}>
+          <summary>Отменить учёт в общих продажах</summary>
+          <p className={styles.muted}>Поступление останется в журнале. Повторная загрузка не восстановит продажу.</p>
+          {error && <p role="alert" className={styles.error}>{error}</p>}
+          <form className={styles.form} onSubmit={(event) => {
+            event.preventDefault();
+            if (!cancelReason.trim()) return;
+            setBusy(true);
+            setError('');
+            void cancelBankCompanyPayment(op.id, { version: op.version, reason: cancelReason.trim() })
+              .then(() => onSaved())
+              .catch((e) => setError(errorMessage(e)))
+              .finally(() => setBusy(false));
+          }}>
+            <label className={`${styles.field} ${styles.full}`}>
+              Причина отмены общей продажи
+              <input required maxLength={500} disabled={locked} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
+            </label>
+            <button className={styles.button} disabled={locked || !cancelReason.trim()} type="submit">Отменить общую продажу</button>
+          </form>
+        </details>
+      )}
+      {op.id > 0 && op.status !== 'accounted' && !op.companyAccounted && !op.companyCancelled && (
         <details className={styles.details}>
           <summary>Проверить и изменить решение</summary>
           <p className={styles.muted}>

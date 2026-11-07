@@ -507,6 +507,7 @@ class WebDatabase(Database):
         ("2026-11-01-shortcut-devices-v1", "_add_shortcut_devices"),
         ("2026-11-01-deepseek-usage-v1", "_add_deepseek_usage"),
         ("2026-11-07-bank-statements-v1", "_add_bank_statements"),
+        ("2026-11-07-bank-company-sales-v1", "_add_bank_company_sales"),
     )
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
@@ -553,6 +554,11 @@ class WebDatabase(Database):
             )
 
     @staticmethod
+    def _add_bank_company_sales(conn: sqlite3.Connection) -> None:
+        from stock_sync_web.bank_schema import migrate_company_sales
+        migrate_company_sales(conn)
+
+    @staticmethod
     def _add_bank_statements(conn: sqlite3.Connection) -> None:
         from stock_sync_web.bank_schema import migrate
         migrate(conn)
@@ -596,6 +602,9 @@ class WebDatabase(Database):
 
     @staticmethod
     def _migration_target_is_present(conn: sqlite3.Connection, version: str) -> bool:
+        if version == "2026-11-07-bank-company-sales-v1":
+            from stock_sync_web.bank_schema import company_migration_present
+            return company_migration_present(conn)
         if version == "2026-11-07-bank-statements-v1":
             from stock_sync_web.bank_schema import migration_present
             return migration_present(conn)

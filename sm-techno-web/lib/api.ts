@@ -1845,6 +1845,9 @@ export function changeBankDecision(id: number, payload: import('./bank-types').B
 export function previewBankPayments(items: import('./bank-types').BankSelection[]) {
   return requestJsonWithInit<import('./bank-types').BankPreview>('/api/bank-statements/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) }, 'Не удалось рассчитать результат.');
 }
+export function cancelBankCompanyPayment(id: number, payload: { version: number; reason: string }) {
+  return requestJsonWithInit<import('./bank-types').BankOperation>(`/api/bank-statements/operations/${id}/company-cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось отменить общую продажу.');
+}
 export function commitBankPayments(payload: import('./bank-types').BankCommitRequest) {
   return requestJsonWithInit<import('./bank-types').BankCommitResult>('/api/bank-statements/commit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось подтвердить оплаты.', { timeoutMs: 90_000 });
 }

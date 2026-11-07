@@ -261,6 +261,9 @@ class BankRepository:
     def _evaluate(self, conn, operation_id):
         op = self._row(conn, 'bank_operations', operation_id)
         decision = self._decision(conn, operation_id)
+        company_row = conn.execute('SELECT * FROM bank_company_sales WHERE operation_id=?', (operation_id,)).fetchone()
+        company = dict(company_row) if company_row else None
+        frozen = json.loads(company['decision_json']) if company else None
         manual = json.loads(decision['manual_json'])
         norm = json.loads(op['normalized_json'])
         account = self._row(conn, 'bank_import_accounts', op['account_id'])
@@ -301,6 +304,10 @@ class BankRepository:
                 warnings.append('КПП плательщика отличается от выбранного клиента; подтверждено администратором: ' + manual['reason'])
         elif len(candidates) == 1:
             client = candidates[0]
+        if company:
+            # Confirmation pins the chosen CRM identity and document snapshot.
+            client = self._row(conn, 'crm_clients', company['client_id'])
+            classification = company['classification']
         assignment = self.assignments.assignment_at(conn, client['id'], op['date']) if client else None
         assignment_version = conn.execute('SELECT version FROM crm_sales_assignment_versions WHERE client_id=?', (client['id'],)).fetchone() if client else None
         manager_id = assignment['manager_id'] if assignment else None
@@ -341,30 +348,41 @@ class BankRepository:
                            'Клиент не найден однозначно по ИНН/КПП; выберите карточку вручную с причиной.')
         elif client['is_inactive'] or client['crm_archived_at']:
             status, explanation = 'client_archived', 'Клиент неактивен или архивирован.'
-        elif not assignment or manager_id is None:
-            status, explanation = 'manager_missing', 'На дату оплаты не назначен менеджер по продажам.'
-        elif not assignment['user_id'] or not assignment['manager_active']:
-            status, explanation = 'manager_inactive', 'Закреплённый менеджер неактивен или удалён.'
-        elif period['plan'] is None:
-            status, explanation = 'terms_missing', 'Не заданы условия менеджера за месяц банковской операции.'
-        elif period['closed']:
-            status, explanation = 'month_closed', 'Месяц закрыт; требуется штатное открытие администратором.'
-        elif manual.get('duplicateAction') == 'link':
-            if not self._link_compatible(conn, op, client, manager_id, link_sale):
-                status, explanation = 'possible_duplicate', 'Связь невозможна: нужны одна несвязанная продажа с теми же клиентом, менеджером, датой и полной суммой.'
-        elif (probable or old_sales or manual.get('duplicateAction') == 'review') and not acknowledged_new:
+        elif manual.get('duplicateAction') == 'link' and not self._link_compatible(conn, op, client, manager_id, link_sale):
+            status, explanation = 'possible_duplicate', 'Связь невозможна: нужны одна несвязанная продажа с теми же клиентом, менеджером, датой и полной суммой.'
+        elif manual.get('duplicateAction') != 'link' and (probable or old_sales or manual.get('duplicateAction') == 'review') and not acknowledged_new:
             status, explanation = 'possible_duplicate', 'Возможный дубль: свяжите старую продажу, подтвердите отдельную оплату с причиной или оставьте на проверку.'
+        # All bank/company safety and duplicate gates precede attribution gates.
+        company_eligible = status == 'ready'
+        if status == 'ready':
+            if not assignment or manager_id is None:
+                status, explanation = 'manager_missing', 'На дату оплаты не назначен менеджер по продажам.'
+            elif not assignment['user_id'] or not assignment['manager_active']:
+                status, explanation = 'manager_inactive', 'Закреплённый менеджер неактивен или удалён.'
+            elif period['plan'] is None:
+                status, explanation = 'terms_missing', 'Не заданы условия менеджера за месяц банковской операции.'
+            elif period['closed']:
+                status, explanation = 'month_closed', 'Месяц закрыт; требуется штатное открытие администратором.'
+        # A legacy link must complete atomically in its open manager month:
+        # it can never become a second, independent company contribution.
+        if manual.get('duplicateAction') == 'link' and status != 'ready':
+            company_eligible = False
+        company_cancelled = bool(company and company['cancelled_at'] or link and link['cancelled'])
+        if company and company['cancelled_at']:
+            status, explanation = 'accounted', 'Общие продажи отменены; повторное проведение запрещено.'
         if link:
             status, explanation = 'accounted', 'Оплата уже учтена; отменённая продажа не восстанавливается автоматически.' if link['cancelled'] else 'Оплата уже учтена в продажах.'
             manager_id = link['manager_id']
         invoice_number = manual.get('invoiceNumber', norm.get('invoiceNumber'))
         invoice_date = manual.get('invoiceDate', norm.get('invoiceDate'))
+        if frozen:
+            invoice_number, invoice_date = frozen.get('invoiceNumber'), frozen.get('invoiceDate')
         result = dict(id=operation_id, version=decision['version'], fingerprint='', date=op['date'], amount=op['amount'],
             direction=op['direction'], documentNumber=op['document_number'], payerName=op['payer_name'],
             inn=op['inn'], kpp=op['kpp'], account=op['account'], bik=op['bik'], bankName=op['bank_name'],
             purpose=op['purpose'], invoiceNumber=invoice_number, invoiceDate=invoice_date,
             invoiceReferences=json.loads(op['invoice_references_json']), clientId=link['client_id'] if link else client['id'] if client else None,
-            clientName=link['sale_client'] if link else document_name(client) if client else None,
+            clientName=link['sale_client'] if link else company['client_name'] if company else document_name(client) if client else None,
             managerId=manager_id, managerName=link['manager_name'] if link else assignment['manager_name'] if assignment else None,
             rate=link['sale_rate'] if link else period.get('rate') if period else None, status=status,
             explanation=explanation, warnings=list(dict.fromkeys(warnings)), errors=errors, classification=classification,
@@ -373,11 +391,13 @@ class BankRepository:
                 managerName=r['managerName'], source=r['source'], invoiceNumber=r['invoice_number']) for r in old_sales],
             probableDuplicates=[{key: r[key] for key in ('id','date','documentNumber','amount','saleId')} for r in probable],
             saleId=link['sale_id'] if link else None, cancelled=bool(link and link['cancelled']),
+            companyAccounted=bool((company or link) and not company_cancelled),
+            companyCanConfirm=bool(company_eligible and not company and not link and manual.get('duplicateAction') != 'link'), companyCancelled=company_cancelled,
             rule=dict(version=1, **rule))
         deps = dict(operation=op, manual=manual, account=account, organization=org, sources=sources,
             clients=inn_candidates, chosenClient=client, assignment=assignment,
             assignmentVersion=assignment_version[0] if assignment_version else 0, period=period,
-            probable=probable, sales=old_sales, link=link, linkSale=link_sale, rule=rule, result={k:v for k,v in result.items() if k not in ('version','fingerprint')})
+            probable=probable, sales=old_sales, link=link, linkSale=link_sale, company=company, rule=rule, result={k:v for k,v in result.items() if k not in ('version','fingerprint')})
         result['fingerprint'] = digest(deps)
         return result, duplicate_signature
 
@@ -418,7 +438,8 @@ class BankRepository:
             managerName=None, rate=None, status='data_error',
             explanation=f"Ошибка исходной строки {source['row_number']} листа «{source['sheet']}».",
             warnings=json.loads(source['warnings_json']), errors=json.loads(source['errors_json']),
-            classification='review', candidateClients=[], candidateSales=[], probableDuplicates=[], saleId=None, cancelled=False)
+            classification='review', candidateClients=[], candidateSales=[], probableDuplicates=[], saleId=None, cancelled=False,
+            companyAccounted=False, companyCanConfirm=False, companyCancelled=False)
 
     def _upload_summary(self, conn, row):
         account = self._row(conn, 'bank_import_accounts', row['account_id'])
@@ -439,21 +460,27 @@ class BankRepository:
                 operations.append(self._invalid_source(source))
             else:
                 dto = json.loads(self._decision(conn, source['operation_id'])['decision_json'])
+                for key in ('companyAccounted', 'companyCanConfirm', 'companyCancelled'):
+                    dto.setdefault(key, False)
                 live = conn.execute('SELECT s.cancelled FROM bank_sale_links l JOIN manager_sales s ON s.id=l.sale_id WHERE l.operation_id=?', (source['operation_id'],)).fetchone()
                 if live:
                     dto['cancelled'] = bool(live['cancelled'])
                     dto['status'] = 'accounted'
+                    dto.update(companyAccounted=not bool(live['cancelled']), companyCancelled=bool(live['cancelled']), companyCanConfirm=False)
                 elif upload['state'] == 'blocked':
                     # The same global operation can have independently valid
                     # provenance elsewhere. Never offer posting from this
                     # blocked export or poison the valid saved decision.
                     dto['status'] = 'data_error'
+                    dto['companyCanConfirm'] = False
                     dto['errors'] = list(dict.fromkeys(dto['errors'] + json.loads(upload['errors_json'])))
                     dto['explanation'] = 'Эту выписку нельзя провести: не пройдены общие проверки файла. ' + dto['explanation']
                 operations.append(dto)
         result.update(metadata=json.loads(upload['metadata_json']), reconciliation=json.loads(upload['reconciliation_json']),
             operations=operations, summary=dict(readyCount=sum(o['status']=='ready' for o in operations),
                 readyAmount=sum(o['amount'] for o in operations if o['status']=='ready'),
+                companyReadyCount=sum(o['companyCanConfirm'] for o in operations),
+                companyReadyAmount=sum(o['amount'] for o in operations if o['companyCanConfirm']),
                 accountedCount=sum(o['status']=='accounted' for o in operations),
                 excludedCount=sum(o['status']=='excluded' for o in operations),
                 reviewCount=sum(o['status'] not in ('ready','accounted','excluded') for o in operations)))
@@ -499,6 +526,9 @@ class BankRepository:
                 raise ManagerConflict('Решение изменилось. Обновите результат.')
             if conn.execute('SELECT 1 FROM bank_sale_links WHERE operation_id=?', (operation_id,)).fetchone():
                 raise ManagerConflict('Учтённый платёж нельзя изменить; используйте штатную отмену продажи.')
+            company = conn.execute('SELECT cancelled_at FROM bank_company_sales WHERE operation_id=?', (operation_id,)).fetchone()
+            if company and (company['cancelled_at'] or set(payload) - {'version', 'reason', 'duplicateAction', 'linkSaleId'}):
+                raise ManagerConflict('Клиент и финансовое решение общих продаж зафиксированы; разрешено только решение о дубле действующей несвязанной оплаты.')
             reason = text(payload.get('reason'), 'Причина решения', 500)
             manual = json.loads(current['manual_json'])
             allowed = {'version','clientId','classification','reason','duplicateAction','linkSaleId','invoiceNumber','invoiceDate'}
@@ -557,7 +587,8 @@ class BankRepository:
             stored = self._decision(conn, item['operationId'])
             current, _ = self._evaluate(conn, item['operationId'])
             if (stored['version'] != item['version'] or stored['fingerprint'] != item['fingerprint']
-                    or current['fingerprint'] != item['fingerprint'] or current['status'] != 'ready'):
+                    or current['fingerprint'] != item['fingerprint']
+                    or not (current['status'] == 'ready' or current['companyCanConfirm'])):
                 raise ManagerConflict('Результат изменился или оплата не готова. Обновите выписку и повторите проверку.')
             rows.append(current)
         if sum(row['amount'] for row in rows) > MAX_MONTH_TOTAL:
@@ -567,7 +598,8 @@ class BankRepository:
     def _effects(self, conn, rows):
         grouped = defaultdict(list)
         for row in rows:
-            grouped[(row['managerId'],row['date'][:7])].append(row)
+            if row['status'] == 'ready':
+                grouped[(row['managerId'],row['date'][:7])].append(row)
         effects = []
         linked = 0
         for (manager_id, month), changes in sorted(grouped.items()):
@@ -592,7 +624,15 @@ class BankRepository:
             effects.append(dict(managerId=manager_id,managerName=changes[0]['managerName'],month=month,
                 before={k:before[k] for k in ('salesTotal','commission','fixed','income')},
                 after={k:after[k] for k in ('salesTotal','commission','fixed','income')}))
-        return dict(count=len(rows),amount=sum(row['amount'] for row in rows),linkedCount=linked,effects=effects)
+        company_new = [row for row in rows if not row['companyAccounted']
+                       and json.loads(self._decision(conn, row['id'])['manual_json']).get('duplicateAction') != 'link']
+        company_collapsed = [row for row in rows if row['companyAccounted']
+                             and json.loads(self._decision(conn, row['id'])['manual_json']).get('duplicateAction') == 'link']
+        manager_count = sum(row['status'] == 'ready' for row in rows)
+        return dict(count=len(rows),amount=sum(row['amount'] for row in rows),linkedCount=linked,effects=effects,
+            companyCount=len(company_new)-len(company_collapsed),
+            companyAmount=sum(row['amount'] for row in company_new)-sum(row['amount'] for row in company_collapsed),
+            managerCount=manager_count, pendingManagerCount=len(rows)-manager_count)
 
     def preview(self, actor, items):
         items = self._items(items)
@@ -620,9 +660,19 @@ class BankRepository:
                 for row in rows:
                     decision = self._decision(conn, row['id'])
                     manual = json.loads(decision['manual_json'])
+                    reason = decision['reason'] or 'Подтверждение оплаты банковской выписки с НДС'
+                    if not conn.execute('SELECT 1 FROM bank_company_sales WHERE operation_id=?', (row['id'],)).fetchone():
+                        conn.execute('''INSERT INTO bank_company_sales(operation_id,client_id,client_name,classification,
+                            decision_json,confirmed_by,confirmed_at,reason) VALUES(?,?,?,?,?,?,?,?)''',
+                            (row['id'],row['clientId'],row['clientName'],row['classification'],dump(row),actor['id'],now(),reason))
+                        conn.execute('INSERT INTO bank_decision_audit(operation_id,actor_id,at,reason,before_json,after_json) VALUES(?,?,?,?,?,?)',
+                            (row['id'],actor['id'],now(),reason,dump(dict(companySale=None)),
+                             dump(dict(companySale=dict(conn.execute('SELECT * FROM bank_company_sales WHERE operation_id=?',(row['id'],)).fetchone())))))
+                    if row['status'] != 'ready':
+                        self._refresh(conn, row['id'], actor['id'])
+                        continue
                     month = row['date'][:7]
                     version = self.managers._period(conn, row['managerId'], month)['version']
-                    reason = decision['reason'] or 'Подтверждение оплаты банковской выписки с НДС'
                     if manual.get('duplicateAction') == 'link':
                         sale_id = manual['linkSaleId']
                         self.managers.record_bank_link_in_transaction(conn, actor, row['managerId'], month, version, sale_id, reason, row['id'])
@@ -647,6 +697,30 @@ class BankRepository:
         except sqlite3.IntegrityError as exc:
             raise ManagerConflict('Оплата или продажа уже связана другим подтверждением. Обновите результат.') from exc
 
+    def cancel_company_sale(self, actor, operation_id, payload):
+        with self.db.transaction(immediate=True) as conn:
+            actor = self._actor(conn, actor, True)
+            integer(operation_id, 'Операция', 2**53-1)
+            current = self._decision(conn, operation_id)
+            if set(payload) != {'version', 'reason'}:
+                raise ValueError('Нужны версия и причина отмены.')
+            version = integer(payload.get('version'), 'Версия решения', 2**31-1)
+            if version != current['version']:
+                raise ManagerConflict('Решение изменилось. Обновите результат.')
+            reason = text(payload.get('reason'), 'Причина отмены', 500)
+            if conn.execute('SELECT 1 FROM bank_sale_links WHERE operation_id=?', (operation_id,)).fetchone():
+                raise ManagerConflict('Связанную продажу отменяйте штатным действием в кабинете менеджера.')
+            before = conn.execute('SELECT * FROM bank_company_sales WHERE operation_id=?', (operation_id,)).fetchone()
+            if not before or before['cancelled_at']:
+                raise ManagerConflict('Нет действующего отдельного подтверждения общих продаж.')
+            conn.execute('UPDATE bank_company_sales SET cancelled_at=?,cancelled_by=?,cancellation_reason=? WHERE operation_id=?',
+                         (now(),actor['id'],reason,operation_id))
+            result = self._refresh(conn, operation_id, actor['id'])
+            after = conn.execute('SELECT * FROM bank_company_sales WHERE operation_id=?', (operation_id,)).fetchone()
+            conn.execute('INSERT INTO bank_decision_audit(operation_id,actor_id,at,reason,before_json,after_json) VALUES(?,?,?,?,?,?)',
+                         (operation_id,actor['id'],now(),reason,dump(dict(companySale=dict(before))),dump(dict(companySale=dict(after)))))
+            return result
+
     def search_clients(self, actor, query):
         query = text(query, 'Поиск клиента', 200)
         with self.db.transaction() as conn:
@@ -668,10 +742,11 @@ class BankRepository:
         admin = actor['role']=='admin'
         if not admin:
             dto.update(history=[],pending=dict(count=0,amount=0,periodStart=None,periodEnd=None))
-        sql = '''SELECT o.id,o.date,o.amount,d.decision_json,d.client_id,
+        sql = '''SELECT o.id,o.date,o.amount,d.decision_json,d.client_id,c.operation_id AS company_id,c.cancelled_at AS company_cancelled_at,
             l.sale_id,l.manager_id AS frozen_manager_id,s.cancelled,m.display_name AS frozen_manager_name,
             m.user_id AS manager_user_id FROM bank_operations o JOIN bank_decisions d ON d.operation_id=o.id
             LEFT JOIN bank_sale_links l ON l.operation_id=o.id LEFT JOIN manager_sales s ON s.id=l.sale_id
+            LEFT JOIN bank_company_sales c ON c.operation_id=o.id
             LEFT JOIN manager_accounts m ON m.id=l.manager_id WHERE d.client_id=? ORDER BY o.date DESC,o.id DESC'''
         payments = []
         for row in conn.execute(sql,(client_id,)):
@@ -683,7 +758,9 @@ class BankRepository:
                 managerId=row['frozen_manager_id'] if row['sale_id'] else details.get('managerId'),
                 managerName=row['frozen_manager_name'] if row['sale_id'] else details.get('managerName'),
                 status='accounted' if row['sale_id'] else details.get('status','purpose_review'),
-                saleId=row['sale_id'],cancelled=bool(row['cancelled'])))
+                saleId=row['sale_id'],cancelled=bool(row['cancelled']),
+                companyAccounted=bool((row['company_id'] or row['sale_id']) and not row['company_cancelled_at'] and not row['cancelled']),
+                companyCancelled=bool(row['company_cancelled_at'] or row['cancelled'])))
         dto['payments'] = payments
         return dto
 

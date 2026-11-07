@@ -263,8 +263,12 @@ export function ClientSalesPanel({
                     <span>
                       Менеджер: {payment.managerName || 'Не назначен'}
                     </span>
+                    {payment.companyAccounted && !payment.companyCancelled && <span className={styles.notice}>Учтено в общих продажах</span>}
+                    {payment.companyAccounted && !payment.companyCancelled && !payment.saleId && <span className={styles.warning}>Не начислено менеджеру</span>}
                     <span className={styles.badge}>
-                      {payment.cancelled
+                      {payment.companyCancelled
+                        ? 'Общая продажа отменена'
+                        : payment.cancelled
                         ? 'Продажа отменена'
                         : bankStatusLabel[payment.status]}
                     </span>

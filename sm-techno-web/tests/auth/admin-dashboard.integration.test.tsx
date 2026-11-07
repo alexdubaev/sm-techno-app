@@ -30,3 +30,9 @@ it('does not load admin data for an ordinary user', () => {
   expect(api.usage).not.toHaveBeenCalled();
   expect(api.balance).not.toHaveBeenCalled();
 });
+it('includes unallocated sales and identifies bank receipts separately from manual entry', async () => {
+  api.sales.mockImplementation(async (kind:string, date:string) => ({period:{kind,anchorDate:date,start:date,end:date},totals:{salesTotal:90000,count:2,unallocatedSalesTotal:40000,unallocatedCount:1},series:[],managers:[],monthlyPlans:{month:date.slice(0,7),managers:[]},sources:{manualCount:1,onecCount:0,bankCount:1,odataConnected:false}}));
+  render(<Dashboard />);
+  expect(await screen.findByText(/Не распределено менеджерам:/)).toHaveTextContent('400 ₽ · 1 оплат');
+  expect(screen.getByText(/Ручной учёт:/)).toHaveTextContent('Ручной учёт: 1; банковские поступления: 1');
+});

@@ -48,6 +48,7 @@ def test_bank_http_control_private_download_and_direct_id_acl(auth_api):
         ('get','/accounts',{}),('get','/uploads',{}),('get',f"/uploads/{detail['id']}",{}),
         ('get',f"/uploads/{detail['id']}/file",{}),('post',f"/uploads/{detail['id']}/refresh",{}),
         ('post','/preview',{'json':{'items':items}}),('post','/commit',{'json':request}),
+        ('post',f"/operations/{items[0]['operationId']}/company-cancel",{'json':{'version':1,'reason':'forbidden'}}),
         ('patch',f"/operations/{items[0]['operationId']}",{'json':{'version':1,'classification':'sale','reason':'forbidden'}}),
         ('put',f"/clients/{clients[0]}/assignment",{'json':{'version':1,'managerId':mid,'startDate':'2026-11-01','reason':'forbidden'}}),
         ('get','/clients/search?query=Synthetic',{}),
@@ -135,3 +136,34 @@ def test_import_requires_no_deepseek_or_remote_onec_access(auth_api,monkeypatch)
     assert uploaded.json()['summary']['readyCount']==6
     items=[dict(operationId=o['id'],version=o['version'],fingerprint=o['fingerprint']) for o in uploaded.json()['operations']]
     assert c.post('/api/bank-statements/commit',headers=admin,json={'items':items,'idempotencyKey':'offline-control-key'}).status_code==200
+
+
+def test_company_confirmation_cancel_http_and_private_receipts(auth_api):
+    admin, user, account, clients, mid = setup_bank(auth_api)
+    c = auth_api.client
+    with auth_api.service.db.transaction() as conn:
+        conn.execute('DELETE FROM crm_sales_assignments WHERE client_id=?', (clients[0],))
+    detail = c.post('/api/bank-statements/uploads', headers=admin, data={'accountId': str(account)},
+                    files={'file': ('company.xlsx', make_statement())}).json()
+    operation = detail['operations'][0]
+    assert operation['status'] == 'manager_missing' and operation['companyCanConfirm']
+    items = [dict(operationId=operation['id'], version=operation['version'], fingerprint=operation['fingerprint'])]
+    request = dict(items=items, idempotencyKey='http-company-only')
+    assert c.post('/api/bank-statements/commit', headers=user, json=request).status_code == 403
+    assert c.post('/api/bank-statements/commit', headers=admin, json=request).json()['companyCount'] == 1
+    assert c.get(f'/api/bank-statements/clients/{clients[0]}', headers=user).json()['payments'] == []
+    report = c.get('/api/admin/dashboard/sales?period=month&date=2026-11-06', headers=admin).json()
+    assert report['totals']['unallocatedSalesTotal'] == 36000000
+    confirmed = c.post(f"/api/bank-statements/uploads/{detail['id']}/refresh", headers=admin).json()['operations'][0]
+    path = f"/api/bank-statements/operations/{operation['id']}/company-cancel"
+    payload = dict(version=confirmed['version'], reason='Synthetic wrong customer payment')
+    assert c.post(path, json=payload).status_code == 401
+    assert c.post(path, headers=user, json=payload).status_code == 403
+    assert c.post(path, headers=admin, json=dict(version=operation['version'], reason='Stale')).status_code == 409
+    assert c.post(path, headers=admin, json=dict(version=confirmed['version'], reason='')).status_code == 400
+    cancelled = c.post(path, headers=admin, json=payload)
+    assert cancelled.status_code == 200 and cancelled.json()['companyCancelled'], cancelled.text
+    assert cancelled.headers['cache-control'] == 'no-store'
+    assert c.post('/api/bank-statements/commit', headers=admin,
+                  json=dict(items=items, idempotencyKey='http-company-replay-new')).status_code == 409
+    assert c.post('/api/bank-statements/operations/999999/company-cancel', headers=admin, json=payload).status_code == 404

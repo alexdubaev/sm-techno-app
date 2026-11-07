@@ -39,6 +39,11 @@ def sales_overview(db, kind, anchor):
             LEFT JOIN users u ON u.id=a.user_id ORDER BY a.display_name COLLATE NOCASE'''))
         rows = list(conn.execute('''SELECT manager_id,date,amount,source FROM manager_sales
             WHERE cancelled=0 AND date>=? AND date<=?''', (start.isoformat(), end.isoformat())))
+        unallocated = list(conn.execute('''SELECT o.date,o.amount,c.client_name FROM bank_company_sales c
+            JOIN bank_operations o ON o.id=c.operation_id
+            WHERE c.cancelled_at IS NULL AND o.date>=? AND o.date<=?
+              AND NOT EXISTS(SELECT 1 FROM bank_sale_links l WHERE l.operation_id=c.operation_id)''',
+            (start.isoformat(), end.isoformat())))
         monthly = list(conn.execute('''SELECT manager_id, SUM(amount) total FROM manager_sales
             WHERE cancelled=0 AND month=? GROUP BY manager_id''', (month,)))
         plans = {r['manager_id']: r['plan'] for r in conn.execute('SELECT manager_id,plan FROM manager_periods WHERE month=?', (month,))}
@@ -50,14 +55,19 @@ def sales_overview(db, kind, anchor):
         series_map.setdefault(key, {'date': key, 'amount': 0, 'count': 0})
         cursor += timedelta(days=1)
     by_manager = {}
-    sources = {'manualCount': 0, 'onecCount': 0, 'odataConnected': False}
+    sources = {'manualCount': 0, 'onecCount': 0, 'bankCount': 0, 'odataConnected': False}
     for row in rows:
         key = row['date'] if kind != 'year' else row['date'][:7]
         series_map[key]['amount'] += row['amount']
         series_map[key]['count'] += 1
         total = by_manager.setdefault(row['manager_id'], [0, 0])
         total[0] += row['amount']; total[1] += 1
-        sources['onecCount' if row['source'] == 'onec' else 'manualCount'] += 1
+        sources[{'onec': 'onecCount', 'manual': 'manualCount', 'bank_statement': 'bankCount'}[row['source']]] += 1
+    for row in unallocated:
+        key = row['date'] if kind != 'year' else row['date'][:7]
+        series_map[key]['amount'] += row['amount']
+        series_map[key]['count'] += 1
+        sources['bankCount'] += 1
     managers, monthly_plans = [], []
     for a in accounts:
         amount, count = by_manager.get(a['id'], (0, 0))
@@ -66,7 +76,9 @@ def sales_overview(db, kind, anchor):
         monthly_plans.append(dict(id=a['id'], name=a['display_name'], plan=plan, salesTotal=fact,
             progress=(fact * 100 / plan if plan else None), status=('unset' if plan is None else 'no_plan' if plan == 0 else 'planned')))
     return dict(period=dict(kind=kind, start=start.isoformat(), end=end.isoformat(), anchorDate=day.isoformat()),
-        totals=dict(salesTotal=sum(r['amount'] for r in rows), count=len(rows)), series=list(series_map.values()), managers=managers,
+        totals=dict(salesTotal=sum(r['amount'] for r in rows)+sum(r['amount'] for r in unallocated),
+            count=len(rows)+len(unallocated), unallocatedSalesTotal=sum(r['amount'] for r in unallocated),
+            unallocatedCount=len(unallocated)), series=list(series_map.values()), managers=managers,
         monthlyPlans=dict(month=month, managers=monthly_plans), sources=sources)
 
 

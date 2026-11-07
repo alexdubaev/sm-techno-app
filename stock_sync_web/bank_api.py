@@ -120,6 +120,10 @@ def create_bank_router(get_current_user, get_db, get_storage_root):
     def preview(payload: dict, actor=Depends(administrator)):
         return invoke(repository().preview, actor, payload.get('items'))
 
+    @router.post('/operations/{operation_id}/company-cancel')
+    def cancel_company(operation_id: int, payload: dict, actor=Depends(administrator)):
+        return invoke(repository().cancel_company_sale, actor, operation_id, payload)
+
     @router.post('/commit')
     def commit(payload: dict, actor=Depends(administrator)):
         return invoke(repository().commit, actor, payload.get('items'), payload.get('idempotencyKey'))

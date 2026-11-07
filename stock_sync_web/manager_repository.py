@@ -308,6 +308,10 @@ class ManagerRepository:
                     integer(crm_client_id, 'Клиент CRM', 2**53-1)
                     operation = conn.execute('SELECT * FROM bank_operations WHERE id=?', (bank_operation_id,)).fetchone()
                     client_row = conn.execute('SELECT * FROM crm_clients WHERE id=?', (crm_client_id,)).fetchone()
+                    company = conn.execute('SELECT * FROM bank_company_sales WHERE operation_id=?', (bank_operation_id,)).fetchone()
+                    if company and (company['cancelled_at'] or company['client_id'] != crm_client_id
+                                    or company['classification'] != 'sale'):
+                        raise ManagerConflict('Подтверждение общих продаж отменено или клиент не совпадает.')
                     active_manager = conn.execute('''SELECT 1 FROM manager_accounts a JOIN users u ON u.id=a.user_id
                         WHERE a.id=? AND u.is_active=1''', (manager_id,)).fetchone()
                     if not operation or operation['direction'] != 'credit' or operation['currency'] != 'RUB':
@@ -327,7 +331,8 @@ class ManagerRepository:
                         raise ManagerConflict('Не заданы условия месяца.')
                     if rate != before['terms']['rate']:
                         raise ManagerConflict('Ставка месяца изменилась. Обновите результат.')
-                    client = text(client_row['document_name'] or client_row['full_name'] or client_row['name'], 'Наименование клиента')
+                    client = text(company['client_name'] if company else
+                                  client_row['document_name'] or client_row['full_name'] or client_row['name'], 'Наименование клиента')
                     bank_values = ('bank_statement', str(bank_operation_id), crm_client_id, bank_operation_id)
                 elif crm_client_id is not None:
                     raise ValueError('Связь CRM задаётся только для банковской операции.')
