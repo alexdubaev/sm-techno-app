@@ -40,12 +40,6 @@
   border-radius: 15px 15px 0 0;
   background: white;
 }
-.bankActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
 .hint {
   color: var(--text-secondary);
   font-size: 12px;
@@ -780,15 +774,6 @@
     flex-wrap: wrap;
     min-height: 54px;
     padding: 5px 10px;
-  }
-  .bankActions {
-    flex: 1 0 100%;
-    padding-block: 4px;
-  }
-  .bankActions > button {
-    flex: 1;
-    min-width: 0;
-    padding-inline: 8px;
   }
   .period {
     flex: 0 0 auto;

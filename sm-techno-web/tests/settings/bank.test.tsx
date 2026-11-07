@@ -462,14 +462,15 @@ describe('Bank payments in existing sales', () => {
       screen.getByRole('button', { name: 'Отменить продажу № 7' }),
     ).toBeVisible();
   });
-  it('offers a global import to administrators even when the displayed employee month is closed', async () => {
+  it('keeps bank import out of individual employee cabinets, including administrators', async () => {
     render(<ManagerWorkspace />);
+    await screen.findByText('Тестовый менеджер');
     expect(
-      await screen.findByRole('button', { name: 'Загрузить выписку' }),
-    ).toBeVisible();
+      screen.queryByRole('button', { name: 'Загрузить выписку' }),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'История выписок' }),
-    ).toBeVisible();
+      screen.queryByRole('button', { name: 'История выписок' }),
+    ).not.toBeInTheDocument();
   });
   it('hides global bank tools from managers', async () => {
     mocks.admin = false;
