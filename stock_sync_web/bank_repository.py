@@ -148,22 +148,66 @@ class BankRepository:
                 amount=row['amount'],strict_key=row['strict_key'],saleId=row['saleId']))
         return candidates
 
+    def _account_from_statement(self, actor, parsed):
+        """Use only validated owner metadata and an unambiguous existing organization."""
+        metadata = parsed['metadata']
+        # Only owner/account identity must be sound to register the setting.
+        # Row problems and reconciliation failures belong in the saved preview.
+        errors = [error for error in parsed['errors']
+                  if error.startswith(('ownerInn:', 'account:', 'bik:', 'currency:'))]
+        for field, length in (('account', 20), ('bik', 9)):
+            if not isinstance(metadata.get(field), str) or not re.fullmatch(rf'[0-9]{{{length}}}', metadata[field]):
+                errors.append(f'Некорректный идентификатор выписки: {field}.')
+        if metadata.get('currency') != 'RUB':
+            errors.append('Поддерживаются только рублёвые выписки RUB/RUR, без конвертации.')
+        if errors:
+            raise ValueError('Исправьте исходную выписку и загрузите XLSX повторно: ' + '; '.join(dict.fromkeys(errors)))
+        owner_inn = normalize_inn(metadata.get('ownerInn'))
+        if not valid_inn(owner_inn):
+            raise ValueError('В выписке отсутствует корректный ИНН владельца. Проверьте реквизиты в исходном XLSX.')
+        with self.db.transaction(immediate=True) as conn:
+            self._actor(conn, actor, True)
+            matches = [row['id'] for row in conn.execute('SELECT id,inn FROM organizations')
+                       if normalize_inn(row['inn']) == owner_inn]
+            if not matches:
+                raise ValueError('Организация с ИНН владельца выписки не найдена. Проверьте ИНН в XLSX и справочник наших организаций.')
+            if len(matches) != 1:
+                raise ValueError('ИНН владельца выписки совпадает с несколькими организациями. Устраните дубли в справочнике наших организаций.')
+            organization_id = matches[0]
+            # A file upload must never reactivate or replace an existing setting,
+            # including a conflicting registration under another organization.
+            for account in conn.execute('SELECT * FROM bank_import_accounts WHERE account=?', (metadata['account'],)):
+                if (account['organization_id'] != organization_id or account['owner_inn'] != owner_inn
+                        or account['bik'] != metadata['bik'] or account['currency'] != 'RUB' or not account['active']):
+                    raise ManagerConflict('Счёт выписки уже настроен с другими реквизитами или отключён. Проверьте существующую настройку счёта организации.')
+            # Resolve conflicts and register using the same write transaction.
+            # Validated facts may precede the separate file publication transaction.
+            return self.assignments._confirm_account_in_transaction(conn, actor, organization_id, owner_inn,
+                metadata['account'], metadata['bik'],
+                'Реквизиты подтверждены загрузкой администратором банковской выписки XLSX.')['id']
+
     def upload(self, actor, account_id, filename, raw):
         actor = self._admin(actor)  # Before parsing or writing any bytes.
-        integer(account_id, 'Счёт', 2**53-1)
+        if account_id is not None:
+            integer(account_id, 'Счёт', 2**53-1)
         if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_FILE_BYTES:
             raise ValueError('Выписка должна быть XLSX размером не более 10 МБ.')
         filename = str(filename or '').replace('\\', '/').rsplit('/', 1)[-1]
         filename = re.sub(r'[\x00-\x1f\x7f]', '', filename)[:200]
         if not filename.casefold().endswith('.xlsx'):
             raise ValueError('Выберите банковскую выписку XLSX.')
+        parsed = None
+        if account_id is None:
+            parsed = parse_statement(raw)
+            account_id = self._account_from_statement(actor, parsed)
         sha = hashlib.sha256(raw).hexdigest()
         with self.db.transaction() as conn:
             account = self._row(conn, 'bank_import_accounts', account_id)
             existing = conn.execute('SELECT id FROM bank_uploads WHERE account_id=? AND sha256=?', (account_id, sha)).fetchone()
             if existing:
                 return self._upload_detail(conn, existing['id'])
-        parsed = parse_statement(raw)
+        if parsed is None:
+            parsed = parse_statement(raw)
         metadata = parsed['metadata']
         errors = list(parsed['errors'])
         ownership_errors = []

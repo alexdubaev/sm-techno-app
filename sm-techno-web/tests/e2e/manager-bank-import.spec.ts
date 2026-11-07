@@ -80,21 +80,28 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   await page.goto('/manager');
   await page.getByLabel('Месяц', { exact: true }).fill('2026-11');
   await page.getByLabel('Кабинет сотрудника').selectOption(String(managerId));
+  await expect(page.getByRole('heading', { name: managerName, exact: true })).toBeVisible();
+  const controls = page.getByRole('group', { name: 'Управление кабинетом' });
+  await expect(controls.getByLabel('Месяц', { exact: true })).toBeVisible();
+  await expect(controls.getByRole('button', { name: 'Загрузить выписку', exact: true })).toBeVisible();
+  await expect(controls.getByRole('button', { name: 'История выписок', exact: true })).toBeVisible();
+  const controlBounds = await controls.evaluate((element) => ({
+    height: element.getBoundingClientRect().height, width: element.clientWidth, scrollWidth: element.scrollWidth,
+  }));
+  expect(controlBounds.height).toBeLessThan(160);
+  expect(controlBounds.scrollWidth).toBeLessThanOrEqual(controlBounds.width + 1);
+  await page.screenshot({ path: info.outputPath('manager-header-synthetic.png'), fullPage: false });
   await page.getByRole('button', { name: 'Загрузить выписку', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Банковские выписки' });
   await expect(dialog).toBeVisible();
-  await dialog.getByText('Подтвердить счёт организации для импорта', { exact: true }).click();
-  await dialog.getByLabel('Наша организация').selectOption(String(organization.id));
-  await expect(dialog.getByLabel('ИНН владельца счёта')).toHaveValue(dataset.ownerInn);
-  await dialog.getByLabel('Расчётный счёт', { exact: true }).fill(dataset.account);
-  await dialog.getByLabel('БИК банка').fill(dataset.bik);
-  await dialog.getByLabel('Основание подтверждения счёта').fill('Проверенные синтетические реквизиты');
-  await dialog.getByRole('button', { name: 'Подтвердить реквизиты счёта', exact: true }).click();
-  await expect(dialog.getByText('Счёт подтверждён для импорта.', { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('Организация и счёт', { exact: true })).toHaveCount(0);
+  await expect(dialog.getByText('Подтвердить счёт организации для импорта', { exact: true })).toHaveCount(0);
   await dialog.getByLabel('Файл выписки XLSX').setInputFiles({
     name: `synthetic-control-${scope}.xlsx`, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     buffer: workbook,
   });
+  await expect(dialog.getByRole('button', { name: 'Прочитать выписку', exact: true })).toBeEnabled();
+  await page.screenshot({ path: info.outputPath('bank-file-only-synthetic.png'), fullPage: false });
   await dialog.getByRole('button', { name: 'Прочитать выписку', exact: true }).click();
   await expect(dialog.getByRole('region', { name: 'Результат чтения выписки' })).toBeVisible();
   await expect(dialog.getByRole('article', { name: /^Оплата / })).toHaveCount(6);
@@ -170,7 +177,16 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   await sales.getByText('Назначить или изменить менеджера', { exact: true }).click();
   await sales.getByLabel('Менеджер по продажам').selectOption(String(managerId));
   await sales.getByLabel('Дата начала закрепления').fill('2026-11-01');
-  await sales.getByLabel('Причина изменения закрепления').fill('Первоначальное закрепление в браузере');
+  await expect(sales.getByLabel('Причина изменения закрепления')).toHaveCount(0);
+  const dateBounds = await sales.getByLabel('Дата начала закрепления').evaluate((element) => {
+    const input = element.getBoundingClientRect();
+    const field = element.parentElement!.getBoundingClientRect();
+    return { left: input.left, right: input.right, fieldLeft: field.left, fieldRight: field.right };
+  });
+  expect(dateBounds.left).toBeGreaterThanOrEqual(dateBounds.fieldLeft - 1);
+  expect(dateBounds.right).toBeLessThanOrEqual(dateBounds.fieldRight + 1);
+  await sales.getByRole('button', { name: 'Сохранить закрепление', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('crm-first-assignment-synthetic.png'), fullPage: false });
   const assignmentRefresh = Promise.all([
     page.waitForResponse((response) => response.request().method() === 'GET'
       && response.url().endsWith(`/api/bank-statements/clients/${clientIds[0]}`) && response.status() === 200),

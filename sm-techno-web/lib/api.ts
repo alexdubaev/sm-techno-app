@@ -1832,8 +1832,10 @@ export function fetchBankUpload(id: number) {
 export function refreshBankUpload(id: number) {
   return requestJsonWithInit<import('./bank-types').BankUploadDetail>(`/api/bank-statements/uploads/${id}/refresh`, { method: 'POST' }, 'Не удалось обновить результат выписки.');
 }
-export function uploadBankStatement(accountId: number, file: File) {
-  const body = new FormData(); body.set('accountId', String(accountId)); body.set('file', file);
+export function uploadBankStatement(accountId: number | null, file: File) {
+  const body = new FormData();
+  if (accountId !== null) body.set('accountId', String(accountId));
+  body.set('file', file);
   return requestJsonWithInit<import('./bank-types').BankUploadDetail>('/api/bank-statements/uploads', { method: 'POST', body }, 'Не удалось прочитать выписку.', { timeoutMs: 90_000 });
 }
 export function downloadBankStatement(id: number) {

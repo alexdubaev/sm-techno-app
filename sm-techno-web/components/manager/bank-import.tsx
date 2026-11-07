@@ -2,18 +2,15 @@
 import { useEffect, useRef, useState, type SubmitEvent } from 'react';
 import {
   ApiRequestError,
-  fetchBankAccounts,
   fetchBankUploads,
   fetchBankUpload,
   refreshBankUpload,
   uploadBankStatement,
-  saveBankAccount,
   downloadBankStatement,
   previewBankPayments,
   commitBankPayments,
 } from '@/lib/api';
 import type {
-  BankAccounts,
   BankCommitRequest,
   BankPreview,
   BankSelection,
@@ -102,7 +99,6 @@ export function BankImportContent({
   const [pending, setPending] = useState(() => readPending(storageKey));
   const pendingRef = useRef(pending);
   const committingRef = useRef(false);
-  const [accounts, setAccounts] = useState<BankAccounts | null>(null);
   const [uploads, setUploads] = useState<BankUpload[]>([]);
   const [detail, setDetail] = useState<BankUploadDetail | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
@@ -110,7 +106,6 @@ export function BankImportContent({
     data: BankPreview;
     items: BankSelection[];
   } | null>(null);
-  const [accountId, setAccountId] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -119,12 +114,9 @@ export function BankImportContent({
   const [historyOpen, setHistoryOpen] = useState(true);
   useEffect(() => {
     let active = true;
-    Promise.all([fetchBankAccounts(), fetchBankUploads()])
-      .then(([a, history]) => {
-        if (active) {
-          setAccounts(a);
-          setUploads(history.items);
-        }
+    fetchBankUploads()
+      .then((history) => {
+        if (active) setUploads(history.items);
       })
       .catch((e) => {
         if (active) setError(errorMessage(e));
@@ -168,9 +160,9 @@ export function BankImportContent({
   }
   async function upload(event: SubmitEvent) {
     event.preventDefault();
-    if (!file || !accountId) return;
+    if (!file) return;
     await action(async () => {
-      acceptDetail(await uploadBankStatement(Number(accountId), file));
+      acceptDetail(await uploadBankStatement(null, file));
       setUploads((await fetchBankUploads()).items);
       setHistoryOpen(false);
       setNotice(
@@ -233,9 +225,6 @@ export function BankImportContent({
     detail?.operations.filter(
       (op) => selected.includes(op.id) && canSelectBankPayment(op),
     ) ?? [];
-  const selectedAccount = accounts?.accounts.find(
-    (account) => String(account.id) === accountId,
-  );
   return (
     <div className={styles.body}>
       {error && (
@@ -281,78 +270,29 @@ export function BankImportContent({
           XLSX · рублёвый счёт · суммы поступлений полностью с НДС. Файл
           доступен только администраторам.
         </p>
-        {!accounts ? (
-          <output>Загрузка организаций и счетов…</output>
-        ) : (
-          <>
-            <form onSubmit={(event) => void upload(event)}>
-              <div className={styles.form}>
-                <label className={styles.field}>
-                  Организация и счёт
-                  <select
-                    aria-label="Организация и счёт"
-                    required
-                    value={accountId}
-                    disabled={frozen}
-                    onChange={(e) => setAccountId(e.target.value)}
-                  >
-                    <option value="">Выберите подтверждённый счёт</option>
-                    {accounts.accounts
-                      .filter((a) => a.active)
-                      .map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.organizationName} · {a.account}
-                        </option>
-                      ))}
-                  </select>
-                  {selectedAccount && (
-                    <output className={styles.selectedValue}>
-                      {selectedAccount.organizationName} ·{' '}
-                      {selectedAccount.account}
-                    </output>
-                  )}
-                </label>
-                <label className={styles.field}>
-                  Файл выписки XLSX
-                  <input
-                    required
-                    type="file"
-                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    disabled={frozen}
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
-              </div>
-              <div className="mt-3">
-                <button
-                  type="submit"
-                  className={styles.primary}
-                  disabled={frozen || !file || !accountId}
-                >
-                  {busy ? 'Подождите…' : 'Прочитать выписку'}
-                </button>
-              </div>
-            </form>
-            {!accounts.accounts.length && (
-              <p className={styles.warning}>
-                Сначала подтвердите банковский счёт организации в настройке
-                ниже.
-              </p>
-            )}
-            <AccountSetup
-              accounts={accounts}
-              disabled={frozen}
-              onSave={(payload) =>
-                action(async () => {
-                  const account = await saveBankAccount(payload);
-                  setAccounts(await fetchBankAccounts());
-                  setAccountId(String(account.id));
-                  setNotice('Счёт подтверждён для импорта.');
-                })
-              }
-            />
-          </>
-        )}
+        <form onSubmit={(event) => void upload(event)}>
+          <div className={styles.form}>
+            <label className={styles.field}>
+              Файл выписки XLSX
+              <input
+                required
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                disabled={frozen}
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          </div>
+          <div className="mt-3">
+            <button
+              type="submit"
+              className={styles.primary}
+              disabled={frozen || !file}
+            >
+              {busy ? 'Подождите…' : 'Прочитать выписку'}
+            </button>
+          </div>
+        </form>
       </section>
       <section className={styles.panel}>
         <div className={styles.heading}>
@@ -427,7 +367,7 @@ export function BankImportContent({
               </div>
             </div>
             <p className={styles.muted}>
-              {detail.account} · {detail.currency} ·{' '}
+              {detail.account} · {detail.metadata.bik && `БИК ${detail.metadata.bik} · `}{detail.currency} ·{' '}
               {detail.periodStart && dateLabel(detail.periodStart)} —{' '}
               {detail.periodEnd && dateLabel(detail.periodEnd)} ·{' '}
               {detail.operationCount} операций
@@ -617,131 +557,5 @@ export function BankImportContent({
         </>
       )}
     </div>
-  );
-}
-
-function AccountSetup({
-  accounts,
-  disabled,
-  onSave,
-}: {
-  accounts: BankAccounts;
-  disabled: boolean;
-  onSave: (payload: {
-    organizationId: number;
-    ownerInn: string;
-    account: string;
-    bik: string;
-    reason: string;
-  }) => Promise<void>;
-}) {
-  const [organizationId, setOrganizationId] = useState('');
-  const [inn, setInn] = useState('');
-  const [account, setAccount] = useState('');
-  const [bik, setBik] = useState('');
-  const [reason, setReason] = useState('');
-  return (
-    <details className={styles.details}>
-      <summary>Подтвердить счёт организации для импорта</summary>
-      <p className={styles.muted}>
-        Проверьте реквизиты нашей организации. Это разрешает импорт выписок
-        только по указанному счёту.
-      </p>
-      <form
-        className={styles.form}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void onSave({
-            organizationId: Number(organizationId),
-            ownerInn: inn,
-            account,
-            bik,
-            reason,
-          });
-        }}
-      >
-        <label className={styles.field}>
-          Наша организация
-          <select
-            required
-            disabled={disabled}
-            value={organizationId}
-            onChange={(e) => {
-              setOrganizationId(e.target.value);
-              setInn(
-                accounts.organizations.find(
-                  (org) => String(org.id) === e.target.value,
-                )?.inn ?? '',
-              );
-            }}
-          >
-            <option value="">Выберите организацию</option>
-            {accounts.organizations.map((org) => (
-              <option key={org.id} value={org.id}>
-                {org.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className={styles.field}>
-          ИНН владельца счёта
-          <input
-            required
-            inputMode="numeric"
-            maxLength={12}
-            value={inn}
-            disabled={disabled}
-            onChange={(e) => setInn(e.target.value)}
-          />
-        </label>
-        <label className={styles.field}>
-          Расчётный счёт
-          <input
-            required
-            inputMode="numeric"
-            maxLength={20}
-            value={account}
-            disabled={disabled}
-            onChange={(e) => setAccount(e.target.value)}
-          />
-        </label>
-        <label className={styles.field}>
-          БИК банка
-          <input
-            required
-            inputMode="numeric"
-            maxLength={9}
-            value={bik}
-            disabled={disabled}
-            onChange={(e) => setBik(e.target.value)}
-          />
-        </label>
-        <label className={`${styles.field} ${styles.full}`}>
-          Основание подтверждения счёта
-          <input
-            required
-            maxLength={500}
-            value={reason}
-            disabled={disabled}
-            onChange={(e) => setReason(e.target.value)}
-          />
-        </label>
-        <div className={styles.full}>
-          <button
-            className={styles.button}
-            type="submit"
-            disabled={disabled || !organizationId || !reason.trim()}
-          >
-            Подтвердить реквизиты счёта
-          </button>
-        </div>
-      </form>
-      {!accounts.organizations.length && (
-        <p className={styles.warning}>
-          В справочнике пока нет наших организаций. Заполните его штатным
-          способом перед настройкой счёта.
-        </p>
-      )}
-    </details>
   );
 }

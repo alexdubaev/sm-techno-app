@@ -88,7 +88,7 @@ def create_bank_router(get_current_user, get_db, get_storage_root):
         return invoke(repository().uploads, actor)
 
     @router.post('/uploads')
-    async def upload(accountId: int = Form(...), file: UploadFile = File(...), actor=Depends(administrator)):
+    async def upload(accountId: int | None = Form(None), file: UploadFile = File(...), actor=Depends(administrator)):
         try:
             raw = await file.read(MAX_FILE_BYTES + 1)
             if len(raw) > MAX_FILE_BYTES:

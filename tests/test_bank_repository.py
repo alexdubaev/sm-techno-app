@@ -1,6 +1,8 @@
 """Real SQLite/storage tests of the public bank import workflow; synthetic data only."""
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import json
+from threading import Barrier
 
 import pytest
 
@@ -43,6 +45,52 @@ def bank(tmp_path):
 
 def selected(detail):
     return [dict(operationId=o['id'], version=o['version'], fingerprint=o['fingerprint']) for o in detail['operations'] if o['status'] == 'ready']
+
+
+def test_concurrent_file_only_owners_cannot_register_the_same_bank_account(bank, monkeypatch):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    other_inn = synthetic_inn(567)
+    with db.transaction() as conn:
+        conn.execute('DELETE FROM bank_import_accounts')
+        conn.execute("INSERT INTO organizations(onec_key,name,inn,updated_at) VALUES('competing-bank-owner','Other owner',?,'test')", (other_inn,))
+    databases = [WebDatabase(db.db_path), WebDatabase(db.db_path)]
+    start, unprotected_scans = Barrier(2), Barrier(2)
+    for connection_db in databases:
+        original_transaction = connection_db.transaction
+        @contextmanager
+        def scheduled_transaction(*args, _original=original_transaction, **kwargs):
+            scanned = False
+            class Connection:
+                def execute(self, sql, *parameters):
+                    nonlocal scanned
+                    if 'SELECT * FROM bank_import_accounts WHERE account=' in sql:
+                        scanned = True
+                    return connection.execute(sql, *parameters)
+                def __getattr__(self, name):
+                    return getattr(connection, name)
+            with _original(*args, **kwargs) as connection:
+                yield Connection()
+            # Force both competing preflight reads to finish before registration
+            # if those reads are outside the account's write transaction.
+            if scanned and not kwargs.get('immediate', False):
+                unprotected_scans.wait(timeout=10)
+        monkeypatch.setattr(connection_db, 'transaction', scheduled_transaction)
+    raw_files = [make_statement(), make_statement(edit=lambda sheet: sheet.__setitem__('B2', other_inn))]
+    def upload(index):
+        bank_repo = BankRepository(databases[index], repo.storage_root)
+        start.wait(timeout=10)
+        try:
+            return bank_repo.upload(admin, None, f'owner-{index}.xlsx', raw_files[index])
+        except ManagerConflict as exc:
+            return exc
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(upload, range(2)))
+    assert sum(isinstance(result, ManagerConflict) for result in results) == 1
+    with db.transaction() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM bank_import_accounts').fetchone()[0] == 1
+        assert conn.execute('SELECT COUNT(*) FROM bank_uploads').fetchone()[0] == 1
+        assert conn.execute('SELECT COUNT(*) FROM manager_sales').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM bank_company_sales').fetchone()[0] == 0
 
 
 def test_control_six_gross_payments_preview_and_durable_idempotency(bank):

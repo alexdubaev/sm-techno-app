@@ -163,6 +163,11 @@ class BankAssignmentRepository:
 
     def confirm_account(self, actor, organization_id, owner_inn, account, bik, reason):
         self._admin(actor)
+        with self.db.transaction(immediate=True) as conn:
+            return self._confirm_account_in_transaction(conn, actor, organization_id, owner_inn, account, bik, reason)
+
+    def _confirm_account_in_transaction(self, conn, actor, organization_id, owner_inn, account, bik, reason):
+        self._admin(actor)
         integer(organization_id, 'Организация', 2**53-1)
         owner_inn = _identifier(owner_inn, (10,12), 'ИНН владельца')
         if not _valid_inn(owner_inn):
@@ -170,23 +175,22 @@ class BankAssignmentRepository:
         account = _identifier(account, (20,), 'Расчётный счёт')
         bik = _identifier(bik, (9,), 'БИК')
         reason = text(reason, 'Причина подтверждения счёта', 500)
-        with self.db.transaction(immediate=True) as conn:
-            org = conn.execute('SELECT * FROM organizations WHERE id=?', (organization_id,)).fetchone()
-            if not org:
-                raise ManagerNotFound('Выберите существующую организацию.')
-            known_inn = re.sub(r'\s+', '', str(org['inn'] or ''))
-            if known_inn and owner_inn != known_inn:
-                raise ValueError('ИНН владельца не совпадает с выбранной организацией.')
-            existing = conn.execute('SELECT * FROM bank_import_accounts WHERE organization_id=? AND account=?',
-                                     (organization_id, account)).fetchone()
-            if existing:
-                if existing['owner_inn'] != owner_inn or existing['bik'] != bik or not existing['active']:
-                    raise ManagerConflict('Этот счёт уже настроен с другими реквизитами или отключён.')
-                return self.account_dict(existing)
-            account_id = conn.execute('''INSERT INTO bank_import_accounts(organization_id,organization_name,
-                owner_inn,account,bik,currency,created_by,created_at,reason) VALUES(?,?,?,?,?,'RUB',?,?,?)''',
-                (organization_id, org['name'], owner_inn, account, bik, actor['id'], now(), reason)).lastrowid
-            return self.account_dict(conn.execute('SELECT * FROM bank_import_accounts WHERE id=?', (account_id,)).fetchone())
+        org = conn.execute('SELECT * FROM organizations WHERE id=?', (organization_id,)).fetchone()
+        if not org:
+            raise ManagerNotFound('Выберите существующую организацию.')
+        known_inn = re.sub(r'\s+', '', str(org['inn'] or ''))
+        if known_inn and owner_inn != known_inn:
+            raise ValueError('ИНН владельца не совпадает с выбранной организацией.')
+        existing = conn.execute('SELECT * FROM bank_import_accounts WHERE organization_id=? AND account=?',
+                                 (organization_id, account)).fetchone()
+        if existing:
+            if existing['owner_inn'] != owner_inn or existing['bik'] != bik or not existing['active']:
+                raise ManagerConflict('Этот счёт уже настроен с другими реквизитами или отключён.')
+            return self.account_dict(existing)
+        account_id = conn.execute('''INSERT INTO bank_import_accounts(organization_id,organization_name,
+            owner_inn,account,bik,currency,created_by,created_at,reason) VALUES(?,?,?,?,?,'RUB',?,?,?)''',
+            (organization_id, org['name'], owner_inn, account, bik, actor['id'], now(), reason)).lastrowid
+        return self.account_dict(conn.execute('SELECT * FROM bank_import_accounts WHERE id=?', (account_id,)).fetchone())
 
     @staticmethod
     def account_dict(row):

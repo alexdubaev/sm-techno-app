@@ -1,10 +1,12 @@
 """Authenticated HTTP contract and private receipt/file boundaries, synthetic only."""
+import pytest
+
 from tests.support.bank_statement_fixture import (
     make_statement, SYNTHETIC_OWNER_INN, SYNTHETIC_ACCOUNT, SYNTHETIC_BIK, SYNTHETIC_PAYER_INNS,
 )
 
 
-def setup_bank(auth_api):
+def setup_bank(auth_api, *, confirm_account=True):
     db = auth_api.service.db
     admin = auth_api.bearer(auth_api.login('admin', 'admin-test-password'))
     uid = db.create_user(username='bank-http-seller', password='synthetic-password', full_name='Synthetic bank seller')
@@ -13,8 +15,11 @@ def setup_bank(auth_api):
     with db.transaction() as conn:
         org = conn.execute("INSERT INTO organizations(onec_key,name,inn,updated_at) VALUES('bank-api','Synthetic bank organization',?,'test')", (SYNTHETIC_OWNER_INN,)).lastrowid
     c = auth_api.client
-    approved = c.post('/api/bank-statements/accounts', headers=admin, json=dict(organizationId=org, ownerInn=SYNTHETIC_OWNER_INN, account=SYNTHETIC_ACCOUNT, bik=SYNTHETIC_BIK, reason='Synthetic approval'))
-    assert approved.status_code == 200, approved.text
+    account_id = None
+    if confirm_account:
+        approved = c.post('/api/bank-statements/accounts', headers=admin, json=dict(organizationId=org, ownerInn=SYNTHETIC_OWNER_INN, account=SYNTHETIC_ACCOUNT, bik=SYNTHETIC_BIK, reason='Synthetic approval'))
+        assert approved.status_code == 200, approved.text
+        account_id = approved.json()['id']
     terms = c.post('/api/manager/changes', headers=admin, json=dict(managerId=mid,month='2026-11',kind='terms',version=0,plan=0,fixed=0,rate=500,mode='always',reason='Synthetic November conditions'))
     assert terms.status_code == 200, terms.text
     clients = []
@@ -23,7 +28,154 @@ def setup_bank(auth_api):
         clients.append(client['id'])
         r = c.put(f"/api/bank-statements/clients/{client['id']}/assignment", headers=admin, json=dict(version=0,managerId=mid,startDate='2026-11-01',reason='Synthetic attribution'))
         assert r.status_code == 200, r.text
-    return admin,user,approved.json()['id'],clients,mid
+    return admin,user,account_id,clients,mid
+
+
+def test_file_only_upload_derives_account_once_without_posting_sales(auth_api, monkeypatch):
+    import stock_sync_web.bank_repository as repository
+    admin, user, _, clients, mid = setup_bank(auth_api, confirm_account=False)
+    db, c = auth_api.service.db, auth_api.client
+    with db.transaction() as conn:
+        conn.execute('UPDATE organizations SET inn=?', ('  ' + SYNTHETIC_OWNER_INN + '  ',))
+    calls = []
+    parser = repository.parse_statement
+    def count_parse(raw):
+        calls.append(True)
+        return parser(raw)
+    monkeypatch.setattr(repository, 'parse_statement', count_parse)
+    raw = make_statement()
+    for filename in ('first.xlsx', 'renamed.xlsx'):
+        response = c.post('/api/bank-statements/uploads', headers=admin, files={'file': (filename, raw)})
+        assert response.status_code == 200, response.text
+        detail = response.json()
+        assert detail['summary']['readyCount'] == 6
+        assert detail['summary']['readyAmount'] == 198906300
+        if filename == 'first.xlsx':
+            upload_id = detail['id']
+        assert detail['id'] == upload_id
+    assert len(calls) == 2  # Each file-only request parses once to establish its owner.
+    with db.transaction() as conn:
+        accounts = conn.execute('SELECT * FROM bank_import_accounts').fetchall()
+        assert len(accounts) == 1
+        account = accounts[0]
+        assert (account['owner_inn'], account['account'], account['bik'], account['currency']) == (
+            SYNTHETIC_OWNER_INN, SYNTHETIC_ACCOUNT, SYNTHETIC_BIK, 'RUB')
+        assert account['reason'] and account['created_by']
+        assert conn.execute('SELECT COUNT(*) FROM bank_uploads').fetchone()[0] == 1
+        assert conn.execute('SELECT COUNT(*) FROM bank_operations').fetchone()[0] == 6
+        assert conn.execute('SELECT COUNT(*) FROM manager_sales').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM bank_company_sales').fetchone()[0] == 0
+    assert len(list(auth_api.data_dir.rglob('bank_statements/*.xlsx'))) == 1
+
+
+def test_file_only_normal_user_rejected_before_parser_or_storage(auth_api, monkeypatch):
+    import stock_sync_web.bank_repository as repository
+    admin, user, _, clients, mid = setup_bank(auth_api, confirm_account=False)
+    def forbidden(raw):
+        raise AssertionError('Unauthorized file must not be parsed')
+    monkeypatch.setattr(repository, 'parse_statement', forbidden)
+    response = auth_api.client.post('/api/bank-statements/uploads', headers=user,
+                                    files={'file': ('forbidden.xlsx', make_statement())})
+    assert response.status_code == 403, response.text
+    with auth_api.service.db.transaction() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM bank_import_accounts').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM bank_uploads').fetchone()[0] == 0
+    assert not list(auth_api.data_dir.rglob('bank_statements/*.xlsx'))
+
+
+@pytest.mark.parametrize('problem', ['unknown', 'duplicate', 'payer_only', 'missing_owner', 'invalid_owner', 'invalid_account', 'invalid_bik', 'currency', 'corrupt'])
+def test_file_only_cannot_guess_owner_or_register_invalid_files(auth_api, problem):
+    admin, user, _, clients, mid = setup_bank(auth_api, confirm_account=False)
+    db = auth_api.service.db
+    with db.transaction() as conn:
+        if problem == 'unknown':
+            conn.execute('DELETE FROM organizations')
+        elif problem == 'payer_only':
+            conn.execute('UPDATE organizations SET inn=?', (SYNTHETIC_PAYER_INNS[0],))
+        elif problem == 'duplicate':
+            conn.execute("INSERT INTO organizations(onec_key,name,inn,updated_at) VALUES('duplicate-owner','Duplicate',?,'test')", (SYNTHETIC_OWNER_INN,))
+    edits = {'missing_owner': ('B2', None), 'invalid_owner': ('B2', '0000000000'),
+             'invalid_account': ('B3', '123'), 'invalid_bik': ('B4', None), 'currency': ('B6', 'USD')}
+    def edit(sheet):
+        if problem in edits:
+            cell, value = edits[problem]
+            sheet[cell] = value
+    raw = b'not an xlsx' if problem == 'corrupt' else make_statement(edit=edit)
+    response = auth_api.client.post('/api/bank-statements/uploads', headers=admin,
+                                    files={'file': ('invalid.xlsx', raw)})
+    assert response.status_code == 400, response.text
+    assert response.json()['detail']
+    with db.transaction() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM bank_import_accounts').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM bank_uploads').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM manager_sales').fetchone()[0] == 0
+    assert not list(auth_api.data_dir.rglob('bank_statements/*.xlsx'))
+
+
+@pytest.mark.parametrize('problem', ['date', 'formula', 'unknown_payer'])
+def test_file_only_retains_valid_and_problem_rows_without_posting(auth_api, problem):
+    from tests.support.bank_statement_fixture import synthetic_inn
+    admin, user, _, clients, mid = setup_bank(auth_api, confirm_account=False)
+    edits = {'date': ('A13', 'not a date'), 'formula': ('D13', '=360000'),
+             'unknown_payer': ('F13', synthetic_inn(567))}
+    def edit(sheet):
+        cell, value = edits[problem]
+        sheet[cell] = value
+    response = auth_api.client.post('/api/bank-statements/uploads', headers=admin,
+        files={'file': ('problem-rows.xlsx', make_statement(edit=edit))})
+    assert response.status_code == 200, response.text
+    detail = response.json()
+    assert len(detail['operations']) == 6
+    assert detail['operations'][0]['status'] != 'ready'
+    assert detail['summary']['reviewCount'] >= 1
+    if problem in ('date', 'unknown_payer'):
+        assert detail['summary']['readyCount'] == 5
+    else:
+        assert detail['status'] == 'blocked'  # Formula prevents reliable turnover reconciliation.
+    with auth_api.service.db.transaction() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM bank_source_rows WHERE upload_id=?', (detail['id'],)).fetchone()[0] == 6
+        assert conn.execute('SELECT COUNT(*) FROM bank_import_accounts').fetchone()[0] == 1
+        assert conn.execute('SELECT COUNT(*) FROM manager_sales').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM bank_company_sales').fetchone()[0] == 0
+
+
+def test_file_only_turnover_mismatch_keeps_blocked_preview_and_reconciliation(auth_api):
+    admin, user, _, clients, mid = setup_bank(auth_api, confirm_account=False)
+    response = auth_api.client.post('/api/bank-statements/uploads', headers=admin,
+        files={'file': ('turnover.xlsx', make_statement(edit=lambda sheet: sheet.__setitem__('D7', '1,00')))})
+    assert response.status_code == 200, response.text
+    detail = response.json()
+    assert detail['status'] == 'blocked' and detail['errors']
+    assert len(detail['operations']) == 6
+    assert detail['reconciliation']['credit'] == dict(expected=100, read=198906300, difference=198906200, matched=False)
+    with auth_api.service.db.transaction() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM bank_source_rows WHERE upload_id=?', (detail['id'],)).fetchone()[0] == 6
+        assert conn.execute('SELECT COUNT(*) FROM manager_sales').fetchone()[0] == 0
+        assert conn.execute('SELECT COUNT(*) FROM bank_company_sales').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('problem', ['disabled', 'bik', 'owner', 'currency', 'other_org'])
+def test_file_only_does_not_bypass_existing_account_conflicts(auth_api, problem):
+    admin, user, account, clients, mid = setup_bank(auth_api)
+    db = auth_api.service.db
+    with db.transaction() as conn:
+        if problem == 'disabled':
+            conn.execute('UPDATE bank_import_accounts SET active=0')
+        elif problem == 'bik':
+            conn.execute("UPDATE bank_import_accounts SET bik='000000009'")
+        elif problem == 'owner':
+            conn.execute('UPDATE bank_import_accounts SET owner_inn=?', (SYNTHETIC_PAYER_INNS[0],))
+        elif problem == 'currency':
+            conn.execute("UPDATE bank_import_accounts SET currency='USD'")
+        else:
+            org = conn.execute("INSERT INTO organizations(onec_key,name,inn,updated_at) VALUES('other-account-org','Other',?,'test')", (SYNTHETIC_PAYER_INNS[0],)).lastrowid
+            conn.execute('UPDATE bank_import_accounts SET organization_id=?', (org,))
+    response = auth_api.client.post('/api/bank-statements/uploads', headers=admin,
+                                    files={'file': ('conflict.xlsx', make_statement())})
+    assert response.status_code == 409, response.text
+    with db.transaction() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM bank_import_accounts').fetchone()[0] == 1
+        assert conn.execute('SELECT COUNT(*) FROM bank_uploads').fetchone()[0] == 0
 
 
 def test_bank_http_control_private_download_and_direct_id_acl(auth_api):
