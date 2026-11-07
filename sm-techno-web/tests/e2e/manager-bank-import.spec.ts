@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { expect, test, type APIResponse, type Page } from '@playwright/test';
+import { expect, test, type APIResponse, type Page, type Response as BrowserResponse } from '@playwright/test';
 
 type Dataset = {
   organizationName: string; ownerInn: string; account: string; bik: string;
   payerInns: string[]; clientNames: string[]; kpp: string; workbookBase64: string;
 };
 
-async function json(response: APIResponse, status = 200) {
+async function json(response: APIResponse | BrowserResponse, status = 200) {
   expect(response.status(), await response.text()).toBe(status);
   return response.json();
 }
