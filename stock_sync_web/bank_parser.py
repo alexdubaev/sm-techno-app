@@ -290,8 +290,16 @@ def extract_invoice_references(purpose: str) -> tuple[list[dict], list[str]]:
             for extra in re.finditer(r"(?:[,;]|\bи\b)\s*№\s*([0-9][\w/-]{0,99})", tail[first.end():], re.I):
                 offset = match.end() + first.end()
                 candidates.append((offset + extra.start(), offset + extra.end(), extra[1]))
-    if not anchors and not re.search(r"поручени|плат[её]жн\w*\s+документ", text, re.I):
-        candidates = [(match.start(), match.end(), match[1]) for match in re.finditer(r"№\s*([0-9][\w/-]{0,99})(?=\s+от\b)", text, re.I)]
+    if not anchors:
+        # The supported bare reference starts the purpose (the sample's №255).
+        # A generic №…от… elsewhere can refer to a contract, payment order, etc.
+        bare = re.match(r"\s*№\s*([0-9][\w/-]{0,99})(?=\s+от\b)", text, re.I)
+        other_document = re.search(
+            r"\b(?:договор\w*|контракт\w*|поручени\w*|документ\w*|накладн\w*|"
+            r"акт(?:а|у|ом|ы|ов)?|спецификаци\w*|соглашени\w*|заказ\w*|упд|пп)\b|\bп\s*/\s*п\b",
+            text, re.I)
+        if bare and not other_document:
+            candidates = [(bare.start(), bare.end(), bare[1])]
     for index, (start, end, number) in enumerate(candidates):
         stop = candidates[index + 1][0] if index + 1 < len(candidates) else len(text)
         tail = text[end:stop]

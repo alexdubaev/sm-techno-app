@@ -103,6 +103,50 @@ def test_invoice_multi_refs_words_and_payment_document_not_confused():
     assert parsed["rows"][1]["normalized"]["invoiceNumber"] is None
 
 
+@pytest.mark.parametrize("purpose", [
+    "Оплата за товары по договору №15 от 03.11.2026",
+    "Оплата за товары. ПП №577 от 06.11.2026",
+    "Оплата за товары. П/П №577 от 06.11.2026",
+    "Оплата товаров по контракту №42 от 03.11.2026",
+    "Оплата товаров по накладной №19 от 03.11.2026",
+    "Оплата за товары, акт №19 от 03.11.2026",
+    "Платёж №577 от 06.11.2026 за товары",
+    "Документ №577 от 06.11.2026, оплата товаров",
+    "№15 от 03.11.2026 по договору поставки",
+    "№577 от 06.11.2026 (ПП), оплата товаров",
+])
+def test_other_document_references_are_not_invoices(purpose):
+    parsed = parse_statement(make_statement(edit=lambda sheet: setattr(sheet["K13"], "value", purpose)))
+    operation = parsed["rows"][0]["normalized"]
+    assert operation["purpose"] == purpose
+    assert operation["invoiceReferences"] == []
+    assert operation["invoiceNumber"] is None
+    assert operation["invoiceDate"] is None
+
+
+@pytest.mark.parametrize("purpose", [
+    "№255 ОТ З НОЯБРЯ 2026 Г.",
+    "  №255 ОТ З НОЯБРЯ 2026 Г. Оплата за товары",
+    "Оплата за товары по счёту №255 ОТ З НОЯБРЯ 2026 Г.",
+])
+def test_required_ambiguous_invoice_reference_remains_visible(purpose):
+    parsed = parse_statement(make_statement(edit=lambda sheet: setattr(sheet["K13"], "value", purpose)))
+    operation = parsed["rows"][0]["normalized"]
+    assert operation["invoiceNumber"] == "255"
+    assert operation["invoiceDate"] is None
+    assert operation["credit"] == 36_000_000
+    assert parsed["rows"][0]["warnings"]
+
+
+def test_explicit_invoice_can_coexist_with_a_separate_contract_reference():
+    purpose = "Оплата товаров по счету на оплату №256 от 03.11.2026 по договору №15 от 01.11.2026"
+    parsed = parse_statement(make_statement(edit=lambda sheet: setattr(sheet["K13"], "value", purpose)))
+    operation = parsed["rows"][0]["normalized"]
+    assert operation["invoiceNumber"] == "256"
+    assert operation["invoiceDate"] == "2026-11-03"
+    assert len(operation["invoiceReferences"]) == 1
+
+
 def rewrite_zip(content, transform):
     source, output = zipfile.ZipFile(BytesIO(content)), BytesIO()
     with source, zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as result:
