@@ -25,6 +25,7 @@ export type EditorKind = ManagerChange['kind'];
 const titles = {
   terms: 'Условия начисления',
   sale: 'Продажа',
+  sale_rate: 'Изменить процент продажи',
   cancel: 'Отменить продажу',
   close: 'Закрыть месяц',
   reopen: 'Открыть месяц',
@@ -83,11 +84,11 @@ export function ManagerEditor({
         managerId: data.account.id,
         month: data.month,
         version: data.version,
-        ...(creatingSale ? {} : { reason: reason.trim() }),
+        ...(creatingSale || kind === 'sale_rate' ? {} : { reason: reason.trim() }),
       };
       const effectiveRate = kind === 'terms' && !hasPlan && !rate.trim() ? '0' : rate;
       const effectiveFixed = kind === 'terms' && !fixed.trim() ? '0' : fixed;
-      if ((kind === 'terms' || kind === 'sale') && minorUnits(effectiveRate) > 10000)
+      if ((kind === 'terms' || kind === 'sale' || kind === 'sale_rate') && minorUnits(effectiveRate) > 10000)
         throw new Error('Процент должен быть от 0 до 100.');
       let payload: ManagerChange;
       if (kind === 'terms')
@@ -111,6 +112,7 @@ export function ManagerEditor({
           invoiceNumber,
           invoiceDate,
         };
+      else if (kind === 'sale_rate') payload = { ...base, kind, saleId: sale!.id, rate: minorUnits(rate) };
       else if (kind === 'cancel') payload = { ...base, kind, saleId: sale!.id };
       else payload = { ...base, kind };
       if (creatingSale) {
@@ -279,7 +281,11 @@ export function ManagerEditor({
                 </label>
               </>
             )}
-            {(kind === 'terms' || kind === 'sale') && (
+            {kind === 'sale_rate' && <p className={styles.notice}>
+              Продажа № {sale?.id} · {sale?.client} · {sale?.date} · {money(sale?.amount ?? 0)}.
+              Изменится процент только этой продажи.
+            </p>}
+            {(kind === 'terms' || kind === 'sale' || kind === 'sale_rate') && (
               <label>
                 {kind === 'terms'
                   ? 'Ставка для новых продаж, %'
@@ -289,12 +295,12 @@ export function ManagerEditor({
                   inputMode="decimal"
                   value={rate}
                   onChange={(e) => setRate(e.target.value)}
-                  required={kind === 'sale' || kind === 'terms'}
+                  required
                 />
                 <small>
                     {kind === 'terms' && planMode === 'minimum'
                       ? 'Начисляется большая сумма: минимальная зарплата или проценты с продаж.'
-                      : ((kind === 'terms' && !hasPlan) || (kind === 'sale' && data.terms?.plan === 0))
+                      : ((kind === 'terms' && !hasPlan) || ((kind === 'sale' || kind === 'sale_rate') && data.terms?.plan === 0))
                     ? 'Процент начисляется со всей суммы продаж. Ставки существующих продаж не меняются автоматически.'
                     : 'Процент только с суммы сверх плана. Ставки существующих продаж не меняются автоматически.'}
                 </small>
@@ -313,7 +319,7 @@ export function ManagerEditor({
                   : 'Месяц снова станет доступен для исправлений. Предыдущий снимок начислений сохранится.'}
               </p>
             )}
-            {(kind !== 'sale' || sale) && (
+            {kind !== 'sale_rate' && (kind !== 'sale' || sale) && (
               <label>
                 Причина изменения
                 <input

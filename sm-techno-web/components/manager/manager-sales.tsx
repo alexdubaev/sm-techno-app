@@ -69,10 +69,12 @@ export function ManagerSales({
             <div className={styles.rowActions}>
               {!sale.cancelled && (
                 <>
-                  {onEdit && sale.source !== 'bank_statement' && !sale.bankOperationId && <button
+                  {onEdit && <button
                     className={styles.iconButton}
                     onClick={() => onEdit?.(sale)}
-                    aria-label={`Изменить продажу № ${sale.id}`}
+                    aria-label={sale.source === 'bank_statement' || sale.bankOperationId
+                      ? `Изменить процент продажи № ${sale.id}` : `Изменить продажу № ${sale.id}`}
+                    title={sale.source === 'bank_statement' || sale.bankOperationId ? 'Изменить процент' : 'Изменить продажу'}
                   >
                     <Pencil size={16} />
                   </button>}
