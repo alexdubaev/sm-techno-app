@@ -4,6 +4,7 @@ import { ManagerSales } from '@/components/manager/manager-sales';
 import { ManagerWorkspace } from '@/components/manager/manager-workspace';
 import { ManagerHistory } from '@/components/manager/manager-history';
 import { BankImportContent } from '@/components/manager/bank-import';
+import { BankOperationCard } from '@/components/manager/bank-operation-card';
 import { ClientSalesPanel } from '@/components/crm/client-sales-panel';
 import type { ManagerSale } from '@/lib/manager-types';
 import type { BankOperation, BankUploadDetail } from '@/lib/bank-types';
@@ -206,6 +207,33 @@ beforeEach(() => {
 });
 
 describe('Bank payments in existing sales', () => {
+  it('retains invalid source rows for inspection while requiring corrected XLSX for critical bank fields', () => {
+    render(
+      <BankOperationCard
+        operation={{
+          ...operation,
+          id: -43,
+          date: null,
+          amount: null,
+          status: 'data_error',
+          explanation: 'Дата операции содержит формулу',
+          errors: ['Дата операции содержит формулу'],
+        }}
+        selected={false}
+        disabled={false}
+        onSelect={() => {}}
+        onSaved={async () => {}}
+      />,
+    );
+    expect(
+      screen.getByRole('checkbox', { name: 'Выбрать оплату 2810' }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByText('Проверить и изменить решение'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/Исправьте исходные данные в XLSX/)).toBeVisible();
+    expect(screen.getByText('Назначение и банковские реквизиты')).toBeVisible();
+  });
   it('explains bank confirmation of an existing sale in manager audit history', async () => {
     const data = await mocks.dashboard();
     const state = {

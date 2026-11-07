@@ -179,7 +179,14 @@ export function BankOperationCard({
           </div>
         )}
       </details>
-      {op.status !== 'accounted' && (
+      {op.id < 0 && (
+        <p className={styles.warning}>
+          Исправьте исходные данные в XLSX и загрузите исправленную выписку.
+          Сумму, дату и другие критические банковские поля нельзя исправить
+          вручную в предварительном результате.
+        </p>
+      )}
+      {op.id > 0 && op.status !== 'accounted' && (
         <details className={styles.details}>
           <summary>Проверить и изменить решение</summary>
           <p className={styles.muted}>
