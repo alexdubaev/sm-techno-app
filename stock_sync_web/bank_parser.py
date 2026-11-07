@@ -48,7 +48,7 @@ def normalize_inn(value: object) -> str:
 
 def valid_inn(value: object) -> bool:
     inn = normalize_inn(value)
-    if not inn.isascii() or not inn.isdigit() or len(inn) not in (10, 12):
+    if not inn.isascii() or not inn.isdigit() or len(inn) not in (10, 12) or set(inn) == {"0"}:
         return False
     digits = [int(digit) for digit in inn]
     def checksum(weights, count):

@@ -12,6 +12,11 @@ from tests.support.bank_statement_fixture import (
 )
 
 
+@pytest.mark.parametrize("inn", ["0000000000", "000000000000", "000 000 0000", "0000\u00a00000\u00a00000"])
+def test_all_zero_inn_is_a_placeholder_not_a_valid_identifier(inn):
+    assert valid_inn(inn) is False
+
+
 def test_six_gross_payments_and_calendar_dates_are_exact():
     parsed = parse_statement(make_statement())
     assert parsed["errors"] == []
