@@ -20,6 +20,7 @@ import { ManagerAvatar } from './manager-avatar';
 import { ManagerEditor, type EditorKind } from './manager-editor';
 import { ManagerHistory } from './manager-history';
 import { ManagerSales } from './manager-sales';
+import { BankImport } from './bank-import';
 import { errorMessage, money, monthLabel, shiftMonth } from './format';
 import styles from './manager.module.css';
 const ManagerChart = dynamic(() => import('./manager-chart'), {
@@ -38,6 +39,7 @@ export function ManagerWorkspace() {
   const [managerError, setManagerError] = useState('');
   const [managerRetry, setManagerRetry] = useState(0);
   const [revision, setRevision] = useState(0);
+  const [bankImportOpen, setBankImportOpen] = useState(false);
   useEffect(() => {
     if (!isAdmin) return;
     let active = true;
@@ -130,6 +132,10 @@ export function ManagerWorkspace() {
         </div>
       )}
       </div>
+      {isAdmin && <div className={styles.bottomActions}>
+        <button className={styles.primary} onClick={() => setBankImportOpen(true)}>Загрузить выписку</button>
+        <button className={styles.secondary} onClick={() => setBankImportOpen(true)}>История выписок</button>
+      </div>}
       <CabinetLoader
         key={`${user.id}:${managerId ?? 'self'}:${month}:${revision}`}
         month={month}
@@ -137,6 +143,7 @@ export function ManagerWorkspace() {
         admin={isAdmin}
         onRefresh={() => setRevision((r) => r + 1)}
       />
+      {isAdmin && bankImportOpen && <BankImport userId={user.id} onClose={() => setBankImportOpen(false)} onChanged={() => setRevision((r) => r + 1)} />}
     </div>
   );
 }

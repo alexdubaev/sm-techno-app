@@ -23,7 +23,8 @@ export type ManagerSale = {
   amount: number;
   rate: number;
   cancelled: boolean;
-  source: 'manual' | 'onec';
+  source: 'manual' | 'onec' | 'bank_statement';
+  bankOperationId?: number | null;
   invoiceNumber?: string | null;
   invoiceDate?: string | null;
   base: number | null;

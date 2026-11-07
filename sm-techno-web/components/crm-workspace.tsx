@@ -29,6 +29,7 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { ClientDocumentsPanel } from "@/components/crm/client-documents-panel";
+import { ClientSalesPanel } from "@/components/crm/client-sales-panel";
 import { MobileCrmWorkspace } from "@/components/crm/mobile/mobile-crm-workspace";
 import { MobileClientDetail } from "@/components/crm/mobile/mobile-client-detail";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -1256,6 +1257,7 @@ function ClientDetailDialog({ onClose, initialDocumentsOpen=false, ...controller
         {error ? <Message tone="error">{error}</Message> : null}
         {notice ? <Message tone="success">{notice}</Message> : null}
         <div className="mt-4"><button type="button" aria-expanded={documentsOpen} className="min-h-10 rounded-lg border border-[var(--border-color)] px-3 text-sm font-semibold" onClick={() => setDocumentsOpen((open) => !open)}>Документы клиента</button>{documentsOpen ? <div className="mt-3"><ClientDocumentsPanel key={currentClient.id} clientId={currentClient.id} isAdmin={controllerOptions.isAdmin} /></div> : null}</div>
+        <ClientSalesPanel key={currentClient.id} clientId={currentClient.id} isAdmin={controllerOptions.isAdmin} />
         {isLoading ? <div className="mt-5"><LoadingRows /></div> : (
           <div className="mt-5 grid gap-4 lg:grid-cols-3">
             <DetailSection title="Реквизиты компании">

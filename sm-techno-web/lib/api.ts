@@ -1815,3 +1815,45 @@ export function fetchAdminUsage(period: import('./admin-dashboard-types').Period
 export function fetchAdminBalance() {
   return requestJson<import('./admin-dashboard-types').Balance>('/api/admin/dashboard/deepseek/balance', {bypassCache: true});
 }
+
+// Bank statements use the same authenticated transport and never the document recognizer.
+export function fetchBankAccounts() {
+  return requestJson<import('./bank-types').BankAccounts>('/api/bank-statements/accounts', { bypassCache: true });
+}
+export function saveBankAccount(payload: { organizationId: number; ownerInn: string; account: string; bik: string; reason: string }) {
+  return requestJsonWithInit<import('./bank-types').BankAccount>('/api/bank-statements/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось подтвердить банковский счёт.');
+}
+export function fetchBankUploads() {
+  return requestJson<{ items: import('./bank-types').BankUpload[] }>('/api/bank-statements/uploads', { bypassCache: true });
+}
+export function fetchBankUpload(id: number) {
+  return requestJson<import('./bank-types').BankUploadDetail>(`/api/bank-statements/uploads/${id}`, { bypassCache: true });
+}
+export function refreshBankUpload(id: number) {
+  return requestJsonWithInit<import('./bank-types').BankUploadDetail>(`/api/bank-statements/uploads/${id}/refresh`, { method: 'POST' }, 'Не удалось обновить результат выписки.');
+}
+export function uploadBankStatement(accountId: number, file: File) {
+  const body = new FormData(); body.set('accountId', String(accountId)); body.set('file', file);
+  return requestJsonWithInit<import('./bank-types').BankUploadDetail>('/api/bank-statements/uploads', { method: 'POST', body }, 'Не удалось прочитать выписку.', { timeoutMs: 90_000 });
+}
+export function downloadBankStatement(id: number) {
+  return downloadApiFile(`/api/bank-statements/uploads/${id}/file`, 'Не удалось скачать выписку.', 'bank-statement.xlsx');
+}
+export function changeBankDecision(id: number, payload: import('./bank-types').BankDecisionChange) {
+  return requestJsonWithInit<import('./bank-types').BankOperation>(`/api/bank-statements/operations/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось сохранить решение по оплате.');
+}
+export function previewBankPayments(items: import('./bank-types').BankSelection[]) {
+  return requestJsonWithInit<import('./bank-types').BankPreview>('/api/bank-statements/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) }, 'Не удалось рассчитать результат.');
+}
+export function commitBankPayments(payload: import('./bank-types').BankCommitRequest) {
+  return requestJsonWithInit<import('./bank-types').BankCommitResult>('/api/bank-statements/commit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось подтвердить оплаты.', { timeoutMs: 90_000 });
+}
+export function searchBankClients(query: string) {
+  return requestJson<{ items: import('./bank-types').BankClientChoice[] }>(`/api/bank-statements/clients/search?${new URLSearchParams({ query })}`, { bypassCache: true });
+}
+export function fetchBankClient(clientId: number) {
+  return requestJson<import('./bank-types').BankClientSummary>(`/api/bank-statements/clients/${clientId}`, { bypassCache: true });
+}
+export function saveClientSalesManager(clientId: number, payload: { version: number; managerId: number | null; startDate: string; reason: string }) {
+  return requestJsonWithInit<import('./bank-types').BankClientSummary>(`/api/bank-statements/clients/${clientId}/assignment`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось изменить менеджера по продажам.');
+}

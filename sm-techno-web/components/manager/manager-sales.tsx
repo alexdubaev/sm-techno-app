@@ -32,7 +32,7 @@ export function ManagerSales({
           <div className={styles.saleClient}>
             <b>{sale.client}</b>
             <small>
-              № {sale.id} · {sale.source === 'manual' ? 'Ручной ввод' : '1С'}
+              № {sale.id} · {sale.source === 'bank_statement' ? 'Банковская выписка' : sale.source === 'manual' ? 'Ручной ввод' : '1С'}
               {sale.cancelled ? ' · Отменена' : ''}
             </small>
             {(sale.invoiceNumber || sale.invoiceDate) && (
@@ -69,20 +69,20 @@ export function ManagerSales({
             <div className={styles.rowActions}>
               {!sale.cancelled && (
                 <>
-                  <button
+                  {onEdit && sale.source !== 'bank_statement' && !sale.bankOperationId && <button
                     className={styles.iconButton}
                     onClick={() => onEdit?.(sale)}
                     aria-label={`Изменить продажу № ${sale.id}`}
                   >
                     <Pencil size={16} />
-                  </button>
-                  <button
+                  </button>}
+                  {onCancel && <button
                     className={styles.iconButton}
                     onClick={() => onCancel?.(sale)}
                     aria-label={`Отменить продажу № ${sale.id}`}
                   >
                     <X size={17} />
-                  </button>
+                  </button>}
                 </>
               )}
             </div>
