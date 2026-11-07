@@ -65,3 +65,28 @@ def make_statement(*, edit=None, extra_blank_rows: int = 0) -> bytes:
     if edit:
         edit(book.active)
     return workbook_bytes(book)
+
+
+def make_bank_export(*, edit=None, extra_blank_rows: int = 0) -> bytes:
+    """Real bank header layout, with entirely synthetic identities and payments."""
+    book = statement_workbook()
+    sheet = book.active
+    for row in sheet.iter_rows(min_row=1, max_row=10, max_col=13):
+        for cell in row:
+            cell.value = None
+    account = SYNTHETIC_ACCOUNT
+    sheet['A1'], sheet['B1'] = 'Выписка по счёту', f'{account[:5]} {account[5:8]} {account[8:9]} {account[9:14]} {account[14:]}'
+    sheet['A2'], sheet['B2'] = 'За период', 'c 01.11.2026 по 07.11.2026'
+    sheet['A3'], sheet['B3'] = 'Владелец счёта', 'СИНТЕТИЧЕСКАЯ ОРГАНИЗАЦИЯ'
+    sheet['A4'], sheet['B4'] = 'ИНН владельца', SYNTHETIC_OWNER_INN
+    sheet['A5'], sheet['B5'] = 'БИК', SYNTHETIC_BIK
+    sheet['A7'], sheet['B7'], sheet['C7'] = 'Остаток входящий', '—', 'RUR'
+    sheet['D7'], sheet['E7'], sheet['F7'] = 'Обороты дебет', 0, 'RUR'
+    sheet['A8'], sheet['B8'], sheet['C8'] = 'Остаток исходящий', '—', 'RUR'
+    sheet['D8'], sheet['E8'], sheet['F8'] = 'Обороты кредит', 1_989_063, 'RUR'
+    sheet['A9'], sheet['C9'] = 'Дата предыдущей операции по счёту', '31.10.2026'
+    if extra_blank_rows:
+        sheet.insert_rows(1, extra_blank_rows)
+    if edit:
+        edit(sheet)
+    return workbook_bytes(book)

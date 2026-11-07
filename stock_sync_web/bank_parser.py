@@ -19,7 +19,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.cell import get_column_letter
 
 
-PARSER_VERSION = "russian-account-statement-v1"
+PARSER_VERSION = "russian-account-statement-v2"
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_EXPANDED_BYTES = 64 * 1024 * 1024
 MAX_ZIP_ENTRIES = 2_000
@@ -373,6 +373,11 @@ def _headers(grid):
     return candidates[0]
 
 
+def _currency_code(value):
+    candidate = str(value).strip().upper()
+    return "RUB" if candidate in ("RUR", "RUB", "РУБ", "РУБ.", "РОССИЙСКИЙ РУБЛЬ", "810", "643") else candidate
+
+
 def _metadata(grid, header_index, last_header, mapping, numeric):
     metadata = {"ownerName": None, "ownerInn": None, "account": None, "bik": None,
                 "periodStart": None, "periodEnd": None, "currency": None, "debitTotal": None,
@@ -381,12 +386,12 @@ def _metadata(grid, header_index, last_header, mapping, numeric):
     labels = {
         "владелец счета": "ownerName", "владелец": "ownerName", "организация": "ownerName", "клиент": "ownerName",
         "инн владельца": "ownerInn", "инн организации": "ownerInn", "инн": "ownerInn",
-        "расчетный счет": "account", "номер счета": "account", "счет": "account", "бик": "bik",
+        "расчетный счет": "account", "номер счета": "account", "счет": "account", "выписка по счету": "account", "бик": "bik",
         "валюта": "currency", "валюта счета": "currency", "период": "period", "за период": "period",
-        "обороты по дебету": "debitTotal", "оборот по дебету": "debitTotal", "дебетовый оборот": "debitTotal",
-        "обороты по кредиту": "creditTotal", "оборот по кредиту": "creditTotal", "кредитовый оборот": "creditTotal",
-        "входящий остаток": "openingBalance", "входящий остаток на начало периода": "openingBalance",
-        "исходящий остаток": "closingBalance", "исходящий остаток на конец периода": "closingBalance",
+        "обороты по дебету": "debitTotal", "оборот по дебету": "debitTotal", "дебетовый оборот": "debitTotal", "обороты дебет": "debitTotal",
+        "обороты по кредиту": "creditTotal", "оборот по кредиту": "creditTotal", "кредитовый оборот": "creditTotal", "обороты кредит": "creditTotal",
+        "входящий остаток": "openingBalance", "входящий остаток на начало периода": "openingBalance", "остаток входящий": "openingBalance",
+        "исходящий остаток": "closingBalance", "исходящий остаток на конец периода": "closingBalance", "остаток исходящий": "closingBalance",
     }
     def assign(field, value):
         if metadata[field] is not None and metadata[field] != value:
@@ -450,13 +455,24 @@ def _metadata(grid, header_index, last_header, mapping, numeric):
                                       _identifier(target, numeric, "inn" if field == "ownerInn" else field, identifier_errors))
                         if identifier_errors:
                             raise ValueError(identifier_errors[0])
+                        normalized = re.sub(r'\s+', '', normalized)
                         assign(field, normalized)
                     else:
                         normalized = str(candidate).strip()
                         if field == "currency":
-                            normalized = normalized.upper()
-                            normalized = "RUB" if normalized in ("RUR", "RUB", "РУБ", "РУБ.", "РОССИЙСКИЙ РУБЛЬ", "810", "643") else normalized
+                            normalized = _currency_code(normalized)
                         assign(field, normalized)
+                    # This export puts a currency cell immediately after each
+                    # balance/turnover amount, instead of a separate currency row.
+                    if field in ('openingBalance', 'closingBalance', 'debitTotal', 'creditTotal') and target is not None:
+                        unit_index = target.column
+                        if unit_index < len(row):
+                            unit = row[unit_index]
+                            if unit.value is not None and _key(unit.value) not in labels:
+                                try:
+                                    assign('currency', _currency_code(_value(unit, numeric)))
+                                except ValueError as exc:
+                                    errors.append(f'currency: {exc}')
                 except ValueError as exc:
                     errors.append(f"{field}: {exc}")
         if footer and nonempty and re.match(r"^(?:итого|обороты|всего)\b", _key(nonempty[0].value)):

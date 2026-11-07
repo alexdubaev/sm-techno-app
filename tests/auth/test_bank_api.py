@@ -2,7 +2,7 @@
 import pytest
 
 from tests.support.bank_statement_fixture import (
-    make_statement, SYNTHETIC_OWNER_INN, SYNTHETIC_ACCOUNT, SYNTHETIC_BIK, SYNTHETIC_PAYER_INNS,
+    make_statement, make_bank_export, SYNTHETIC_OWNER_INN, SYNTHETIC_ACCOUNT, SYNTHETIC_BIK, SYNTHETIC_PAYER_INNS,
 )
 
 
@@ -31,7 +31,8 @@ def setup_bank(auth_api, *, confirm_account=True):
     return admin,user,account_id,clients,mid
 
 
-def test_file_only_upload_derives_account_once_without_posting_sales(auth_api, monkeypatch):
+@pytest.mark.parametrize('statement_factory', [make_statement, make_bank_export])
+def test_file_only_upload_derives_account_once_without_posting_sales(auth_api, monkeypatch, statement_factory):
     import stock_sync_web.bank_repository as repository
     admin, user, _, clients, mid = setup_bank(auth_api, confirm_account=False)
     db, c = auth_api.service.db, auth_api.client
@@ -43,7 +44,7 @@ def test_file_only_upload_derives_account_once_without_posting_sales(auth_api, m
         calls.append(True)
         return parser(raw)
     monkeypatch.setattr(repository, 'parse_statement', count_parse)
-    raw = make_statement()
+    raw = statement_factory()
     for filename in ('first.xlsx', 'renamed.xlsx'):
         response = c.post('/api/bank-statements/uploads', headers=admin, files={'file': (filename, raw)})
         assert response.status_code == 200, response.text

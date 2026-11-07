@@ -5,7 +5,7 @@ import base64
 
 from tests.support.bank_statement_fixture import (
     SYNTHETIC_BIK,
-    make_statement,
+    make_bank_export,
     synthetic_inn,
 )
 
@@ -21,9 +21,9 @@ def browser_dataset(scope: int) -> dict:
     client_names = [f"Синтетический покупатель выписки {scope} · {i + 1}" for i in range(5)]
 
     def edit(sheet):
-        sheet["B1"] = organization_name
-        sheet["B2"] = owner_inn
-        sheet["B3"] = account
+        sheet["B3"] = organization_name
+        sheet["B4"] = owner_inn
+        sheet["B1"] = f'{account[:5]} {account[5:8]} {account[8:9]} {account[9:14]} {account[14:]}'
         for i in range(6):
             payer = min(i, 4)
             row = 13 + i
@@ -39,7 +39,7 @@ def browser_dataset(scope: int) -> dict:
         "payerInns": payer_inns,
         "clientNames": client_names,
         "kpp": "000001001",
-        "workbookBase64": base64.b64encode(make_statement(edit=edit)).decode("ascii"),
+        "workbookBase64": base64.b64encode(make_bank_export(edit=edit)).decode("ascii"),
     }
 
 
