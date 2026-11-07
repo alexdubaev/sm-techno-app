@@ -13,7 +13,7 @@ window.STATE =
   "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot",
   "baseCommit": "8bebcb8",
   "startedAt": "2026-11-07T15:56:46+03:00",
-  "updatedAt": "2026-11-07T18:09:07+03:00",
+  "updatedAt": "2026-11-07T18:31:34+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -464,15 +464,33 @@ window.STATE =
       "review": "нет — подтверждённое замечание единственного независимого ревью, закрывается affected check",
       "model": "сильная",
       "status": "done",
-      "retries": 0,
-      "repairs": 0,
       "startedAt": "2026-11-07T17:07:37+03:00",
       "finishedAt": "2026-11-07T17:11:27+03:00",
+      "retries": 0,
+      "repairs": 0,
       "tests": {
         "passed": 92,
         "failed": 0
       },
       "commit": "b85631a8"
+    },
+    {
+      "id": "F2",
+      "title": "Синхронизация существующего теста Документов",
+      "requirements": [
+        "R102"
+      ],
+      "blockedBy": [],
+      "wave": 4,
+      "zone": [
+        "sm-techno-web/tests/crm/documents-workspace.integration.test.tsx"
+      ],
+      "review": "нет — минимальный тестовый фикс фактического CI failure, assertions сохраняются",
+      "model": "обычная",
+      "status": "in-progress",
+      "retries": 0,
+      "repairs": 0,
+      "startedAt": "2026-11-07T18:31:34+03:00"
     }
   ],
   "tests": {
@@ -547,11 +565,21 @@ window.STATE =
     "2026-11-07T17:37:01+03:00",
     "2026-11-07T17:40:09+03:00",
     "2026-11-07T17:40:10+03:00",
-    "2026-11-07T18:09:07+03:00"
+    "2026-11-07T18:09:07+03:00",
+    "2026-11-07T18:16:21+03:00",
+    "2026-11-07T18:31:32+03:00",
+    "2026-11-07T18:31:33+03:00",
+    "2026-11-07T18:31:34+03:00"
   ],
-  "rev": 53,
+  "rev": 57,
   "waiting": null,
-  "waits": [],
+  "waits": [
+    {
+      "kind": "action",
+      "from": "2026-11-07T18:16:21+03:00",
+      "to": "2026-11-07T18:31:32+03:00"
+    }
+  ],
   "log": [
     {
       "t": "2026-11-07T15:56:46+03:00",
@@ -920,6 +948,37 @@ window.STATE =
       "k": "tests",
       "passed": 940,
       "failed": 0
+    },
+    {
+      "t": "2026-11-07T18:16:21+03:00",
+      "k": "ask",
+      "kind": "action",
+      "note": "PR45: local verification and backup passed; awaiting explicit merge authorization per original section14, automatic CI running"
+    },
+    {
+      "t": "2026-11-07T18:31:32+03:00",
+      "k": "answered",
+      "kind": "action"
+    },
+    {
+      "t": "2026-11-07T18:31:32+03:00",
+      "k": "tickets",
+      "n": 7
+    },
+    {
+      "t": "2026-11-07T18:31:33+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-07T18:31:34+03:00",
+      "k": "ticket",
+      "ids": [
+        "F2"
+      ],
+      "act": "start"
     }
   ],
   "reqList": [
@@ -1457,7 +1516,7 @@ window.STATE =
   "gates": {
     "G3": {
       "ok": true,
-      "at": "2026-11-07T17:07:36+03:00",
+      "at": "2026-11-07T18:31:33+03:00",
       "problems": 0
     },
     "G2": {

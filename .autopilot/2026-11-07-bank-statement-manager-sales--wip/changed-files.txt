@@ -23,6 +23,7 @@
 .autopilot/2026-11-07-bank-statement-manager-sales--wip/tickets/04-interface.md
 .autopilot/2026-11-07-bank-statement-manager-sales--wip/tickets/05-acceptance.md
 .autopilot/2026-11-07-bank-statement-manager-sales--wip/tickets/F1-invoice-context.md
+.autopilot/2026-11-07-bank-statement-manager-sales--wip/tickets/F2-async-document-test.md
 .autopilot/PROGRESS.md
 .autopilot/README.md
 .autopilot/dashboard.html
@@ -44,6 +45,7 @@ sm-techno-web/lib/api.ts
 sm-techno-web/lib/bank-types.ts
 sm-techno-web/lib/manager-types.ts
 sm-techno-web/tests/crm-sync-lifecycle.test.mjs
+sm-techno-web/tests/crm/documents-workspace.integration.test.tsx
 sm-techno-web/tests/e2e/manager-bank-import.spec.ts
 sm-techno-web/tests/settings/bank.test.tsx
 stock_sync_api.py
