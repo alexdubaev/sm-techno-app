@@ -73,6 +73,11 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
       headers, data: { version: 0, managerId, startDate: '2026-11-01', reason: 'Синтетическое закрепление' },
     }));
   }
+  // A linked/local duplicate can have a different name and no direct assignment.
+  const duplicateClient = (await json(await request.post(`/api/crm/clients?ownerId=${admin.user.id}`, {
+    headers, data: { documentName: `Другая карточка плательщика ${scope}`, fullName: `Другая карточка плательщика ${scope}`,
+      inn: dataset.payerInns[1], kpp: dataset.kpp, legalType: 'legal_entity' },
+  }), 201)).client;
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await page.addInitScript((session) => localStorage.setItem('sm-techno-auth-session', JSON.stringify(session)), admin);
@@ -108,6 +113,17 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   await expect(dialog.getByRole('article', { name: 'Оплата 5471', exact: true })).toContainText('09.09.2026');
   const read = await json(await request.get('/api/bank-statements/uploads', { headers }));
   const upload = read.items.find((item: { account: string }) => item.account === dataset.account);
+  const ambiguous = dialog.getByRole('article', { name: 'Оплата 577', exact: true });
+  await expect(ambiguous).toContainText('Несколько совпадений');
+  await ambiguous.getByText('Проверить и изменить решение', { exact: true }).click();
+  await ambiguous.getByLabel('Выбранный клиент', { exact: true }).selectOption(String(duplicateClient.id));
+  await expect(ambiguous.getByLabel('Причина решения', { exact: true })).toHaveCount(0);
+  await ambiguous.getByRole('button', { name: 'Применить клиента', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('bank-client-selection-synthetic.png'), fullPage: false });
+  await ambiguous.getByRole('button', { name: 'Применить клиента', exact: true }).click();
+  await expect(ambiguous).toContainText(managerName);
+  await expect(ambiguous).toContainText('Готово');
+  await expect(ambiguous.getByText('Клиент выбран, но ещё не применён.', { exact: false })).toHaveCount(0);
   const before = await json(await request.get(`/api/bank-statements/uploads/${upload.id}`, { headers }));
   expect(before.summary).toMatchObject({ companyReadyCount: 6, companyReadyAmount: 198906300, readyCount: 5 });
   const firstOperation = before.operations.find((op: { clientId: number }) => op.clientId === clientIds[0]);

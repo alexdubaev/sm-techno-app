@@ -456,3 +456,117 @@ def test_backdated_transfer_never_moves_already_posted_sales(bank):
     repo.commit(admin,selected(future),'after-transfer-key')
     assert managers.dashboard(admin,mid,'2026-11')['summary']['salesTotal']==198906300
     assert managers.dashboard(admin,second,'2026-11')['summary']['salesTotal']==36000000
+
+
+def duplicate_payer_card(db, seller, *, inn=SYNTHETIC_PAYER_INNS[0], kpp='000001001'):
+    return db.create_crm_client_card(dict(document_name='Completely different program label',
+        inn=inn, kpp=kpp), owner_user_id=seller['id'])['id']
+
+
+def choose_first_payment(repo, admin, detail, client_id):
+    operation = detail['operations'][0]
+    return repo.update_operation(admin, operation['id'], dict(version=operation['version'],
+        clientId=client_id, reason='Specific CRM identity confirmed'))
+
+
+def test_duplicate_crm_identity_inherits_dated_manager_and_commits_without_name_matching(bank):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    duplicate = duplicate_payer_card(db, seller)
+    with db.transaction() as conn:
+        conn.execute('UPDATE crm_clients SET inn=?,kpp=? WHERE id=?',
+                     (f" {SYNTHETIC_PAYER_INNS[0][:5]} {SYNTHETIC_PAYER_INNS[0][5:]} ", '000 001001', duplicate))
+    detail = repo.upload(admin, account, 'duplicate-identity.xlsx', make_statement())
+    assert detail['operations'][0]['status'] == 'multiple_clients'
+    chosen = choose_first_payment(repo, admin, detail, duplicate)
+    assert chosen['status'] == 'ready'
+    assert chosen['managerId'] == mid
+    assert any('ИНН' in warning and 'КПП' in warning for warning in chosen['warnings'])
+    item = dict(operationId=chosen['id'], version=chosen['version'], fingerprint=chosen['fingerprint'])
+    assert repo.commit(admin, [item], 'duplicate-identity-confirm')['createdCount'] == 1
+    sale = managers.dashboard(admin, mid, '2026-11')['sales'][0]
+    with db.transaction() as conn:
+        assert conn.execute('SELECT crm_client_id FROM manager_sales WHERE id=?', (sale['id'],)).fetchone()[0] == duplicate
+    assert sale['client'] == 'Completely different program label'
+    assert sale['amount'] == 36000000 and sale['date'] == '2026-11-06'
+    repo.set_assignment(admin, clients[0], None, '2026-11-01', 'Remove future attribution only', 1)
+    accounted = repo.refresh_upload(admin, detail['id'])['operations'][0]
+    assert accounted['status'] == 'accounted' and accounted['managerId'] == mid
+    assert managers.dashboard(admin, mid, '2026-11')['summary']['salesTotal'] == 36000000
+
+
+@pytest.mark.parametrize('identity', ['different-kpp', 'missing-kpp', 'invalid-inn', 'empty-inn'])
+def test_assignment_never_inherits_across_unproven_tax_identity(bank, identity):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    inn, kpp = SYNTHETIC_PAYER_INNS[0], '000001001'
+    if identity == 'different-kpp':
+        kpp = '000002001'
+    elif identity == 'missing-kpp':
+        kpp = ''
+    else:
+        inn = '1234567890' if identity == 'invalid-inn' else ''
+        with db.transaction() as conn:
+            conn.execute('UPDATE crm_clients SET inn=? WHERE id=?', (inn, clients[0]))
+    duplicate = duplicate_payer_card(db, seller, inn=inn, kpp=kpp)
+    with db.transaction() as conn:
+        resolution = BankAssignmentRepository.resolve_payment_assignment(conn, duplicate, '2026-11-06')
+    assert resolution['assignment'] is None
+
+
+def test_manager_start_after_bank_date_is_explained_and_not_applied_retroactively(bank):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    with db.transaction() as conn:
+        conn.execute("UPDATE crm_sales_assignments SET start_date='2026-11-07' WHERE client_id=?", (clients[0],))
+    duplicate = duplicate_payer_card(db, seller)
+    detail = repo.upload(admin, account, 'future-assignment.xlsx', make_statement())
+    chosen = choose_first_payment(repo, admin, detail, duplicate)
+    assert chosen['status'] == 'manager_missing' and chosen['managerId'] is None
+    assert '07.11.2026' in chosen['explanation'] and '06.11.2026' in chosen['explanation']
+    assert 'не назначен' not in chosen['explanation']
+    # Explicit backdating updates pending proposals; it never rewrites a ledger.
+    repo.set_assignment(admin, clients[0], mid, '2026-11-01', 'Correct initial effective date', 1)
+    refreshed = repo.get_upload(admin, detail['id'])['operations'][0]
+    assert refreshed['status'] == 'ready' and refreshed['managerId'] == mid
+
+
+@pytest.mark.parametrize('conflict', ['different-manager', 'explicit-removal', 'archived-source', 'inactive-manager'])
+def test_shared_identity_attribution_requires_a_single_available_manager(bank, conflict):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    duplicate = duplicate_payer_card(db, seller)
+    if conflict in ('different-manager', 'explicit-removal'):
+        second = None
+        if conflict == 'different-manager':
+            uid = db.create_user(username='conflicting-bank-manager', password='synthetic-password')
+            second = managers.dashboard(db.get_user_by_id(uid), None, '2026-11')['account']['id']
+        repo.set_assignment(admin, duplicate, second, '2026-11-01', 'Conflicting card attribution', 0)
+    else:
+        with db.transaction() as conn:
+            if conflict == 'archived-source':
+                conn.execute("UPDATE crm_clients SET crm_archived_at='synthetic-archived' WHERE id=?", (clients[0],))
+            else:
+                conn.execute('UPDATE users SET is_active=0 WHERE id=?', (seller['id'],))
+    detail = repo.upload(admin, account, 'conflicting-identity.xlsx', make_statement())
+    chosen = choose_first_payment(repo, admin, detail, duplicate)
+    assert chosen['status'] in ('manager_missing', 'manager_inactive')
+    assert chosen['status'] != 'ready'
+    if conflict in ('different-manager', 'explicit-removal'):
+        assert 'противореч' in chosen['explanation'].lower()
+    elif conflict == 'archived-source':
+        assert 'архив' in chosen['explanation'].lower()
+    else:
+        assert 'неактивен' in chosen['explanation'].lower()
+
+
+def test_sibling_assignment_change_invalidates_preview_and_rolls_back_selected_batch(bank):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    duplicate = duplicate_payer_card(db, seller)
+    detail = repo.upload(admin, account, 'sibling-change.xlsx', make_statement())
+    chosen = choose_first_payment(repo, admin, detail, duplicate)
+    refreshed = repo.get_upload(admin, detail['id'])
+    assert chosen['managerId'] == mid and len(selected(refreshed)) == 6
+    items = selected(refreshed)
+    # Even agreeing assignments change dependency versions after the preview.
+    repo.set_assignment(admin, duplicate, mid, '2026-11-01', 'Confirm duplicate card attribution', 0)
+    with pytest.raises(ManagerConflict):
+        repo.commit(admin, items, 'stale-shared-identity')
+    assert managers.dashboard(admin, mid, '2026-11')['summary']['count'] == 0
+    assert repo.commit(admin, selected(repo.refresh_upload(admin, detail['id'])), 'fresh-shared-identity')['createdCount'] == 6

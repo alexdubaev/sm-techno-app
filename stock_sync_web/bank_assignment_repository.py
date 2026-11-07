@@ -6,6 +6,7 @@ import json
 import re
 from zoneinfo import ZoneInfo
 
+from stock_sync_web.bank_parser import normalize_inn, valid_inn
 from stock_sync_web.manager_repository import ManagerConflict, ManagerNotFound, ManagerRepository, integer, now, text
 
 
@@ -63,6 +64,63 @@ class BankAssignmentRepository:
             LEFT JOIN users u ON u.id=m.user_id WHERE a.client_id=? AND a.start_date<=?
             AND (a.end_date IS NULL OR a.end_date>?)''', (client_id, on_date, on_date)).fetchone()
         return dict(row) if row else None
+
+    @staticmethod
+    def resolve_payment_assignment(conn, client_id, on_date):
+        """Resolve dated attribution across CRM cards of one proven tax identity.
+
+        This does not merge cards or change their personal CRM access/assignment
+        editors. Every matching assignment is a dependency of a payment preview;
+        conflicting assignments (including an explicit removal) require a human
+        decision instead of preferring the selected card or an arbitrary row.
+        """
+        calendar_date(on_date, 'Дата оплаты')
+        client = BankAssignmentRepository._client(conn, client_id)
+        inn = normalize_inn(client['inn'])
+        kpp = normalize_inn(client['kpp'])
+        identities = [dict(client)]
+        if valid_inn(inn):
+            identities = [dict(row) for row in conn.execute('SELECT * FROM crm_clients ORDER BY id')
+                          if normalize_inn(row['inn']) == inn and
+                          (len(inn) == 12 or normalize_inn(row['kpp']) == kpp)]
+        ids = [row['id'] for row in identities]
+        placeholders = ','.join('?' for _ in ids)
+        intervals = [dict(row) for row in conn.execute(f'''SELECT a.*,m.display_name AS manager_name,
+            m.user_id,u.is_active AS manager_active FROM crm_sales_assignments a
+            LEFT JOIN manager_accounts m ON m.id=a.manager_id LEFT JOIN users u ON u.id=m.user_id
+            WHERE a.client_id IN ({placeholders}) ORDER BY a.client_id,a.start_date,a.id''', ids)]
+        versions = [dict(row) for row in conn.execute(f'''SELECT client_id,version
+            FROM crm_sales_assignment_versions WHERE client_id IN ({placeholders}) ORDER BY client_id''', ids)]
+        result = dict(assignment=None, explanation='На дату оплаты не назначен менеджер по продажам.', warning=None,
+                      dependencies=dict(clients=[{key: row[key] for key in
+                          ('id', 'inn', 'kpp', 'is_inactive', 'crm_archived_at')} for row in identities],
+                          intervals=intervals, versions=versions))
+        effective = [row for row in intervals if row['start_date'] <= on_date and
+                     (row['end_date'] is None or row['end_date'] > on_date)]
+        if not effective:
+            future = [row for row in intervals if row['start_date'] > on_date and row['manager_id'] is not None]
+            if future:
+                start = min(row['start_date'] for row in future)
+                result['explanation'] = (f"Закрепление действует с {date.fromisoformat(start):%d.%m.%Y}, "
+                    f"а оплата поступила {date.fromisoformat(on_date):%d.%m.%Y}. "
+                    'Для зачёта менеджеру проверьте дату начала закрепления в CRM.')
+            return result
+        if len({row['manager_id'] for row in effective}) > 1:
+            result['explanation'] = ('Противоречивые закрепления у карточек с одинаковыми ИНН/КПП. '
+                                     'Проверьте менеджера и даты закреплений в CRM.')
+            return result
+        by_id = {row['id']: row for row in identities}
+        if any(by_id[row['client_id']]['is_inactive'] or by_id[row['client_id']]['crm_archived_at']
+               for row in effective):
+            result['explanation'] = ('Закрепление найдено у неактивной или архивной карточки с теми же ИНН/КПП. '
+                                     'Требуется проверка закреплений в CRM.')
+            return result
+        assignment = next((row for row in effective if row['client_id'] == client_id), effective[0])
+        result['assignment'] = assignment
+        if assignment['manager_id'] is not None and assignment['client_id'] != client_id:
+            result['warning'] = ('Менеджер определён по ИНН/КПП и дате оплаты: '
+                                 'закрепление сохранено в другой карточке этого клиента.')
+        return result
 
     @staticmethod
     def _intervals(conn, client_id):

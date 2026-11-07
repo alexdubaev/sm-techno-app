@@ -322,9 +322,11 @@ class ManagerRepository:
                         raise ManagerConflict('Клиент недоступен или архивирован.')
                     if not active_manager:
                         raise ManagerConflict('Менеджер неактивен или удалён.')
-                    assignment = conn.execute('''SELECT manager_id FROM crm_sales_assignments WHERE client_id=?
-                        AND start_date<=? AND (end_date IS NULL OR end_date>?)''',
-                        (crm_client_id, date_value, date_value)).fetchone()
+                    # The same tax-identity/date rule is used by preview and the
+                    # trusted ledger write, including duplicate CRM cards.
+                    from stock_sync_web.bank_assignment_repository import BankAssignmentRepository
+                    assignment = BankAssignmentRepository.resolve_payment_assignment(
+                        conn, crm_client_id, date_value)['assignment']
                     if not assignment or assignment['manager_id'] != manager_id:
                         raise ManagerConflict('Закрепление клиента изменилось. Обновите результат.')
                     if before['terms'] is None:

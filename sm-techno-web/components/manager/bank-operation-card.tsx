@@ -46,15 +46,27 @@ export function BankOperationCard({
   const [busy, setBusy] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const chosenClient = clients.find((client) => String(client.id) === clientId);
-  const mismatch =
-    chosenClient &&
-    (chosenClient.inn ?? '').replace(/\s/g, '') !==
-      (op.inn ?? '').replace(/\s/g, '');
+  const normalizeId = (value: string | null | undefined) => (value ?? '').replace(/\s/g, '');
+  const innMatches = !!chosenClient && /^\d{10}(\d{2})?$/.test(normalizeId(op.inn)) &&
+    normalizeId(chosenClient.inn) === normalizeId(op.inn);
+  const kppMismatch = !!chosenClient && normalizeId(op.inn).length === 10 &&
+    !!normalizeId(chosenClient.kpp) && !!normalizeId(op.kpp) &&
+    normalizeId(chosenClient.kpp) !== normalizeId(op.kpp);
+  const mismatch = !!chosenClient && (!innMatches || kppMismatch);
+  const clientChanged = !!clientId && Number(clientId) !== op.clientId;
+  const detailsChanged = classification !== op.classification ||
+    invoiceNumber.trim() !== (op.invoiceNumber ?? '') ||
+    invoiceDate !== (op.invoiceDate ?? '') || !!duplicate;
+  const hasChanges = clientChanged || detailsChanged;
+  const reasonRequired = detailsChanged || (clientChanged && (!innMatches || kppMismatch));
+  const canSave = hasChanges && (!reasonRequired || !!reason.trim());
   async function search() {
     setBusy(true);
     setError('');
     try {
-      setClients((await searchBankClients(query)).items);
+      const found = (await searchBankClients(query)).items;
+      setClients(chosenClient && !found.some((client) => client.id === chosenClient.id)
+        ? [chosenClient, ...found] : found);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -63,13 +75,13 @@ export function BankOperationCard({
   }
   async function save(event: SubmitEvent) {
     event.preventDefault();
-    if (!reason.trim()) return;
+    if (!canSave) return;
     setBusy(true);
     setError('');
     const payload: BankDecisionChange = {
       version: op.version,
       classification,
-      reason: reason.trim(),
+      reason: reason.trim() || 'Выбран клиент CRM с совпадающими ИНН и КПП',
       invoiceNumber: invoiceNumber.trim() || null,
       invoiceDate: invoiceDate || null,
     };
@@ -342,6 +354,17 @@ export function BankOperationCard({
                 </output>
               )}
             </label>
+            {clientChanged && (
+              <div className={`${styles.field} ${styles.full}`}>
+                <p className={styles.muted}>
+                  Клиент выбран, но ещё не применён. После применения менеджер будет
+                  определён по ИНН и КПП на дату оплаты.
+                </p>
+                <div><button className={styles.button} type="submit" disabled={locked || !canSave}>
+                  Применить клиента
+                </button></div>
+              </div>
+            )}
             <div className={`${styles.field} ${styles.full}`}>
               <label>
                 Найти клиента CRM
@@ -374,7 +397,7 @@ export function BankOperationCard({
             </div>
             {mismatch && (
               <p className={`${styles.warning} ${styles.full}`}>
-                ИНН выбранного клиента отличается от ИНН плательщика.
+                {kppMismatch ? 'КПП' : 'ИНН'} выбранного клиента отличается от реквизитов плательщика.
                 Подтвердите принадлежность оплаты в причине решения. Исходный
                 плательщик сохранится.
               </p>
@@ -454,7 +477,7 @@ export function BankOperationCard({
                 )}
               </>
             )}
-            <label className={`${styles.field} ${styles.full}`}>
+            {reasonRequired && <label className={`${styles.field} ${styles.full}`}>
               Причина решения
               <input
                 required
@@ -463,7 +486,7 @@ export function BankOperationCard({
                 maxLength={500}
                 onChange={(e) => setReason(e.target.value)}
               />
-            </label>
+            </label>}
             {classification === 'excluded' && (
               <p className={`${styles.warning} ${styles.full}`}>
                 Оплата сохранится в журнале и не будет засчитана в продажи.
@@ -478,7 +501,7 @@ export function BankOperationCard({
             <div className={styles.full}>
               <button
                 className={styles.button}
-                disabled={locked || !reason.trim()}
+                disabled={locked || !canSave}
                 type="submit"
               >
                 Сохранить решение
