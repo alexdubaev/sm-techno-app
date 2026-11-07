@@ -46,7 +46,7 @@ export function Dashboard() {
   const currentSales = sales.data?.period.kind === period && sales.data?.period.anchorDate === date ? sales.data : null;
   const currentUsage = usage.data?.period.kind === period && usage.data?.period.anchorDate === date ? usage.data : null;
   return <div className={styles.root}>
-    <header className={styles.header}><div><h1>Обзор компании</h1><p>Продажи и использование DeepSeek</p></div><Link className={styles.link} href="/manager">Мои продажи →</Link></header>
+    <header className={styles.header}><Link className={styles.link} href="/manager">Мои продажи →</Link></header>
     <div className={styles.bankActions} aria-label="Банковские выписки">
       <button className={styles.uploadButton} onClick={() => setBankImportOpen(true)}>Загрузить выписку</button>
       <button onClick={() => setBankImportOpen(true)}>История выписок</button>

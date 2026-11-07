@@ -6,7 +6,6 @@ test('admin sees company overview and can switch periods; ordinary user cannot r
   await page.getByLabel('Пароль').fill('admin-e2e-password');
   await page.getByRole('button', {name:'Войти', exact:true}).click();
   await expect(page).toHaveURL(/\/dashboard$/);
-  await expect(page.getByRole('heading', {name:'Обзор компании'})).toBeVisible();
   await expect(page.getByRole('heading', {name:'Продажи компании'})).toBeVisible();
   await page.screenshot({path: testInfo.outputPath('dashboard.png'), fullPage: true});
   const quarterResponse = page.waitForResponse(response => response.url().includes('/api/admin/dashboard/sales?') && response.url().includes('period=quarter') && response.status() === 200);
