@@ -97,7 +97,7 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   expect(controlBounds.scrollWidth).toBeLessThanOrEqual(controlBounds.width + 1);
   await page.screenshot({ path: info.outputPath('manager-header-synthetic.png'), fullPage: false });
   await page.goto('/dashboard');
-  await expect(page.getByRole('heading', { name: 'Обзор компании', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Продажи компании', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Загрузить выписку', exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath('company-bank-entry-synthetic.png'), fullPage: false });
   await page.getByRole('button', { name: 'Загрузить выписку', exact: true }).click();
