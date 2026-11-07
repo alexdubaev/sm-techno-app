@@ -70,6 +70,7 @@ export type ManagerChange = {
       invoiceDate?: string | null;
     }
   | { kind: 'cancel'; saleId: number }
+  | { kind: 'sale_rate'; saleId: number; rate: number }
   | { kind: 'close' | 'reopen' }
 );
 export type ManagerAuditState = {

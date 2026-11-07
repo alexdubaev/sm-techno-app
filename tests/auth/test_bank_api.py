@@ -31,6 +31,44 @@ def setup_bank(auth_api, *, confirm_account=True):
     return admin,user,account_id,clients,mid
 
 
+def test_admin_can_preview_and_correct_posted_bank_sale_rate_without_editing_payment(auth_api):
+    admin, user, account, clients, mid = setup_bank(auth_api)
+    c = auth_api.client
+    zero = c.post('/api/manager/changes', headers=admin, json=dict(kind='terms', managerId=mid,
+        month='2026-11', version=1, plan=0, fixed=0, rate=0, mode='always', reason='Explicit initial zero'))
+    assert zero.status_code == 200, zero.text
+    upload = c.post('/api/bank-statements/uploads', headers=admin, data={'accountId': str(account)},
+        files={'file': ('sale-rate.xlsx', make_statement())}).json()
+    operation = upload['operations'][0]
+    selected = dict(operationId=operation['id'], version=operation['version'], fingerprint=operation['fingerprint'])
+    posted = c.post('/api/bank-statements/commit', headers=admin,
+        json=dict(items=[selected], idempotencyKey='http-bank-rate-original'))
+    assert posted.status_code == 200, posted.text
+    ledger = c.get(f'/api/manager/dashboard?month=2026-11&managerId={mid}', headers=admin).json()
+    sale = ledger['sales'][0]
+    assert sale['rate'] == 0
+    payload = dict(kind='sale_rate', managerId=mid, month='2026-11', version=ledger['version'], saleId=sale['id'], rate=500)
+    for endpoint in ('preview', 'changes'):
+        assert c.post('/api/manager/' + endpoint, headers=user, json=payload).status_code == 403
+        assert c.post('/api/manager/' + endpoint, json=payload).status_code == 401
+    preview = c.post('/api/manager/preview', headers=admin, json=payload)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()['summary']['commission'] == 1800000
+    assert c.get(f'/api/manager/dashboard?month=2026-11&managerId={mid}', headers=admin).json()['sales'][0]['rate'] == 0
+    assert c.post('/api/manager/changes', headers=admin, json={**payload, 'amount': 1}).status_code == 400
+    assert c.post('/api/manager/changes', headers=admin, json={**payload, 'version': ledger['version'] - 1}).status_code == 409
+    changed = c.post('/api/manager/changes', headers=admin, json=payload)
+    assert changed.status_code == 200, changed.text
+    assert changed.json()['summary']['salesTotal'] == 36000000
+    assert changed.json()['summary']['income'] == 1800000
+    assert c.post('/api/manager/changes', headers=admin, json=payload).status_code == 409
+    history = c.get(f'/api/manager/history?month=2026-11&managerId={mid}', headers=admin).json()['items']
+    assert history[0]['kind'] == 'sale_rate' and history[0]['reason'] == 'Изменение ставки продажи'
+    assert history[0]['before']['sale']['rate'] == 0 and history[0]['after']['sale']['rate'] == 500
+    assert {key: changed.json()['sales'][0][key] for key in ('id', 'date', 'client', 'amount', 'bankOperationId')} == {
+        key: sale[key] for key in ('id', 'date', 'client', 'amount', 'bankOperationId')}
+
+
 @pytest.mark.parametrize('statement_factory', [make_statement, make_bank_export])
 def test_file_only_upload_derives_account_once_without_posting_sales(auth_api, monkeypatch, statement_factory):
     import stock_sync_web.bank_repository as repository

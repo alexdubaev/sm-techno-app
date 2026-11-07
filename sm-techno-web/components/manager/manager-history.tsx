@@ -19,6 +19,7 @@ import styles from './manager.module.css';
 const labels = {
   terms: 'Условия месяца',
   sale: 'Продажа',
+  sale_rate: 'Изменение процента продажи',
   cancel: 'Отмена продажи',
   close: 'Закрытие месяца',
   reopen: 'Повторное открытие',

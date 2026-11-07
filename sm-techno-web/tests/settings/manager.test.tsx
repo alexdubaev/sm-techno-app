@@ -48,6 +48,43 @@ const data = {
   pages: 1,
 };
 describe('Manager cabinet', () => {
+  it('opens a linked manager/month and ignores a foreign manager for ordinary users', async () => {
+    mocks.dashboard.mockClear();
+    mocks.admin = true;
+    mocks.managers.mockResolvedValue([{ id: 31, name: 'Анна Иванова', userId: 77 }]);
+    mocks.dashboard.mockResolvedValue(data);
+    const { unmount } = render(<ManagerWorkspace initialManagerId={31} initialMonth="2026-09" />);
+    await waitFor(() => expect(mocks.dashboard).toHaveBeenCalledWith('2026-09', 31));
+    unmount();
+    mocks.dashboard.mockClear();
+    mocks.admin = false;
+    render(<ManagerWorkspace initialManagerId={31} initialMonth="2026-09" />);
+    await waitFor(() => expect(mocks.dashboard).toHaveBeenCalledWith('2026-09', undefined));
+  });
+  it('previews and saves only the percentage of a bank sale without a reason field', async () => {
+    mocks.preview.mockClear();
+    mocks.change.mockClear();
+    mocks.admin = true;
+    const bankData = { ...data, sales: [{ id: 6, date: '2026-10-06', client: 'Банковский клиент',
+      amount: 36000000, rate: 0, cancelled: false, source: 'bank_statement', bankOperationId: 91,
+      base: 36000000, commission: 0 }], total: 1 };
+    mocks.dashboard.mockResolvedValue(bankData);
+    mocks.managers.mockResolvedValue([]);
+    mocks.preview.mockResolvedValue(bankData);
+    mocks.change.mockResolvedValue(bankData);
+    render(<ManagerWorkspace />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Изменить процент продажи № 6' }));
+    expect(screen.queryByLabelText('Сумма продажи, ₽')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Причина изменения')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Ставка продажи, %'), { target: { value: '5,25' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать изменения' }));
+    await screen.findByRole('button', { name: 'Сохранить изменения' });
+    const expected = { kind: 'sale_rate', managerId: 1, month: bankData.month, version: 1, saleId: 6, rate: 525 };
+    expect(mocks.preview).toHaveBeenCalledWith(expected);
+    expect(mocks.change).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить изменения' }));
+    await waitFor(() => expect(mocks.change).toHaveBeenCalledWith(expected));
+  });
   it('loads private metrics and hides admin actions', async () => {
     mocks.admin = false;
     mocks.dashboard.mockResolvedValue(data);

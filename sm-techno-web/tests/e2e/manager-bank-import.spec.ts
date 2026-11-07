@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { expect, test, type APIResponse, type Page } from '@playwright/test';
+import { expect, test, type APIResponse, type Page, type Response as BrowserResponse } from '@playwright/test';
 
 type Dataset = {
   organizationName: string; ownerInn: string; account: string; bik: string;
   payerInns: string[]; clientNames: string[]; kpp: string; workbookBase64: string;
 };
 
-async function json(response: APIResponse, status = 200) {
+async function json(response: APIResponse | BrowserResponse, status = 200) {
   expect(response.status(), await response.text()).toBe(status);
   return response.json();
 }
@@ -255,5 +255,48 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   await expect(receipts).toContainText('517');
   expect(await receipts.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   await page.screenshot({ path: info.outputPath('bank-client-receipts-synthetic.png'), fullPage: false });
+  // Drill into the correct account/month from the company report and adjust
+  // only one receipt's reward rate. Bank amount/date and company totals stay fixed.
+  const rateSale = (await dashboard()).sales.find((sale: { amount: number }) => sale.amount === 36000000);
+  const reportResponse = () => page.waitForResponse(response => response.request().method() === 'GET'
+    && response.url().includes('/api/admin/dashboard/sales?'));
+  const initialReport = reportResponse();
+  await page.goto('/dashboard');
+  let reportMonth = (await json(await initialReport)).monthlyPlans.month as string;
+  while (reportMonth !== '2026-11') {
+    const changedReport = reportResponse();
+    await page.getByRole('button', { name: reportMonth > '2026-11' ? 'Предыдущий период' : 'Следующий период', exact: true }).click();
+    reportMonth = (await json(await changedReport)).monthlyPlans.month;
+  }
+  const managerLink = page.getByRole('link', { name: `Открыть кабинет: ${managerName}`, exact: true });
+  await expect(managerLink).toHaveAttribute('href', `/manager?managerId=${managerId}&month=2026-11`);
+  await managerLink.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('manager-report-link-synthetic.png'), fullPage: false });
+  await managerLink.click();
+  await expect(page).toHaveURL(new RegExp(`/manager\\?managerId=${managerId}&month=2026-11$`));
+  await expect(page.getByRole('heading', { name: managerName, exact: true })).toBeVisible();
+  await expect(page.getByLabel('Кабинет сотрудника')).toHaveValue(String(managerId));
+  await expect(page.getByLabel('Месяц', { exact: true })).toHaveValue('2026-11');
+  await page.reload();
+  await page.getByRole('button', { name: `Изменить процент продажи № ${rateSale.id}`, exact: true }).click();
+  const rateEditor = page.getByRole('dialog', { name: 'Изменить процент продажи', exact: true });
+  await expect(rateEditor.getByLabel('Причина изменения', { exact: true })).toHaveCount(0);
+  await expect(rateEditor.getByLabel('Сумма продажи, ₽', { exact: true })).toHaveCount(0);
+  await rateEditor.getByLabel('Ставка продажи, %', { exact: true }).fill('7,5');
+  await rateEditor.getByRole('button', { name: 'Рассчитать изменения', exact: true }).click();
+  await expect(rateEditor.getByText('После изменения', { exact: true })).toBeVisible();
+  expect((await dashboard()).sales.find((sale: { id: number }) => sale.id === rateSale.id).rate).toBe(500);
+  await page.screenshot({ path: info.outputPath('bank-sale-rate-preview-synthetic.png'), fullPage: false });
+  await rateEditor.getByRole('button', { name: 'Сохранить изменения', exact: true }).click();
+  await expect(rateEditor).toHaveCount(0);
+  await expect(page.getByRole('button', { name: `Изменить процент продажи № ${rateSale.id}`, exact: true })).toBeVisible();
+  const afterRate = await dashboard();
+  expect(afterRate.summary).toMatchObject({ salesTotal: 198906300, commission: 10845315, income: 10845315, count: 6 });
+  expect(afterRate.sales.find((sale: { id: number }) => sale.id === rateSale.id)).toMatchObject({
+    date: rateSale.date, client: rateSale.client, amount: 36000000, rate: 750,
+    source: 'bank_statement', bankOperationId: rateSale.bankOperationId,
+    invoiceNumber: rateSale.invoiceNumber, invoiceDate: rateSale.invoiceDate,
+  });
+  expect((await company()).totals.salesTotal).toBe(attributed.totals.salesTotal);
   expect(pageErrors).toEqual([]);
 });

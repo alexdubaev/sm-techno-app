@@ -30,6 +30,13 @@ it('does not load admin data for an ordinary user', () => {
   expect(api.usage).not.toHaveBeenCalled();
   expect(api.balance).not.toHaveBeenCalled();
 });
+it('links each manager account to its cabinet for the displayed plan month', async () => {
+  api.sales.mockImplementation(async (kind:string, date:string) => ({period:{kind,anchorDate:date,start:date,end:date},
+    totals:{salesTotal:0,count:0},series:[],managers:[{id:31,name:'Тестовый менеджер',salesTotal:0,count:0,active:true,archived:false}],
+    monthlyPlans:{month:'2026-09',managers:[]},sources:{manualCount:0,onecCount:0,odataConnected:false}}));
+  render(<Dashboard />);
+  expect(await screen.findByRole('link',{name:'Открыть кабинет: Тестовый менеджер'})).toHaveAttribute('href','/manager?managerId=31&month=2026-09');
+});
 it('includes unallocated sales and identifies bank receipts separately from manual entry', async () => {
   api.sales.mockImplementation(async (kind:string, date:string) => ({period:{kind,anchorDate:date,start:date,end:date},totals:{salesTotal:90000,count:2,unallocatedSalesTotal:40000,unallocatedCount:1},series:[],managers:[],monthlyPlans:{month:date.slice(0,7),managers:[]},sources:{manualCount:1,onecCount:0,bankCount:1,odataConnected:false}}));
   render(<Dashboard />);

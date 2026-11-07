@@ -246,10 +246,13 @@ class ManagerRepository:
         month_key(month)
         version = integer(payload.get('version'), 'Версия', 2**31-1)
         kind = payload.get('kind')
+        if kind == 'sale_rate' and set(payload) - {'kind', 'managerId', 'month', 'version', 'reason', 'saleId', 'rate'}:
+            raise ValueError('При изменении процента можно передать только ставку выбранной продажи.')
         reason_value = payload.get('reason')
         creating_sale = kind == 'sale' and payload.get('saleId') is None
-        if creating_sale and (reason_value is None or isinstance(reason_value, str) and not reason_value.strip()):
-            reason = 'Создание продажи'
+        if (creating_sale or kind == 'sale_rate') and (
+                reason_value is None or isinstance(reason_value, str) and not reason_value.strip()):
+            reason = 'Создание продажи' if creating_sale else 'Изменение ставки продажи'
         else:
             reason = text(reason_value, 'Причина', 500)
         self._sync_accounts(conn)
@@ -271,7 +274,7 @@ class ManagerRepository:
                 raise ValueError('Для гарантированной минимальной зарплаты план должен быть равен нулю.')
             conn.execute('''UPDATE manager_periods SET plan=?,fixed=?,rate=?,mode=? WHERE manager_id=? AND month=?''',
                          (terms['plan'], terms['fixed'], terms['rate'], payload['mode'], manager_id, month))
-        elif kind in ('sale', 'cancel'):
+        elif kind in ('sale', 'cancel', 'sale_rate'):
             sale_id = payload.get('saleId')
             row = None
             if sale_id is not None:
@@ -282,9 +285,14 @@ class ManagerRepository:
                     raise ValueError('Продажа не найдена или уже отменена.')
                 if kind == 'sale' and (row['source'] == 'bank_statement' or conn.execute(
                         'SELECT 1 FROM bank_sale_links WHERE sale_id=?', (sale_id,)).fetchone()):
-                    raise ManagerConflict('Нельзя изменять банковскую продажу. Используйте отмену с причиной.')
+                    raise ManagerConflict('У банковской продажи можно изменить только процент или отменить её с причиной.')
                 details_before = dict(row)
-            if kind == 'cancel':
+            if kind == 'sale_rate':
+                if sale_id is None:
+                    raise ValueError('Выберите продажу для изменения процента.')
+                rate = integer(payload.get('rate'), 'Процент', 10000)
+                conn.execute('UPDATE manager_sales SET rate=?,updated_at=? WHERE id=?', (rate, now(), sale_id))
+            elif kind == 'cancel':
                 if sale_id is None:
                     raise ValueError('Выберите продажу для отмены.')
                 conn.execute('UPDATE manager_sales SET cancelled=1,updated_at=? WHERE id=?', (now(), sale_id))
@@ -377,7 +385,7 @@ class ManagerRepository:
         actor_name = actor.get('full_name') or actor.get('username') or str(actor['id'])
         before_record = dict(terms=before['terms'], summary=before['summary'], closed=before['closed'], version=version, sale=details_before)
         details_after = None
-        if kind in ('sale', 'cancel'):
+        if kind in ('sale', 'cancel', 'sale_rate'):
             details_after = dict(conn.execute('SELECT * FROM manager_sales WHERE id=?', (sale_id,)).fetchone())
             details_after['invoiceNumber'] = details_after['invoice_number']
             details_after['invoiceDate'] = details_after['invoice_date']
@@ -397,7 +405,7 @@ class ManagerRepository:
             snapshot['sales'] = calculate(all_rows, after['terms'])['sales']
             conn.execute('INSERT INTO manager_snapshots(manager_id,month,at,actor_name,version,data_json) VALUES(?,?,?,?,?,?)',
                          (manager_id, month, now(), actor_name, version+1, json.dumps(snapshot, ensure_ascii=False)))
-        if kind in ('sale', 'cancel'):
+        if kind in ('sale', 'cancel', 'sale_rate'):
             after['changedSaleId'] = sale_id
         return after
 

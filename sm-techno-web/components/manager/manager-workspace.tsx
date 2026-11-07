@@ -27,14 +27,16 @@ const ManagerChart = dynamic(() => import('./manager-chart'), {
   ssr: false,
   loading: () => <output className={styles.panel}>Загрузка графика…</output>,
 });
-export function ManagerWorkspace() {
+export function ManagerWorkspace({ initialManagerId, initialMonth }: {
+  initialManagerId?: number; initialMonth?: string;
+} = {}) {
   const { user, isAdmin } = useAuth();
   const [month, setMonth] = useState(() =>
-    new Date()
+    initialMonth ?? new Date()
       .toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
       .slice(0, 7),
   );
-  const [managerId, setManagerId] = useState<number | undefined>();
+  const [managerId, setManagerId] = useState<number | undefined>(initialManagerId);
   const [managers, setManagers] = useState<ManagerChoice[]>([]);
   const [managerError, setManagerError] = useState('');
   const [managerRetry, setManagerRetry] = useState(0);
@@ -97,7 +99,7 @@ export function ManagerWorkspace() {
             <select
               aria-label="Кабинет сотрудника"
               title="Выбрать сотрудника"
-              value={managerId ?? ''}
+              value={managers.some((m) => m.id === managerId && m.userId === user.id) ? '' : managerId ?? ''}
               onChange={(e) =>
                 setManagerId(
                   e.target.value ? Number(e.target.value) : undefined,
@@ -139,7 +141,7 @@ export function ManagerWorkspace() {
       <CabinetLoader
         key={`${user.id}:${managerId ?? 'self'}:${month}:${revision}`}
         month={month}
-        managerId={managerId}
+        managerId={isAdmin ? managerId : undefined}
         admin={isAdmin}
         onRefresh={() => setRevision((r) => r + 1)}
       />
@@ -430,7 +432,7 @@ function Cabinet({
           query={search}
           admin={admin}
           onPage={setPage}
-          onEdit={(s) => setEditor({ kind: 'sale', sale: s })}
+          onEdit={(s) => setEditor({ kind: s.source === 'bank_statement' || s.bankOperationId ? 'sale_rate' : 'sale', sale: s })}
           onCancel={(s) => setEditor({ kind: 'cancel', sale: s })}
         />
       </section>
