@@ -7,7 +7,7 @@ import pytest
 
 from stock_sync_web.bank_parser import parse_statement, valid_inn
 from tests.support.bank_statement_fixture import (
-    make_statement, statement_workbook, workbook_bytes,
+    make_statement, make_bank_export, statement_workbook, workbook_bytes,
     SYNTHETIC_ACCOUNT, SYNTHETIC_BIK, SYNTHETIC_OWNER_INN, SYNTHETIC_PAYER_INNS,
 )
 
@@ -39,6 +39,43 @@ def test_six_gross_payments_and_calendar_dates_are_exact():
     assert parsed["rows"][4]["normalized"]["inn"] == parsed["rows"][5]["normalized"]["inn"]
     assert parsed["rows"][4]["normalized"]["documentNumber"] != parsed["rows"][5]["normalized"]["documentNumber"]
     json.dumps(parsed, ensure_ascii=False)
+
+
+@pytest.mark.parametrize('blank_rows', [0, 2])
+def test_bank_export_header_grouped_account_and_amount_currency(blank_rows):
+    parsed = parse_statement(make_bank_export(extra_blank_rows=blank_rows))
+    assert parsed['errors'] == []
+    assert parsed['metadata']['account'] == SYNTHETIC_ACCOUNT
+    assert parsed['metadata']['currency'] == 'RUB'
+    assert parsed['metadata']['debitTotal'] == 0
+    assert parsed['metadata']['creditTotal'] == 198_906_300
+    assert parsed['metadata']['openingBalance'] is None
+    assert parsed['metadata']['closingBalance'] is None
+    assert parsed['reconciliation']['valid']
+    assert len(parsed['rows']) == 6
+    assert sum(r['normalized']['credit'] for r in parsed['rows']) == 198_906_300
+
+
+@pytest.mark.parametrize('problem', ['foreign', 'mixed', 'formula', 'missing', 'numeric_account'])
+def test_bank_export_never_guesses_currency_or_recovers_numeric_account(problem):
+    def edit(sheet):
+        if problem == 'numeric_account':
+            sheet['B1'] = 12345678901234567890
+        elif problem == 'mixed':
+            sheet['F8'] = 'USD'
+        elif problem == 'formula':
+            sheet['C7'] = '="RUR"'
+        else:
+            for position in ('C7', 'F7', 'C8', 'F8'):
+                sheet[position] = 'USD' if problem == 'foreign' else None
+            if problem == 'missing':
+                sheet['K13'] = 'Оплата за товар. RUR'
+    parsed = parse_statement(make_bank_export(edit=edit))
+    assert parsed['errors']
+    if problem == 'foreign':
+        assert parsed['metadata']['currency'] == 'USD'
+    if problem == 'missing':
+        assert parsed['metadata']['currency'] is None
 
 
 def test_structure_uses_headers_and_preserves_zero_identifiers():

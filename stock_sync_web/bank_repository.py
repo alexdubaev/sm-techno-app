@@ -159,9 +159,10 @@ class BankRepository:
             if not isinstance(metadata.get(field), str) or not re.fullmatch(rf'[0-9]{{{length}}}', metadata[field]):
                 errors.append(f'Некорректный идентификатор выписки: {field}.')
         if metadata.get('currency') != 'RUB':
-            errors.append('Поддерживаются только рублёвые выписки RUB/RUR, без конвертации.')
+            errors.append('Не удалось прочитать валюту выписки.' if metadata.get('currency') is None else
+                          'Поддерживаются только рублёвые выписки RUB/RUR, без конвертации.')
         if errors:
-            raise ValueError('Исправьте исходную выписку и загрузите XLSX повторно: ' + '; '.join(dict.fromkeys(errors)))
+            raise ValueError('Не удалось прочитать реквизиты банковской выписки: ' + '; '.join(dict.fromkeys(errors)))
         owner_inn = normalize_inn(metadata.get('ownerInn'))
         if not valid_inn(owner_inn):
             raise ValueError('В выписке отсутствует корректный ИНН владельца. Проверьте реквизиты в исходном XLSX.')
