@@ -88,14 +88,18 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   await expect(page.getByRole('heading', { name: managerName, exact: true })).toBeVisible();
   const controls = page.getByRole('group', { name: 'Управление кабинетом' });
   await expect(controls.getByLabel('Месяц', { exact: true })).toBeVisible();
-  await expect(controls.getByRole('button', { name: 'Загрузить выписку', exact: true })).toBeVisible();
-  await expect(controls.getByRole('button', { name: 'История выписок', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Загрузить выписку', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'История выписок', exact: true })).toHaveCount(0);
   const controlBounds = await controls.evaluate((element) => ({
     height: element.getBoundingClientRect().height, width: element.clientWidth, scrollWidth: element.scrollWidth,
   }));
   expect(controlBounds.height).toBeLessThan(160);
   expect(controlBounds.scrollWidth).toBeLessThanOrEqual(controlBounds.width + 1);
   await page.screenshot({ path: info.outputPath('manager-header-synthetic.png'), fullPage: false });
+  await page.goto('/dashboard');
+  await expect(page.getByRole('heading', { name: 'Обзор компании', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Загрузить выписку', exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('company-bank-entry-synthetic.png'), fullPage: false });
   await page.getByRole('button', { name: 'Загрузить выписку', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Банковские выписки' });
   await expect(dialog).toBeVisible();
@@ -217,9 +221,7 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
 
 
   // Attribution creates the manager ledger entry without adding a second company sale.
-  await page.goto('/manager');
-  await page.getByLabel('Месяц', { exact: true }).fill('2026-11');
-  await page.getByLabel('Кабинет сотрудника').selectOption(String(managerId));
+  await page.goto('/dashboard');
   await page.getByRole('button', { name: 'История выписок', exact: true }).click();
   await dialog.getByRole('button', { name: new RegExp(`synthetic-control-${scope}`) }).click();
   await dialog.getByRole('button', { name: 'Проверить итог перед добавлением', exact: true }).click();
@@ -246,6 +248,7 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   expect((await dashboard()).summary).toMatchObject({ salesTotal: 198906300, commission: 9945315, count: 6 });
   expect((await request.get(`/api/bank-statements/uploads/${upload.id}/file`, { headers: employeeHeaders })).status()).toBe(403);
   await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+  await page.goto(`/manager?managerId=${managerId}&month=2026-11`);
   await expect(page.getByText(/№\s+\d+ · Банковская выписка/)).toHaveCount(6);
 
   const receipts = await openClientSales(page, clientIds[4]);

@@ -5,6 +5,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { useAuth } from '@/components/auth-provider';
 import { fetchAdminBalance, fetchAdminSales, fetchAdminUsage } from '@/lib/api';
 import type { Balance, PeriodKind, SalesOverview, UsageOverview } from '@/lib/admin-dashboard-types';
+import { BankImport } from '@/components/manager/bank-import';
 import styles from './dashboard.module.css';
 
 const periods: [PeriodKind, string][] = [['week','Неделя'],['month','Месяц'],['quarter','Квартал'],['year','Год']];
@@ -22,6 +23,7 @@ type Load<T> = {data: T | null; error: boolean};
 export function Dashboard() {
   const { isAdmin, user } = useAuth();
   const [period, setPeriod] = useState<PeriodKind>('month');
+  const [bankImportOpen, setBankImportOpen] = useState(false);
   const [date, setDate] = useState(today);
   const [sales, setSales] = useState<Load<SalesOverview>>({data:null,error:false});
   const [usage, setUsage] = useState<Load<UsageOverview>>({data:null,error:false});
@@ -45,6 +47,11 @@ export function Dashboard() {
   const currentUsage = usage.data?.period.kind === period && usage.data?.period.anchorDate === date ? usage.data : null;
   return <div className={styles.root}>
     <header className={styles.header}><div><h1>Обзор компании</h1><p>Продажи и использование DeepSeek</p></div><Link className={styles.link} href="/manager">Мои продажи →</Link></header>
+    <div className={styles.bankActions} aria-label="Банковские выписки">
+      <button className={styles.uploadButton} onClick={() => setBankImportOpen(true)}>Загрузить выписку</button>
+      <button onClick={() => setBankImportOpen(true)}>История выписок</button>
+    </div>
+    {bankImportOpen && <BankImport userId={user.id} onClose={() => setBankImportOpen(false)} onChanged={() => retrySales(value => value + 1)} />}
     <section className={styles.controls} aria-label="Период"><div className={styles.tabs}>{periods.map(([key,label]) => <button key={key} aria-pressed={period===key} onClick={() => setPeriod(key)}>{label}</button>)}</div><div className={styles.dates}><button aria-label="Предыдущий период" onClick={() => setDate(shift(date,period,-1))}>←</button><span>{currentSales ? `${formatDate(currentSales.period.start)} — ${formatDate(currentSales.period.end)}` : date}</span><button aria-label="Следующий период" onClick={() => setDate(shift(date,period,1))}>→</button><button onClick={() => setDate(today())}>Сегодня</button></div></section>
     <section className={styles.panel}><h2>Продажи компании</h2>{sales.error ? <ErrorState retry={() => retrySales(x=>x+1)} /> : !currentSales ? <p>Загрузка…</p> : <><div className={styles.summary}><strong>{money(currentSales.totals.salesTotal)}</strong><span>{currentSales.totals.count} продаж за период</span></div>{currentSales.totals.count === 0 && <p>За этот период продаж нет. Добавить продажу можно в личном кабинете.</p>}{currentSales.totals.count > 0 && <><Chart data={currentSales.series} field="amount" label="Продажи по дням" /><details><summary>Данные графика</summary>{currentSales.series.map(row => <div key={row.date}>{row.date}: {money(row.amount)} · {row.count}</div>)}</details></>}<p className={styles.muted}>Не распределено менеджерам: {money(currentSales.totals.unallocatedSalesTotal ?? 0)} · {currentSales.totals.unallocatedCount ?? 0} оплат</p><p className={styles.muted}>Ручной учёт: {currentSales.sources.manualCount}; банковские поступления: {currentSales.sources.bankCount ?? 0}; записей 1С: {currentSales.sources.onecCount}. Подключение 1С пока не включено.</p></>}</section>
     {currentSales && <section className={styles.panel}><h2>Менеджеры</h2><p className={styles.muted}>Планы и факт за месяц {currentSales.monthlyPlans.month}</p><div className={styles.rows}>{currentSales.managers.map(manager => {const plan = currentSales.monthlyPlans.managers.find(p=>p.id===manager.id); const share = currentSales.totals.salesTotal ? manager.salesTotal/currentSales.totals.salesTotal*100 : 0; return <Link className={`${styles.row} ${styles.managerLink}`} key={manager.id} href={`/manager?managerId=${manager.id}&month=${currentSales.monthlyPlans.month}`} aria-label={`Открыть кабинет: ${manager.name}`}><div><strong>{manager.name}</strong> <small>{manager.archived ? 'Архив' : !manager.active ? 'Неактивен' : ''}</small><div className={styles.bar}><span style={{width:`${Math.min(100,share)}%`}} /></div></div><div><strong>{money(manager.salesTotal)}</strong><small>{manager.count} продаж</small></div><div><small>Месячный план</small>{!plan || plan.status === 'unset' ? 'Условия не заданы' : plan.status === 'no_plan' ? 'Без плана' : <>{money(plan.salesTotal)} / {money(plan.plan!)} · {plan.progress?.toLocaleString('ru-RU', {maximumFractionDigits:1})}%<div className={styles.bar}><span style={{width:`${Math.min(100,plan.progress ?? 0)}%`}} /></div></>}</div></Link>;})}</div></section>}
