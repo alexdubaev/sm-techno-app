@@ -83,7 +83,7 @@ export type ManagerAudit = {
   id: number;
   actor_name: string;
   at: string;
-  kind: ManagerChange['kind'];
+  kind: ManagerChange['kind'] | 'bank_link';
   reason: string;
   before: ManagerAuditState;
   after: ManagerAuditState;

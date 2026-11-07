@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ManagerSales } from '@/components/manager/manager-sales';
 import { ManagerWorkspace } from '@/components/manager/manager-workspace';
+import { ManagerHistory } from '@/components/manager/manager-history';
 import { BankImportContent } from '@/components/manager/bank-import';
 import { ClientSalesPanel } from '@/components/crm/client-sales-panel';
 import type { ManagerSale } from '@/lib/manager-types';
@@ -21,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   decision: vi.fn(),
   client: vi.fn(),
   assignment: vi.fn(),
+  history: vi.fn(),
+  snapshots: vi.fn(),
 }));
 vi.mock('@/components/auth-provider', () => ({
   useAuth: () => ({ user: { id: 8 }, isAdmin: mocks.admin }),
@@ -42,6 +45,8 @@ vi.mock('@/lib/api', async (original) => ({
   changeBankDecision: mocks.decision,
   fetchBankClient: mocks.client,
   saveClientSalesManager: mocks.assignment,
+  fetchManagerHistory: mocks.history,
+  fetchManagerSnapshots: mocks.snapshots,
 }));
 
 const operation: BankOperation = {
@@ -201,6 +206,38 @@ beforeEach(() => {
 });
 
 describe('Bank payments in existing sales', () => {
+  it('explains bank confirmation of an existing sale in manager audit history', async () => {
+    const data = await mocks.dashboard();
+    const state = {
+      terms: data.terms,
+      summary: data.summary,
+      closed: false,
+      version: 1,
+      sale: null,
+    };
+    mocks.history.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          actor_name: 'Тестовый администратор',
+          at: '2026-11-07T12:00:00Z',
+          kind: 'bank_link',
+          reason: 'Оплата подтверждает существующую продажу',
+          before: state,
+          after: state,
+        },
+      ],
+      total: 1,
+    });
+    mocks.snapshots.mockResolvedValue([]);
+    render(<ManagerHistory data={data} onClose={() => {}} />);
+    expect(
+      await screen.findByText(/Подтверждение банковским платежом/),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/Оплата подтверждает существующую продажу/),
+    ).toBeVisible();
+  });
   it('identifies bank payments and permits cancellation without editing banking identity', () => {
     const sale = {
       id: 6,
