@@ -38,6 +38,8 @@ def main() -> None:
 
         from tests.support.client_documents_e2e import install_document_browser_fixture
         install_document_browser_fixture(stock_sync_api)
+        from tests.support.bank_e2e import install_bank_browser_fixture
+        install_bank_browser_fixture(stock_sync_api)
 
         uvicorn.run(stock_sync_api.app, host=host, port=port, log_level="warning")
 
