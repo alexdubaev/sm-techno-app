@@ -46,6 +46,40 @@ it('links each manager account to its cabinet for the displayed plan month', asy
 it('includes unallocated sales and identifies bank receipts separately from manual entry', async () => {
   api.sales.mockImplementation(async (kind:string, date:string) => ({period:{kind,anchorDate:date,start:date,end:date},totals:{salesTotal:90000,count:2,unallocatedSalesTotal:40000,unallocatedCount:1},series:[],managers:[],monthlyPlans:{month:date.slice(0,7),managers:[]},sources:{manualCount:1,onecCount:0,bankCount:1,odataConnected:false}}));
   render(<Dashboard />);
-  expect(await screen.findByText(/Не распределено менеджерам:/)).toHaveTextContent('400 ₽ · 1 оплат');
+  expect(await screen.findByText(/Не распределено:/)).toHaveTextContent('400 ₽ · 1 оплат');
   expect(screen.getByText(/Ручной учёт:/)).toHaveTextContent('Ручной учёт: 1; банковские поступления: 1');
+});
+it('opens the selected sales chart in a dialog and closes it with Escape', async () => {
+  api.sales.mockImplementation(async (kind:string, date:string) => ({period:{kind,anchorDate:date,start:date,end:date},totals:{salesTotal:123400,count:2},series:[{date,amount:123400,count:2}],managers:[],monthlyPlans:{month:date.slice(0,7),managers:[]},sources:{manualCount:2,onecCount:0,odataConnected:false}}));
+  render(<Dashboard />);
+  await screen.findByText(/2 продаж за период/);
+  await userEvent.click(screen.getByRole('button',{name:'Развернуть график продаж'}));
+  expect(await screen.findByRole('dialog')).toBeVisible();
+  expect(screen.getByText('1 234 ₽')).toBeVisible();
+  await userEvent.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+});
+it('opens the plot itself and returns keyboard focus to its opening control', async () => {
+  render(<Dashboard />);
+  await screen.findByText(/За этот период продаж нет/);
+  const plot = screen.getByRole('button', {name:'Открыть подробный график продаж'});
+  await userEvent.click(plot);
+  expect(await screen.findByRole('dialog')).toBeVisible();
+  await userEvent.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  await waitFor(() => expect(plot).toHaveFocus());
+});
+it('selects a calendar date without changing the chosen period and preserves it after chart closure', async () => {
+  render(<Dashboard />);
+  await screen.findByText(/За этот период продаж нет/);
+  await userEvent.click(screen.getByRole('button', {name:'Квартал'}));
+  await userEvent.click(screen.getByRole('button', {name:'Выбрать дату'}));
+  const dateInput = screen.getByLabelText('Дата отчёта');
+  const {fireEvent} = await import('@testing-library/react');
+  fireEvent.change(dateInput, {target:{value:'2026-09-09'}});
+  await waitFor(() => expect(api.sales).toHaveBeenLastCalledWith('quarter','2026-09-09'));
+  await userEvent.click(screen.getByRole('button', {name:'Развернуть график продаж'}));
+  await userEvent.click(await screen.findByRole('button', {name:'Закрыть график'}));
+  expect(screen.getByRole('button', {name:'Квартал'})).toHaveAttribute('aria-pressed','true');
+  expect(api.sales).toHaveBeenLastCalledWith('quarter','2026-09-09');
 });
