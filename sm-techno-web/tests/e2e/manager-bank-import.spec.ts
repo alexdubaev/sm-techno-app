@@ -222,7 +222,7 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
 
   // Attribution creates the manager ledger entry without adding a second company sale.
   await page.goto('/dashboard');
-  await page.getByRole('button', { name: 'История выписок', exact: true }).click();
+  await page.getByRole('button', { name: 'Загрузить выписку', exact: true }).click();
   await dialog.getByRole('button', { name: new RegExp(`synthetic-control-${scope}`) }).click();
   await dialog.getByRole('button', { name: 'Проверить итог перед добавлением', exact: true }).click();
   await expect(effect).toContainText('Изменение общих продаж: 0 оплат · 0 ₽');
