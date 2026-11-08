@@ -26,7 +26,8 @@ test('compact overview keeps report controls and opens a full-screen chart', asy
   await page.goto('/dashboard');
   await expect(page.getByRole('heading', { name: 'Продажи компании' })).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
-  if (info.project.name !== 'production-chromium-1600') await expect(page.getByTestId('mobile-shell-header')).toBeInViewport({ratio:1});
+  const viewport = page.viewportSize()!;
+  if (viewport.width < 1536) await expect(page.getByTestId('mobile-shell-header')).toBeInViewport({ratio:1});
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
   const periodLabel = page.locator('strong[title]').first();
   expect(await periodLabel.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -36,12 +37,12 @@ test('compact overview keeps report controls and opens a full-screen chart', asy
   await expect(plot).toBeInViewport();
   const bar = await plot.locator('.recharts-bar-rectangle path').first().boundingBox();
   expect(bar && bar.height > 60).toBe(true);
-  if (info.project.name === 'production-chromium-1600') {
+  if (viewport.width > 700) {
     const chartBox = await plot.boundingBox();
     const managerBox = await page.getByRole('heading', {name:'Менеджеры', exact:true}).boundingBox();
     expect(chartBox && managerBox && chartBox.x + chartBox.width <= managerBox.x).toBe(true);
   }
-  if (info.project.name === 'production-webkit-390') {
+  if (viewport.width === 390) {
     const first = page.locator('a[href="/manager?managerId=1&month=2026-11"]');
     const third = page.locator('a[href="/manager?managerId=3&month=2026-11"]');
     await expect(first).toBeInViewport();
@@ -54,11 +55,11 @@ test('compact overview keeps report controls and opens a full-screen chart', asy
     await info.attach('initial-geometry', {body:JSON.stringify(await page.evaluate(() => ({scrollY:window.scrollY, viewport:{offsetTop:window.visualViewport?.offsetTop,height:window.visualViewport?.height},header:document.querySelector('[data-testid=mobile-shell-header]')?.getBoundingClientRect().toJSON(),third:document.querySelector('a[href="/manager?managerId=3&month=2026-11"]')?.getBoundingClientRect().toJSON()}))),contentType:'application/json'});
     await page.screenshot({ path: info.outputPath('mobile-390.png'), fullPage: false });
   }
-  if (info.project.name === 'production-chromium-360') {
+  if (viewport.width === 360) {
     await expect(page.locator('a[href="/manager?managerId=1&month=2026-11"]')).toBeInViewport();
     await page.screenshot({ path: info.outputPath('mobile-360.png'), fullPage: false });
   }
-  if (info.project.name === 'production-chromium-1600') {
+  if (viewport.width === 1600) {
     await page.screenshot({ path: info.outputPath('desktop-1600.png'), fullPage: false });
   }
   await page.getByRole('button', { name: 'Выбрать дату' }).click();
@@ -72,7 +73,7 @@ test('compact overview keeps report controls and opens a full-screen chart', asy
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('heading', { name: 'Продажи по дням' })).toBeVisible();
   await expect(dialog.locator('p').first()).toContainText('380');
-  if (info.project.name === 'production-webkit-390') await page.screenshot({ path: info.outputPath('mobile-390-fullscreen.png'), fullPage: false });
+  if (viewport.width === 390) await page.screenshot({ path: info.outputPath('mobile-390-fullscreen.png'), fullPage: false });
   const dialogBox = await dialog.boundingBox();
   expect(dialogBox && dialogBox.x === 0 && dialogBox.y === 0 && dialogBox.width === page.viewportSize()!.width && dialogBox.height === page.viewportSize()!.height).toBe(true);
   await page.keyboard.press('Tab');

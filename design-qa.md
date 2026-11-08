@@ -4,7 +4,7 @@ Status: **passed** for the selected first reference and the bounded dashboard UI
 
 ## Evidence
 
-Reference: `.autopilot/2026-11-08-overview-compact-summary--wip/reference-selected.png`.
+Reference: `.autopilot/2026-11-08-overview-compact-summary/reference-selected.png`.
 
 Synthetic browser artifacts: `D:/codex/validation/overview-compact-summary-20261108/`:
 - `reference-render-contact-sheet.png` — selected mobile/desktop source and rendered mobile/desktop/fullscreen in one inspected image.
@@ -35,3 +35,11 @@ Intentional differences: existing global AppShell/sidebar/navigation; retained m
 - `git diff --check` — clean after EOF whitespace cleanup. No task servers remain on ports 13000/18000.
 
 RED evidence: the added plot-activation integration test failed because the plot had no opening button before the fix. Earlier recorded WebKit focus-return failure was corrected by registering actual Base UI triggers; its strong assertion remains. The calendar test also covers already-working date semantics and is reported as a regression check, not fabricated RED evidence.
+
+## F1 review closure
+
+The shared chart again shows daily DeepSeek request/token hover values. The sales preview stays quiet and the fullscreen sales chart retains its tooltip. The existing admin journey deliberately opens the source disclosure before checking the 1С notice. Layout checks use viewport widths rather than project names, retaining the 390px first-header/three-manager geometry and 360px overflow checks.
+
+The new synthetic browser assertion failed before the product fix because real hover did not show `Запросы : 1`; the quiet sales preview and fullscreen `60 000 ₽` checks already passed. After the one-condition fix, isolated `npm run test:auth:e2e -- tests/e2e/admin-dashboard.spec.ts tests/e2e/manager-dashboard-layout.spec.ts` passed all 9 cases across Chromium 390/1280/1600 (26.6s, exit 0), including daily request `1` and token `50` hover values. The captured token tooltip also shows `01.11.2026`.
+
+Affected integration: 8/8 passed; lint:ci: exact existing 29-entry baseline, exit 0; TypeScript: exit 0; production build: exit 0. Full logs and the preserved failing trace/screenshot are outside Git in `D:/codex/validation/overview-compact-summary-20261108/f1-*.log`, `f1-red-results/`, and `f1-auth-results/`; the latter includes synthetic `deepseek-hover.png` captures. No new visual comparison was needed: the selected layout is unchanged. The narrow launcher stopped its servers; ports 13000/18000 were free afterward.
