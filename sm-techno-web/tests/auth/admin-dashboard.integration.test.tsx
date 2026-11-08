@@ -31,10 +31,10 @@ it('does not load admin data for an ordinary user', () => {
   expect(api.balance).not.toHaveBeenCalled();
   expect(screen.queryByRole('button',{name:'Загрузить выписку'})).not.toBeInTheDocument();
 });
-it('offers the company-wide bank upload and history on the company overview', async () => {
+it('offers one company-wide bank entry point on the company overview', async () => {
   render(<Dashboard />);
   expect(await screen.findByRole('button',{name:'Загрузить выписку'})).toBeVisible();
-  expect(screen.getByRole('button',{name:'История выписок'})).toBeVisible();
+  expect(screen.queryByRole('button',{name:'История выписок'})).not.toBeInTheDocument();
 });
 it('links each manager account to its cabinet for the displayed plan month', async () => {
   api.sales.mockImplementation(async (kind:string, date:string) => ({period:{kind,anchorDate:date,start:date,end:date},
