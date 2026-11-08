@@ -2,7 +2,7 @@
 
 **Требования:** R01, R02, R03, R04, R05, R06, R07, R08, R09, R10
 **Зависит от:** —
-**Зона:** `sm-techno-web/components/admin-dashboard/` · `sm-techno-web/tests/auth/admin-dashboard.integration.test.tsx` · `sm-techno-web/tests/e2e/admin-dashboard.spec.ts` · `sm-techno-web/tests/e2e/manager-bank-import.spec.ts` · `sm-techno-web/tests/e2e/manager-dashboard-layout.spec.ts`
+**Зона:** `sm-techno-web/components/admin-dashboard/` · `sm-techno-web/tests/auth/admin-dashboard.integration.test.tsx` · `sm-techno-web/tests/e2e/admin-dashboard.spec.ts` · `sm-techno-web/tests/e2e/manager-bank-import.spec.ts` · `sm-techno-web/tests/e2e/manager-dashboard-layout.spec.ts` · `design-qa.md`
 **Волна:** 1
 **Ревью:** нет
 **Модель:** обычная
