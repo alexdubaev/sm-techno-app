@@ -68,7 +68,10 @@ class DeepSeekDocumentExtractor:
                 if size > MAX_INPUT_BYTES:
                     raise ExtractionError('input_limit', 'Превышен предел материалов задания.')
                 content.append({'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + base64.b64encode(data).decode('ascii')}})
-            body = json.dumps({'model': model, 'messages': [{'role': 'user', 'content': content}], 'response_format': {'type': 'json_object'}, 'stream': False}, ensure_ascii=False).encode('utf-8')
+            payload = {'model': model, 'messages': [{'role': 'user', 'content': content}], 'response_format': {'type': 'json_object'}, 'stream': False}
+            if request.kind == 'articles':
+                payload['thinking'] = {'type': 'disabled'}
+            body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
             if len(body) > 28 * 1024 * 1024:
                 raise ExtractionError('input_limit', 'Превышен предел материалов задания.')
             connection = self._connection_factory(remaining())

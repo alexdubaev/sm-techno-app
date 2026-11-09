@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Literal
 
@@ -5,9 +6,52 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.requests import Request as StarletteRequest
 from starlette.datastructures import UploadFile
+from starlette.responses import StreamingResponse
 
 from stock_sync_web import shortcut_devices as devices
 from stock_sync_web.stock_valuation import PrivateRoute, Row, _authorize, build_valuation_result, extract_valuation_upload
+
+
+INTAKE_HEARTBEAT_SECONDS = 10
+_running_intakes: set[asyncio.Task] = set()
+
+
+async def _native_intake_result(operation):
+    # The operation owns the form/files until extraction finishes, even if the
+    # phone disconnects. Cancelling a running extraction thread would close its
+    # workspace while the extractor still uses it.
+    task = asyncio.create_task(operation)
+    _running_intakes.add(task)
+
+    def finished(completed):
+        _running_intakes.discard(completed)
+        if not completed.cancelled():
+            completed.exception()  # Consume abandoned errors without logging private data.
+
+    task.add_done_callback(finished)
+    done, _ = await asyncio.wait({task}, timeout=INTAKE_HEARTBEAT_SECONDS)
+    if done:
+        return task.result()
+
+    async def body():
+        while not task.done():
+            # Legal JSON whitespace keeps the native client's idle timer alive.
+            # Padding also avoids small-buffer delays in HTTP intermediaries.
+            yield b' ' * 4096 + b'\n'
+            await asyncio.wait({task}, timeout=INTAKE_HEARTBEAT_SECONDS)
+        try:
+            result = task.result()
+        except HTTPException as exc:
+            result = {'detail': exc.detail}
+        except Exception:
+            result = {'detail': 'Не удалось выполнить запрос. Повторите попытку.'}
+        yield json.dumps(result, ensure_ascii=False).encode('utf-8')
+
+    # Once headers are sent, late errors use the existing detail envelope that
+    # the installed shortcut checks before reading rows. Never emit partial rows.
+    return StreamingResponse(body(), media_type='application/json', headers={
+        'Cache-Control': 'no-store', 'Content-Encoding': 'identity', 'X-Accel-Buffering': 'no',
+    })
 
 
 class CreateDevice(BaseModel):
@@ -65,15 +109,18 @@ def create_shortcut_router(current_user, get_service):
             sent = True
             return {'type': 'http.request', 'body': raw, 'more_body': False}
         clone = StarletteRequest(request.scope, receive)
-        async with clone.form(max_files=1, max_fields=0) as form:
-            file = form.get('file')
-            if len(form) != 1 or not isinstance(file, UploadFile): raise HTTPException(400, 'Нужен один файл.')
-            from stock_sync_web.deepseek_usage import sink_for
-            result = await extract_valuation_upload(file, usage_sink=sink_for(get_service().db))
-        result['warnings'] = [str(w)[:1000] for w in result['warnings'][:20]]
-        preview = '\n'.join(f"{r['sourceRow']}. {r['article']}" + (f" — {r['requestedQty']}" if r['requestedQty'] else '') for r in result['rows'])
-        if len(preview) > 100_000: raise HTTPException(413, 'Список слишком велик для просмотра на телефоне.')
-        return {**result, 'previewText': preview}
+        async def recognize():
+            async with clone.form(max_files=1, max_fields=0) as form:
+                file = form.get('file')
+                if len(form) != 1 or not isinstance(file, UploadFile): raise HTTPException(400, 'Нужен один файл.')
+                from stock_sync_web.deepseek_usage import sink_for
+                result = await extract_valuation_upload(file, usage_sink=sink_for(get_service().db))
+            result['warnings'] = [str(w)[:1000] for w in result['warnings'][:20]]
+            preview = '\n'.join(f"{r['sourceRow']}. {r['article']}" + (f" — {r['requestedQty']}" if r['requestedQty'] else '') for r in result['rows'])
+            if len(preview) > 100_000: raise HTTPException(413, 'Список слишком велик для просмотра на телефоне.')
+            return {**result, 'previewText': preview}
+
+        return await _native_intake_result(recognize())
 
     @router.post('/api/shortcuts/stock/resolve')
     async def resolve(request: Request):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import math
+import logging
 from datetime import date, datetime, timezone
 from io import BytesIO
 from decimal import Decimal
@@ -30,6 +31,8 @@ from stock_sync_web.assistant_service import _extraction_slots, require_document
 from stock_sync_web.assistant_storage import UploadLimits
 from stock_sync_web.service import CLIENT_PRICE_TEMPLATE_PATH, COMMERCIAL_OFFER_TEMPLATE_PATH
 from stock_sync_web.commercial_offers import CommercialOfferLineInput, generate_commercial_offer_workbook
+
+_logger = logging.getLogger(__name__)
 
 
 def _reparse(path):
@@ -199,8 +202,17 @@ async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | N
                 if not _extraction_slots.acquire(blocking=False):
                     raise HTTPException(429, 'Распознавание занято. Повторите попытку позже.')
                 try:
+                    is_deepseek = (os.getenv('DOCUMENT_ASSISTANT_PROVIDER') or 'codex').strip().lower() == 'deepseek'
+                    started = time.monotonic() if is_deepseek else None
                     texts, images = DocumentSourceReader(limits).read(source, workspace)
-                    return create_document_extractor(codex_factory=CodexDocumentExtractor, usage_sink=usage_sink).extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
+                    remaining = None
+                    if is_deepseek:
+                        budget = min(300, max(15, int(os.getenv('DOCUMENT_ASSISTANT_TIMEOUT_SECONDS') or '300')))
+                        remaining = budget - (time.monotonic() - started)
+                        if remaining <= 0:
+                            raise ExtractionError('runtime_timeout')
+                    return create_document_extractor(codex_factory=CodexDocumentExtractor, usage_sink=usage_sink,
+                        deepseek_timeout=remaining).extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
                 finally:
                     _extraction_slots.release()
             result = await run_in_threadpool(extract_source)
@@ -210,7 +222,12 @@ async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | N
             if not rows: raise ValueError('В файле не найдено артикулов.')
             return {'rows': [r.model_dump() for r in rows], 'warnings': result.warnings}
     except HTTPException: raise
-    except ExtractionError: raise HTTPException(400, 'Не удалось распознать файл. Проверьте формат или повторите попытку.') from None
+    except ExtractionError as exc:
+        code = exc.code if re.fullmatch(r'[a-z_]{1,48}', str(exc.code)) else 'extraction_error'
+        _logger.warning('Stock recognition failed: %s', code)
+        if code == 'runtime_timeout':
+            raise HTTPException(400, 'Распознавание не успело завершиться. Повторите попытку.') from None
+        raise HTTPException(400, 'Не удалось распознать файл. Проверьте формат или повторите попытку.') from None
     except Exception: raise HTTPException(400, 'Не удалось распознать файл. Проверьте формат или повторите попытку.') from None
     finally: await file.close()
 

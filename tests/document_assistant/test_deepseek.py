@@ -51,6 +51,7 @@ def test_real_http_stub_sends_inline_images_and_validates(stub, tmp_path):
     path, headers, body = state['requests'][0]; payload = json.loads(body)
     assert path == '/chat/completions' and headers['Authorization'] == 'Bearer test-key'
     assert payload['response_format'] == {'type': 'json_object'} and payload['model'] == 'deepseek-flash'
+    assert payload['thinking'] == {'type': 'disabled'}
     assert payload['messages'][0]['content'][1]['image_url']['url'] == 'data:image/png;base64,ZmFrZS1wbmc='
     assert result.payload['rows'][0]['article'] == '00123'
     assert result.provenance == [{'assetId': 5, 'method': 'deepseek-flash', 'reviewed': False}]
@@ -88,10 +89,13 @@ def test_both_consumers_select_deepseek_without_key(monkeypatch, tmp_path):
     from stock_sync_web.assistant_deepseek import DeepSeekDocumentExtractor
     from stock_sync_web import stock_valuation
     monkeypatch.setenv('DOCUMENT_ASSISTANT_PROVIDER', 'deepseek')
+    monkeypatch.setenv('DOCUMENT_ASSISTANT_TIMEOUT_SECONDS', '45')
     monkeypatch.delenv('DEEPSEEK_API_KEY', raising=False)
     service = DocumentAssistantService(object(), repository=object(), store=object())
     assert isinstance(service.extractor, DeepSeekDocumentExtractor)
-    assert isinstance(stock_valuation.create_document_extractor(codex_factory=stock_valuation.CodexDocumentExtractor), DeepSeekDocumentExtractor)
+    assert service.extractor.timeout == 45
+    stock_extractor = stock_valuation.create_document_extractor(codex_factory=stock_valuation.CodexDocumentExtractor, deepseek_timeout=30)
+    assert isinstance(stock_extractor, DeepSeekDocumentExtractor) and stock_extractor.timeout == 30
 
 
 def test_large_image_is_rejected_before_network(stub, tmp_path):
@@ -155,3 +159,4 @@ def test_deepseek_invoice_with_russian_formats_is_accepted(stub, tmp_path):
     assert result.payload['lines'][0]['row_no'] == 1
     sent = json.loads(state['requests'][0][2])['messages'][0]['content'][0]['text']
     assert 'no thousands separators' in sent
+    assert 'thinking' not in json.loads(state['requests'][0][2])
