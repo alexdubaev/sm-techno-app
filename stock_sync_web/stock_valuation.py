@@ -199,9 +199,17 @@ async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | N
                     if size > limits.max_bytes: raise HTTPException(413, 'Превышен допустимый размер файла.')
                     target.write(chunk)
             def extract_source():
+                from stock_sync_web.stock_table_reader import TABLE_FORMATS, StockTableError, read_stock_table
                 if not _extraction_slots.acquire(blocking=False):
                     raise HTTPException(429, 'Распознавание занято. Повторите попытку позже.')
                 try:
+                    if suffix in TABLE_FORMATS:
+                        try:
+                            return read_stock_table(source, limits)
+                        except StockTableError as exc:
+                            raise HTTPException(400, str(exc)) from None
+                        except Exception:
+                            raise HTTPException(400, 'Не удалось прочитать таблицу. Проверьте формат файла и отсутствие внешних связей.') from None
                     is_deepseek = (os.getenv('DOCUMENT_ASSISTANT_PROVIDER') or 'codex').strip().lower() == 'deepseek'
                     started = time.monotonic() if is_deepseek else None
                     texts, images = DocumentSourceReader(limits).read(source, workspace)
