@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 
 test('compact overview keeps report controls and opens a full-screen chart', async ({ page, request }, info) => {
   test.setTimeout(90_000);
+  // Keep the November fixture and date-change action independent of today's date.
+  await page.clock.setFixedTime(new Date('2026-11-08T12:00:00Z'));
   const login = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin-e2e-password' } });
   expect(login.ok()).toBe(true);
   const { token, user } = await login.json();
