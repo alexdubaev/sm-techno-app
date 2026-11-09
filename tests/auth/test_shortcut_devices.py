@@ -1,5 +1,21 @@
 from .conftest import INITIAL_ADMIN_PASSWORD
 
+
+def test_native_xlsx_intake_reads_all_rows_without_ai(auth_api, monkeypatch):
+    from stock_sync_web import stock_valuation
+    from tests.stock_valuation.test_tables import table_bytes, forbid_ai
+    monkeypatch.setattr(stock_valuation, 'create_document_extractor', forbid_ai)
+    monkeypatch.delenv('DEEPSEEK_API_KEY', raising=False)
+    admin = auth_api.bearer(auth_api.login('admin', INITIAL_ADMIN_PASSWORD))
+    device = auth_api.client.post('/api/stock/shortcut-devices', headers=admin, json={'label': 'Synthetic table phone'}).json()
+    result = auth_api.client.post('/api/shortcuts/stock/intake', headers={'Authorization': 'Shortcut ' + device['credential']},
+                                  files={'file': ('synthetic.xlsx', table_bytes())})
+    assert result.status_code == 200
+    data = result.json()
+    assert len(data['rows']) == 696 and data['rows'][0]['article'] == '00000'
+    assert data['rows'][5]['requestedQty'] == '0' and data['rows'][-1]['sourceRow'] == 697
+    assert len(data['previewText'].splitlines()) == 696
+
 def test_shortcut_credential_is_scoped_and_revocable(auth_api):
     token = auth_api.login('admin', INITIAL_ADMIN_PASSWORD)
     headers = auth_api.bearer(token)

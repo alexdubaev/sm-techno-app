@@ -157,7 +157,7 @@ def validate_payload(kind, payload, *, partial=False):
             if value in (None,''): continue
             try: number=Decimal(value)
             except InvalidOperation: raise ValueError(f'Проверьте число в поле {key}.') from None
-            if not number.is_finite() or number<0 or (key in {'qty','requested_qty'} and number==0) or abs(number)>Decimal('1000000000000'):
+            if not number.is_finite() or number<0 or (key=='qty' and number==0) or abs(number)>Decimal('1000000000000'):
                 raise ValueError(f'Недопустимое число в поле {key}.')
     return payload
 
