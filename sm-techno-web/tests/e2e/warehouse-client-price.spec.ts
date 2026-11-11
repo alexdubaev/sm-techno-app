@@ -61,12 +61,13 @@ test('admin adds stock, saves its warehouse price, and sees both after reload', 
   await page.getByLabel('Цена').last().fill('100');
   await page.getByLabel('Склад').last().selectOption({ label: warehouseName });
   await page.getByRole('button', { name: 'Добавить позицию' }).click();
-  await expect(page.getByText(`Синтетический товар ${suffix}`, { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: `Синтетический товар ${suffix}`, exact: true })).toBeVisible();
   await page.getByRole('button', { name: /Добавление вручную/ }).click();
 
   const price = page.getByLabel('Цена').last();
   await price.fill('226700');
   await page.getByRole('button', { name: 'Изменить остатки…' }).click();
+  await page.getByRole('combobox', { name: 'Склад', exact: true }).last().selectOption({ label: warehouseName });
   await page.getByLabel('Количество').fill('1');
   await page.getByRole('button', { name: 'Добавить остаток' }).click();
   await expect(page.getByRole('group', { name: `Остаток на складе ${warehouseName}`, exact: true })).toContainText('1 шт.');
