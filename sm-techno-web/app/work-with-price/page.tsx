@@ -876,7 +876,7 @@ function WorkWithPriceAdminPage() {
     const actionRequestId = ++stockActionRequestIdRef.current;
     const positiveWarehouses = item.warehouses.filter((warehouse) => getIntegerQuantity(warehouse.quantity) > 0);
     const preferredWarehouseId =
-      item.rowWarehouseId ?? activeWarehouseId ?? positiveWarehouses[0]?.warehouseId ?? warehouses[0]?.id ?? null;
+      (keepSelectedTarget ? selectedRowWarehouseId : null) ?? item.rowWarehouseId ?? activeWarehouseId ?? positiveWarehouses[0]?.warehouseId ?? warehouses[0]?.id ?? null;
     const destinationWarehouseId =
       warehouses.find((warehouse) => warehouse.id !== preferredWarehouseId)?.id ?? warehouses[0]?.id ?? null;
     setStockActionForm({

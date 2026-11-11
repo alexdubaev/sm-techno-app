@@ -66,6 +66,7 @@ describe("work with price save draft", () => {
       http.get("/api/crm/reminders/due", () => HttpResponse.json({ items: [] })),
       http.get("/api/warehouses", () => HttpResponse.json({ items: [
         { id: 7, name: "Тестовый склад", externalCode: "test-7", isActive: true, createdAt: "", updatedAt: "" },
+        { id: 3, name: "Другой склад", externalCode: "test-3", isActive: true, createdAt: "", updatedAt: "" },
       ] })),
       http.get("/api/stock/catalog", () => HttpResponse.json({ items: [item, second], total: 2,
         page: 1, pageSize: 20, categories: ["Тест"], groups: [],
@@ -111,6 +112,7 @@ describe("work with price save draft", () => {
       http.get("/api/crm/reminders/due", () => HttpResponse.json({ items: [] })),
       http.get("/api/warehouses", () => HttpResponse.json({ items: [
         { id: 7, name: "Тестовый склад", externalCode: "test-7", isActive: true, createdAt: "", updatedAt: "" },
+        { id: 3, name: "Другой склад", externalCode: "test-3", isActive: true, createdAt: "", updatedAt: "" },
       ] })),
       http.get("/api/stock/catalog", () => HttpResponse.json({
         items: [item], total: 1, page: 1, pageSize: 20, categories: ["Тест"], groups: [],
@@ -151,8 +153,13 @@ describe("work with price save draft", () => {
     await act(async () => {
       releaseDetails(HttpResponse.json({ item: {
         ...item,
+        rowWarehouseId: null,
+        rowWarehouseName: "",
+        catalogRowKey: "1:base",
+        quantity: 4,
         price: 777,
-        warehouses: [{
+        warehouses: [{ warehouseId: 3, warehouseName: "Другой склад", quantity: 1, price: 200,
+          rack: "", cell: "", locationLabel: "" }, {
           warehouseId: 7, warehouseName: "Тестовый склад", quantity: 3, price: 81,
           rack: "", cell: "", locationLabel: "",
         }],
