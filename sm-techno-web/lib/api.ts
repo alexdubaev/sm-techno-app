@@ -169,11 +169,13 @@ type LocalItemPayload = {
   categoryName: string;
   groupName: string;
   price: number;
+  priceWarehouseId?: number;
   quantity?: number;
   warehouses?: Array<{
     warehouseId?: number | null;
     warehouseName: string;
     quantity: number;
+    price?: number;
     rack?: string;
     cell?: string;
   }>;

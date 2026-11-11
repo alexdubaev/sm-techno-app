@@ -2,6 +2,7 @@ export type WarehouseBalance = {
   warehouseId: number;
   warehouseName: string;
   quantity: number;
+  price?: number;
   rack: string;
   cell: string;
   locationLabel: string;

@@ -169,21 +169,28 @@ def _serialize_item(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parse_local_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _parse_local_item_payload(payload: dict[str, Any], *, allow_price_warehouse: bool = False) -> dict[str, Any]:
     name = str(payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Укажите наименование товара.")
 
     try:
         price = float(payload.get("price", 0) or 0)
-        quantity = float(payload.get("quantity", 0) or 0)
+        quantity = float(payload.get("quantity", 0) or 0) if "quantity" in payload else None
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Цена и остаток должны быть числами.")
 
     if not math.isfinite(price) or price < 0:
         raise HTTPException(status_code=400, detail="Цена не может быть отрицательной.")
-    if not math.isfinite(quantity) or quantity < 0:
+    if quantity is not None and (not math.isfinite(quantity) or quantity < 0):
         raise HTTPException(status_code=400, detail="Остаток не может быть отрицательным.")
+
+    price_warehouse_id = payload.get("priceWarehouseId")
+    if price_warehouse_id is not None:
+        if not allow_price_warehouse or type(price_warehouse_id) is not int or price_warehouse_id <= 0:
+            raise HTTPException(status_code=400, detail="Укажите корректный склад для сохранения цены.")
+        if "warehouses" in payload or "quantity" in payload:
+            raise HTTPException(status_code=400, detail="Изменение цены склада не должно заменять остатки товара.")
 
     warehouses_raw = payload.get("warehouses")
     warehouses: list[dict[str, Any]] | None = None
@@ -208,17 +215,24 @@ def _parse_local_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 raise HTTPException(status_code=400, detail="Остаток по складу должен быть числом.")
             if not math.isfinite(warehouse_quantity) or warehouse_quantity < 0:
                 raise HTTPException(status_code=400, detail="Остаток по складу не может быть отрицательным.")
-            warehouses.append(
-                {
+            warehouse_row = {
                     "warehouse_id": warehouse_id,
                     "warehouse_name": warehouse_name,
                     "quantity": warehouse_quantity,
                     "rack": str(raw_item.get("rack") or raw_item.get("rowRack") or "").strip(),
                     "cell": str(raw_item.get("cell") or raw_item.get("rowCell") or "").strip(),
                 }
-            )
+            if "price" in raw_item:
+                try:
+                    warehouse_price = float(raw_item["price"])
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="Цена по складу должна быть числом.") from None
+                if not math.isfinite(warehouse_price) or warehouse_price < 0:
+                    raise HTTPException(status_code=400, detail="Цена по складу должна быть конечной и неотрицательной.")
+                warehouse_row["price"] = warehouse_price
+            warehouses.append(warehouse_row)
 
-    return {
+    values = {
         "sku": str(payload.get("sku") or "").strip(),
         "name": name,
         "print_name": str(payload.get("printName") or payload.get("print_name") or "").strip() or name,
@@ -228,6 +242,9 @@ def _parse_local_item_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "quantity": quantity,
         "warehouses": warehouses,
     }
+    if allow_price_warehouse:
+        values["price_warehouse_id"] = price_warehouse_id
+    return values
 
 
 def _serialize_warehouse(row: dict[str, Any]) -> dict[str, Any]:
@@ -293,6 +310,7 @@ def _serialize_warehouse_balance(row: dict[str, Any]) -> dict[str, Any]:
         "warehouseId": int(row["warehouse_id"]),
         "warehouseName": row.get("warehouse_name") or "",
         "quantity": float(row.get("quantity") or 0),
+        "price": float(row.get("price") or 0),
         "rack": row.get("rack") or "",
         "cell": row.get("cell") or "",
         "locationLabel": row.get("location_label") or "",
@@ -2806,7 +2824,7 @@ def update_stock_item(
     if existing_item is None:
         raise HTTPException(status_code=404, detail="РўРѕРІР°СЂ РЅРµ РЅР°Р№РґРµРЅ.")
 
-    values = _parse_local_item_payload(payload)
+    values = _parse_local_item_payload(payload, allow_price_warehouse=True)
     try:
         updated_item = SERVICE.update_local_item(item_id, **values)
     except ValueError as exc:

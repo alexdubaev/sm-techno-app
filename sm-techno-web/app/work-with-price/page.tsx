@@ -138,6 +138,8 @@ function WorkWithPriceAdminPage() {
   const [importPreview, setImportPreview] = useState<{ planHash: string; created: number; updated: number; unchanged: number; errors: string[] } | null>(null);
   const [createForm, setCreateForm] = useState<ItemFormState>(EMPTY_FORM);
   const [editForm, setEditForm] = useState<ItemFormState>(EMPTY_FORM);
+  const editDraftDirtyRef = useRef(false);
+  const editTargetKeyRef = useRef<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warehouseNameInput, setWarehouseNameInput] = useState("");
@@ -171,6 +173,7 @@ function WorkWithPriceAdminPage() {
   const selectedRowKeyRef = useRef<string | null>(null);
   const catalogRequestIdRef = useRef(0);
   const detailRequestIdRef = useRef(0);
+  const stockActionRequestIdRef = useRef(0);
   const warehouseRenameInputRef = useRef<HTMLInputElement>(null);
 
   // Refocusing an already focused input is a no-op, so tying this to the whole
@@ -276,8 +279,9 @@ function WorkWithPriceAdminPage() {
 
     if (filtered.length === 0) {
       if (selectedIdRef.current !== null) {
-        const persisted = await fetchStockItem(selectedIdRef.current);
-        if (catalogRequestId === catalogRequestIdRef.current) {
+        const persistedItemId = selectedIdRef.current;
+        const persisted = await fetchStockItem(persistedItemId);
+        if (catalogRequestId === catalogRequestIdRef.current && persistedItemId === selectedIdRef.current) {
           setSelectedItem(persisted);
         }
       } else {
@@ -298,6 +302,10 @@ function WorkWithPriceAdminPage() {
       filtered.find((item) => getCatalogRowKey(item) === selectedRowKeyRef.current) ??
       filtered.find((item) => item.id === selectedIdRef.current);
     if (matched) {
+      if (editDraftDirtyRef.current) {
+        setSelectedItem((current) => current ? { ...matched, warehouses: current.warehouses } : matched);
+        return;
+      }
       setSelectedId(matched.id);
       setSelectedRowKey(getCatalogRowKey(matched));
       setSelectedRowWarehouseId(matched.rowWarehouseId ?? null);
@@ -367,16 +375,27 @@ function WorkWithPriceAdminPage() {
 
   useEffect(() => {
     if (!selectedItem) {
+      editTargetKeyRef.current = null;
+      editDraftDirtyRef.current = false;
       setEditForm(EMPTY_FORM);
       return;
     }
 
-    setEditForm({
+    const targetKey = `${selectedItem.id}:${selectedRowWarehouseId ?? "base"}`;
+    if (editDraftDirtyRef.current) {
+      return;
+    }
+    const targetChanged = editTargetKeyRef.current !== targetKey;
+    editTargetKeyRef.current = targetKey;
+    if (targetChanged) editDraftDirtyRef.current = false;
+
+    setEditForm((current) => ({
+      ...current,
       sku: selectedItem.sku || "",
       name: selectedItem.name || "",
       categoryName: selectedItem.categoryName || "",
       groupName: selectedItem.groupName || "",
-      price: formatNumberInput(selectedItem.price, 2),
+      price: formatNumberInput(getWarehousePrice(selectedItem, selectedRowWarehouseId), 2),
       warehouses:
         selectedItem.warehouses.length > 0
           ? selectedItem.warehouses.map((warehouse) =>
@@ -389,8 +408,8 @@ function WorkWithPriceAdminPage() {
               ),
             )
           : [createWarehouseFormState("Основной склад", "0")],
-    });
-  }, [selectedItem]);
+    }));
+  }, [selectedItem, selectedId, selectedRowWarehouseId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -402,7 +421,7 @@ function WorkWithPriceAdminPage() {
     const detailRequestId = ++detailRequestIdRef.current;
     void fetchStockItem(selectedId)
       .then((item) => {
-        if (!cancelled && detailRequestId === detailRequestIdRef.current && item) {
+        if (!cancelled && detailRequestId === detailRequestIdRef.current && item && selectedIdRef.current === item.id) {
           setSelectedItem(item);
         }
       })
@@ -413,49 +432,7 @@ function WorkWithPriceAdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
-
-  useEffect(() => {
-    if (!stockAction) {
-      return;
-    }
-
-    const positiveWarehouses = (selectedItem?.warehouses ?? []).filter(
-      (warehouse) => getIntegerQuantity(warehouse.quantity) > 0,
-    );
-    const preferredWarehouseId =
-      selectedRowWarehouseId !== null
-        ? selectedRowWarehouseId
-        : activeWarehouseId !== null
-        ? activeWarehouseId
-        : positiveWarehouses[0]?.warehouseId ?? warehouses[0]?.id ?? null;
-    const destinationWarehouseId =
-      warehouses.find((warehouse) => warehouse.id !== preferredWarehouseId)?.id ??
-      warehouses[0]?.id ??
-      null;
-
-    setStockActionForm((current) => ({
-      warehouseId:
-        stockAction.mode === "add" && preferredWarehouseId !== null
-          ? String(preferredWarehouseId)
-          : stockAction.mode === "writeoff" && positiveWarehouses[0]
-            ? String(preferredWarehouseId ?? positiveWarehouses[0].warehouseId)
-            : current.warehouseId,
-      fromWarehouseId:
-        stockAction.mode === "move" && positiveWarehouses[0]
-          ? String(
-              positiveWarehouses.find((warehouse) => warehouse.warehouseId === preferredWarehouseId)
-                ?.warehouseId ?? positiveWarehouses[0].warehouseId,
-            )
-          : current.fromWarehouseId,
-      toWarehouseId:
-        stockAction.mode === "move" && destinationWarehouseId !== null
-          ? String(destinationWarehouseId)
-          : current.toWarehouseId,
-      quantity: "1",
-      comment: "",
-    }));
-  }, [stockAction, selectedItem, activeWarehouseId, selectedRowWarehouseId, warehouses]);
+  }, [selectedId, selectedRowWarehouseId]);
 
   useEffect(() => {
     if (isCreateExpanded) {
@@ -539,6 +516,11 @@ function WorkWithPriceAdminPage() {
 
   const createFormValidation = validateItemForm(createForm);
   const editFormValidation = validateItemForm(editForm);
+
+  const updateEditForm = (patch: Partial<ItemFormState>) => {
+    editDraftDirtyRef.current = true;
+    setEditForm((current) => ({ ...current, ...patch }));
+  };
 
   const applyItemToLocalState = (item: StockItem) => {
     setSelectedId(item.id);
@@ -626,12 +608,21 @@ function WorkWithPriceAdminPage() {
     setMessage(null);
 
     try {
-      const updated = await updateLocalItem(selectedItem.id, parsed.payload);
+      const { warehouses: _warehouseRows, ...cardPayload } = parsed.payload;
+      const saveTargetKey = selectedRowKeyRef.current;
+      const updated = await updateLocalItem(selectedItem.id, {
+        ...cardPayload,
+        priceWarehouseId: selectedRowWarehouseId ?? undefined,
+      });
       if (!updated) {
         throw new Error("Сервер не вернул обновленную позицию.");
       }
 
-      applyItemToLocalState(updated);
+      if (selectedIdRef.current === updated.id && selectedRowKeyRef.current === saveTargetKey) {
+        editDraftDirtyRef.current = false;
+        editTargetKeyRef.current = `${updated.id}:${selectedRowWarehouseId ?? "base"}`;
+        setSelectedItem(updated);
+      }
       setMessage(`Позиция "${updated.name}" обновлена.`);
       await loadCatalog();
     } catch (requestError: unknown) {
@@ -838,11 +829,24 @@ function WorkWithPriceAdminPage() {
   };
 
   const handleSelectItem = (item: StockItem) => {
+    if (isBusy || isStockActionBusy) return false;
+    const nextWarehouseId = item.rowWarehouseId ?? null;
+    const nextTargetKey = `${item.id}:${nextWarehouseId ?? "base"}`;
+    if (editDraftDirtyRef.current && editTargetKeyRef.current !== nextTargetKey) {
+      if (!window.confirm("Есть несохранённые изменения карточки. Переключить товар и потерять их?")) {
+        return false;
+      }
+      editDraftDirtyRef.current = false;
+    }
+    stockActionRequestIdRef.current += 1;
+    selectedIdRef.current = item.id;
+    selectedRowKeyRef.current = getCatalogRowKey(item);
     setSelectedId(item.id);
     setSelectedRowKey(getCatalogRowKey(item));
-    setSelectedRowWarehouseId(item.rowWarehouseId ?? null);
+    setSelectedRowWarehouseId(nextWarehouseId);
     setSelectedItem(item);
     setActiveRowMenu(null);
+    return true;
   };
 
   const handleToggleRowMenu = useCallback((rowKey: string, trigger: HTMLButtonElement) => {
@@ -866,12 +870,28 @@ function WorkWithPriceAdminPage() {
     );
   }, []);
 
-  const handleOpenStockAction = async (item: StockItem, mode: StockActionMode) => {
-    handleSelectItem(item);
+  const handleOpenStockAction = async (item: StockItem, mode: StockActionMode, keepSelectedTarget = false) => {
+    if (isBusy || isStockActionBusy) return;
+    if (!keepSelectedTarget && !handleSelectItem(item)) return;
+    const actionRequestId = ++stockActionRequestIdRef.current;
+    const positiveWarehouses = item.warehouses.filter((warehouse) => getIntegerQuantity(warehouse.quantity) > 0);
+    const preferredWarehouseId =
+      (keepSelectedTarget ? selectedRowWarehouseId : null) ?? item.rowWarehouseId ?? activeWarehouseId ?? positiveWarehouses[0]?.warehouseId ?? warehouses[0]?.id ?? null;
+    const destinationWarehouseId =
+      warehouses.find((warehouse) => warehouse.id !== preferredWarehouseId)?.id ?? warehouses[0]?.id ?? null;
+    setStockActionForm({
+      warehouseId: mode === "add" ? String(preferredWarehouseId ?? "") : String(preferredWarehouseId ?? ""),
+      fromWarehouseId: mode === "move"
+        ? String(positiveWarehouses.find((row) => row.warehouseId === preferredWarehouseId)?.warehouseId ?? positiveWarehouses[0]?.warehouseId ?? "")
+        : "",
+      toWarehouseId: mode === "move" ? String(destinationWarehouseId ?? "") : "",
+      quantity: "1",
+      comment: "",
+    });
     setStockAction({ itemId: item.id, mode });
     try {
       const detailedItem = await fetchStockItem(item.id);
-      if (detailedItem) {
+      if (detailedItem && actionRequestId === stockActionRequestIdRef.current && selectedIdRef.current === item.id) {
         setSelectedItem(detailedItem);
       }
     } catch {
@@ -894,9 +914,11 @@ function WorkWithPriceAdminPage() {
     setIsStockActionBusy(true);
     setError(null);
     setMessage(null);
+    const actionTargetKey = selectedRowKeyRef.current;
 
     try {
       let updatedItem: StockItem;
+      const previousWarehouses = selectedItem.warehouses;
 
       if (stockAction.mode === "add") {
         const warehouseId = Number.parseInt(stockActionForm.warehouseId, 10);
@@ -944,8 +966,19 @@ function WorkWithPriceAdminPage() {
         setMessage(`Со склада "${warehouseName}" списано ${quantity} шт.`);
       }
 
-      setSelectedItem(updatedItem);
-      setStockAction(null);
+      if (selectedRowKeyRef.current === actionTargetKey && selectedIdRef.current === updatedItem.id) {
+        setSelectedItem(updatedItem);
+        const addedWarehouseId = Number.parseInt(stockActionForm.warehouseId, 10);
+        const previousTargetQuantity = previousWarehouses.find(
+          (warehouse) => warehouse.warehouseId === addedWarehouseId,
+        )?.quantity ?? 0;
+        if (stockAction.mode === "add" && selectedRowWarehouseId === null && previousTargetQuantity <= 0) {
+          setSelectedRowWarehouseId(addedWarehouseId);
+          setSelectedRowKey(`${updatedItem.id}:${addedWarehouseId}`);
+          editTargetKeyRef.current = `${updatedItem.id}:${addedWarehouseId}`;
+        }
+        setStockAction(null);
+      }
       setActiveRowMenu(null);
       await loadCatalog();
     } catch (requestError: unknown) {
@@ -1375,13 +1408,13 @@ function WorkWithPriceAdminPage() {
                       label="Артикул"
                       value={editForm.sku}
                       disabled={!isAdmin}
-                      onChange={(value) => setEditForm((current) => ({ ...current, sku: value }))}
+                      onChange={(value) => updateEditForm({ sku: value })}
                     />
                     <CompactField
                       label="Наименование"
                       value={editForm.name}
                       disabled={!isAdmin}
-                      onChange={(value) => setEditForm((current) => ({ ...current, name: value }))}
+                      onChange={(value) => updateEditForm({ name: value })}
                     />
                     <div className="grid grid-cols-2 gap-1.5">
                       <CompactField
@@ -1389,7 +1422,7 @@ function WorkWithPriceAdminPage() {
                         value={editForm.categoryName}
                         disabled={!isAdmin}
                         onChange={(value) =>
-                          setEditForm((current) => ({ ...current, categoryName: value }))
+                          updateEditForm({ categoryName: value })
                         }
                       />
                       <CompactField
@@ -1397,7 +1430,7 @@ function WorkWithPriceAdminPage() {
                         value={editForm.groupName}
                         disabled={!isAdmin}
                         onChange={(value) =>
-                          setEditForm((current) => ({ ...current, groupName: value }))
+                          updateEditForm({ groupName: value })
                         }
                       />
                     </div>
@@ -1408,7 +1441,7 @@ function WorkWithPriceAdminPage() {
                         inputMode="decimal"
                         disabled={!isAdmin}
                         onChange={(value) =>
-                          setEditForm((current) => ({ ...current, price: sanitizeMoneyInput(value) }))
+                          updateEditForm({ price: sanitizeMoneyInput(value) })
                         }
                       />
                       <CompactReadonlyField
@@ -1432,17 +1465,21 @@ function WorkWithPriceAdminPage() {
                       <button
                         type="button"
                         disabled={isBusy}
-                        onClick={() => void handleOpenStockAction(selectedItem, "add")}
+                        onClick={() => void handleOpenStockAction(selectedItem, "add", true)}
                         className="app-action-button app-action-button--xs mt-1.5 w-full"
                       >
-                        Изменить остатки
+                        Изменить остатки…
                       </button>
+                      <p className="mt-1 text-[9px] leading-[13px] text-[var(--text-secondary)]">
+                        Кнопка открывает складские операции. «Добавить остаток» прибавляет количество и сохраняет его сразу.
+                      </p>
 
                       <div className="mt-2 space-y-1">
                         {selectedWarehouseBalances.length > 0 ? (
                           selectedWarehouseBalances.map((warehouse) => (
-                            <div
+                            <fieldset
                               key={warehouse.warehouseId}
+                              aria-label={`Остаток на складе ${warehouse.warehouseName}`}
                               className="flex items-center justify-between gap-2 rounded-[8px] border border-[var(--border-color)] bg-white px-2.5 py-1.5 text-[10px]"
                             >
                               <span className="min-w-0">
@@ -1458,7 +1495,7 @@ function WorkWithPriceAdminPage() {
                               <span className="font-semibold text-[var(--stock-ok)] tabular-nums">
                                 {formatStockUnits(warehouse.quantity)}
                               </span>
-                            </div>
+                            </fieldset>
                           ))
                         ) : (
                           <div className="rounded-[8px] border border-dashed border-[var(--border-color)] bg-white px-2.5 py-2 text-[10px] text-[var(--text-secondary)]">
@@ -1488,7 +1525,7 @@ function WorkWithPriceAdminPage() {
                         className="app-action-button app-action-button--sm"
                       >
                         <SaveIcon className="h-3.5 w-3.5 stroke-[2]" />
-                        Сохранить
+                        Сохранить цену и данные
                       </button>
                       <button
                         type="button"
@@ -1499,6 +1536,9 @@ function WorkWithPriceAdminPage() {
                         <TrashIcon className="h-3.5 w-3.5 stroke-[2]" />
                         Удалить
                       </button>
+                      <p className="col-span-2 text-[9px] leading-[13px] text-[var(--text-secondary)]">
+                        Сохранить применяет цену к выбранному складу и обновляет данные карточки. Остатки меняются отдельно и сохраняются своей кнопкой сразу.
+                      </p>
                     </div>
                   ) : null}
                 </>
@@ -1790,7 +1830,10 @@ function WorkWithPriceAdminPage() {
           form={stockActionForm}
           availableQuantity={stockActionAvailable}
           isBusy={isStockActionBusy}
-          onClose={() => setStockAction(null)}
+          onClose={() => {
+            stockActionRequestIdRef.current += 1;
+            setStockAction(null);
+          }}
           onFormChange={(patch) =>
             setStockActionForm((current) => ({
               ...current,
@@ -1962,6 +2005,14 @@ function getWarehouseRowsTotal(rows: WarehouseFormState[]) {
 
 function getCatalogRowKey(item: StockItem) {
   return item.catalogRowKey || `${item.id}:${item.rowWarehouseId ?? "no-warehouse"}`;
+}
+
+function getWarehousePrice(item: StockItem, warehouseId: number | null) {
+  if (warehouseId !== null) {
+    const balance = item.warehouses.find((warehouse) => warehouse.warehouseId === warehouseId);
+    if (balance?.price !== undefined) return balance.price;
+  }
+  return item.price;
 }
 
 function getCatalogRowQuantity(item: StockItem) {
@@ -2402,7 +2453,7 @@ function StockActionDrawer({
         requestedQuantity > availableQuantity));
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-[rgba(7,22,46,0.18)] backdrop-blur-[2px]">
+    <div className="fixed inset-0 z-[60] flex justify-end bg-[rgba(7,22,46,0.18)] backdrop-blur-[2px]">
       <button
         type="button"
         aria-label="Закрыть окно"
@@ -2420,6 +2471,9 @@ function StockActionDrawer({
             </h2>
             <p className="mt-1 text-[11px] text-[var(--text-secondary)]">
               Артикул: {item.sku || "-"} · Общий остаток: {formatStockUnits(item.quantity)}
+            </p>
+            <p className="mt-1 text-[10px] leading-[14px] text-[var(--text-secondary)]">
+              Добавить остаток — это количество, которое прибавится к выбранному складу. Перемещение и списание выполняются сразу отдельной кнопкой.
             </p>
           </div>
           <button
@@ -2594,7 +2648,7 @@ function StockActionDrawer({
           </div>
         </div>
 
-        <div className="border-t border-[var(--border-color)] px-4 py-3">
+        <div className="border-t border-[var(--border-color)] px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <button
             type="button"
             disabled={isSubmitDisabled}
