@@ -7,7 +7,7 @@
   "fingerprint": "rule + subtype + repo-relative file + normalized source anchor (window around the diagnostic column; line numbers excluded on purpose) + occurrence index within identical anchors",
   "counts": {
     "Invariant": 5,
-    "EffectSetState": 23,
+    "EffectSetState": 22,
     "Refs": 1
   },
   "diagnostics": [
@@ -128,14 +128,6 @@
       "subtype": "EffectSetState",
       "file": "app/work-with-price/page.tsx",
       "anchor": "setEditForm(EMPTY_FORM);",
-      "occurrence": 1,
-      "reason": "Known load/reset setState pattern; covered by green domain tests."
-    },
-    {
-      "rule": "react(react-compiler)",
-      "subtype": "EffectSetState",
-      "file": "app/work-with-price/page.tsx",
-      "anchor": "setStockActionForm((current) => ({",
       "occurrence": 1,
       "reason": "Known load/reset setState pattern; covered by green domain tests."
     },

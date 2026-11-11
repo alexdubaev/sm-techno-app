@@ -599,6 +599,7 @@ class Database:
         item_id: int,
         warehouses: list[dict[str, Any]] | None = None,
         fallback_quantity: float | None = None,
+        fallback_price: float = 0,
     ) -> list[dict[str, Any]]:
         source_rows = list(warehouses or [])
         if not source_rows:
@@ -618,6 +619,9 @@ class Database:
                 raw_row.get("quantity") or 0,
                 label="Остаток по складу",
             )
+            price_provided = "price" in raw_row
+            price = self._require_finite_nonnegative(
+                raw_row["price"] if price_provided else fallback_price, label="Цена по складу")
 
             raw_warehouse_id = raw_row.get("warehouse_id", raw_row.get("warehouseId"))
             warehouse_id: int | None = None
@@ -640,6 +644,11 @@ class Database:
 
             existing = prepared.get(resolved_id)
             if existing:
+                if price_provided:
+                    if existing["price_provided"] and existing["price"] != price:
+                        raise ValueError("Один артикул на одном складе не может иметь разные цены.")
+                    existing["price"] = price
+                    existing["price_provided"] = True
                 current_location = self._location_tuple(existing.get("rack"), existing.get("cell"))
                 next_location = self._location_tuple(rack, cell)
                 if (
@@ -667,6 +676,8 @@ class Database:
                 "warehouse_id": resolved_id,
                 "warehouse_name": resolved_name,
                 "quantity": quantity,
+                "price": price,
+                "price_provided": price_provided,
                 "rack": rack,
                 "cell": cell,
                 "rack_provided": rack_provided,
@@ -679,6 +690,8 @@ class Database:
                 "warehouse_id": default_warehouse_id,
                 "warehouse_name": DEFAULT_WAREHOUSE_NAME,
                 "quantity": 0.0,
+                "price": fallback_price,
+                "price_provided": False,
                 "rack": None,
                 "cell": None,
                 "rack_provided": False,
@@ -691,10 +704,11 @@ class Database:
         for prepared_row in prepared.values():
             conn.execute(
                 """
-                INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, rack, cell, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?)
+                INSERT INTO item_warehouse_balances(item_id, warehouse_id, quantity, price, rack, cell, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(item_id, warehouse_id) DO UPDATE SET
                     quantity = excluded.quantity,
+                    price = CASE WHEN ? THEN excluded.price ELSE price END,
                     rack = CASE WHEN ? THEN excluded.rack ELSE rack END,
                     cell = CASE WHEN ? THEN excluded.cell ELSE cell END,
                     updated_at = excluded.updated_at
@@ -703,9 +717,11 @@ class Database:
                     item_id,
                     prepared_row["warehouse_id"],
                     prepared_row["quantity"],
+                    prepared_row["price"],
                     prepared_row.get("rack"),
                     prepared_row.get("cell"),
                     now,
+                    1 if prepared_row["price_provided"] else 0,
                     1 if prepared_row.get("rack_provided") else 0,
                     1 if prepared_row.get("cell_provided") else 0,
                 ),
@@ -735,6 +751,7 @@ class Database:
                 w.id AS warehouse_id,
                 w.name AS warehouse_name,
                 iwb.quantity,
+                iwb.price,
                 iwb.rack,
                 iwb.cell,
                 iwb.updated_at
@@ -1837,6 +1854,7 @@ class Database:
                 item_id=item_id,
                 warehouses=warehouses,
                 fallback_quantity=quantity,
+                fallback_price=normalized_price,
             )
 
         item = self.get_item_by_id(item_id)
@@ -1856,6 +1874,7 @@ class Database:
         price: float,
         quantity: float | None = None,
         warehouses: list[dict[str, Any]] | None = None,
+        price_warehouse_id: int | None = None,
     ) -> dict[str, Any] | None:
         normalized_name = name.strip()
         if not normalized_name:
@@ -1866,9 +1885,20 @@ class Database:
         normalized_category_name = category_name.strip()
         normalized_group_name = group_name.strip()
         normalized_price = self._require_finite_nonnegative(price, label="Цена")
+        if price_warehouse_id is not None and (warehouses is not None or quantity is not None):
+            raise ValueError("Изменение цены склада не должно заменять остатки товара.")
         now = utc_now()
 
         with self._stock_transaction() as conn:
+            if price_warehouse_id is not None:
+                if type(price_warehouse_id) is not int or price_warehouse_id <= 0:
+                    raise ValueError("Укажите корректный склад для сохранения цены.")
+                target = conn.execute('''SELECT b.warehouse_id FROM item_warehouse_balances b
+                    JOIN warehouses w ON w.id=b.warehouse_id
+                    WHERE b.item_id=? AND b.warehouse_id=? AND w.is_active=1''',
+                    (item_id, price_warehouse_id)).fetchone()
+                if target is None:
+                    raise ValueError("Строка товара на выбранном складе больше недоступна. Обновите карточку.")
             conn.execute(
                 """
                 UPDATE items
@@ -1878,7 +1908,7 @@ class Database:
                     print_name = ?,
                     category_name = ?,
                     group_name = ?,
-                    price = ?,
+                    price = CASE WHEN ? IS NULL THEN ? ELSE price END,
                     is_local = 1,
                     updated_at = ?
                 WHERE id = ?
@@ -1890,17 +1920,19 @@ class Database:
                     normalized_print_name,
                     normalized_category_name or None,
                     normalized_group_name or None,
+                    price_warehouse_id,
                     normalized_price,
                     now,
                     item_id,
                 ),
             )
-            self._replace_item_warehouse_balances(
-                conn,
-                item_id=item_id,
-                warehouses=warehouses,
-                fallback_quantity=quantity,
-            )
+            if price_warehouse_id is not None:
+                conn.execute('UPDATE item_warehouse_balances SET price=?,updated_at=? WHERE item_id=? AND warehouse_id=?',
+                             (normalized_price, now, item_id, price_warehouse_id))
+            if warehouses is not None or quantity is not None:
+                self._replace_item_warehouse_balances(
+                    conn, item_id=item_id, warehouses=warehouses,
+                    fallback_quantity=quantity, fallback_price=normalized_price)
 
         return self.get_item_by_id(item_id)
 
@@ -1997,7 +2029,7 @@ class Database:
         amount = self._require_finite_positive(quantity, label="Количество")
 
         with self._stock_transaction() as conn:
-            item = conn.execute("SELECT id FROM items WHERE id = ?", (item_id,)).fetchone()
+            item = conn.execute("SELECT id, price FROM items WHERE id = ?", (item_id,)).fetchone()
             if item is None:
                 raise ValueError("Товар не найден.")
 
@@ -2005,6 +2037,8 @@ class Database:
                 conn,
                 warehouse_id=warehouse_id,
             )
+            has_balance = conn.execute('SELECT 1 FROM item_warehouse_balances WHERE item_id=? AND warehouse_id=?',
+                                       (item_id, resolved_warehouse_id)).fetchone() is not None
             self._apply_stock_delta(
                 conn,
                 item_id=item_id,
@@ -2013,6 +2047,9 @@ class Database:
                 movement_type="manual_add",
                 comment=comment or f"Добавление остатка на склад '{warehouse_name}'.",
             )
+            if not has_balance:
+                conn.execute('UPDATE item_warehouse_balances SET price=? WHERE item_id=? AND warehouse_id=?',
+                             (self._require_finite_nonnegative(item['price'], label="Цена"), item_id, resolved_warehouse_id))
 
         updated_item = self.get_item_by_id(item_id)
         if updated_item is None:

@@ -2104,6 +2104,7 @@ class WebStockSyncService:
         price: float,
         quantity: float | None = None,
         warehouses: list[dict[str, Any]] | None = None,
+        price_warehouse_id: int | None = None,
     ) -> dict[str, Any] | None:
         return self.db.update_local_item(
             item_id,
@@ -2115,6 +2116,7 @@ class WebStockSyncService:
             price=price,
             quantity=quantity,
             warehouses=warehouses,
+            price_warehouse_id=price_warehouse_id,
         )
 
     def delete_local_items(self, item_ids: list[int]) -> dict[str, int]:
