@@ -9,6 +9,69 @@ def test_admin_sales_access_and_empty_period(auth_api):
     assert len(data['series']) == 31
     assert data['period']['start'] == '2026-10-01'
 
+
+def test_company_sales_entries_admin_search_and_pagination(auth_api):
+    c=auth_api.client; db=auth_api.service.db
+    admin=auth_api.bearer(auth_api.login('admin','admin-test-password'))
+    uid=db.create_user(username='entries-user',password='synthetic-pass',role='user',full_name='Entries User')
+    c.get('/api/manager/managers',headers=admin)
+    with db.transaction(immediate=True) as conn:
+        manager=conn.execute('SELECT id FROM manager_accounts WHERE user_id=?',(uid,)).fetchone()[0]
+        conn.execute("INSERT INTO manager_periods(manager_id,month,plan) VALUES(?, '2026-10', NULL)",(manager,))
+        for n in range(26):
+            conn.execute('''INSERT INTO manager_sales(manager_id,month,date,client,amount,rate,cancelled,source,
+                created_by,updated_at) VALUES(?,?,?,?,?,0,0,'manual',?,?)''',
+                (manager,'2026-10','2026-10-01',f'Клиент {n:02}',100+n,uid,'2026-10-01'))
+    path='/api/admin/dashboard/sales/entries?period=month&date=2026-10-15'
+    assert c.get(path).status_code==401
+    user=auth_api.bearer(auth_api.login('entries-user','synthetic-pass'))
+    assert c.get(path,headers=user).status_code==403
+    first=c.get(path,headers=admin)
+    assert first.status_code==200 and first.headers['cache-control']=='no-store'
+    assert (first.json()['total'],first.json()['pages'],len(first.json()['items']))==(26,2,25)
+    last=c.get(path+'&page=2',headers=admin).json()
+    assert len(last['items'])==1 and last['items'][0]['clientName']=='Клиент 00'
+    found=c.get(path+'&query=%25',headers=admin).json()
+    assert found['total']==0
+    found=c.get(path+'&query='+__import__('urllib.parse').parse.quote('КЛИЕНТ 01'),headers=admin).json()
+    assert found['total']==1 and found['items'][0]['clientName']=='Клиент 01'
+    assert c.get(path+'&page=0',headers=admin).status_code==400
+
+
+def test_company_sale_detail_uses_full_date_range_and_linked_crm_identity(auth_api):
+    from stock_sync_web.company_sales_repository import get_company_sale
+    from stock_sync_web.manager_repository import ManagerNotFound
+    import pytest
+
+    db=auth_api.service.db
+    admin=auth_api.bearer(auth_api.login('admin','admin-test-password'))
+    uid=db.create_user(username='detail-manager',password='synthetic-pass',role='user',full_name='Detail Manager')
+    auth_api.client.get('/api/manager/managers',headers=admin)
+    with db.transaction(immediate=True) as conn:
+        manager=conn.execute("SELECT id FROM manager_accounts WHERE user_id=?",(uid,)).fetchone()[0]
+        conn.execute("INSERT INTO manager_periods(manager_id,month,plan) VALUES(?, '2026-10', NULL)",(manager,))
+        conn.execute("INSERT INTO manager_sales(manager_id,month,date,client,amount,rate,source,created_by,updated_at) VALUES(?, '2026-10','2026-10-03','Synthetic detail',500,250,'manual',?,'2026-10-03')",(manager,uid))
+        sale_id=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        generic=get_company_sale(conn,'manager',sale_id)
+        assert generic['id']==sale_id and generic['clientName']=='Synthetic detail'
+        with pytest.raises(ManagerNotFound):
+            get_company_sale(conn,'manager',99999)
+
+        conn.execute("INSERT INTO crm_clients(name,document_name,inn,created_at,updated_at) VALUES('Linked CRM','Linked CRM Ltd','1234567890','2026-10-01','2026-10-01')")
+        client_id=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        conn.execute("INSERT INTO organizations(onec_key,name,inn,updated_at) VALUES('synthetic-org','Synthetic Org','1234567890','2026-10-01')")
+        org_id=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        conn.execute("INSERT INTO bank_import_accounts(organization_id,organization_name,owner_inn,account,bik,created_by,created_at,reason) VALUES(?, 'Synthetic Org','1234567890','40700000000000000001','044000001',?,'2026-10-01','test')",(org_id,uid))
+        account_id=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        conn.execute('''INSERT INTO bank_operations(account_id,organization_id,our_account,currency,direction,date,document_number,
+            payer_name,inn,amount,credit,purpose,strict_key,probable_key,created_at)
+            VALUES(?,?,'40700000000000000001','RUB','credit','2026-10-03','001','Synthetic payer','1234567890',500,500,'Payment','strict','probable','2026-10-03')''',(account_id,org_id))
+        operation_id=conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+        conn.execute("INSERT INTO bank_sale_links(operation_id,sale_id,client_id,manager_id,amount,kind,linked_by,linked_at,reason) VALUES(?,?,?, ?,500,'existing',?,'2026-10-03','test')",(operation_id,sale_id,client_id,manager,uid))
+        linked=get_company_sale(conn,'bank',operation_id)
+        assert linked['id']==operation_id and linked['source']=='manual'
+        assert linked['crmClientId']==client_id
+
 def test_sales_periods_cancellations_and_plans(auth_api):
     c = auth_api.client
     admin = auth_api.bearer(auth_api.login('admin', 'admin-test-password'))

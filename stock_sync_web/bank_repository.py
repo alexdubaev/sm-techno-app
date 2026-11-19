@@ -6,6 +6,7 @@ administrator confirmation writes to the shared manager accounting domain.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ from pathlib import Path
 import re
 import sqlite3
 import uuid
+from zoneinfo import ZoneInfo
 
 from stock_sync_web.bank_assignment_repository import BankAssignmentRepository
 from stock_sync_web.bank_parser import MAX_FILE_BYTES, normalize_inn, parse_statement, valid_inn
@@ -768,6 +770,46 @@ class BankRepository:
             self._actor(conn, actor, True)
             return self._effects(conn, self._selected(conn, items))
 
+    def _record_selected_in_transaction(self, conn, actor, rows):
+        """Write validated selections through the existing manager accounting domain."""
+        result = self._effects(conn, rows)
+        sale_ids, created = [], 0
+        for row in rows:
+            decision = self._decision(conn, row['id'])
+            manual = json.loads(decision['manual_json'])
+            reason = decision['reason'] or 'Подтверждение оплаты банковской выписки с НДС'
+            if not conn.execute('SELECT 1 FROM bank_company_sales WHERE operation_id=?', (row['id'],)).fetchone():
+                conn.execute('''INSERT INTO bank_company_sales(operation_id,client_id,client_name,classification,
+                    decision_json,confirmed_by,confirmed_at,reason) VALUES(?,?,?,?,?,?,?,?)''',
+                    (row['id'],row['clientId'],row['clientName'],row['classification'],dump(row),actor['id'],now(),reason))
+                conn.execute('INSERT INTO bank_decision_audit(operation_id,actor_id,at,reason,before_json,after_json) VALUES(?,?,?,?,?,?)',
+                    (row['id'],actor['id'],now(),reason,dump(dict(companySale=None)),
+                     dump(dict(companySale=dict(conn.execute('SELECT * FROM bank_company_sales WHERE operation_id=?',(row['id'],)).fetchone())))))
+            if row['status'] != 'ready':
+                self._refresh(conn, row['id'], actor['id'])
+                continue
+            month = row['date'][:7]
+            version = self.managers._period(conn, row['managerId'], month)['version']
+            if manual.get('duplicateAction') == 'link':
+                sale_id = manual['linkSaleId']
+                self.managers.record_bank_link_in_transaction(conn, actor, row['managerId'], month, version, sale_id, reason, row['id'])
+                kind = 'existing'
+            else:
+                saved = self.managers._mutate_in_transaction(conn, actor, row['managerId'], month,
+                    dict(kind='sale',version=version,reason=reason,date=row['date'],client=row['clientName'],
+                         amount=row['amount'],rate=row['rate'],invoiceNumber=row['invoiceNumber'],invoiceDate=row['invoiceDate']),
+                    bank_operation_id=row['id'], crm_client_id=row['clientId'])
+                sale_id = saved['changedSaleId']
+                kind = 'created'
+                created += 1
+            conn.execute('''INSERT INTO bank_sale_links(operation_id,sale_id,client_id,manager_id,amount,
+                kind,linked_by,linked_at,reason) VALUES(?,?,?,?,?,?,?,?,?)''',
+                (row['id'],sale_id,row['clientId'],row['managerId'],row['amount'],kind,actor['id'],now(),reason))
+            sale_ids.append(sale_id)
+            self._refresh(conn, row['id'], actor['id'])
+        result.update(createdCount=created,saleIds=sale_ids)
+        return result
+
     def commit(self, actor, items, idempotency_key):
         items = self._items(items)
         key = text(idempotency_key, 'Ключ подтверждения', 200)
@@ -783,47 +825,158 @@ class BankRepository:
                         raise ManagerConflict('Ключ подтверждения уже использован с другим содержимым.')
                     return json.loads(previous['response_json'])
                 rows = self._selected(conn, items)  # Validate the entire set before any write.
-                result = self._effects(conn, rows)
-                sale_ids, created = [], 0
-                for row in rows:
-                    decision = self._decision(conn, row['id'])
-                    manual = json.loads(decision['manual_json'])
-                    reason = decision['reason'] or 'Подтверждение оплаты банковской выписки с НДС'
-                    if not conn.execute('SELECT 1 FROM bank_company_sales WHERE operation_id=?', (row['id'],)).fetchone():
-                        conn.execute('''INSERT INTO bank_company_sales(operation_id,client_id,client_name,classification,
-                            decision_json,confirmed_by,confirmed_at,reason) VALUES(?,?,?,?,?,?,?,?)''',
-                            (row['id'],row['clientId'],row['clientName'],row['classification'],dump(row),actor['id'],now(),reason))
-                        conn.execute('INSERT INTO bank_decision_audit(operation_id,actor_id,at,reason,before_json,after_json) VALUES(?,?,?,?,?,?)',
-                            (row['id'],actor['id'],now(),reason,dump(dict(companySale=None)),
-                             dump(dict(companySale=dict(conn.execute('SELECT * FROM bank_company_sales WHERE operation_id=?',(row['id'],)).fetchone())))))
-                    if row['status'] != 'ready':
-                        self._refresh(conn, row['id'], actor['id'])
-                        continue
-                    month = row['date'][:7]
-                    version = self.managers._period(conn, row['managerId'], month)['version']
-                    if manual.get('duplicateAction') == 'link':
-                        sale_id = manual['linkSaleId']
-                        self.managers.record_bank_link_in_transaction(conn, actor, row['managerId'], month, version, sale_id, reason, row['id'])
-                        kind = 'existing'
-                    else:
-                        saved = self.managers._mutate_in_transaction(conn, actor, row['managerId'], month,
-                            dict(kind='sale',version=version,reason=reason,date=row['date'],client=row['clientName'],
-                                 amount=row['amount'],rate=row['rate'],invoiceNumber=row['invoiceNumber'],invoiceDate=row['invoiceDate']),
-                            bank_operation_id=row['id'], crm_client_id=row['clientId'])
-                        sale_id = saved['changedSaleId']
-                        kind = 'created'
-                        created += 1
-                    conn.execute('''INSERT INTO bank_sale_links(operation_id,sale_id,client_id,manager_id,amount,
-                        kind,linked_by,linked_at,reason) VALUES(?,?,?,?,?,?,?,?,?)''',
-                        (row['id'],sale_id,row['clientId'],row['managerId'],row['amount'],kind,actor['id'],now(),reason))
-                    sale_ids.append(sale_id)
-                    self._refresh(conn, row['id'], actor['id'])
-                result.update(createdCount=created,saleIds=sale_ids)
+                result = self._record_selected_in_transaction(conn, actor, rows)
                 conn.execute('INSERT INTO bank_commits(idempotency_key,actor_id,request_hash,response_json,created_at) VALUES(?,?,?,?,?)',
                              (key,actor['id'],request_hash,dump(result),now()))
                 return result
         except sqlite3.IntegrityError as exc:
             raise ManagerConflict('Оплата или продажа уже связана другим подтверждением. Обновите результат.') from exc
+
+    @staticmethod
+    def _sale_today():
+        return datetime.now(ZoneInfo('Europe/Moscow')).date().isoformat()
+
+    def _sale_detail(self, conn, kind, sale_id):
+        from stock_sync_web.company_sales_repository import get_company_sale
+        detail = get_company_sale(conn, kind, sale_id)
+        if kind == 'bank':
+            link = conn.execute('SELECT sale_id FROM bank_sale_links WHERE operation_id=?', (sale_id,)).fetchone()
+            if link is None and detail['managerId'] is not None:
+                detail.update(canAssignManager=False, issue='Связь банковской продажи не завершена; требуется проверка учёта.')
+            elif link is None:
+                operation, _ = self._evaluate(conn, sale_id)
+                if operation['companyCancelled'] or operation['status'] not in (
+                        'ready','manager_missing','manager_inactive','terms_missing','month_closed'):
+                    detail.update(canAssignManager=False, issue=operation['explanation'])
+        return detail
+
+    def sale_details(self, actor, kind, sale_id):
+        with self.db.transaction() as conn:
+            self._actor(conn, actor, True)
+            return self._sale_detail(conn, kind, sale_id)
+
+    def _sale_assignment_context(self, conn, actor, kind, sale_id, payload):
+        detail = self._sale_detail(conn, kind, sale_id)
+        manager_id = integer(payload.get('managerId'), 'Менеджер', 2**53-1)
+        client_id = detail['crmClientId']
+        if 'clientId' in payload:
+            requested = integer(payload['clientId'], 'Клиент', 2**53-1)
+            if client_id is not None and client_id != requested:
+                raise ManagerConflict('Клиент учтённой продажи зафиксирован и не может быть подменён.')
+            client_id = requested
+        client = self._row(conn, 'crm_clients', client_id) if client_id else None
+        manager_row = conn.execute('''SELECT m.id,m.user_id,m.display_name,u.is_active,u.username,u.full_name,u.role
+            FROM manager_accounts m LEFT JOIN users u ON u.id=m.user_id WHERE m.id=?''', (manager_id,)).fetchone()
+        manager = dict(manager_row) if manager_row else None
+        existing = None
+        bank = None
+        if kind == 'bank':
+            bank, _ = self._evaluate(conn, sale_id)
+            linked = conn.execute('SELECT sale_id FROM bank_sale_links WHERE operation_id=?', (sale_id,)).fetchone()
+            if linked:
+                existing = self._row(conn, 'manager_sales', linked['sale_id'])
+        else:
+            existing = self._row(conn, 'manager_sales', sale_id)
+        month = detail['date'][:7]
+        target_period = self.managers._period(conn, manager_id, month)
+        source_period = self.managers._period(conn, existing['manager_id'], month) if existing else None
+        today = self._sale_today()
+        assignment_version = conn.execute('SELECT version FROM crm_sales_assignment_versions WHERE client_id=?', (client_id,)).fetchone() if client else None
+        state = dict(actorId=actor['id'], kind=kind, saleId=sale_id, detail=detail, bank=bank,
+            existingSale=existing, manager=manager, targetPeriod=target_period, sourcePeriod=source_period,
+            client=client, today=today, assignmentVersion=assignment_version['version'] if assignment_version else 0,
+            history=self.assignments._intervals(conn, client_id) if client else None,
+            paymentAssignment=self.assignments.resolve_payment_assignment(conn,client_id,detail['date']) if client else None,
+            currentAssignment=self.assignments.resolve_payment_assignment(conn,client_id,today) if client else None)
+        return state, digest(state)
+
+    def _apply_sale_assignment(self, conn, actor, state, *, preview=False):
+        detail, client, manager = state['detail'], state['client'], state['manager']
+        if not detail['canAssignManager']:
+            raise ManagerConflict(detail['issue'] or 'Эту продажу нельзя передать менеджеру.')
+        if not manager or not manager['user_id'] or not manager['is_active']:
+            raise ManagerConflict('Выберите действующего менеджера.')
+        if not client:
+            raise ManagerConflict('Выберите карточку клиента CRM для закрепления.')
+        if client['is_inactive'] or client['crm_archived_at']:
+            raise ManagerConflict('Клиент архивирован. Сначала восстановите его в CRM.')
+        reason = f"Назначение менеджера из продажи: {detail['kind']} № {detail['id']}"
+        changed = self.assignments._set_assignment_in_transaction(conn, actor, client['id'], manager['id'],
+            detail['date'], reason, state['assignmentVersion'])
+        current = self.assignments.assignment_at(conn, client['id'], state['today'])
+        if detail['date'] < state['today'] and (not current or current['manager_id'] != manager['id']):
+            changed = self.assignments._set_assignment_in_transaction(conn, actor, client['id'], manager['id'],
+                state['today'], reason, changed['version'])
+        self._refresh_pending(conn, client['id'], actor['id'])
+        attribution = self.assignments.resolve_payment_assignment(conn, client['id'], detail['date'])
+        if not attribution['assignment'] or attribution['assignment']['manager_id'] != manager['id']:
+            raise ManagerConflict(attribution['explanation'])
+        if state['existingSale']:
+            saved = self.managers.transfer_sale_in_transaction(conn, actor, state['existingSale']['id'], manager['id'],
+                state['sourcePeriod']['version'], state['targetPeriod']['version'], reason,
+                crm_client_id=client['id'], preview=preview)
+            if detail['kind'] == 'bank' and not preview:
+                self._refresh(conn, detail['id'], actor['id'])
+            effects = saved['effects']
+        else:
+            current = self._refresh(conn, detail['id'], actor['id'])
+            if current['status'] != 'ready' or current['managerId'] != manager['id']:
+                raise ManagerConflict(current['explanation'])
+            selected = self._selected(conn, [dict(operationId=current['id'],version=current['version'],fingerprint=current['fingerprint'])])
+            effects = (self._effects(conn, selected) if preview else
+                       self._record_selected_in_transaction(conn, actor, selected))['effects']
+        assignment = self.assignments._client_assignment(conn, client['id'])['assignment']
+        return dict(effects=effects, assignment=assignment)
+
+    def preview_sale_manager(self, actor, kind, sale_id, payload):
+        with self.db.transaction(immediate=True) as conn:
+            actor = self._actor(conn, actor, True)
+            if not isinstance(payload, dict) or set(payload) - {'managerId','clientId'}:
+                raise ValueError('Некорректные параметры назначения.')
+            state, token = self._sale_assignment_context(conn, actor, kind, sale_id, payload)
+            existing = state['existingSale']
+            result = dict(token=token,managerId=payload['managerId'],month=state['detail']['date'][:7],
+                rate=existing['rate'] if existing else state['targetPeriod'].get('rate'), canSave=False,
+                problem=None,effects=[],assignment=None,paymentDate=state['detail']['date'])
+            conn.execute('SAVEPOINT sale_assignment_preview')
+            try:
+                result.update(self._apply_sale_assignment(conn, actor, state, preview=True))
+                result['canSave'] = True
+            except (ManagerConflict, ValueError) as exc:
+                result['problem'] = str(exc)
+            finally:
+                conn.execute('ROLLBACK TO sale_assignment_preview')
+                conn.execute('RELEASE sale_assignment_preview')
+            return result
+
+    def assign_sale_manager(self, actor, kind, sale_id, payload):
+        try:
+            with self.db.transaction(immediate=True) as conn:
+                actor = self._actor(conn, actor, True)
+                if not isinstance(payload, dict) or set(payload) - {'managerId','clientId','proposalToken','idempotencyKey'}:
+                    raise ValueError('Некорректные параметры назначения.')
+                key = text(payload.get('idempotencyKey'), 'Ключ подтверждения', 200)
+                if not re.fullmatch(r'[A-Za-z0-9_-]{8,200}', key):
+                    raise ValueError('Некорректный ключ подтверждения.')
+                supplied_token = payload.get('proposalToken')
+                if not isinstance(supplied_token, str) or not re.fullmatch('[0-9a-f]{64}', supplied_token):
+                    raise ValueError('Обновите предварительный расчёт назначения.')
+                request_hash = digest(dict(kind='sale-manager-assignment',actorId=actor['id'],saleKind=kind,saleId=sale_id,payload=payload))
+                previous = conn.execute('SELECT * FROM bank_commits WHERE idempotency_key=?', (key,)).fetchone()
+                if previous:
+                    if previous['actor_id'] != actor['id'] or previous['request_hash'] != request_hash:
+                        raise ManagerConflict('Ключ подтверждения уже использован с другим содержимым.')
+                    return json.loads(previous['response_json'])
+                state, token = self._sale_assignment_context(conn, actor, kind, sale_id, payload)
+                if token != supplied_token:
+                    raise ManagerConflict('Продажа, закрепление или условия изменились. Обновите карточку.')
+                self._apply_sale_assignment(conn, actor, state)
+                result = self._sale_detail(conn, kind, sale_id)
+                conn.execute('INSERT INTO bank_commits(idempotency_key,actor_id,request_hash,response_json,created_at) VALUES(?,?,?,?,?)',
+                    (key,actor['id'],request_hash,dump(result),now()))
+                return result
+        except sqlite3.IntegrityError as exc:
+            raise ManagerConflict('Продажа или закрепление изменились. Обновите карточку.') from exc
 
     def cancel_company_sale(self, actor, operation_id, payload):
         with self.db.transaction(immediate=True) as conn:

@@ -203,44 +203,61 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   await companyOnlyCard.scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath('bank-company-only-synthetic.png'), fullPage: false });
   await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
-  // One actual CRM assignment through the shared desktop/mobile panel.
-  const sales = await openClientSales(page, clientIds[0]);
-  await sales.getByText('Назначить или изменить менеджера', { exact: true }).click();
-  await sales.getByLabel('Менеджер по продажам').selectOption(String(managerId));
-  await sales.getByLabel('Дата начала закрепления').fill('2026-11-01');
-  await expect(sales.getByLabel('Причина изменения закрепления')).toHaveCount(0);
-  const dateBounds = await sales.getByLabel('Дата начала закрепления').evaluate((element) => {
-    const input = element.getBoundingClientRect();
-    const field = element.parentElement!.getBoundingClientRect();
-    return { left: input.left, right: input.right, fieldLeft: field.left, fieldRight: field.right };
-  });
-  expect(dateBounds.left).toBeGreaterThanOrEqual(dateBounds.fieldLeft - 1);
-  expect(dateBounds.right).toBeLessThanOrEqual(dateBounds.fieldRight + 1);
-  await sales.getByRole('button', { name: 'Сохранить закрепление', exact: true }).scrollIntoViewIfNeeded();
-  await page.screenshot({ path: info.outputPath('crm-first-assignment-synthetic.png'), fullPage: false });
-  const assignmentRefresh = Promise.all([
-    page.waitForResponse((response) => response.request().method() === 'GET'
-      && response.url().endsWith(`/api/bank-statements/clients/${clientIds[0]}`) && response.status() === 200),
-    page.waitForResponse((response) => response.request().method() === 'GET'
-      && response.url().endsWith('/api/manager/managers') && response.status() === 200),
-  ]);
-  await sales.getByRole('button', { name: 'Сохранить закрепление', exact: true }).click();
-  await expect(sales.getByText('Закрепление сохранено.', { exact: false })).toBeVisible();
-  // Finish the successful save's explicit refresh before this test's document navigation.
-  // WebKit reports an artificial hard-navigation abort as an access-control page error.
-  await Promise.all((await assignmentRefresh).map((response) => response.finished()));
-
-
-  // Attribution creates the manager ledger entry without adding a second company sale.
+  // Allocate and transfer from the sale itself, with one Save and no bank roundtrip.
+  const targetName = `Синтетический получатель продажи ${scope}`;
+  const targetUsername = `bank-transfer-${scope}`;
+  await json(await request.post('/api/users', { headers, data: {
+    username: targetUsername, password: 'synthetic-transfer-password', role: 'user', fullName: targetName,
+  } }));
+  const targetLogin = await json(await request.post('/api/auth/login', { data: {
+    username: targetUsername, password: 'synthetic-transfer-password',
+  } }));
+  const targetOwn = await json(await request.get('/api/manager/dashboard?month=2026-11', {
+    headers: { Authorization: `Bearer ${targetLogin.token}` },
+  }));
+  const targetId = targetOwn.account.id;
+  await json(await request.post('/api/manager/changes', { headers, data: {
+    managerId: targetId, month: '2026-11', kind: 'terms', version: targetOwn.version,
+    plan: 0, fixed: 0, rate: 1700, mode: 'always', reason: 'Synthetic transfer terms',
+  } }));
   await page.goto('/dashboard');
-  await page.getByRole('button', { name: 'Загрузить выписку', exact: true }).click();
-  await dialog.getByRole('button', { name: new RegExp(`synthetic-control-${scope}`) }).click();
-  await dialog.getByRole('button', { name: 'Проверить итог перед добавлением', exact: true }).click();
-  await expect(effect).toContainText('Изменение общих продаж: 0 оплат · 0 ₽');
-  await expect(effect).toContainText('Начисление менеджерам: 1 оплат');
-  await page.screenshot({ path: info.outputPath('bank-later-manager-preview-synthetic.png'), fullPage: false });
-  await effect.getByRole('button', { name: 'Подтвердить 1 оплат', exact: true }).click();
-  await expect(dialog.locator('output').filter({ hasText: 'Изменение общих продаж: 0' })).toBeVisible();
+  await page.getByRole('button', { name: 'Выбрать дату', exact: true }).click();
+  await page.getByLabel('Дата отчёта', { exact: true }).fill('2026-11-07');
+  const companySales = page.getByRole('region', { name: 'Продажи', exact: true });
+  await companySales.getByLabel('Поиск продаж', { exact: true }).fill(dataset.clientNames[0]);
+  await companySales.getByRole('button', { name: new RegExp(dataset.clientNames[0]) }).click();
+  const saleCard = page.getByRole('dialog', { name: 'Продажа', exact: true });
+  await expect(saleCard).toBeVisible();
+  await expect(saleCard.getByRole('definition').filter({ hasText: /^Не назначен$/ })).toBeVisible();
+  await saleCard.getByLabel('Менеджер', { exact: true }).selectOption(String(managerId));
+  const allocate = saleCard.getByRole('button', { name: 'Зачислить и закрепить клиента', exact: true });
+  await expect(allocate).toBeEnabled();
+  await expect(saleCard).not.toContainText('Причина решения');
+  await expect.poll(() => saleCard.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('sale-manager-preview-synthetic.png'), fullPage: false });
+  await allocate.click();
+  await expect(saleCard.getByText('Менеджер назначен, клиент закреплён.', { exact: true })).toBeVisible();
+  const assignedClient = await json(await request.get(`/api/bank-statements/clients/${clientIds[0]}`, { headers }));
+  expect(assignedClient.assignment.managerId).toBe(managerId);
+  expect(assignedClient.assignment.startDate).toBe(firstOperation.date);
+
+  await saleCard.getByLabel('Менеджер', { exact: true }).selectOption(String(targetId));
+  const transfer = saleCard.getByRole('button', { name: 'Сменить менеджера', exact: true });
+  await expect(transfer).toBeEnabled();
+  await page.screenshot({ path: info.outputPath('sale-transfer-preview-synthetic.png'), fullPage: false });
+  await transfer.click();
+  await expect(saleCard.getByRole('definition').filter({ hasText: targetName })).toBeVisible();
+  const transferred = await json(await request.get(`/api/bank-statements/sales/bank/${firstOperation.id}`, { headers }));
+  expect(transferred).toMatchObject({ managerId: targetId, rate: 500, amount: firstOperation.amount });
+  expect((await company()).totals.salesTotal).toBe(companyAfter.totals.salesTotal);
+  expect((await json(await request.get(`/api/bank-statements/clients/${clientIds[0]}`, { headers }))).assignment.managerId).toBe(targetId);
+  // Return the same sale ID to the original manager; the 17% target default did not replace its 5% deal rate.
+  await saleCard.getByLabel('Менеджер', { exact: true }).selectOption(String(managerId));
+  await expect(transfer).toBeEnabled();
+  await transfer.click();
+  await expect(saleCard.getByRole('definition').filter({ hasText: managerName })).toBeVisible();
+  await page.screenshot({ path: info.outputPath('sale-assigned-synthetic.png'), fullPage: false });
+  await saleCard.getByRole('button', { name: 'Закрыть', exact: true }).click();
   const attributed = await company();
   expect(attributed.totals.salesTotal).toBe(companyAfter.totals.salesTotal);
   expect(attributed.totals.count).toBe(companyAfter.totals.count);
@@ -258,7 +275,6 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   expect(repeated.id).toBe(upload.id);
   expect((await dashboard()).summary).toMatchObject({ salesTotal: 198906300, commission: 9945315, count: 6 });
   expect((await request.get(`/api/bank-statements/uploads/${upload.id}/file`, { headers: employeeHeaders })).status()).toBe(403);
-  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
   await page.goto(`/manager?managerId=${managerId}&month=2026-11`);
   await expect(page.getByText(/№\s+\d+ · Банковская выписка/)).toHaveCount(6);
 

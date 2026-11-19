@@ -24,6 +24,8 @@ const labels = {
   close: 'Закрытие месяца',
   reopen: 'Повторное открытие',
   bank_link: 'Подтверждение банковским платежом',
+  transfer_out: 'Продажа передана другому менеджеру',
+  transfer_in: 'Продажа получена от другого менеджера',
 };
 function AuditState({ state }: { state: ManagerAuditState }) {
   return (

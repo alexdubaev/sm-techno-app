@@ -492,6 +492,213 @@ class ManagerRepository:
         after['changedSaleId'] = sale_id
         return after
 
+    def transfer_sale_in_transaction(self, conn, actor, sale_id, target_manager_id,
+                                    expected_source_version, expected_target_version,
+                                    reason, *, crm_client_id=None, preview=False):
+        """Move one existing ledger row between managers without rewriting it.
+
+        The caller owns the surrounding write transaction and may combine this
+        with a CRM assignment update. Existing per-sale rates and snapshots are
+        intentionally retained.
+        """
+        if not conn.in_transaction:
+            raise ValueError('Перенос продажи требует открытую транзакцию.')
+        self._admin(actor)
+        sale_id = integer(sale_id, 'Продажа', 2**53-1)
+        target_manager_id = integer(target_manager_id, 'Менеджер', 2**53-1)
+        expected_source_version = integer(expected_source_version, 'Версия источника', 2**31-1)
+        expected_target_version = integer(expected_target_version, 'Версия получателя', 2**31-1)
+        reason = text(reason, 'Причина переноса', 500)
+        if crm_client_id is not None:
+            crm_client_id = integer(crm_client_id, 'Клиент CRM', 2**53-1)
+        if type(preview) is not bool:
+            raise ValueError('Режим предпросмотра должен быть логическим значением.')
+        self._sync_accounts(conn)
+        sale_row = conn.execute('SELECT * FROM manager_sales WHERE id=?', (sale_id,)).fetchone()
+        if not sale_row:
+            raise ManagerNotFound('Продажа не найдена.')
+        sale = dict(sale_row)
+        source_manager_id, month = sale['manager_id'], sale['month']
+        if sale['cancelled']:
+            raise ManagerConflict('Отменённую продажу перенести нельзя.')
+        source_account = self._account(conn, actor, source_manager_id)
+        target_account = self._account(conn, actor, target_manager_id)
+        active = conn.execute('''SELECT 1 FROM manager_accounts a JOIN users u ON u.id=a.user_id
+            WHERE a.id=? AND u.is_active=1''', (target_manager_id,)).fetchone()
+        if not active:
+            raise ManagerConflict('Менеджер неактивен или удалён.')
+        # A bank-linked sale must have a complete, internally consistent link.
+        link_row = conn.execute('SELECT * FROM bank_sale_links WHERE sale_id=?', (sale_id,)).fetchone()
+        direct_operation = sale.get('bank_operation_id')
+        if (sale['source'] == 'bank_statement' or direct_operation is not None) and not link_row:
+            raise ManagerConflict('Связь банковской продажи неполная. Перенос заблокирован.')
+        if link_row:
+            link = dict(link_row)
+            if (link['manager_id'] != source_manager_id or link['amount'] != sale['amount'] or
+                    (direct_operation is not None and direct_operation != link['operation_id'])):
+                raise ManagerConflict('Реквизиты банковской связи не совпадают с продажей.')
+            if crm_client_id is not None and crm_client_id != link['client_id']:
+                raise ManagerConflict('Нельзя изменить CRM-клиента подтверждённой банковской оплаты.')
+            client_id = link['client_id']
+            operation = conn.execute('SELECT * FROM bank_operations WHERE id=?', (link['operation_id'],)).fetchone()
+            company = conn.execute('SELECT * FROM bank_company_sales WHERE operation_id=?', (link['operation_id'],)).fetchone()
+            if (not operation or operation['direction'] != 'credit' or operation['currency'] != 'RUB' or
+                    operation['date'] != sale['date'] or operation['amount'] != sale['amount']):
+                raise ManagerConflict('Банковская операция не совпадает с продажей.')
+            if company and (company['cancelled_at'] or company['client_id'] != client_id or
+                            company['classification'] != 'sale'):
+                raise ManagerConflict('Подтверждение общих продаж отменено или клиент не совпадает.')
+        else:
+            client_id = sale.get('crm_client_id')
+            if crm_client_id is not None:
+                if client_id is not None and client_id != crm_client_id:
+                    raise ManagerConflict('CRM-клиента существующей продажи изменить нельзя.')
+                client_id = crm_client_id
+
+        if client_id is not None:
+            client = conn.execute('SELECT * FROM crm_clients WHERE id=?', (client_id,)).fetchone()
+            if not client or client['is_inactive'] or client['crm_archived_at']:
+                raise ManagerConflict('Клиент недоступен или архивирован.')
+            from stock_sync_web.bank_assignment_repository import BankAssignmentRepository
+            assignment = BankAssignmentRepository.resolve_payment_assignment(conn, client_id, sale['date'])['assignment']
+            if not assignment or assignment['manager_id'] != target_manager_id or not assignment['manager_active']:
+                raise ManagerConflict('На дату продажи CRM-клиент должен быть закреплён за выбранным активным менеджером.')
+
+        source_before = self._data(conn, source_account, month)
+        target_before = self._data(conn, target_account, month)
+        if source_before['version'] != expected_source_version or target_before['version'] != expected_target_version:
+            raise ManagerConflict('Данные изменились. Обновите результат и повторите действие.')
+        if source_before['closed'] or target_before['closed']:
+            raise ManagerConflict('Один из месяцев закрыт. Сначала откройте его штатным способом.')
+        if source_manager_id == target_manager_id:
+            attach_client = (link_row is None and sale['source'] in ('manual', 'onec') and
+                             sale.get('crm_client_id') is None and crm_client_id is not None)
+            response = dict(saleId=sale_id, sourceManagerId=source_manager_id,
+                            targetManagerId=target_manager_id, month=month, effects=[])
+            if not attach_client or preview:
+                return response
+            conn.execute('INSERT OR IGNORE INTO manager_periods(manager_id,month) VALUES(?,?)',
+                         (source_manager_id, month))
+            cursor = conn.execute('''UPDATE manager_periods SET version=version+1
+                WHERE manager_id=? AND month=? AND version=? AND closed=0''',
+                                  (source_manager_id, month, expected_source_version))
+            if cursor.rowcount != 1:
+                raise ManagerConflict('Период изменился. Обновите результат.')
+            timestamp = now()
+            conn.execute('UPDATE manager_sales SET crm_client_id=?,updated_at=? WHERE id=? AND crm_client_id IS NULL',
+                         (client_id, timestamp, sale_id))
+            if conn.execute('SELECT changes()').fetchone()[0] != 1:
+                raise ManagerConflict('Продажа изменилась. Обновите результат.')
+            after_sale = dict(conn.execute('SELECT * FROM manager_sales WHERE id=?', (sale_id,)).fetchone())
+            before_sale = dict(sale)
+            for snapshot in (before_sale, after_sale):
+                snapshot['invoiceNumber'] = snapshot.get('invoice_number')
+                snapshot['invoiceDate'] = snapshot.get('invoice_date')
+            actor_name = actor.get('full_name') or actor.get('username') or str(actor['id'])
+            before_record = dict(terms=source_before['terms'], summary=source_before['summary'],
+                                 closed=source_before['closed'], version=expected_source_version, sale=before_sale)
+            after_record = dict(terms=source_before['terms'], summary=source_before['summary'],
+                                closed=source_before['closed'], version=expected_source_version+1, sale=after_sale)
+            conn.execute('''INSERT INTO manager_audit(manager_id,month,actor_id,actor_name,at,kind,reason,before_json,after_json)
+                VALUES(?,?,?,?,?,'sale',?,?,?)''', (source_manager_id, month, actor['id'], actor_name,
+                    timestamp, reason, json.dumps(before_record, ensure_ascii=False),
+                    json.dumps(after_record, ensure_ascii=False)))
+            return response
+        if link_row and target_before['terms'] is None:
+            raise ManagerConflict('Не заданы условия месяца менеджера-получателя.')
+        target_count = conn.execute('SELECT COUNT(*) FROM manager_sales WHERE manager_id=? AND month=?',
+                                    (target_manager_id, month)).fetchone()[0]
+        if target_count >= 10000:
+            raise ValueError('Достигнут лимит 10 000 записей в месяце.')
+        if target_before['summary']['salesTotal'] + sale['amount'] > MAX_MONTH_TOTAL:
+            raise ValueError('Сумма продаж месяца превышает допустимый лимит.')
+
+        def period_rows(manager_id):
+            return [dict(row) for row in conn.execute('''SELECT id,date,client,amount,rate,cancelled,source,
+                COALESCE(bank_operation_id,(SELECT operation_id FROM bank_sale_links l WHERE l.sale_id=manager_sales.id)) AS bankOperationId,
+                invoice_number AS invoiceNumber,invoice_date AS invoiceDate
+                FROM manager_sales WHERE manager_id=? AND month=? ORDER BY date,id''', (manager_id, month))]
+
+        def totals(rows, terms):
+            result = calculate(rows, terms)
+            return {key: result[key] for key in ('salesTotal', 'commission', 'fixed', 'income')}
+
+        source_rows = period_rows(source_manager_id)
+        target_rows = period_rows(target_manager_id)
+        source_rows_after = [row for row in source_rows if row['id'] != sale_id]
+        target_rows_after = target_rows + [dict(id=sale['id'], date=sale['date'], client=sale['client'],
+            amount=sale['amount'], rate=sale['rate'], cancelled=sale['cancelled'], source=sale['source'],
+            bankOperationId=direct_operation or (link_row['operation_id'] if link_row else None),
+            invoiceNumber=sale['invoice_number'], invoiceDate=sale['invoice_date'])]
+        source_after_summary = totals(source_rows_after, source_before['terms'])
+        target_after_summary = totals(target_rows_after, target_before['terms'])
+        if target_after_summary['salesTotal'] > MAX_MONTH_TOTAL:
+            raise ValueError('Сумма продаж месяца превышает допустимый лимит.')
+
+        keys = ('salesTotal', 'commission', 'fixed', 'income')
+        effects = [
+            dict(managerId=source_manager_id, managerName=source_account['name'], month=month,
+                 before={key: source_before['summary'][key] for key in keys},
+                 after={key: source_after_summary[key] for key in keys}),
+            dict(managerId=target_manager_id, managerName=target_account['name'], month=month,
+                 before={key: target_before['summary'][key] for key in keys},
+                 after={key: target_after_summary[key] for key in keys}),
+        ]
+        response = dict(saleId=sale_id, sourceManagerId=source_manager_id,
+                        targetManagerId=target_manager_id, month=month, effects=effects)
+        if preview:
+            return response
+
+        for manager_id, version in ((source_manager_id, expected_source_version),
+                                    (target_manager_id, expected_target_version)):
+            conn.execute('INSERT OR IGNORE INTO manager_periods(manager_id,month) VALUES(?,?)',
+                         (manager_id, month))
+            cursor = conn.execute('''UPDATE manager_periods SET version=version+1
+                WHERE manager_id=? AND month=? AND version=? AND closed=0''', (manager_id, month, version))
+            if cursor.rowcount != 1:
+                raise ManagerConflict('Период изменился. Обновите результат.')
+
+        timestamp = now()
+        conn.execute('UPDATE manager_sales SET manager_id=?,crm_client_id=COALESCE(crm_client_id,?),updated_at=? WHERE id=?',
+                     (target_manager_id, client_id, timestamp, sale_id))
+        if link_row:
+            conn.execute('''UPDATE bank_sale_links SET manager_id=?,linked_by=?,linked_at=?,reason=?
+                WHERE operation_id=? AND sale_id=?''',
+                         (target_manager_id, actor['id'], timestamp, reason, link_row['operation_id'], sale_id))
+            before_link = dict(link_row)
+            after_link = dict(before_link, manager_id=target_manager_id, linked_by=actor['id'],
+                              linked_at=timestamp, reason=reason)
+            conn.execute('''INSERT INTO bank_decision_audit(operation_id,actor_id,at,reason,before_json,after_json)
+                VALUES(?,?,?,?,?,?)''', (link_row['operation_id'], actor['id'], timestamp, reason,
+                    json.dumps(dict(action='sale_transfer',link=before_link), ensure_ascii=False),
+                    json.dumps(dict(action='sale_transfer',link=after_link), ensure_ascii=False)))
+
+        source_after = self._data(conn, source_account, month)
+        target_after = self._data(conn, target_account, month)
+        if (source_after['summary']['salesTotal'] > MAX_MONTH_TOTAL or
+                target_after['summary']['salesTotal'] > MAX_MONTH_TOTAL):
+            raise ValueError('Сумма продаж месяца превышает допустимый лимит.')
+        before_sale = dict(sale)
+        before_sale['invoiceNumber'] = before_sale.get('invoice_number')
+        before_sale['invoiceDate'] = before_sale.get('invoice_date')
+        after_sale = dict(conn.execute('SELECT * FROM manager_sales WHERE id=?', (sale_id,)).fetchone())
+        after_sale['invoiceNumber'] = after_sale.get('invoice_number')
+        after_sale['invoiceDate'] = after_sale.get('invoice_date')
+        actor_name = actor.get('full_name') or actor.get('username') or str(actor['id'])
+        for account, before, after, kind in (
+                (source_account, source_before, source_after, 'transfer_out'),
+                (target_account, target_before, target_after, 'transfer_in')):
+            before_record = dict(terms=before['terms'], summary=before['summary'], closed=before['closed'],
+                                 version=before['version'], sale=before_sale)
+            after_record = dict(terms=after['terms'], summary=after['summary'], closed=after['closed'],
+                                version=after['version'], sale=after_sale)
+            conn.execute('''INSERT INTO manager_audit(manager_id,month,actor_id,actor_name,at,kind,reason,before_json,after_json)
+                VALUES(?,?,?,?,?,?,?,?,?)''', (account['id'], month, actor['id'], actor_name, timestamp, kind, reason,
+                    json.dumps(before_record, ensure_ascii=False), json.dumps(after_record, ensure_ascii=False)))
+        response['effects'][0]['after'] = {key: source_after['summary'][key] for key in keys}
+        response['effects'][1]['after'] = {key: target_after['summary'][key] for key in keys}
+        return response
+
     def history(self, actor, manager_id, month, page=1):
         self._admin(actor)
         month_key(month)
