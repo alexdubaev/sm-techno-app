@@ -121,10 +121,18 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   await expect(ambiguous).toContainText('Несколько совпадений');
   await ambiguous.getByText('Проверить и изменить решение', { exact: true }).click();
   await ambiguous.getByLabel('Выбранный клиент', { exact: true }).selectOption(String(duplicateClient.id));
+  await ambiguous.getByLabel('Тип поступления').selectOption('excluded');
   await expect(ambiguous.getByLabel('Причина решения', { exact: true })).toHaveCount(0);
   await ambiguous.getByRole('button', { name: 'Применить клиента', exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath('bank-client-selection-synthetic.png'), fullPage: false });
   await ambiguous.getByRole('button', { name: 'Применить клиента', exact: true }).click();
+  await expect(ambiguous.getByText('Исключено', { exact: true })).toBeVisible();
+  await ambiguous.getByText('Проверить и изменить решение', { exact: true }).click();
+  await ambiguous.getByLabel('Тип поступления').selectOption('sale');
+  await expect(ambiguous.getByLabel('Причина решения', { exact: true })).toHaveCount(0);
+  await ambiguous.getByRole('button', { name: 'Применить тип', exact: true }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('bank-apply-type-synthetic.png'), fullPage: false });
+  await ambiguous.getByRole('button', { name: 'Применить тип', exact: true }).click();
   await expect(ambiguous).toContainText(managerName);
   await expect(ambiguous).toContainText('Готово');
   await expect(ambiguous.getByText('Клиент выбран, но ещё не применён.', { exact: false })).toHaveCount(0);

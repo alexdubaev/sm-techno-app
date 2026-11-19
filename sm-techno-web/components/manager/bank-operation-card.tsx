@@ -12,6 +12,13 @@ import { bankStatusLabel, canSelectBankPayment } from './bank-format';
 import { dateLabel, errorMessage, money } from './format';
 import styles from './bank.module.css';
 
+const classificationLabels: Record<BankClassification, string> = {
+  sale: 'Оплата покупателя',
+  review: 'Оставить на проверку',
+  excluded: 'Исключить из продаж',
+  return: 'Возврат — ручная корректировка',
+};
+
 export function BankOperationCard({
   operation: op,
   selected,
@@ -54,11 +61,12 @@ export function BankOperationCard({
     normalizeId(chosenClient.kpp) !== normalizeId(op.kpp);
   const mismatch = !!chosenClient && (!innMatches || kppMismatch);
   const clientChanged = !!clientId && Number(clientId) !== op.clientId;
-  const detailsChanged = classification !== op.classification ||
-    invoiceNumber.trim() !== (op.invoiceNumber ?? '') ||
-    invoiceDate !== (op.invoiceDate ?? '') || !!duplicate;
+  const typeChanged = classification !== op.classification;
+  const invoiceChanged = invoiceNumber.trim() !== (op.invoiceNumber ?? '') ||
+    invoiceDate !== (op.invoiceDate ?? '');
+  const detailsChanged = typeChanged || invoiceChanged || !!duplicate;
   const hasChanges = clientChanged || detailsChanged;
-  const reasonRequired = detailsChanged || (clientChanged && (!innMatches || kppMismatch));
+  const reasonRequired = !!duplicate || (clientChanged && mismatch);
   const canSave = hasChanges && (!reasonRequired || !!reason.trim());
   async function search() {
     setBusy(true);
@@ -78,10 +86,15 @@ export function BankOperationCard({
     if (!canSave) return;
     setBusy(true);
     setError('');
+    const appliedChanges = [
+      typeChanged ? `Тип поступления выбран администратором: ${classificationLabels[classification]}` : '',
+      clientChanged ? 'Выбран клиент CRM с совпадающими ИНН и КПП' : '',
+      invoiceChanged ? 'Администратор уточнил реквизиты счёта на оплату' : '',
+    ].filter(Boolean).join('. ');
     const payload: BankDecisionChange = {
       version: op.version,
       classification,
-      reason: reason.trim() || 'Выбран клиент CRM с совпадающими ИНН и КПП',
+      reason: reason.trim() || appliedChanges,
       invoiceNumber: invoiceNumber.trim() || null,
       invoiceDate: invoiceDate || null,
     };
@@ -307,23 +320,33 @@ export function BankOperationCard({
             </p>
           )}
           <form className={styles.form} onSubmit={(e) => void save(e)}>
-            <label className={styles.field}>
-              Тип поступления
-              <select
-                value={classification}
-                disabled={locked}
-                onChange={(e) =>
-                  setClassification(e.target.value as BankClassification)
-                }
-              >
-                <option value="sale">
-                  Оплата покупателя — кандидат в продажи
-                </option>
-                <option value="review">Оставить на проверку</option>
-                <option value="excluded">Исключить из продаж</option>
-                <option value="return">Возврат — ручная корректировка</option>
-              </select>
-            </label>
+            <div className={styles.field}>
+              <label className={styles.field}>
+                Тип поступления
+                <select
+                  value={classification}
+                  disabled={locked}
+                  onChange={(e) =>
+                    setClassification(e.target.value as BankClassification)
+                  }
+                >
+                  <option value="sale">
+                    Оплата покупателя — кандидат в продажи
+                  </option>
+                  <option value="review">Оставить на проверку</option>
+                  <option value="excluded">Исключить из продаж</option>
+                  <option value="return">Возврат — ручная корректировка</option>
+                </select>
+              </label>
+              {typeChanged && (
+                <>
+                  <p className={styles.muted}>Новый тип ещё не применён.</p>
+                  <button className={styles.primary} type="submit" disabled={locked || !canSave}>
+                    Применить тип
+                  </button>
+                </>
+              )}
+            </div>
             <label className={styles.field}>
               Выбранный клиент
               <select
