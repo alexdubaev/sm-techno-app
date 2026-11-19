@@ -25,6 +25,55 @@ def overview(db, kind='month', day='2026-11-06'):
     return sales_overview(db, kind, day)
 
 
+@pytest.mark.parametrize('archive_field', ['crm_archived_at', 'is_inactive'])
+def test_explicit_archived_client_sale_can_enter_company_totals_only(bank, archive_field):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    with db.transaction() as conn:
+        conn.execute(f'UPDATE crm_clients SET {archive_field}=? WHERE id=?',
+                     ('synthetic-archive' if archive_field == 'crm_archived_at' else 1, clients[0]))
+    raw = make_statement()
+    detail = repo.upload(admin, account, 'archived-client.xlsx', raw)
+    automatic = detail['operations'][0]
+    assert automatic['status'] == 'client_archived' and not automatic['companyCanConfirm']
+    with pytest.raises(ManagerConflict):
+        repo.preview(admin, [item(automatic)])
+    with pytest.raises(PermissionError):
+        repo.update_operation(seller, automatic['id'], dict(version=automatic['version'],
+            clientId=clients[0], classification='sale', reason='Forbidden'))
+    chosen = repo.update_operation(admin, automatic['id'], dict(version=automatic['version'],
+        clientId=clients[0], classification='sale', reason='Administrator selected the payer card'))
+    assert chosen['status'] == 'client_archived' and chosen['companyCanConfirm']
+    assert chosen['clientId'] == clients[0]
+    assert 'общих продажах' in chosen['explanation']
+    assert repo.preview(admin, [item(chosen)])['effects'] == []
+    result = repo.commit(admin, [item(chosen)], 'explicit-archive-company')
+    assert (result['companyCount'], result['companyAmount'], result['createdCount']) == (1, 36000000, 0)
+    assert repo.commit(admin, [item(chosen)], 'explicit-archive-company') == result
+    saved = repo.upload(admin, account, 'renamed.xlsx', raw)['operations'][0]
+    assert saved['companyAccounted'] and not saved['companyCanConfirm']
+    assert overview(db)['totals']['salesTotal'] == 36000000
+    with db.transaction() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM manager_sales').fetchone()[0] == 0
+        assert conn.execute(f'SELECT {archive_field} FROM crm_clients WHERE id=?', (clients[0],)).fetchone()[0]
+
+
+def test_explicit_archived_client_does_not_bypass_existing_sale_duplicate(bank):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    managers.mutate(admin, mid, '2026-11', dict(kind='sale', version=1, date='2026-11-06',
+        client='Synthetic document client 0', amount=36000000, rate=500))
+    with db.transaction() as conn:
+        conn.execute("UPDATE crm_clients SET crm_archived_at='synthetic-archive' WHERE id=?", (clients[0],))
+    detail = repo.upload(admin, account, 'archived-duplicate.xlsx', make_statement())
+    initial = detail['operations'][0]
+    chosen = repo.update_operation(admin, initial['id'], dict(version=initial['version'],
+        clientId=clients[0], classification='sale', reason='Administrator selected the payer card'))
+    assert chosen['status'] == 'possible_duplicate' and not chosen['companyCanConfirm']
+    with pytest.raises(ManagerConflict):
+        repo.commit(admin, [item(chosen)], 'archive-cannot-duplicate')
+    with db.transaction() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM bank_company_sales').fetchone()[0] == 0
+
+
 def test_company_only_receipt_then_manager_posting_is_one_general_sale(bank):
     db, repo, admin, seller, managers, mid, account, clients = bank
     remove_assignment(db, clients[0])
