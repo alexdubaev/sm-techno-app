@@ -201,6 +201,12 @@ def test_pending_assignment_refresh_invalidates_only_affected_unposted_decisions
     db, _, admin, _, manager_id, client_id = ledger
     operation_id = seed_operation(db, admin)
     with db.transaction() as conn:
+        upload_id = conn.execute('''INSERT INTO bank_uploads(account_id,sha256,original_filename,storage_key,
+            byte_size,parser_version,metadata_json,created_by,created_at)
+            SELECT account_id,'synthetic-sha','synthetic.xlsx',?,0,'synthetic','{}',?,'now'
+            FROM bank_operations WHERE id=?''', ('0' * 32 + '.xlsx', admin['id'], operation_id)).lastrowid
+        conn.execute('''INSERT INTO bank_source_rows(upload_id,sheet,row_number,raw_json,normalized_json,operation_id)
+            VALUES(?,'Выписка по счёту',13,'{}','{}',?)''', (upload_id, operation_id))
         conn.execute("INSERT INTO bank_decisions(operation_id,client_id,classification,fingerprint,updated_at) VALUES(?,?,'sale','old-preview','now')", (operation_id, client_id))
     refreshed = []
     def refresh(conn, target_client_id):

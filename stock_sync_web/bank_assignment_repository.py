@@ -134,6 +134,7 @@ class BankAssignmentRepository:
             MIN(o.date) AS periodStart,MAX(o.date) AS periodEnd FROM bank_operations o
             JOIN bank_decisions d ON d.operation_id=o.id LEFT JOIN bank_sale_links l ON l.operation_id=o.id
             WHERE d.client_id=? AND l.operation_id IS NULL AND o.direction='credit'
+            AND EXISTS(SELECT 1 FROM bank_source_rows source WHERE source.operation_id=o.id)
             AND d.classification NOT IN ('excluded','return')''', (client_id,)).fetchone()
         return dict(row)
 

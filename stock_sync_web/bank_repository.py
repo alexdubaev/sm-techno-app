@@ -125,13 +125,73 @@ class BankRepository:
     def _complete_identity(normalized):
         return (valid_inn(normalized.get('inn')) and bool(normalized.get('documentNumber'))
                 and len(normalized.get('account') or '') == 20 and len(normalized.get('bik') or '') == 9
-                and (len(normalized['inn']) == 12 or len(normalized.get('kpp') or '') == 9))
+                and (not normalized.get('kpp') or len(normalized['kpp']) == 9))
+
+    def _repair_exact_overlaps(self, conn, account_id, actor_id):
+        """Recover old exact reimports without deleting facts or financial history.
+
+        Call only inside the upload/refresh immediate transaction. Missing KPP is
+        permitted; all other strong identity and exact-key checks still apply.
+        Repetition within one export or conflicting decisions is not a replay.
+        """
+        groups = conn.execute('''SELECT o.strict_key FROM bank_operations o
+            WHERE o.account_id=? AND o.direction='credit'
+              AND EXISTS(SELECT 1 FROM bank_source_rows s WHERE s.operation_id=o.id)
+            GROUP BY o.strict_key HAVING COUNT(*)>1''', (account_id,)).fetchall()
+        for group in groups:
+            operations = [dict(row) for row in conn.execute('''SELECT o.* FROM bank_operations o
+                WHERE o.account_id=? AND o.strict_key=?
+                  AND EXISTS(SELECT 1 FROM bank_source_rows s WHERE s.operation_id=o.id)
+                ORDER BY o.id''', (account_id, group['strict_key']))]
+            if any(not self._complete_identity(json.loads(op['normalized_json'])) for op in operations):
+                continue
+            if len({op['bank_id'] for op in operations}) != 1:
+                continue
+            ids = [op['id'] for op in operations]
+            placeholders = ','.join('?' for _ in ids)
+            if conn.execute(f'''SELECT 1 FROM manager_sales sale
+                WHERE sale.bank_operation_id IN ({placeholders}) AND NOT EXISTS(
+                    SELECT 1 FROM bank_sale_links link
+                    WHERE link.operation_id=sale.bank_operation_id AND link.sale_id=sale.id) LIMIT 1''', ids).fetchone():
+                # Incomplete legacy posting is a financial reference too. Keep
+                # its original identity for explicit accounting repair.
+                continue
+            sources = [dict(row) for row in conn.execute(f'''SELECT id,operation_id,upload_id
+                FROM bank_source_rows WHERE operation_id IN ({placeholders}) ORDER BY id''', ids)]
+            if any(count > 1 for count in Counter(row['upload_id'] for row in sources).values()):
+                continue
+            decisions = {op_id: self._decision(conn, op_id) for op_id in ids}
+            manual = {op_id: {key: value for key, value in json.loads(decision['manual_json']).items()
+                             if key != 'reason'} for op_id, decision in decisions.items()}
+            if any(choice.get('duplicateAction') for choice in manual.values()):
+                continue
+            if len({dump(choice) for choice in manual.values() if choice}) > 1:
+                continue
+            accounted = {row['operation_id'] for row in conn.execute(f'''
+                SELECT operation_id FROM bank_sale_links WHERE operation_id IN ({placeholders})
+                UNION SELECT operation_id FROM bank_company_sales WHERE operation_id IN ({placeholders})''', ids + ids)}
+            if len(accounted) > 1:
+                continue
+            canonical = next(iter(accounted)) if accounted else next((op_id for op_id in ids if manual[op_id]), ids[0])
+            if accounted and any(choice and choice != manual[canonical] for choice in manual.values()):
+                continue
+            for alias in (op_id for op_id in ids if op_id != canonical):
+                source_ids = [row['id'] for row in sources if row['operation_id'] == alias]
+                conn.execute('UPDATE bank_source_rows SET operation_id=? WHERE operation_id=?', (canonical, alias))
+                self._refresh(conn, alias, actor_id)  # No source: stale direct-ID requests cannot post this alias.
+                conn.execute('''INSERT INTO bank_decision_audit(operation_id,actor_id,at,reason,before_json,after_json)
+                    VALUES(?,?,?,?,?,?)''', (alias, actor_id, now(),
+                    'Точное совпадение платежа в пересекающихся выписках: сохранён единый учёт.',
+                    dump(dict(decision=decisions[alias], sourceRowIds=source_ids)),
+                    dump(dict(canonicalOperationId=canonical, sourceRowIds=source_ids))))
+            self._refresh(conn, canonical, actor_id)
 
     @staticmethod
     def _probable_operations(conn, op):
         rows = conn.execute('''SELECT o.*,l.sale_id AS saleId FROM bank_operations o
             LEFT JOIN bank_sale_links l ON l.operation_id=o.id
-            WHERE o.account_id=? AND o.id<>? AND
+            WHERE o.account_id=? AND o.id<>?
+              AND EXISTS(SELECT 1 FROM bank_source_rows s WHERE s.operation_id=o.id) AND
               (o.strict_key=? OR o.probable_key=? OR
                (o.currency=? AND o.direction=? AND o.date=? AND o.amount=? AND o.document_number=?))
             ORDER BY o.id''',
@@ -205,8 +265,8 @@ class BankRepository:
         with self.db.transaction() as conn:
             account = self._row(conn, 'bank_import_accounts', account_id)
             existing = conn.execute('SELECT id FROM bank_uploads WHERE account_id=? AND sha256=?', (account_id, sha)).fetchone()
-            if existing:
-                return self._upload_detail(conn, existing['id'])
+        if existing:
+            return self.refresh_upload(actor, existing['id'])
         if parsed is None:
             parsed = parse_statement(raw)
         metadata = parsed['metadata']
@@ -235,6 +295,7 @@ class BankRepository:
                     current_account = self._row(conn, 'bank_import_accounts', account_id)
                     if current_account != account:
                         raise ManagerConflict('Настройка счёта изменилась. Повторите загрузку.')
+                    self._repair_exact_overlaps(conn, account_id, actor['id'])
                     existing = conn.execute('SELECT id FROM bank_uploads WHERE account_id=? AND sha256=?', (account_id, sha)).fetchone()
                     if existing:
                         return self._upload_detail(conn, existing['id'])
@@ -264,7 +325,8 @@ class BankRepository:
                         operation_id = None
                         if not source['errors'] and not ownership_errors and norm.get('direction') != 'debit':
                             strict, probable = keys[source['row']]
-                            matches = conn.execute('SELECT id FROM bank_operations WHERE account_id=? AND strict_key=?', (account_id, strict)).fetchall()
+                            matches = conn.execute('''SELECT o.id FROM bank_operations o WHERE o.account_id=? AND o.strict_key=?
+                                AND EXISTS(SELECT 1 FROM bank_source_rows s WHERE s.operation_id=o.id)''', (account_id, strict)).fetchall()
                             # Only a single occurrence both in this source and in the
                             # operation store can be reused across overlapping exports.
                             if counts[strict] == 1 and len(matches) == 1 and self._complete_identity(norm):
@@ -563,7 +625,8 @@ class BankRepository:
     def refresh_upload(self, actor, upload_id):
         with self.db.transaction(immediate=True) as conn:
             actor = self._actor(conn, actor, True)
-            self._row(conn, 'bank_uploads', upload_id)
+            upload = self._row(conn, 'bank_uploads', upload_id)
+            self._repair_exact_overlaps(conn, upload['account_id'], actor['id'])
             for row in conn.execute('''SELECT DISTINCT s.operation_id FROM bank_source_rows s JOIN bank_operations o ON o.id=s.operation_id
                 WHERE s.upload_id=? AND s.operation_id IS NOT NULL AND o.direction='credit' ''', (upload_id,)).fetchall():
                 self._refresh(conn, row['operation_id'], actor['id'])
@@ -812,7 +875,8 @@ class BankRepository:
             m.user_id AS manager_user_id FROM bank_operations o JOIN bank_decisions d ON d.operation_id=o.id
             LEFT JOIN bank_sale_links l ON l.operation_id=o.id LEFT JOIN manager_sales s ON s.id=l.sale_id
             LEFT JOIN bank_company_sales c ON c.operation_id=o.id
-            LEFT JOIN manager_accounts m ON m.id=l.manager_id WHERE d.client_id=? AND o.direction='credit' ORDER BY o.date DESC,o.id DESC'''
+            LEFT JOIN manager_accounts m ON m.id=l.manager_id WHERE d.client_id=? AND o.direction='credit'
+            AND EXISTS(SELECT 1 FROM bank_source_rows source WHERE source.operation_id=o.id) ORDER BY o.date DESC,o.id DESC'''
         payments = []
         for row in conn.execute(sql,(client_id,)):
             if not admin and (row['sale_id'] is None or row['manager_user_id'] != actor['id']):
@@ -838,7 +902,8 @@ class BankRepository:
         client = self._row(conn,'crm_clients',client_id)
         inn = normalize_inn(client['inn'])
         ids = conn.execute('''SELECT o.id,o.inn,d.client_id FROM bank_operations o JOIN bank_decisions d ON d.operation_id=o.id
-            WHERE o.direction='credit' AND NOT EXISTS(SELECT 1 FROM bank_sale_links l WHERE l.operation_id=o.id)''').fetchall()
+            WHERE o.direction='credit' AND EXISTS(SELECT 1 FROM bank_source_rows source WHERE source.operation_id=o.id)
+            AND NOT EXISTS(SELECT 1 FROM bank_sale_links l WHERE l.operation_id=o.id)''').fetchall()
         for row in ids:
             if row['client_id']==client_id or valid_inn(inn) and row['inn']==inn:
                 self._refresh(conn,row['id'],actor_id)
