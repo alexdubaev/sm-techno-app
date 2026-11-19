@@ -35,7 +35,7 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   expect(scope).toBeDefined();
   const python = process.env.SM_TECHNO_TEST_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
   const dataset: Dataset = JSON.parse(execFileSync(python, ['-c',
-    'import json,sys; from tests.support.bank_e2e import browser_dataset; print(json.dumps(browser_dataset(int(sys.argv[1]))))',
+    'import json,sys; from tests.support.bank_e2e import browser_dataset; print(json.dumps(browser_dataset(int(sys.argv[1]), include_debit=True)))',
     String(scope)], { cwd: path.resolve('..'), encoding: 'utf8' }));
   const workbook = Buffer.from(dataset.workbookBase64, 'base64');
   const admin = await json(await request.post('/api/auth/login', {
@@ -114,6 +114,9 @@ test('bank statement imports six gross payments once and shows CRM receipts', as
   await dialog.getByRole('button', { name: 'Прочитать выписку', exact: true }).click();
   await expect(dialog.getByRole('region', { name: 'Результат чтения выписки' })).toBeVisible();
   await expect(dialog.getByRole('article', { name: /^Оплата / })).toHaveCount(6);
+  await expect(dialog.getByRole('heading', { name: 'Входящие платежи', exact: true })).toBeVisible();
+  await expect(dialog.getByText('Поступлений: 6', { exact: false })).toBeVisible();
+  await expect(dialog.getByRole('article', { name: `Оплата OUT-${scope}`, exact: true })).toHaveCount(0);
   await expect(dialog.getByRole('article', { name: 'Оплата 5471', exact: true })).toContainText('09.09.2026');
   const read = await json(await request.get('/api/bank-statements/uploads', { headers }));
   const upload = read.items.find((item: { account: string }) => item.account === dataset.account);

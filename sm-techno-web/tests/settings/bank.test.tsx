@@ -260,6 +260,24 @@ describe('Bank payments in existing sales', () => {
     expect(await screen.findByText(/Изменение общих продаж: 1.*Менеджерам: 0/)).toBeVisible();
     expect(mocks.commit).toHaveBeenCalledWith(expect.objectContaining({ items: [{ operationId: 11, version: 2, fingerprint: 'synthetic-fingerprint' }] }));
   });
+  it('labels incoming payments independently of the original source row count', async () => {
+    mocks.detail.mockResolvedValue({ ...upload, operationCount: 5 });
+    render(<BankImportContent userId={8} onChanged={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Тестовая организация.*synthetic.xlsx/ }));
+    expect(await screen.findByRole('heading', { name: 'Входящие платежи' })).toBeVisible();
+    expect(screen.getByText(/Поступлений: 2/)).toBeVisible();
+    expect(screen.queryByRole('rowheader', { name: 'Исходящий' })).not.toBeInTheDocument();
+  });
+  it('explains a statement with no incoming payments without listing outgoing exclusions', async () => {
+    mocks.detail.mockResolvedValue({ ...upload, operationCount: 3, operations: [], summary: {
+      readyCount: 0, readyAmount: 0, accountedCount: 0, excludedCount: 0, reviewCount: 0,
+    } });
+    render(<BankImportContent userId={8} onChanged={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Тестовая организация.*synthetic.xlsx/ }));
+    expect(await screen.findByText('В этой выписке нет входящих платежей.')).toBeVisible();
+    expect(screen.queryByRole('article')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Проверить итог перед добавлением' })).toBeDisabled();
+  });
   it('shows zero company addition when a confirmed company receipt becomes ready for its manager', async () => {
     mocks.detail.mockResolvedValue({ ...upload, operations: [{ ...operation, companyAccounted: true }] });
     mocks.preview.mockResolvedValue({ count: 1, amount: operation.amount, companyCount: 0, companyAmount: 0, managerCount: 1, pendingManagerCount: 0, linkedCount: 0, effects: [] });
@@ -511,7 +529,7 @@ describe('Bank payments in existing sales', () => {
         name: /Тестовая организация.*synthetic.xlsx/,
       }),
     );
-    expect(await screen.findByText('Операции выписки')).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Входящие платежи' })).toBeVisible();
     expect(
       screen.getByRole('checkbox', { name: 'Выбрать оплату 2811' }),
     ).toBeDisabled();

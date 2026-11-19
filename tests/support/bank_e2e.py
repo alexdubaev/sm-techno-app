@@ -10,7 +10,7 @@ from tests.support.bank_statement_fixture import (
 )
 
 
-def browser_dataset(scope: int) -> dict:
+def browser_dataset(scope: int, *, include_debit: bool = False) -> dict:
     """Separate requisites per browser project, with the same six control sums."""
     if type(scope) is not int or not 1 <= scope <= 6:
         raise ValueError("Synthetic browser scope must be 1–6.")
@@ -30,6 +30,14 @@ def browser_dataset(scope: int) -> dict:
             sheet.cell(row, 5, client_names[payer])
             sheet.cell(row, 6, payer_inns[payer])
             sheet.cell(row, 8, f"{scope * 100 + payer + 1:020d}")
+        if include_debit:
+            outgoing = [cell.value for cell in sheet[18]]
+            outgoing[1] = f"OUT-{scope}"
+            outgoing[2], outgoing[3] = 10_000, 0
+            outgoing[4] = f"Синтетический поставщик {scope}"
+            outgoing[10] = "Оплата поставщику за товары"
+            sheet.append(outgoing)
+            sheet['E7'] = 10_000
 
     return {
         "organizationName": organization_name,
