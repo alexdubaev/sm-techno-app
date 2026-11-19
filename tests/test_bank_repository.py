@@ -428,9 +428,10 @@ def test_ambiguous_direction_stays_visible_and_debit_turnover_mismatch_blocks(ba
     assert len(detail['operations']) == 6
     assert detail['operations'][0]['status'] == 'data_error'
     assert detail['operations'][0]['errors']
-    mismatch = repo.upload(admin, account, 'debit-turnover-mismatch.xlsx', make_statement(edit=lambda sheet: (sheet.__setitem__('C13', 360000), sheet.__setitem__('D13', 0), sheet.__setitem__('B7', '0,00'))))
+    mismatch = repo.upload(admin, account, 'debit-turnover-mismatch.xlsx', make_statement(edit=lambda sheet: (sheet.__setitem__('C13', 360000), sheet.__setitem__('D13', 0), sheet.__setitem__('B7', '0,00'), sheet.__setitem__('D7', '1 629 063,00'))))
     assert mismatch['status'] == 'blocked'
     assert mismatch['reconciliation']['debit']['difference'] == 36000000
+    assert mismatch['reconciliation']['credit']['difference'] == 0
     assert len(mismatch['operations']) == 5
     assert not selected(mismatch)
 
