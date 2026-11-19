@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from stock_sync_web.manager_repository import ManagerRepository
+from stock_sync_web.company_sales_repository import list_company_sales
 
 
 def period_bounds(kind, anchor):
@@ -82,6 +83,13 @@ def sales_overview(db, kind, anchor):
         monthlyPlans=dict(month=month, managers=monthly_plans), sources=sources)
 
 
+def sales_entries(db, kind, anchor, query='', page=1, unassigned=False):
+    _, start, end = period_bounds(kind, anchor)
+    repo = ManagerRepository(db)
+    with repo._read() as conn:
+        return list_company_sales(conn, start.isoformat(), end.isoformat(), query, page, unassigned)
+
+
 def create_admin_dashboard_router(get_admin, get_db):
     router = APIRouter(prefix='/api/admin/dashboard')
     @router.get('/sales')
@@ -89,6 +97,15 @@ def create_admin_dashboard_router(get_admin, get_db):
         response.headers['Cache-Control'] = 'no-store'
         try:
             return sales_overview(get_db(), period, date)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    @router.get('/sales/entries')
+    def entries(response: Response, period: str = 'month', date: str | None = None,
+                query: str = '', page: int = 1, unassigned: bool = False,
+                actor=Depends(get_admin)):
+        response.headers['Cache-Control'] = 'no-store'
+        try:
+            return sales_entries(get_db(), period, date, query, page, unassigned)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
     @router.get('/deepseek')

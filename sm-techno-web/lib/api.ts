@@ -1811,6 +1811,21 @@ export function generateClientArticleOffer(clientId: number,payload: {articlesJo
 export function fetchAdminSales(period: import('./admin-dashboard-types').PeriodKind, date: string) {
   return requestJson<import('./admin-dashboard-types').SalesOverview>(`/api/admin/dashboard/sales?${new URLSearchParams({period, date})}`, {bypassCache: true});
 }
+export function fetchCompanySales(params: { period: import('./admin-dashboard-types').PeriodKind; date: string; query?: string; page?: number; unassigned?: boolean }) {
+  const search = new URLSearchParams({ period: params.period, date: params.date, page: String(params.page ?? 1) });
+  if (params.query?.trim()) search.set('query', params.query.trim());
+  if (params.unassigned) search.set('unassigned', 'true');
+  return requestJson<import('./company-sales-types').CompanySalesPage>(`/api/admin/dashboard/sales/entries?${search}`, { bypassCache: true });
+}
+export function fetchCompanySale(kind: import('./company-sales-types').CompanySaleKind, id: number) {
+  return requestJson<import('./company-sales-types').CompanySaleDetail>(`/api/bank-statements/sales/${kind}/${id}`, { bypassCache: true });
+}
+export function previewCompanySaleManager(kind: import('./company-sales-types').CompanySaleKind, id: number, payload: { managerId: number; clientId?: number }) {
+  return requestJsonWithInit<import('./company-sales-types').CompanySaleManagerPreview>(`/api/bank-statements/sales/${kind}/${id}/manager-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось рассчитать назначение.');
+}
+export function assignCompanySaleManager(kind: import('./company-sales-types').CompanySaleKind, id: number, payload: { managerId: number; clientId?: number; proposalToken: string; idempotencyKey: string }) {
+  return requestJsonWithInit<import('./company-sales-types').CompanySaleDetail>(`/api/bank-statements/sales/${kind}/${id}/manager`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось назначить менеджера.');
+}
 export function fetchAdminUsage(period: import('./admin-dashboard-types').PeriodKind, date: string) {
   return requestJson<import('./admin-dashboard-types').UsageOverview>(`/api/admin/dashboard/deepseek?${new URLSearchParams({period, date})}`, {bypassCache: true});
 }

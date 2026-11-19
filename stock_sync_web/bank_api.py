@@ -128,6 +128,18 @@ def create_bank_router(get_current_user, get_db, get_storage_root):
     def commit(payload: dict, actor=Depends(administrator)):
         return invoke(repository().commit, actor, payload.get('items'), payload.get('idempotencyKey'))
 
+    @router.get('/sales/{kind}/{sale_id}')
+    def sale_details(kind: str, sale_id: int, actor=Depends(administrator)):
+        return invoke(repository().sale_details, actor, kind, sale_id)
+
+    @router.post('/sales/{kind}/{sale_id}/manager-preview')
+    def sale_manager_preview(kind: str, sale_id: int, payload: dict, actor=Depends(administrator)):
+        return invoke(repository().preview_sale_manager, actor, kind, sale_id, payload)
+
+    @router.post('/sales/{kind}/{sale_id}/manager')
+    def sale_manager_assign(kind: str, sale_id: int, payload: dict, actor=Depends(administrator)):
+        return invoke(repository().assign_sale_manager, actor, kind, sale_id, payload)
+
     @router.get('/clients/search')
     def search_clients(query: str = Query(..., min_length=1, max_length=200), actor=Depends(administrator)):
         return invoke(repository().search_clients, actor, query)

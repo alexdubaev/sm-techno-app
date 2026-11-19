@@ -3,13 +3,15 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { Dashboard } from '@/components/admin-dashboard/dashboard';
 
-const api = vi.hoisted(() => ({sales: vi.fn(), usage: vi.fn(), balance: vi.fn(), admin: true}));
+const api = vi.hoisted(() => ({sales: vi.fn(), usage: vi.fn(), balance: vi.fn(), companySales: vi.fn(), managers: vi.fn(), admin: true}));
 vi.mock('@/components/auth-provider', () => ({useAuth: () => ({isAdmin:api.admin,user:{id:1}})}));
-vi.mock('@/lib/api', () => ({fetchAdminSales:api.sales,fetchAdminUsage:api.usage,fetchAdminBalance:api.balance,invalidateApiCache:vi.fn()}));
+vi.mock('@/lib/api', () => ({fetchAdminSales:api.sales,fetchAdminUsage:api.usage,fetchAdminBalance:api.balance,fetchCompanySales:api.companySales,fetchManagers:api.managers,invalidateApiCache:vi.fn()}));
 vi.mock('recharts', () => ({Bar:()=>null,BarChart:()=>null,CartesianGrid:()=>null,ResponsiveContainer:()=>null,Tooltip:()=>null,XAxis:()=>null,YAxis:()=>null}));
 
 beforeEach(() => {
   api.admin = true;
+  api.companySales.mockResolvedValue({items:[],page:1,pages:1,total:0});
+  api.managers.mockResolvedValue([]);
   api.sales.mockImplementation(async (kind:string, date:string) => ({period:{kind,anchorDate:date,start:date,end:date},totals:{salesTotal:0,count:0},series:[],managers:[],monthlyPlans:{month:date.slice(0,7),managers:[]},sources:{manualCount:0,onecCount:0,odataConnected:false}}));
   api.usage.mockRejectedValue(new Error('offline'));
   api.balance.mockResolvedValue({status:'available',checkedAt:'2026-11-01T00:00:00Z',isAvailable:true,balances:[{currency:'USD',totalBalance:'0',grantedBalance:'0',toppedUpBalance:'0'}]});
