@@ -373,15 +373,37 @@ describe('Bank payments in existing sales', () => {
       clientId: 42, reason: 'Оплата за выбранного клиента',
     })));
   });
-  it('keeps a reason required when a matching client selection also changes classification', () => {
+  it('applies the selected type and matching client together without a typed reason', async () => {
     render(<BankOperationCard operation={{ ...operation, clientId: null, candidateClients: [
       { id: 42, name: 'Клиент', inn: operation.inn, kpp: null },
     ] }} selected={false} disabled={false} onSelect={() => {}} onSaved={async () => {}} />);
     fireEvent.click(screen.getByText('Проверить и изменить решение'));
     fireEvent.change(screen.getByLabelText('Выбранный клиент'), { target: { value: '42' } });
     fireEvent.change(screen.getByLabelText('Тип поступления'), { target: { value: 'excluded' } });
-    expect(screen.getByLabelText('Причина решения')).toBeRequired();
-    expect(screen.getByRole('button', { name: 'Применить клиента' })).toBeDisabled();
+    expect(screen.queryByLabelText('Причина решения')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Применить клиента' }));
+    await waitFor(() => expect(mocks.decision).toHaveBeenCalledWith(operation.id, expect.objectContaining({
+      clientId: 42, classification: 'excluded',
+      reason: expect.stringContaining('Исключить из продаж'),
+    })));
+  });
+  it('applies a self-transfer type override next to its selector without asking for a reason', async () => {
+    const saved = vi.fn().mockResolvedValue(undefined);
+    render(<BankOperationCard operation={{ ...operation, classification: 'excluded', status: 'excluded',
+      clientId: null, clientName: null, purpose: 'Перевод собственных средств',
+      explanation: 'Собственный перевод: ИНН плательщика совпадает с владельцем нашего счёта.',
+    }} selected={false} disabled={false} onSelect={() => {}} onSaved={saved} />);
+    fireEvent.click(screen.getByText('Проверить и изменить решение'));
+    fireEvent.change(screen.getByLabelText('Тип поступления'), { target: { value: 'sale' } });
+    expect(screen.queryByLabelText('Причина решения')).not.toBeInTheDocument();
+    const apply = screen.getByRole('button', { name: 'Применить тип' });
+    expect(apply).toBeEnabled();
+    fireEvent.click(apply);
+    await waitFor(() => expect(mocks.decision).toHaveBeenCalledWith(operation.id, expect.objectContaining({
+      classification: 'sale', reason: 'Тип поступления выбран администратором: Оплата покупателя',
+    })));
+    expect(mocks.decision.mock.calls[0][1]).not.toHaveProperty('clientId');
+    await waitFor(() => expect(saved).toHaveBeenCalledOnce());
   });
   it('explains bank confirmation of an existing sale in manager audit history', async () => {
     const data = await mocks.dashboard();
