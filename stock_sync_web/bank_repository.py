@@ -149,6 +149,13 @@ class BankRepository:
                 continue
             ids = [op['id'] for op in operations]
             placeholders = ','.join('?' for _ in ids)
+            if conn.execute(f'''SELECT 1 FROM manager_sales sale
+                WHERE sale.bank_operation_id IN ({placeholders}) AND NOT EXISTS(
+                    SELECT 1 FROM bank_sale_links link
+                    WHERE link.operation_id=sale.bank_operation_id AND link.sale_id=sale.id) LIMIT 1''', ids).fetchone():
+                # Incomplete legacy posting is a financial reference too. Keep
+                # its original identity for explicit accounting repair.
+                continue
             sources = [dict(row) for row in conn.execute(f'''SELECT id,operation_id,upload_id
                 FROM bank_source_rows WHERE operation_id IN ({placeholders}) ORDER BY id''', ids)]
             if any(count > 1 for count in Counter(row['upload_id'] for row in sources).values()):

@@ -140,3 +140,19 @@ def test_legacy_overlap_repair_rolls_back_all_source_links_on_failure(bank, monk
         assert [tuple(r) for r in conn.execute('SELECT id,operation_id FROM bank_source_rows ORDER BY id')] == before
         assert conn.execute('SELECT COUNT(*) FROM bank_decision_audit').fetchone()[0] == 0
     assert repo.refresh_upload(admin, second['id'])['operations'][0]['id'] == first['operations'][0]['id']
+
+
+def test_legacy_manager_sale_without_completed_bank_link_is_not_reidentified(bank, monkeypatch):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    first, second = legacy_pair(bank, monkeypatch)
+    alias = second['operations'][0]
+    with db.transaction() as conn:
+        conn.execute('''INSERT INTO manager_sales(manager_id,month,date,client,amount,rate,source,
+            external_id,bank_operation_id,crm_client_id,created_by,updated_at)
+            VALUES(?,'2026-11',?,'Synthetic legacy bank sale',?,500,'bank_statement',?,?,?,?,'synthetic')''',
+            (mid, alias['date'], alias['amount'], f"bank-{alias['id']}", alias['id'], clients[0], admin['id']))
+    refreshed = repo.refresh_upload(admin, second['id'])['operations'][0]
+    assert refreshed['id'] == alias['id'] and refreshed['status'] == 'possible_duplicate'
+    with db.transaction() as conn:
+        assert conn.execute('SELECT COUNT(DISTINCT operation_id) FROM bank_source_rows WHERE row_number=13').fetchone()[0] == 2
+        assert conn.execute('SELECT bank_operation_id FROM manager_sales').fetchone()[0] == alias['id']
