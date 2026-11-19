@@ -90,8 +90,10 @@ jobs:
         working-directory: sm-techno-web
         timeout-minutes: 12
         run: |
+          # Let the step deadline bound apt; do not interrupt native package installation.
+          npx playwright install-deps chromium webkit
           for attempt in 1 2 3; do
-            if timeout 240 npx playwright install --with-deps chromium webkit; then exit 0; fi
+            if timeout 240 npx playwright install chromium webkit; then exit 0; fi
             echo "Playwright install attempt $attempt failed or timed out; retrying"
           done
           exit 1
