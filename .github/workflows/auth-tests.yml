@@ -53,7 +53,7 @@ jobs:
         run: python -m pytest tests -q --strict-markers
 
   auth:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:
@@ -83,7 +83,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('sm-techno-web/package-lock.json') }}
+          key: playwright-ubuntu24-${{ runner.arch }}-${{ hashFiles('sm-techno-web/package-lock.json') }}
 
       # The browser CDN occasionally stalls; a bounded retry keeps a hung download from eating the whole job.
       - name: Install Playwright Chromium and WebKit
