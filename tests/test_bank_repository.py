@@ -201,6 +201,9 @@ def test_overlapping_exports_different_documents_and_ambiguous_occurrences(bank)
     assert len(duplicate['operations'])==6
     assert duplicate['operations'][0]['id']!=duplicate['operations'][1]['id']
     assert duplicate['operations'][0]['status']==duplicate['operations'][1]['status']=='possible_duplicate'
+    refreshed = repo.refresh_upload(admin, duplicate['id'])
+    assert [o['id'] for o in refreshed['operations']] == [o['id'] for o in duplicate['operations']]
+    assert refreshed['operations'][0]['status'] == refreshed['operations'][1]['status'] == 'possible_duplicate'
     with db.transaction() as conn:
         assert conn.execute('SELECT COUNT(*) FROM bank_source_rows WHERE upload_id=?',(duplicate['id'],)).fetchone()[0]==6
 
