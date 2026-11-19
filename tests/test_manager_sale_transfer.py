@@ -104,7 +104,8 @@ def test_preview_performs_no_manager_sales_writes_and_matches_transfer(bank):
                 source_before['version'], target_before['version'], 'Preview only',
                 crm_client_id=client_id, preview=True)
         finally:
-            conn.set_authorizer(None)
+            # Python 3.10 cannot disable an authorizer by passing None.
+            conn.set_authorizer(lambda *args: sqlite3.SQLITE_OK)
         assert conn.execute('SELECT COUNT(*) FROM manager_audit').fetchone()[0] == audit_before
         assert [tuple(row) for row in conn.execute(
             'SELECT manager_id,version FROM manager_periods WHERE manager_id IN (?,?) ORDER BY manager_id', (mid,target_id))] == versions_before
