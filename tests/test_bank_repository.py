@@ -353,14 +353,87 @@ def test_buyer_refund_is_persisted_but_cannot_be_a_negative_sale(bank):
         sheet['B7']='360 000,00'
         sheet['D7']='1 629 063,00'
         sheet['K13']='Возврат покупателю оплаты за товары'
-    detail=repo.upload(admin,account,'debit.xlsx',make_statement(edit=refund))
-    operation=detail['operations'][0]
+    raw = make_statement(edit=refund)
+    detail=repo.upload(admin,account,'debit.xlsx',raw)
     assert detail['reconciliation']['valid']
-    assert operation['direction']=='debit' and operation['classification']=='return' and operation['status']=='purpose_review'
-    override=repo.update_operation(admin,operation['id'],dict(version=operation['version'],classification='sale',reason='Manual review cannot create negative sale'))
-    assert override['status']=='purpose_review'
+    assert len(detail['operations']) == 5
+    assert detail['operationCount'] == 6
+    with db.transaction() as conn:
+        debit_source = conn.execute("SELECT * FROM bank_source_rows WHERE upload_id=? AND row_number=13", (detail['id'],)).fetchone()
+        assert debit_source is not None and debit_source['operation_id'] is None
+        assert conn.execute("SELECT COUNT(*) FROM bank_operations WHERE direction='debit'").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM bank_decisions").fetchone()[0] == 5
     repo.commit(admin,selected(detail),'five-incoming-key')
     assert managers.dashboard(admin,mid,'2026-11')['summary']['salesTotal']==162906300
+    assert repo.upload(admin,account,'renamed-debit.xlsx',raw)['id'] == detail['id']
+
+
+def test_mixed_statement_hides_debit_but_reconciles_and_excludes_it_from_client_payments(bank):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    def mixed(sheet):
+        sheet['C13'] = 360000
+        sheet['D13'] = 0
+        sheet['B7'] = '360 000,00'
+        sheet['D7'] = '1 629 063,00'
+    raw = make_statement(edit=mixed)
+    detail = repo.upload(admin, account, 'mixed.xlsx', raw)
+    assert detail['reconciliation']['valid']
+    assert detail['operationCount'] == 6
+    assert len(detail['operations']) == 5
+    assert detail['summary']['readyCount'] == 5
+    assert repo.refresh_upload(admin, detail['id'])['summary']['readyCount'] == 5
+    assert repo.upload(admin, account, 'renamed-mixed.xlsx', raw)['id'] == detail['id']
+    repo.commit(admin, selected(detail), 'mixed-incoming-only')
+    assert len(repo.client(admin, clients[0])['payments']) == 0
+    assert sum(len(repo.client(admin, client_id)['payments']) for client_id in clients) == 5
+
+
+def test_legacy_debit_operation_is_hidden_from_upload_and_client_receipts(bank):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    detail = repo.upload(admin, account, 'legacy-source.xlsx', make_statement())
+    incoming = detail['operations'][0]
+    with db.transaction() as conn:
+        operation = dict(conn.execute('SELECT * FROM bank_operations WHERE id=?', (incoming['id'],)).fetchone())
+        normalized = json.loads(operation['normalized_json'])
+        normalized.update(direction='debit', debit=36000000, credit=0)
+        columns = ('account_id','organization_id','our_account','currency','direction','date','document_number',
+            'payer_name','inn','kpp','account','bik','bank_name','amount','debit','credit','purpose','debtor_code',
+            'document_type','bank_id','strict_key','probable_key','invoice_references_json','normalized_json','created_at')
+        operation.update(direction='debit', amount=36000000, debit=36000000, credit=0,
+            bank_id=None, strict_key='synthetic-legacy-debit', probable_key='synthetic-legacy-debit', normalized_json=json.dumps(normalized))
+        legacy_id = conn.execute(f"INSERT INTO bank_operations({','.join(columns)}) VALUES({','.join('?' for _ in columns)})",
+            tuple(operation[column] for column in columns)).lastrowid
+        decision = json.loads(conn.execute('SELECT decision_json FROM bank_decisions WHERE operation_id=?', (incoming['id'],)).fetchone()[0])
+        decision.update(id=legacy_id, direction='debit')
+        conn.execute('INSERT INTO bank_decisions(operation_id,client_id,decision_json,updated_at) VALUES(?,?,?,?)',
+            (legacy_id, clients[0], json.dumps(decision), 'synthetic-legacy'))
+        conn.execute("UPDATE bank_source_rows SET normalized_json=? WHERE upload_id=? AND operation_id=?",
+            (json.dumps(normalized), detail['id'], incoming['id']))
+        conn.execute("UPDATE bank_source_rows SET operation_id=? WHERE upload_id=? AND row_number=13", (legacy_id, detail['id']))
+    refreshed = repo.refresh_upload(admin, detail['id'])
+    assert len(refreshed['operations']) == 5
+    assert all(payment['id'] != legacy_id for payment in repo.client(admin, clients[0])['payments'])
+
+
+def test_ambiguous_direction_stays_visible_and_debit_turnover_mismatch_blocks(bank):
+    db, repo, admin, seller, managers, mid, account, clients = bank
+    def ambiguous(sheet):
+        sheet['C13'] = 360000
+        sheet['D13'] = 360000
+        sheet['B7'] = '360 000,00'
+        sheet['D7'] = '1 989 063,00'
+    detail = repo.upload(admin, account, 'ambiguous-direction.xlsx', make_statement(edit=ambiguous))
+    assert detail['status'] == 'parsed'
+    assert detail['operationCount'] == 6
+    assert len(detail['operations']) == 6
+    assert detail['operations'][0]['status'] == 'data_error'
+    assert detail['operations'][0]['errors']
+    mismatch = repo.upload(admin, account, 'debit-turnover-mismatch.xlsx', make_statement(edit=lambda sheet: (sheet.__setitem__('C13', 360000), sheet.__setitem__('D13', 0), sheet.__setitem__('B7', '0,00'), sheet.__setitem__('D7', '1 629 063,00'))))
+    assert mismatch['status'] == 'blocked'
+    assert mismatch['reconciliation']['debit']['difference'] == 36000000
+    assert mismatch['reconciliation']['credit']['difference'] == 0
+    assert len(mismatch['operations']) == 5
+    assert not selected(mismatch)
 
 
 @pytest.mark.parametrize('change', ['archive','inactive','assignment','closed','client_name'])

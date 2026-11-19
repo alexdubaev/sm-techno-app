@@ -251,14 +251,18 @@ class BankRepository:
                         VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
                         (account_id, sha, filename, key, len(raw), parsed['parserVersion'], dump(metadata),
                          dump(parsed['errors']), dump(parsed['reconciliation']), 'blocked' if parsed['errors'] else 'parsed', actor['id'], now())).lastrowid
-                    valid_rows = [r for r in parsed['rows'] if not r['errors'] and not ownership_errors]
+                    # Reconciliation has already inspected every source row. Keep
+                    # definitive outgoing payments as provenance only; they must
+                    # not become reviewable bank operations or sales candidates.
+                    valid_rows = [r for r in parsed['rows'] if not r['errors'] and not ownership_errors
+                        and r['normalized'].get('direction') != 'debit']
                     keys = {r['row']: self._keys(account, r['normalized'], metadata['currency']) for r in valid_rows}
                     counts = Counter(pair[0] for pair in keys.values())
                     operation_ids = []
                     for source in parsed['rows']:
                         norm = source['normalized']
                         operation_id = None
-                        if not source['errors'] and not ownership_errors:
+                        if not source['errors'] and not ownership_errors and norm.get('direction') != 'debit':
                             strict, probable = keys[source['row']]
                             matches = conn.execute('SELECT id FROM bank_operations WHERE account_id=? AND strict_key=?', (account_id, strict)).fetchall()
                             # Only a single occurrence both in this source and in the
@@ -503,6 +507,13 @@ class BankRepository:
         result = self._upload_summary(conn, upload)
         operations = []
         for source in conn.execute('SELECT * FROM bank_source_rows WHERE upload_id=? ORDER BY row_number,id', (upload_id,)):
+            normalized = json.loads(source['normalized_json'])
+            direction = normalized.get('direction')
+            if direction is None and source['operation_id'] is not None:
+                operation = conn.execute('SELECT direction FROM bank_operations WHERE id=?', (source['operation_id'],)).fetchone()
+                direction = operation['direction'] if operation else None
+            if direction == 'debit':
+                continue
             if source['operation_id'] is None:
                 operations.append(self._invalid_source(source))
             else:
@@ -547,7 +558,8 @@ class BankRepository:
         with self.db.transaction(immediate=True) as conn:
             actor = self._actor(conn, actor, True)
             self._row(conn, 'bank_uploads', upload_id)
-            for row in conn.execute('SELECT DISTINCT operation_id FROM bank_source_rows WHERE upload_id=? AND operation_id IS NOT NULL', (upload_id,)).fetchall():
+            for row in conn.execute('''SELECT DISTINCT s.operation_id FROM bank_source_rows s JOIN bank_operations o ON o.id=s.operation_id
+                WHERE s.upload_id=? AND s.operation_id IS NOT NULL AND o.direction='credit' ''', (upload_id,)).fetchall():
                 self._refresh(conn, row['operation_id'], actor['id'])
             return self._upload_detail(conn, upload_id)
 
@@ -794,7 +806,7 @@ class BankRepository:
             m.user_id AS manager_user_id FROM bank_operations o JOIN bank_decisions d ON d.operation_id=o.id
             LEFT JOIN bank_sale_links l ON l.operation_id=o.id LEFT JOIN manager_sales s ON s.id=l.sale_id
             LEFT JOIN bank_company_sales c ON c.operation_id=o.id
-            LEFT JOIN manager_accounts m ON m.id=l.manager_id WHERE d.client_id=? ORDER BY o.date DESC,o.id DESC'''
+            LEFT JOIN manager_accounts m ON m.id=l.manager_id WHERE d.client_id=? AND o.direction='credit' ORDER BY o.date DESC,o.id DESC'''
         payments = []
         for row in conn.execute(sql,(client_id,)):
             if not admin and (row['sale_id'] is None or row['manager_user_id'] != actor['id']):
@@ -820,7 +832,7 @@ class BankRepository:
         client = self._row(conn,'crm_clients',client_id)
         inn = normalize_inn(client['inn'])
         ids = conn.execute('''SELECT o.id,o.inn,d.client_id FROM bank_operations o JOIN bank_decisions d ON d.operation_id=o.id
-            WHERE NOT EXISTS(SELECT 1 FROM bank_sale_links l WHERE l.operation_id=o.id)''').fetchall()
+            WHERE o.direction='credit' AND NOT EXISTS(SELECT 1 FROM bank_sale_links l WHERE l.operation_id=o.id)''').fetchall()
         for row in ids:
             if row['client_id']==client_id or valid_inn(inn) and row['inn']==inn:
                 self._refresh(conn,row['id'],actor_id)

@@ -370,7 +370,7 @@ export function BankImportContent({
               {detail.account} · {detail.metadata.bik && `БИК ${detail.metadata.bik} · `}{detail.currency} ·{' '}
               {detail.periodStart && dateLabel(detail.periodStart)} —{' '}
               {detail.periodEnd && dateLabel(detail.periodEnd)} ·{' '}
-              {detail.operationCount} операций
+              Поступлений: {detail.operations.filter((op) => op.direction === 'credit').length}
             </p>
             <div className={styles.metrics}>
               {[
@@ -393,7 +393,7 @@ export function BankImportContent({
               ))}
             </div>
             <table className={styles.reconciliation}>
-              <caption>Сверка всех операций с оборотами файла</caption>
+              <caption>Сверка входящих платежей с выпиской</caption>
               <thead>
                 <tr>
                   <th>Оборот</th>
@@ -403,19 +403,17 @@ export function BankImportContent({
                 </tr>
               </thead>
               <tbody>
-                {(['credit', 'debit'] as const).map((side) => (
-                  <tr key={side}>
-                    <th>{side === 'credit' ? 'Входящий' : 'Исходящий'}</th>
-                    <td>{money(detail.reconciliation[side].expected)}</td>
-                    <td>{money(detail.reconciliation[side].read)}</td>
-                    <td>{money(detail.reconciliation[side].difference)}</td>
-                  </tr>
-                ))}
+                <tr>
+                  <th>Поступления</th>
+                  <td>{money(detail.reconciliation.credit.expected)}</td>
+                  <td>{money(detail.reconciliation.credit.read)}</td>
+                  <td>{money(detail.reconciliation.credit.difference)}</td>
+                </tr>
               </tbody>
             </table>
             <p className={styles.muted}>
-              Входящий остаток: {money(detail.metadata.openingBalance ?? null)}.
-              Исходящий: {money(detail.metadata.closingBalance ?? null)}. «—»
+              Остаток на начало: {money(detail.metadata.openingBalance ?? null)}.
+              На конец: {money(detail.metadata.closingBalance ?? null)}. «—»
               означает, что значение не указано.
             </p>
             {!detail.reconciliation.valid && (
@@ -430,7 +428,7 @@ export function BankImportContent({
             ))}
           </section>
           <div className={styles.actions}>
-            <h3>Операции выписки</h3>
+            <h3>Входящие платежи</h3>
             <button
               className={styles.button}
               disabled={frozen || detail.status === 'blocked'}
@@ -447,6 +445,9 @@ export function BankImportContent({
             </button>
           </div>
           <div className={styles.list}>
+            {detail.operations.length === 0 && (
+              <p className={styles.muted}>В этой выписке нет входящих платежей.</p>
+            )}
             {detail.operations.map((op) => (
               <BankOperationCard
                 key={`${op.id}:${op.version}`}
