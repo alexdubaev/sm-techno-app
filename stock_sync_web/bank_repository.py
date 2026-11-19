@@ -397,15 +397,21 @@ class BankRepository:
             status = 'multiple_clients' if len(candidates) > 1 else 'client_not_found'
             explanation = ('Несколько карточек CRM с одинаковыми реквизитами.' if len(candidates) > 1 else
                            'Клиент не найден однозначно по ИНН/КПП; выберите карточку CRM.')
-        elif client['is_inactive'] or client['crm_archived_at']:
-            status, explanation = 'client_archived', 'Клиент неактивен или архивирован.'
         elif manual.get('duplicateAction') == 'link' and not self._link_compatible(conn, op, client, manager_id, link_sale):
             status, explanation = 'possible_duplicate', 'Связь невозможна: нужны одна несвязанная продажа с теми же клиентом, менеджером, датой и полной суммой.'
         elif manual.get('duplicateAction') != 'link' and (probable or old_sales or manual.get('duplicateAction') == 'review') and not acknowledged_new:
             status, explanation = 'possible_duplicate', 'Возможный дубль: свяжите старую продажу, подтвердите отдельную оплату с причиной или оставьте на проверку.'
         # All bank/company safety and duplicate gates precede attribution gates.
         company_eligible = status == 'ready'
-        if status == 'ready':
+        if status == 'ready' and (client['is_inactive'] or client['crm_archived_at']):
+            # An explicit payer-card and sale decision can record a historical
+            # receipt without restoring CRM or granting manager remuneration.
+            company_eligible = manual.get('clientId') == client['id'] and manual.get('classification') == 'sale'
+            status = 'client_archived'
+            explanation = ('Клиент в архиве. Оплату можно учесть в общих продажах без начисления менеджеру.'
+                           if company_eligible else
+                           'Клиент в архиве. Примените выбранного клиента, чтобы учесть оплату только в общих продажах.')
+        elif status == 'ready':
             if not assignment or manager_id is None:
                 status, explanation = 'manager_missing', attribution['explanation']
             elif not assignment['user_id'] or not assignment['manager_active']:

@@ -65,7 +65,9 @@ export function BankOperationCard({
   const invoiceChanged = invoiceNumber.trim() !== (op.invoiceNumber ?? '') ||
     invoiceDate !== (op.invoiceDate ?? '');
   const detailsChanged = typeChanged || invoiceChanged || !!duplicate;
-  const hasChanges = clientChanged || detailsChanged;
+  const archiveNeedsConfirmation = op.status === 'client_archived' && !op.companyCanConfirm &&
+    !op.companyAccounted && !!clientId && classification === 'sale';
+  const hasChanges = clientChanged || detailsChanged || archiveNeedsConfirmation;
   const reasonRequired = !!duplicate || (clientChanged && mismatch);
   const canSave = hasChanges && (!reasonRequired || !!reason.trim());
   async function search() {
@@ -90,6 +92,7 @@ export function BankOperationCard({
       typeChanged ? `Тип поступления выбран администратором: ${classificationLabels[classification]}` : '',
       clientChanged ? 'Выбран клиент CRM с совпадающими ИНН и КПП' : '',
       invoiceChanged ? 'Администратор уточнил реквизиты счёта на оплату' : '',
+      archiveNeedsConfirmation ? 'Архивный клиент выбран администратором для общих продаж без начисления менеджеру' : '',
     ].filter(Boolean).join('. ');
     const payload: BankDecisionChange = {
       version: op.version,
@@ -183,6 +186,9 @@ export function BankOperationCard({
         <p className={styles.warning}>Не начислено менеджеру · {bankStatusLabel[op.status]}</p>
       )}
       <p className={styles.muted}>{op.explanation}</p>
+      {op.status === 'client_archived' && op.companyCanConfirm && (
+        <p className={styles.notice}>Можно добавить в общие продажи. Менеджеру оплата не начисляется.</p>
+      )}
       {op.errors.map((error, index) => (
         <p key={index} className={styles.error}>
           {error}
@@ -385,6 +391,14 @@ export function BankOperationCard({
                 </p>
                 <div><button className={styles.button} type="submit" disabled={locked || !canSave}>
                   Применить клиента
+                </button></div>
+              </div>
+            )}
+            {archiveNeedsConfirmation && !clientChanged && (
+              <div className={`${styles.field} ${styles.full}`}>
+                <p className={styles.muted}>Архив клиента сохранится. Оплата войдёт только в общие продажи.</p>
+                <div><button className={styles.button} type="submit" disabled={locked || !canSave}>
+                  Использовать выбранного клиента
                 </button></div>
               </div>
             )}

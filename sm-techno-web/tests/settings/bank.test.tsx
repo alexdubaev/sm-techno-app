@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
   managers: vi.fn(),
   accounts: vi.fn(),
   uploads: vi.fn(),
-  detail: vi.fn(),
   refresh: vi.fn(),
   upload: vi.fn(),
   preview: vi.fn(),
@@ -40,7 +39,6 @@ vi.mock('@/lib/api', async (original) => ({
   fetchManagers: mocks.managers,
   fetchBankAccounts: mocks.accounts,
   fetchBankUploads: mocks.uploads,
-  fetchBankUpload: mocks.detail,
   refreshBankUpload: mocks.refresh,
   uploadBankStatement: mocks.upload,
   previewBankPayments: mocks.preview,
@@ -178,7 +176,6 @@ beforeEach(() => {
     ],
   });
   mocks.uploads.mockResolvedValue({ items: [upload] });
-  mocks.detail.mockResolvedValue(upload);
   mocks.refresh.mockResolvedValue(upload);
   mocks.upload.mockResolvedValue(upload);
   mocks.preview.mockResolvedValue({
@@ -247,7 +244,7 @@ describe('Bank payments in existing sales', () => {
   });
   it('confirms company sales without a manager and explains the pending manager posting', async () => {
     const companyOnly = { ...operation, managerId: null, managerName: null, status: 'manager_missing' as const, companyCanConfirm: true };
-    mocks.detail.mockResolvedValue({ ...upload, operations: [companyOnly] });
+    mocks.refresh.mockResolvedValue({ ...upload, operations: [companyOnly] });
     mocks.preview.mockResolvedValue({ count: 1, amount: operation.amount, companyCount: 1, companyAmount: operation.amount, managerCount: 0, pendingManagerCount: 1, linkedCount: 0, effects: [] });
     mocks.commit.mockResolvedValue({ companyCount: 1, companyAmount: operation.amount, managerCount: 0, pendingManagerCount: 1, createdCount: 0, linkedCount: 0 });
     render(<BankImportContent userId={8} onChanged={() => {}} />);
@@ -261,7 +258,7 @@ describe('Bank payments in existing sales', () => {
     expect(mocks.commit).toHaveBeenCalledWith(expect.objectContaining({ items: [{ operationId: 11, version: 2, fingerprint: 'synthetic-fingerprint' }] }));
   });
   it('labels incoming payments independently of the original source row count', async () => {
-    mocks.detail.mockResolvedValue({ ...upload, operationCount: 5 });
+    mocks.refresh.mockResolvedValue({ ...upload, operationCount: 5 });
     render(<BankImportContent userId={8} onChanged={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: /Тестовая организация.*synthetic.xlsx/ }));
     expect(await screen.findByRole('heading', { name: 'Входящие платежи' })).toBeVisible();
@@ -269,7 +266,7 @@ describe('Bank payments in existing sales', () => {
     expect(screen.queryByRole('rowheader', { name: 'Исходящий' })).not.toBeInTheDocument();
   });
   it('explains a statement with no incoming payments without listing outgoing exclusions', async () => {
-    mocks.detail.mockResolvedValue({ ...upload, operationCount: 3, operations: [], summary: {
+    mocks.refresh.mockResolvedValue({ ...upload, operationCount: 3, operations: [], summary: {
       readyCount: 0, readyAmount: 0, accountedCount: 0, excludedCount: 0, reviewCount: 0,
     } });
     render(<BankImportContent userId={8} onChanged={() => {}} />);
@@ -279,7 +276,7 @@ describe('Bank payments in existing sales', () => {
     expect(screen.getByRole('button', { name: 'Проверить итог перед добавлением' })).toBeDisabled();
   });
   it('shows zero company addition when a confirmed company receipt becomes ready for its manager', async () => {
-    mocks.detail.mockResolvedValue({ ...upload, operations: [{ ...operation, companyAccounted: true }] });
+    mocks.refresh.mockResolvedValue({ ...upload, operations: [{ ...operation, companyAccounted: true }] });
     mocks.preview.mockResolvedValue({ count: 1, amount: operation.amount, companyCount: 0, companyAmount: 0, managerCount: 1, pendingManagerCount: 0, linkedCount: 0, effects: [] });
     render(<BankImportContent userId={8} onChanged={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: /Тестовая организация.*synthetic.xlsx/ }));
@@ -302,7 +299,7 @@ describe('Bank payments in existing sales', () => {
     await waitFor(() => expect(saved).toHaveBeenCalledOnce());
   });
   it('shows the negative company delta when linking two previously counted receipts', async () => {
-    mocks.detail.mockResolvedValue({ ...upload, operations: [{ ...operation, companyAccounted: true }] });
+    mocks.refresh.mockResolvedValue({ ...upload, operations: [{ ...operation, companyAccounted: true }] });
     mocks.preview.mockResolvedValue({ count: 1, amount: operation.amount, companyCount: -1, companyAmount: -operation.amount!, managerCount: 1, pendingManagerCount: 0, linkedCount: 1, effects: [] });
     render(<BankImportContent userId={8} onChanged={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: /Тестовая организация.*synthetic.xlsx/ }));
@@ -358,6 +355,34 @@ describe('Bank payments in existing sales', () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText(/Исправьте исходные данные в XLSX/)).toBeVisible();
     expect(screen.getByText('Назначение и банковские реквизиты')).toBeVisible();
+  });
+  it('lets an applied archived client payment be selected for company sales', () => {
+    render(<BankOperationCard operation={{ ...operation, status: 'client_archived',
+      companyCanConfirm: true, managerId: null, managerName: null }} selected={false}
+      disabled={false} onSelect={() => {}} onSaved={async () => {}} />);
+    expect(screen.getByRole('checkbox')).toBeEnabled();
+    expect(screen.getByText(/Можно добавить в общие продажи/)).toBeVisible();
+  });
+  it('refreshes saved decisions when opening an old upload', async () => {
+    mocks.refresh.mockResolvedValue({ ...upload, operations: [{ ...operation,
+      status: 'client_archived', companyCanConfirm: true, managerId: null, managerName: null }] });
+    render(<BankImportContent userId={8} onChanged={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Тестовая организация.*synthetic.xlsx/ }));
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledWith(upload.id));
+    expect(await screen.findByRole('checkbox', { name: 'Выбрать оплату 2810' })).toBeEnabled();
+  });
+  it('applies the current archived client without requiring an extra reason', async () => {
+    const saved = vi.fn().mockResolvedValue(undefined);
+    render(<BankOperationCard operation={{ ...operation, status: 'client_archived',
+      companyCanConfirm: false, managerId: null, managerName: null }} selected={false}
+      disabled={false} onSelect={() => {}} onSaved={saved} />);
+    fireEvent.click(screen.getByText('Проверить и изменить решение'));
+    expect(screen.queryByLabelText('Причина решения')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Использовать выбранного клиента' }));
+    await waitFor(() => expect(mocks.decision).toHaveBeenCalledWith(operation.id,
+      expect.objectContaining({ clientId: operation.clientId, classification: 'sale',
+        reason: expect.stringContaining('Архивный клиент выбран администратором') })));
+    await waitFor(() => expect(saved).toHaveBeenCalledOnce());
   });
   it('applies a matching INN client without asking for a reason and refreshes attribution', async () => {
     const saved = vi.fn().mockResolvedValue(undefined);

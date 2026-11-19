@@ -3,7 +3,6 @@ import { useEffect, useRef, useState, type SubmitEvent } from 'react';
 import {
   ApiRequestError,
   fetchBankUploads,
-  fetchBankUpload,
   refreshBankUpload,
   uploadBankStatement,
   downloadBankStatement,
@@ -315,7 +314,7 @@ export function BankImportContent({
                   disabled={frozen}
                   onClick={() =>
                     void action(async () => {
-                      acceptDetail(await fetchBankUpload(item.id));
+                      acceptDetail(await refreshBankUpload(item.id));
                       setNotice('');
                     })
                   }
