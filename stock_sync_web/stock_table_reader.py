@@ -321,5 +321,11 @@ def read_stock_table(path: Path, limits, *, infer_layout=None, selection=None):
         warnings.append('Столбцы определены автоматически. Проверьте артикулы, количество и число распознанных строк.')
     if not result:
         raise StockTableError('В таблице нет строк с артикулами.')
+    from stock_sync_web.stock_article_cells import extract_article_cells
+    try:
+        result, cell_warnings = extract_article_cells(result, infer_layout)
+        warnings.extend(cell_warnings)
+    except ValueError as exc:
+        raise StockTableError(str(exc)) from None
     validate_payload('articles', {'rows': result})
     return ExtractionResult('articles', {'rows': result}, warnings=warnings)

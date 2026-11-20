@@ -62,6 +62,23 @@ def test_column_layout_uses_private_schema_without_changing_article_schema(stub)
     with pytest.raises(ValueError): CodexDocumentExtractor.parse_events(events, 'articles')
 
 
+def test_article_cells_use_private_schema_and_legacy_adapter_validation(stub):
+    from stock_sync_web.assistant_extraction import CodexDocumentExtractor
+    answer = {'payload': {'cells': [{'rowIndex': 2, 'article': '000123'},
+        {'rowIndex': 3, 'article': None}]}, 'missing_fields': [], 'warnings': []}
+    state, factory = stub; state['body'] = response(answer)
+    result = DeepSeekDocumentExtractor(connection_factory=factory).extract(
+        ExtractionRequest('articles', ['untrusted product descriptions'], [], [], article_cells=True))
+    assert result.payload == answer['payload']
+    sent = json.loads(state['requests'][0][2])
+    assert sent['thinking'] == {'type': 'disabled'}
+    events = '\n'.join(json.dumps(e) for e in [
+        {'type': 'item.completed', 'item': {'type': 'agent_message', 'text': json.dumps(answer)}},
+        {'type': 'turn.completed'}])
+    assert CodexDocumentExtractor.parse_events(events, 'articles', article_cells=True)['payload'] == answer['payload']
+    with pytest.raises(ValueError): CodexDocumentExtractor.parse_events(events, 'articles')
+
+
 def test_real_http_stub_sends_inline_images_and_validates(stub, tmp_path):
     state, factory = stub; state['body'] = response(good())
     image = tmp_path/'page.png'; image.write_bytes(b'fake-png')

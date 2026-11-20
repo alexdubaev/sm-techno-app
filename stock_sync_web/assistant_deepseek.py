@@ -58,7 +58,7 @@ class DeepSeekDocumentExtractor:
                 raise ExtractionError('runtime_timeout', 'DeepSeek не ответил за допустимое время.')
             return value
         try:
-            content = [{'type': 'text', 'text': extraction_prompt(request) + '\nJSON schema: ' + json.dumps(extraction_schema(request.kind, table_layout=request.table_layout), ensure_ascii=False)}]
+            content = [{'type': 'text', 'text': extraction_prompt(request) + '\nJSON schema: ' + json.dumps(extraction_schema(request.kind, table_layout=request.table_layout, article_cells=request.article_cells), ensure_ascii=False)}]
             size = sum(len(text.encode('utf-8')) for text in request.texts)
             for path in request.image_paths:
                 remaining()
@@ -124,8 +124,8 @@ class DeepSeekDocumentExtractor:
             if choice.get('finish_reason') != 'stop' or message.get('tool_calls') or message.get('function_call') or message.get('role') != 'assistant': raise ValueError()
             result = json.loads(message['content'])
             if isinstance(result, dict): normalize_payload(request.kind, result.get('payload'))
-            _validate_shape(result, extraction_schema(request.kind, table_layout=request.table_layout), 'result')
-            validate_extracted_payload(request.kind, result['payload'], table_layout=request.table_layout)
+            _validate_shape(result, extraction_schema(request.kind, table_layout=request.table_layout, article_cells=request.article_cells), 'result')
+            validate_extracted_payload(request.kind, result['payload'], table_layout=request.table_layout, article_cells=request.article_cells)
             if request.kind == 'contract':
                 for field in ('document_id', 'asset_id', 'client_id', 'source_sha256'): result['payload'][field] = None
             provenance = [{'assetId': aid, 'method': model, 'reviewed': False} for aid in request.source_asset_ids]
