@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import math
 import logging
 from datetime import date, datetime, timezone
@@ -17,7 +18,7 @@ from contextlib import contextmanager
 from collections import Counter
 from copy import copy
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -185,7 +186,8 @@ def _workbook(rows):
     return base64.b64encode(output.getvalue()).decode('ascii')
 
 
-async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | None = None, usage_sink=None) -> dict:
+async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | None = None, usage_sink=None,
+                                   interactive=False, table_selection=None) -> dict:
     suffix = Path(file.filename or '').suffix.lower()
     if suffix not in FORMATS: raise HTTPException(400, 'Этот формат не поддерживается.')
     limits = limits or UploadLimits()
@@ -199,31 +201,42 @@ async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | N
                     if size > limits.max_bytes: raise HTTPException(413, 'Превышен допустимый размер файла.')
                     target.write(chunk)
             def extract_source():
-                from stock_sync_web.stock_table_reader import TABLE_FORMATS, StockTableError, read_stock_table
+                from stock_sync_web.stock_table_reader import TABLE_FORMATS, StockTableError, StockTableSelectionRequired, read_stock_table
                 if not _extraction_slots.acquire(blocking=False):
                     raise HTTPException(429, 'Распознавание занято. Повторите попытку позже.')
                 try:
+                    is_deepseek = (os.getenv('DOCUMENT_ASSISTANT_PROVIDER') or 'codex').strip().lower() == 'deepseek'
+                    started = time.monotonic()
+                    def extractor():
+                        remaining = None
+                        if is_deepseek:
+                            budget = min(300, max(15, int(os.getenv('DOCUMENT_ASSISTANT_TIMEOUT_SECONDS') or '300')))
+                            remaining = budget - (time.monotonic() - started)
+                            if remaining <= 0:
+                                raise ExtractionError('runtime_timeout')
+                        return create_document_extractor(codex_factory=CodexDocumentExtractor, usage_sink=usage_sink,
+                            deepseek_timeout=remaining)
                     if suffix in TABLE_FORMATS:
                         try:
-                            return read_stock_table(source, limits)
+                            return read_stock_table(source, limits, selection=table_selection,
+                                infer_layout=lambda request: extractor().extract(request, temp_root=workspace))
+                        except StockTableSelectionRequired as exc:
+                            if interactive:
+                                return {'rows': [], 'warnings': exc.warnings, 'tableSelection': exc.selection}
+                            raise HTTPException(400, str(exc)) from None
                         except StockTableError as exc:
                             raise HTTPException(400, str(exc)) from None
                         except Exception:
                             raise HTTPException(400, 'Не удалось прочитать таблицу. Проверьте формат файла и отсутствие внешних связей.') from None
-                    is_deepseek = (os.getenv('DOCUMENT_ASSISTANT_PROVIDER') or 'codex').strip().lower() == 'deepseek'
-                    started = time.monotonic() if is_deepseek else None
+                    if table_selection is not None:
+                        raise HTTPException(400, 'Выбор столбцов доступен только для Excel, CSV и TSV.')
                     texts, images = DocumentSourceReader(limits).read(source, workspace)
-                    remaining = None
-                    if is_deepseek:
-                        budget = min(300, max(15, int(os.getenv('DOCUMENT_ASSISTANT_TIMEOUT_SECONDS') or '300')))
-                        remaining = budget - (time.monotonic() - started)
-                        if remaining <= 0:
-                            raise ExtractionError('runtime_timeout')
-                    return create_document_extractor(codex_factory=CodexDocumentExtractor, usage_sink=usage_sink,
-                        deepseek_timeout=remaining).extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
+                    return extractor().extract(ExtractionRequest('articles', texts, images, []), temp_root=workspace)
                 finally:
                     _extraction_slots.release()
             result = await run_in_threadpool(extract_source)
+            if isinstance(result, dict) and interactive:
+                return result
             validate_payload('articles', result.payload)
             rows = [Row(article=r['article'], requestedQty=r['requested_qty'], sourceRow=r['source_row']) for r in result.payload['rows']]
             _payload(rows)
@@ -293,6 +306,29 @@ def create_stock_valuation_router(current_user, get_service) -> APIRouter:
         _authorize(actor)
         from stock_sync_web.deepseek_usage import sink_for
         return await extract_valuation_upload(file, usage_sink=sink_for(get_service().db))
+
+    @router.post('/table-intake')
+    async def table_intake(response: Response, file: UploadFile = File(...), selection: str | None = Form(None), actor=Depends(current_user)):
+        response.headers['Cache-Control'] = 'no-store'
+        try:
+            _authorize(actor)
+            from stock_sync_web.stock_table_reader import TABLE_FORMATS
+            if Path(file.filename or '').suffix.lower() not in TABLE_FORMATS:
+                raise HTTPException(400, 'Выбор столбцов доступен только для Excel, CSV и TSV.')
+            mapping = None
+            if selection is not None:
+                if len(selection) > 20000:
+                    raise HTTPException(400, 'Слишком много настроек столбцов.')
+                try:
+                    mapping = json.loads(selection)
+                    if not isinstance(mapping, dict): raise ValueError()
+                except (ValueError, TypeError, RecursionError):
+                    raise HTTPException(400, 'Проверьте выбранные столбцы.') from None
+            from stock_sync_web.deepseek_usage import sink_for
+            return await extract_valuation_upload(file, interactive=True, table_selection=mapping,
+                usage_sink=sink_for(get_service().db))
+        finally:
+            await file.close()
 
     @router.post('/resolve')
     def resolve(body: ResolveRequest, response: Response, actor=Depends(current_user)):
