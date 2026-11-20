@@ -92,6 +92,53 @@ def test_single_column_without_header_keeps_first_row_and_displayed_zeroes(clien
     ]
 
 
+def test_mixed_product_text_is_separated_from_articles_without_inventing_thread_size(client):
+    examples = [
+        ('Корпус (з/ч) H152916', 2, 'H152916'),
+        ('Набор ремней AH139436', 2, 'AH139436'),
+        ('Натяжитель ремня RE 548027', 1, 'RE548027'),
+        ('Болт, шт стяжной 19M7658', 50, '19M7658'),
+        ('Шайба (шт) Z66313', 60, 'Z66313'),
+        ('Втулка (з/ч) ножа соломоизм. RU-1702-005-015', 20, 'RU-1702-005-015'),
+        ('Гайка, шт шестигранная головка оцинкованный(ая) M10 самоконтрящаяся', 50, None),
+        ('Трос AH207405', 1, 'AH207405'),
+        ('Клапан (з/ч) редукционный RE516335', 1, 'RE516335'),
+        ('Клапан (з/ч) контрольный DZ111135', 1, 'DZ111135'),
+        ('Накладка (з/ч) износостойкая LH H149459', 1, 'H149459'),
+        ('Накладка (з/ч) износостойкая RH H149460', 1, 'H149460'),
+    ]
+    book = Workbook(); sheet = book.active; sheet.append(['Артикул', 'Количество'])
+    for text, qty, _ in examples: sheet.append([text, qty])
+    output = BytesIO(); book.save(output); book.close()
+    result = client.post('/api/stock/valuation/intake', files={'file': ('mixed.xlsx', output.getvalue())})
+    assert result.status_code == 200, result.text
+    assert result.json()['rows'] == [{'article': code, 'requestedQty': str(qty), 'sourceRow': i + 2}
+        for i, (_, qty, code) in enumerate(examples) if code is not None]
+    assert any('8' in warning and 'артикул' in warning.lower() for warning in result.json()['warnings'])
+
+
+@pytest.mark.parametrize('model_code,model_index,expected', [
+    ('000123', 2, '000123'), ('00123', 2, None),
+    ('INVENTED-9', 2, None), ('000123', 1, None), (None, 2, None),
+])
+def test_ambiguous_cells_require_source_grounded_model_codes(client, monkeypatch, model_code, model_index, expected):
+    from stock_sync_web.assistant_extraction import ExtractionResult
+    calls = []
+    def extract(request, **kwargs):
+        calls.append(request)
+        assert request.article_cells and not request.table_layout
+        assert json.loads(request.texts[0])[0]['text'] == 'Деталь 000123 упаковка 20'
+        return ExtractionResult('articles', {'cells': [{'rowIndex': model_index, 'article': model_code}]})
+    monkeypatch.setattr(stock_valuation, 'create_document_extractor', lambda **kwargs: SimpleNamespace(extract=extract))
+    content = 'Артикул;Количество\nR-7;0\nДеталь 000123 упаковка 20;2,5'.encode()
+    result = client.post('/api/stock/valuation/intake', files={'file': ('mixed.csv', content)})
+    assert result.status_code == 200, result.text
+    rows = [{'article': 'R-7', 'requestedQty': '0', 'sourceRow': 2}]
+    if expected: rows.append({'article': expected, 'requestedQty': '2.5', 'sourceRow': 3})
+    assert result.json()['rows'] == rows and len(calls) == 1
+    assert bool(result.json()['warnings']) == (expected is None)
+
+
 @pytest.mark.parametrize('rows,problem', [
     ([[1, '=1+1', 'Detail', 1]], 'формул'),
     ([[1, '00123', 'Detail', '=1+1']], 'формул'),
