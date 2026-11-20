@@ -61,3 +61,51 @@ it('preserves the selected source and pasted list when collapsed and reopened', 
   fireEvent.click(screen.getByRole('button', {name: 'Развернуть'}));
   expect(screen.getByLabelText('Список артикулов')).toHaveValue('A\t2\nB');
 });
+
+it('chooses columns in place, keeps the choice when collapsed and reviews the original rows before lookup', async () => {
+  vi.mocked(api.intakeValuation).mockReset();
+  const preview: api.TableSelection = { fileSha256: 'a'.repeat(64),
+    sheets: [{ sheetIndex: 1, name: 'Заявка', columnCount: 2, lastSourceRow: 3,
+      sampleRows: [{ sourceRow: 1, cells: ['Код поставщика', 'Штук'] }, { sourceRow: 2, cells: ['00123', '2'] }, { sourceRow: 3, cells: ['R-7', '0'] }] }],
+    mappings: [{ sheetIndex: 1, articleColumn: null, quantityColumn: null, firstRow: 1, lastRow: 3 }] };
+  vi.mocked(api.intakeValuation).mockResolvedValueOnce({ rows: [], warnings: [], tableSelection: preview });
+  vi.mocked(api.intakeValuation).mockRejectedValueOnce(Error('Повторите попытку'));
+  vi.mocked(api.intakeValuation).mockResolvedValueOnce({ rows: [{ article: '00123', requestedQty: '2', sourceRow: 2 }], warnings: [] });
+  render(<StockValuationPanel />);
+  fireEvent.click(screen.getByRole('button', { name: 'Развернуть' }));
+  const file = new File(['test'], 'articles.xlsx');
+  fireEvent.change(screen.getByLabelText('Выбрать файл или фото'), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole('button', { name: 'Распознать' }));
+  expect(await screen.findByRole('region', { name: 'Выбор столбцов таблицы' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Применить столбцы' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Проверить остатки' })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Столбец артикулов, лист 1'), { target: { value: '1' } });
+  fireEvent.change(screen.getByLabelText('Столбец количества, лист 1'), { target: { value: '2' } });
+  fireEvent.change(screen.getByLabelText('Первая строка, лист 1'), { target: { value: '2' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Свернуть' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Развернуть' }));
+  expect(screen.getByLabelText('Столбец артикулов, лист 1')).toHaveValue('1');
+  fireEvent.click(screen.getByRole('button', { name: 'Применить столбцы' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Повторите попытку');
+  expect(screen.getByLabelText('Столбец количества, лист 1')).toHaveValue('2');
+  fireEvent.click(screen.getByRole('button', { name: 'Применить столбцы' }));
+  expect(await screen.findByLabelText('Артикул строки 2')).toHaveValue('00123');
+  expect(screen.queryByRole('region', { name: 'Выбор столбцов таблицы' })).not.toBeInTheDocument();
+  expect(vi.mocked(api.intakeValuation).mock.calls[2]).toEqual([file, expect.any(AbortSignal), {
+    fileSha256: preview.fileSha256, sheets: [{ sheetIndex: 1, articleColumn: 1, quantityColumn: 2, firstRow: 2, lastRow: 3 }],
+  }]);
+});
+
+it('discards a late table preview when a different file is selected', async () => {
+  vi.mocked(api.intakeValuation).mockReset();
+  let finish!: (value: Awaited<ReturnType<typeof api.intakeValuation>>) => void;
+  vi.mocked(api.intakeValuation).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  render(<StockValuationPanel />);
+  fireEvent.click(screen.getByRole('button', { name: 'Развернуть' }));
+  fireEvent.change(screen.getByLabelText('Выбрать файл или фото'), { target: { files: [new File(['old'], 'old.xlsx')] } });
+  fireEvent.click(screen.getByRole('button', { name: 'Распознать' }));
+  fireEvent.change(screen.getByLabelText('Выбрать файл или фото'), { target: { files: [new File(['new'], 'new.xlsx')] } });
+  finish({ rows: [], warnings: [], tableSelection: { fileSha256: 'old', mappings: [], sheets: [] } });
+  await waitFor(() => expect(screen.getByText(/new.xlsx/)).toBeVisible());
+  expect(screen.queryByRole('region', { name: 'Выбор столбцов таблицы' })).not.toBeInTheDocument();
+});

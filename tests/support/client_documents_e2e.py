@@ -26,8 +26,11 @@ def seed_document_demo(service, owner_id):
 class FixedArticleExtractor:
     timeout = 5
 
-    def extract(self, request):
+    def extract(self, request, *, temp_root=None):
         # Fail closed except for the exact synthetic documents in this harness.
+        if request.table_layout and any('SYNTHETIC COLUMN CHOICE' in text for text in request.texts):
+            return ExtractionResult('articles', {'sheets': [{'sheetIndex': 1, 'articleColumn': None,
+                'quantityColumn': None, 'firstRow': None, 'lastRow': None, 'confident': False}]})
         if request.kind == "requisites" and any("SYNTHETIC REQUISITES 7701234560" in text for text in request.texts):
             return ExtractionResult("requisites", {"document_name":DOCUMENT_CLIENT_NAME,
                 "full_name":DOCUMENT_CLIENT_NAME,"inn":"7701234560","kpp":"770101001"},
@@ -47,6 +50,8 @@ def install_document_browser_fixture(api):
     seed_related_navigation(api.SERVICE, owner_id)
     assistant = DocumentAssistantService(api.SERVICE, extractor=FixedArticleExtractor())
     api._document_assistant = lambda: assistant
+    from stock_sync_web import stock_valuation
+    stock_valuation.create_document_extractor = lambda **kwargs: FixedArticleExtractor()
 
 
 def seed_related_navigation(service, actor_id):

@@ -80,6 +80,32 @@ def test_slow_intake_keeps_idle_client_alive_and_returns_all_rows(slow_intake):
     assert not list(state.root.iterdir())
 
 
+def test_row_validation_does_not_block_native_client_heartbeat(slow_intake, monkeypatch):
+    from stock_sync_web import stock_valuation
+    original_row = stock_valuation.Row
+    calls = 0
+    def slower_validation(**values):
+        nonlocal calls
+        # A loaded host still needs to send heartbeats while validating a large result.
+        calls += 1
+        if calls == 1:
+            time.sleep(.6)
+        return original_row(**values)
+    monkeypatch.setattr(stock_valuation, 'Row', slower_validation)
+    state = slow_intake
+    with httpx.Client(trust_env=False, timeout=httpx.Timeout(5, read=.35)) as client:
+        with client.stream('POST', state.url, headers=state.headers,
+                          files={'file': ('synthetic.txt', b'00000001', 'text/plain')}) as response:
+            assert response.status_code == 200
+            chunks = response.iter_raw()
+            first = next(chunks)
+            assert not first.strip()
+            result = json.loads(first + b''.join(chunks))
+    assert len(result['rows']) == 1000
+    assert result['rows'][-1]['article'] == '00000999'
+    assert not list(state.root.iterdir())
+
+
 def test_slow_failure_returns_existing_detail_and_never_partial_rows(slow_intake, caplog):
     state = slow_intake
     state.fail = True
