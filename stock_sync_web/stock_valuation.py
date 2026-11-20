@@ -237,11 +237,15 @@ async def extract_valuation_upload(file: UploadFile, *, limits: UploadLimits | N
             result = await run_in_threadpool(extract_source)
             if isinstance(result, dict) and interactive:
                 return result
-            validate_payload('articles', result.payload)
-            rows = [Row(article=r['article'], requestedQty=r['requested_qty'], sourceRow=r['source_row']) for r in result.payload['rows']]
-            _payload(rows)
-            if not rows: raise ValueError('В файле не найдено артикулов.')
-            return {'rows': [r.model_dump() for r in rows], 'warnings': result.warnings}
+            def checked_rows():
+                # Keep schema/row validation off the event loop as well as the
+                # extractor, so native clients receive heartbeats on loaded hosts.
+                validate_payload('articles', result.payload)
+                rows = [Row(article=r['article'], requestedQty=r['requested_qty'], sourceRow=r['source_row']) for r in result.payload['rows']]
+                _payload(rows)
+                if not rows: raise ValueError('В файле не найдено артикулов.')
+                return {'rows': [r.model_dump() for r in rows], 'warnings': result.warnings}
+            return await run_in_threadpool(checked_rows)
     except HTTPException: raise
     except ExtractionError as exc:
         code = exc.code if re.fullmatch(r'[a-z_]{1,48}', str(exc.code)) else 'extraction_error'
