@@ -2,7 +2,7 @@
 
 **Требования:** R01, R02, R03, R04, R05, R06, R07, R08
 **Зависит от:** —
-**Зона:** `sm-techno-web/app` · `sm-techno-web/components` · `sm-techno-web/lib` · `sm-techno-web/tests`
+**Зона:** `sm-techno-web/app` · `sm-techno-web/components` · `sm-techno-web/hooks` · `sm-techno-web/lib` · `sm-techno-web/tests`
 **Волна:** 1
 **Ревью:** нет
 **Модель:** обычная
