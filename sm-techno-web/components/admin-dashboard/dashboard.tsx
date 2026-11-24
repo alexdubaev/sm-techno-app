@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Dialog, DialogBackdrop, DialogClose, DialogPopup, DialogPortal, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { BarChart3, CalendarDays, Expand, Upload, UserRound, X } from 'lucide-react';
@@ -152,6 +152,7 @@ function SalesSources({ sales }: { sales: SalesOverview }) {
 }
 
 function ManagerPlans({ sales, glassy = false }: { sales: SalesOverview; glassy?: boolean }) {
+  const id = useId();
   return sales.managers.map(manager => {
     const plan = sales.monthlyPlans.managers.find(entry => entry.id === manager.id);
     const share = sales.totals.salesTotal ? manager.salesTotal / sales.totals.salesTotal * 100 : 0;
@@ -162,18 +163,22 @@ function ManagerPlans({ sales, glassy = false }: { sales: SalesOverview; glassy?
     const planDescription = !plan || plan.status === 'unset' ? 'Условия не заданы' : 'Без плана';
 
     if (glassy) {
-      return <Link className={`${styles.planRow} ${styles.managerLink}`} key={manager.id} href={href} aria-label={label}>
+      const salesId = `${id}-${manager.id}-sales`;
+      const planId = `${id}-${manager.id}-plan`;
+      const progressId = `${id}-${manager.id}-progress`;
+      return <Link className={`${styles.planRow} ${styles.managerLink}`} key={manager.id} href={href} aria-label={label} aria-describedby={`${salesId} ${planId} ${progressId}`}>
         <span className={styles.planName}>
           <UserRound size={18} aria-hidden="true" />
           <span><strong>{manager.name}</strong>{status && <small>{status}</small>}<small>За период: {money(manager.salesTotal)} · {manager.count} продаж</small></span>
         </span>
-        <span><small className={styles.planMobileLabel}>Продажи за месяц</small><strong>{plan ? money(plan.salesTotal) : '—'}</strong></span>
-        <span><small className={styles.planMobileLabel}>План на месяц</small>{plan?.status === 'planned' && plan.plan !== null ? money(plan.plan) : planDescription}</span>
-        <span className={styles.planProgress}>
+        <span id={salesId}><small className={styles.planMobileLabel}>Продажи за месяц</small><strong>{plan ? money(plan.salesTotal) : '—'}</strong></span>
+        <span id={planId}><small className={styles.planMobileLabel}>План на месяц</small>{plan?.status === 'planned' && plan.plan !== null ? money(plan.plan) : planDescription}</span>
+        <span id={progressId} className={styles.planProgress}>
+          <span className="sr-only">Выполнение плана</span>
           {progress != null ? <>
             <span className={styles.bar} aria-hidden="true"><span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} /></span>
             <span>{progress.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}%</span>
-          </> : '—'}
+          </> : <><span aria-hidden="true">—</span><span className="sr-only">Нет данных</span></>}
         </span>
       </Link>;
     }

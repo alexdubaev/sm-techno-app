@@ -184,8 +184,8 @@ export function StockPage() {
   const { containerRef, getWidth, onResizeStart, tableWidth } =
     useResizableColumns(
       'sm-techno-stock-table-widths-v7',
-      glassy ? GLASSY_TABLE_COLUMNS : STOCK_TABLE_COLUMNS,
-      { allowTightFit: !glassy },
+      STOCK_TABLE_COLUMNS,
+      { allowTightFit: !glassy, fitColumns: glassy ? GLASSY_TABLE_COLUMNS : undefined, persistOnResizeOnly: true },
     );
 
   // Выделение читается через refs, чтобы клик по строке не перезапускал
@@ -1166,18 +1166,19 @@ export function StockPage() {
               ) : null}
             </div>
             <div className="stock-filter-fields mt-3 grid grid-cols-[minmax(112px,1.25fr)_minmax(72px,0.75fr)_auto] items-center gap-2">
-              <select
+              {(glassy || category) && <select
                 aria-label="Категория"
                 value={category}
                 onChange={(event) => {
                   setCategory(event.target.value);
                   setPage(1);
                 }}
-                className="app-glassy-only h-11 min-w-0 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)]"
+                className="stock-mobile-category col-span-full h-11 min-w-0 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)]"
               >
                 <option value="">Все категории</option>
+                {category && !categories.includes(category) && <option value={category}>{category}</option>}
                 {categories.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
-              </select>
+              </select>}
               <select
                 aria-label="Склад"
                 value={activeWarehouseId ?? ''}

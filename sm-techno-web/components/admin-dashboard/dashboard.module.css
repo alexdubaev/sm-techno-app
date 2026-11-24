@@ -35,15 +35,16 @@
 
 :global(html[data-ui-theme='glassy']) .bankActions { grid-area: actions; }
 :global(html[data-ui-theme='glassy']) .controls { grid-area: period; gap: 6px; }
-:global(html[data-ui-theme='glassy']) .root button:not(.chartPreview),
-:global(html[data-ui-theme='glassy']) .root .link,
+:global(html[data-ui-theme='glassy']) .toolbar button,
+:global(html[data-ui-theme='glassy']) .toolbar .link,
+:global(html[data-ui-theme='glassy']) .trend .chartHeading button,
 :global(html[data-ui-theme='glassy']) .closeButton {
   border-color: var(--glass-edge);
   border-radius: 999px;
   background: var(--glass-control);
 }
 
-:global(html[data-ui-theme='glassy']) .root .uploadButton { background: var(--glass-gold); }
+:global(html[data-ui-theme='glassy']) .toolbar .uploadButton { background: var(--glass-gold); border-color: #ffe48d; }
 :global(html[data-ui-theme='glassy']) .root .tabs {
   border: 1px solid var(--glass-edge);
   border-radius: 999px;
@@ -135,7 +136,7 @@
 .planProgress { display: flex; gap: 10px; align-items: center; }
 .planProgress .bar { height: 12px; flex: 1; margin: 0; background: #f7f9fba1; border: 1px solid #fff; }
 .planProgress .bar span { border-radius: 999px; background: var(--glass-gold); }
-.planMobileLabel { display: none; }
+.planMobileLabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 @media (max-width: 1150px) {
   :global(html[data-ui-theme='glassy']) .toolbar { grid-template-columns: 1fr; grid-template-areas: 'period' 'actions'; }
@@ -160,5 +161,5 @@
   .planLabels { display: none; }
   .planRow { grid-template-columns: 1fr 1fr; gap: 5px 10px; font-size: 13px; }
   .planName, .planProgress { grid-column: 1 / -1; }
-  .planMobileLabel { display: block; }
+  .planMobileLabel { display: block; position: static; width: auto; height: auto; overflow: visible; clip-path: none; white-space: normal; }
 }

@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test';
 
 test('appearance switches immediately and is restored on a direct load', async ({ page }) => {
+  const mobile = page.viewportSize()?.width === 390;
+  const category = page.getByRole('combobox', { name: 'Категория', exact: true });
+  const stockResponse = (expectedCategory: string | null) => page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === '/api/stock/catalog' && url.searchParams.get('category') === expectedCategory && response.ok();
+  });
   await page.route('**/api/admin/dashboard/sales?*', async (route) => {
     const params = new URL(route.request().url()).searchParams;
     await route.fulfill({ json: {
@@ -37,9 +43,26 @@ test('appearance switches immediately and is restored on a direct load', async (
   await expect(valuation).toHaveAttribute('aria-expanded', 'false');
   await valuation.click();
   await expect(page.getByRole('button', { name: 'Вставить список' })).toBeVisible();
+  if (mobile) {
+    await expect(page.getByRole('button', { name: /^00123\./ }).first()).toBeVisible();
+    const filtered = stockResponse('Демо');
+    await category.selectOption('Демо');
+    await filtered;
+  }
   await page.goto('/settings');
   await page.getByRole('button', { name: 'Классическая', exact: true }).click();
   await expect(theme).not.toHaveAttribute('data-ui-theme', 'glassy');
   await page.reload();
   await expect(page.getByRole('button', { name: 'Классическая', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  if (mobile) {
+    const restored = stockResponse('Демо');
+    await page.goto('/stock');
+    await restored;
+    await expect(category).toBeVisible();
+    await expect(category).toHaveValue('Демо');
+    const unfiltered = stockResponse(null);
+    await category.selectOption('');
+    await unfiltered;
+    await expect(category).toBeHidden();
+  }
 });
