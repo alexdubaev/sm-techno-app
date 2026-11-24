@@ -957,7 +957,7 @@ function CrmWorkspaceFull() {
         />
       </div>
       <div className="hidden md:block">
-      <header className="flex flex-col justify-between gap-4 rounded-[22px] border border-[var(--border-color)] bg-white/90 px-4 py-4 shadow-[0_12px_30px_rgba(7,22,46,0.05)] sm:px-5 lg:flex-row lg:items-center">
+      <header className="app-surface flex flex-col justify-between gap-4 rounded-[22px] border border-[var(--border-color)] bg-white/90 px-4 py-4 shadow-[0_12px_30px_rgba(7,22,46,0.05)] sm:px-5 lg:flex-row lg:items-center">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)]">Рабочее пространство</p>
           <h1 className="mt-1 text-[25px] font-[700] tracking-[-0.045em] text-[var(--text-primary)]">CRM</h1>
@@ -989,7 +989,7 @@ function CrmWorkspaceFull() {
         <p className="px-2 pt-2 text-[10px] leading-4 text-[var(--text-secondary)]">«Клиенты 1С» и «В работе» — постоянные вкладки. Новые клиенты автоматически попадают в «В работе».</p>
         {isAdmin && activeTab === "primary" ? <PrimaryArchiveSwitch activeCount={primaryActiveCount} archivedCount={primaryArchivedCount} mode={primaryArchiveMode} disabled={isPrimaryArchiveLoading} onChange={setPrimaryArchiveMode} /> : null}
         <div className="mt-2 min-w-0">
-          <div className="rounded-[20px] border border-[var(--border-color)] bg-white/90 p-3 shadow-[0_10px_24px_rgba(7,22,46,0.04)] sm:p-4">
+          <div className="app-surface rounded-[20px] border border-[var(--border-color)] bg-white/90 p-3 shadow-[0_10px_24px_rgba(7,22,46,0.04)] sm:p-4">
             {isPrimaryArchiveView ? <>
               {primaryArchiveError ? <Message tone="error">{primaryArchiveError}</Message> : null}
               {isPrimaryArchiveLoading && !primaryArchive ? <LoadingRows /> : <PrimaryArchiveList clients={primaryArchive?.items ?? []} onOpenClient={setSelectedArchivedClient} />}

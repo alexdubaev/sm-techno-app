@@ -12,6 +12,8 @@ import {
   type SVGProps,
 } from 'react';
 import { useRouter } from 'next/navigation';
+import { Download, Warehouse as WarehouseIcon } from 'lucide-react';
+import { useUiTheme } from '@/hooks/use-ui-theme';
 
 import { AppShell } from '@/components/app-shell';
 import { StockValuationEntry } from '@/components/stock/stock-valuation-entry';
@@ -95,6 +97,12 @@ const STOCK_TABLE_COLUMNS: ResizableColumnConfig[] = [
   },
 ];
 
+const GLASSY_TABLE_COLUMNS = STOCK_TABLE_COLUMNS.map(column => {
+  if (column.key === 'sku') return { ...column, minWidth: 112 };
+  if (column.key === 'price' || column.key === 'amount') return { ...column, minWidth: 104 };
+  return column;
+});
+
 const DEFAULT_STATE: StockPageViewState = {
   searchInput: '',
   category: '',
@@ -119,6 +127,7 @@ const CLIENT_PRICE_EXPORT_ERROR =
 export function StockPage() {
   const warehouseSelectId = useId();
   const router = useRouter();
+  const glassy = useUiTheme() === 'glassy';
   const [meta, setMeta] = useState<AppMeta | null>(null);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [catalog, setCatalog] = useState<StockItem[]>([]);
@@ -175,8 +184,8 @@ export function StockPage() {
   const { containerRef, getWidth, onResizeStart, tableWidth } =
     useResizableColumns(
       'sm-techno-stock-table-widths-v7',
-      STOCK_TABLE_COLUMNS,
-      { allowTightFit: true },
+      glassy ? GLASSY_TABLE_COLUMNS : STOCK_TABLE_COLUMNS,
+      { allowTightFit: !glassy },
     );
 
   // Выделение читается через refs, чтобы клик по строке не перезапускал
@@ -984,7 +993,7 @@ export function StockPage() {
                       selected={isSelected}
                       inDraft={itemLineCount > 0}
                     />
-                    <span className="truncate">{item.sku || '-'}</span>
+                    <span className="truncate" title={item.sku || undefined}>{item.sku || '-'}</span>
                   </div>
                 </td>
                 <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] text-[var(--text-primary)]">
@@ -1041,10 +1050,10 @@ export function StockPage() {
                     {formatStockUnits(availableUnits)}
                   </span>
                 </td>
-                <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] font-semibold tabular-nums text-[var(--text-primary)]">
+                <td className="stock-currency border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] font-semibold tabular-nums text-[var(--text-primary)]">
                   {formatMoney(item.price)}
                 </td>
-                <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] font-semibold tabular-nums text-[var(--text-primary)]">
+                <td className="stock-currency border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] font-semibold tabular-nums text-[var(--text-primary)]">
                   {formatMoney(item.price * availableUnits)}
                 </td>
               </tr>
@@ -1095,14 +1104,14 @@ export function StockPage() {
     }
 
     return (
-      <MobileStockResults catalog={mobileCatalog} onOpenItem={openMobileItem} />
+      <MobileStockResults catalog={mobileCatalog} onOpenItem={openMobileItem} selectedRowKey={selectedCatalogRowKey} />
     );
   };
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-2.5">
-        <header className="flex flex-wrap items-start justify-between gap-2">
+      <div className="stock-workspace flex flex-col gap-2.5">
+        <header className="stock-heading app-feature-heading flex flex-wrap items-start justify-between gap-2">
           <div className="max-w-[38rem]">
             <h1 className="text-[22px] font-[650] leading-none tracking-[-0.05em] text-[var(--text-primary)]">
               Остатки
@@ -1132,8 +1141,8 @@ export function StockPage() {
 
         <StockValuationEntry />
 
-        <div className="md:hidden">
-          <section className="rounded-[18px] bg-white p-3 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+        <div className="stock-mobile md:hidden">
+          <section className="stock-filters app-surface rounded-[18px] bg-white p-3 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
             <div className="relative">
               <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
                 <SearchIcon className="h-5 w-5 stroke-[2]" />
@@ -1156,7 +1165,19 @@ export function StockPage() {
                 </button>
               ) : null}
             </div>
-            <div className="mt-3 grid grid-cols-[minmax(112px,1.25fr)_minmax(72px,0.75fr)_auto] items-center gap-2">
+            <div className="stock-filter-fields mt-3 grid grid-cols-[minmax(112px,1.25fr)_minmax(72px,0.75fr)_auto] items-center gap-2">
+              <select
+                aria-label="Категория"
+                value={category}
+                onChange={(event) => {
+                  setCategory(event.target.value);
+                  setPage(1);
+                }}
+                className="app-glassy-only h-11 min-w-0 rounded-[12px] border border-[var(--border-color)] bg-white px-2 text-[12px] font-medium text-[var(--text-primary)]"
+              >
+                <option value="">Все категории</option>
+                {categories.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+              </select>
               <select
                 aria-label="Склад"
                 value={activeWarehouseId ?? ''}
@@ -1203,7 +1224,7 @@ export function StockPage() {
                 <span className="max-[359px]:hidden">В наличии</span>
               </label>
             </div>
-            <div className="mt-3 border-t border-[var(--border-color)] pt-3">
+            <div className="stock-mobile-export mt-3 border-t border-[var(--border-color)] pt-3">
               <button
                 type="button"
                 onClick={() => {
@@ -1212,9 +1233,10 @@ export function StockPage() {
                 disabled={!priceLoaded || isExportingClientPrice}
                 aria-busy={isExportingClientPrice}
                 aria-describedby="mobile-client-price-hint"
-                className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-4 py-3 text-[14px] font-semibold leading-5 text-[var(--brand-dark)] transition-colors hover:bg-[#FFF8D9] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-dark)] active:bg-[#FFF3BD] disabled:cursor-not-allowed disabled:opacity-50"
+                className="app-glassy-action flex min-h-12 w-full items-center justify-center gap-2 rounded-[12px] border border-[var(--border-color)] bg-white px-4 py-3 text-[14px] font-semibold leading-5 text-[var(--brand-dark)] transition-colors hover:bg-[#FFF8D9] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand-dark)] active:bg-[#FFF3BD] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <DocumentIcon aria-hidden="true" className="h-5 w-5 shrink-0 stroke-[1.8]" />
+                <DocumentIcon aria-hidden="true" className="app-classic-only h-5 w-5 shrink-0 stroke-[1.8]" />
+                <Download aria-hidden="true" size={20} className="app-glassy-only shrink-0" />
                 {isExportingClientPrice
                   ? CLIENT_PRICE_LOADING_LABEL
                   : CLIENT_PRICE_LABEL}
@@ -1251,10 +1273,10 @@ export function StockPage() {
           ) : null}
         </div>
 
-        <div className="hidden gap-2.5 md:grid xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
-          <div className="min-w-0 space-y-2.5">
-            <section className="rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(164px,210px)] lg:grid-cols-[minmax(180px,1fr)_minmax(136px,164px)_minmax(136px,164px)_minmax(136px,164px)_132px_188px]">
+        <div className="stock-desktop hidden gap-2.5 md:grid xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
+          <div className="stock-catalog min-w-0 space-y-2.5">
+            <section className="stock-filters app-surface rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+              <div className="stock-filter-fields grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(164px,210px)] lg:grid-cols-[minmax(180px,1fr)_minmax(136px,164px)_minmax(136px,164px)_minmax(136px,164px)_132px_188px]">
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
                     <SearchIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -1336,17 +1358,18 @@ export function StockPage() {
                   disabled={!priceLoaded || isExportingClientPrice}
                   className="app-action-button app-action-button--lg"
                 >
-                  <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />
+                  <DocumentIcon className="app-classic-only h-3.5 w-3.5 stroke-[2]" />
+                  <Download aria-hidden="true" size={16} className="app-glassy-only shrink-0" />
                   {isExportingClientPrice
                     ? CLIENT_PRICE_LOADING_LABEL
                     : CLIENT_PRICE_LABEL}
                 </button>
               </div>
             </section>
-            <section className="rounded-[16px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="stock-table app-surface rounded-[16px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div
                 ref={containerRef}
-                className="max-h-[calc(100dvh-9rem)] overflow-auto rounded-[14px] border border-[var(--border-color)] bg-white"
+                className="stock-table-scroll max-h-[calc(100dvh-9rem)] overflow-auto rounded-[14px] border border-[var(--border-color)] bg-white"
               >
                 {renderTableBody()}
               </div>
@@ -1416,8 +1439,8 @@ export function StockPage() {
             ) : null}
           </div>
 
-          <aside className="flex min-h-0 flex-col gap-2.5 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:overflow-auto">
-            <section className="rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+          <aside className="stock-sidebar flex min-h-0 flex-col gap-2.5 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:overflow-auto">
+            <section className="stock-item app-surface rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-[9px] font-semibold text-[var(--text-secondary)]">
@@ -1445,7 +1468,7 @@ export function StockPage() {
 
               {selectedItem ? (
                 <>
-                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  <div className="stock-item-metrics mt-2 grid grid-cols-2 gap-1.5">
                     <MiniCard
                       title="В наличии"
                       value={formatStockUnits(selectedAvailableQuantity)}
@@ -1594,7 +1617,7 @@ export function StockPage() {
                         !canAddSelectedItem || !selectedWarehouseBalance
                       }
                       onClick={addSelectedItemToCommercialOfferDraft}
-                      className="app-action-button app-action-button--md mt-1.5 w-full"
+                      className="stock-secondary-action app-action-button app-action-button--md mt-1.5 w-full"
                     >
                       <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />
                       Добавить в КП
@@ -1650,7 +1673,7 @@ export function StockPage() {
                     )}
                   </div>
 
-                  <div className="mt-2 rounded-[12px] border border-[var(--border-color)] bg-[#FCFDFE] p-2">
+                  <div className="stock-item-warehouses mt-2 rounded-[12px] border border-[var(--border-color)] bg-[#FCFDFE] p-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[9px] font-semibold uppercase tracking-[0.05em] text-[var(--text-secondary)]">
                         Остатки по складам
@@ -1682,7 +1705,8 @@ export function StockPage() {
                                   : 'border-[var(--border-color)] bg-white hover:bg-[#F8FAFD]',
                               ].join(' ')}
                             >
-                              <span className="min-w-0">
+                                <span className="stock-item-warehouse-name min-w-0">
+                                  <WarehouseIcon aria-hidden="true" className="app-glassy-only size-4 shrink-0" />
                                 <span className="block truncate text-[var(--text-primary)]">
                                   {warehouse.warehouseName}
                                 </span>
@@ -2042,7 +2066,7 @@ function SelectionMarker({
   }
 
   return (
-    <span className="h-4 w-4 rounded-full border border-[var(--border-color)] bg-white" />
+    <span className="app-classic-only h-4 w-4 rounded-full border border-[var(--border-color)] bg-white" />
   );
 }
 
@@ -2069,6 +2093,7 @@ function MiniCard({
       </p>
       <p
         className={`mt-1 text-[15px] font-[650] leading-none tabular-nums ${toneClass}`}
+        data-tone={tone}
       >
         {value}
       </p>
@@ -2169,12 +2194,14 @@ function TableSkeleton() {
 export function MobileStockResults({
   catalog,
   onOpenItem,
+  selectedRowKey,
 }: {
   catalog: StockItem[];
   onOpenItem: (item: StockItem) => void;
+  selectedRowKey?: string | null;
 }) {
   return (
-    <div className="space-y-3">
+    <div className="stock-mobile-results app-surface space-y-3">
       {catalog.map((item) => {
         const quantity = getAvailableUnits(
           item.rowWarehouseId === null ? item.quantity : item.rowQuantity,
@@ -2190,18 +2217,20 @@ export function MobileStockResults({
             key={getCatalogRowKey(item)}
             type="button"
             aria-label={`${item.sku || 'Товар'}. ${item.name}`}
+            data-selected={selectedRowKey === getCatalogRowKey(item) ? 'true' : undefined}
             onClick={() => onOpenItem(item)}
-            className="w-full rounded-[18px] border border-[var(--border-color)] bg-white px-4 py-4 text-left shadow-[0_8px_20px_rgba(7,22,46,0.06)] transition active:scale-[0.99]"
+            className="stock-mobile-row w-full rounded-[18px] border border-[var(--border-color)] bg-white px-4 py-4 text-left shadow-[0_8px_20px_rgba(7,22,46,0.06)] transition active:scale-[0.99]"
           >
-            <p className="text-[15px] font-bold leading-none tabular-nums tracking-[-0.02em] text-[var(--brand-dark)]">
+            <p className="stock-mobile-sku text-[15px] font-bold leading-none tabular-nums tracking-[-0.02em] text-[var(--brand-dark)]">
               {item.sku || '—'}
             </p>
-            <p className="mt-2 line-clamp-2 text-[16px] font-semibold leading-5 text-[var(--text-primary)]">
+            <p className="stock-mobile-name mt-2 line-clamp-2 text-[16px] font-semibold leading-5 text-[var(--text-primary)]">
               {item.name}
             </p>
-            <div className="mt-4 flex items-start justify-between gap-4">
-              <div className="min-w-0">
+            <div className="stock-mobile-meta mt-4 flex items-start justify-between gap-4">
+              <div className="stock-mobile-location min-w-0">
                 <p className="truncate text-[14px] font-semibold text-[var(--text-primary)]">
+                  <WarehouseIcon aria-hidden="true" className="app-glassy-only size-4 shrink-0" />
                   {warehouseName}
                 </p>
                 {locationLabel ? (
@@ -2212,7 +2241,7 @@ export function MobileStockResults({
               </div>
               <span
                 className={[
-                  'shrink-0 text-[15px] font-bold tabular-nums',
+                  'stock-mobile-quantity shrink-0 text-[15px] font-bold tabular-nums',
                   quantity > 0
                     ? 'text-[var(--stock-ok)]'
                     : 'text-[var(--stock-empty)]',
@@ -2221,7 +2250,7 @@ export function MobileStockResults({
                 {quantity > 0 ? formatStockUnits(quantity) : 'Нет в наличии'}
               </span>
             </div>
-            <p className="mt-4 text-[16px] font-bold tabular-nums tracking-[-0.02em] text-[var(--text-primary)]">
+            <p className="stock-mobile-price mt-4 text-[16px] font-bold tabular-nums tracking-[-0.02em] text-[var(--text-primary)]">
               {formatMoney(item.price)}
             </p>
           </button>
@@ -2281,7 +2310,7 @@ function MobileStockDetailSheet({
         onClick={onClose}
         className="absolute inset-0"
       />
-      <section className="relative max-h-[88dvh] w-full overflow-y-auto rounded-t-[26px] bg-white px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_48px_rgba(7,22,46,0.2)]">
+      <section className="app-dense-surface relative max-h-[88dvh] w-full overflow-y-auto rounded-t-[26px] bg-white px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-18px_48px_rgba(7,22,46,0.2)]">
         <div className="mx-auto h-1.5 w-10 rounded-full bg-[#D9E1EC]" />
         <div className="mt-5 flex items-start justify-between gap-3">
           <div className="min-w-0">

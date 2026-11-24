@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useId, useRef, useState } from 'react';
+import { ChevronDown, Tag } from 'lucide-react';
 import { validateStockFile, textStockFile } from '@/lib/stock-intake-source';
 import { intakeValuation, resolveValuation, type ValuationRow, type ValuationResult, type Workbook } from '@/lib/stock-valuation-api';
 import type { TableMapping, TableSelection } from '@/lib/stock-valuation-api';
@@ -44,8 +45,13 @@ export function StockValuationPanel({ receivedSource, receivedError, onInteracti
     const url = URL.createObjectURL(new Blob([bytes], {type: workbook.mediaType}));
     const link = document.createElement('a'); link.href = url; link.download = workbook.filename; link.click(); URL.revokeObjectURL(url);
   }
-  return <><div className="mb-3 rounded-2xl bg-white p-3 shadow-sm">
-    <div className="flex items-center justify-between gap-3"><h2 className="font-semibold">Расценка артикулов</h2><button type="button" aria-expanded={open} aria-controls={panelId} className="min-h-11 shrink-0 px-2 underline" onClick={() => open ? close() : setOpen(true)}>{open ? "Свернуть" : "Развернуть"}</button></div>
+  return <><div className="stock-valuation app-surface mb-3 rounded-2xl bg-white p-3 shadow-sm">
+    <div className="stock-valuation-header flex items-center justify-between gap-3">
+      <h2 className="font-semibold"><Tag aria-hidden="true" className="app-glassy-only size-6 shrink-0" />Расценка артикулов</h2>
+      <button type="button" aria-expanded={open} aria-controls={panelId} className="min-h-11 shrink-0 px-2 underline" onClick={() => open ? close() : setOpen(true)}>
+        <span>{open ? "Свернуть" : "Развернуть"}</span><ChevronDown aria-hidden="true" className="app-glassy-only size-5 shrink-0" />
+      </button>
+    </div>
     <section id={panelId} aria-label="Расценка артикулов" hidden={!open} className="space-y-3">
       {open && <>
       <p className="text-sm text-slate-600">Загрузите список, проверьте артикулы и получите остатки и цены по складам. Подборка не сохраняется.</p>

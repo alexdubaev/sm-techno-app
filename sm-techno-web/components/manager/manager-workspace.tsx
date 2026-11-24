@@ -170,7 +170,7 @@ function CabinetLoader({
   }, [month, managerId]);
   if (error)
     return (
-      <section className={styles.panel}>
+      <section className={`${styles.panel} app-surface`}>
         <p role="alert" className={styles.error}>
           {error}
         </p>
@@ -212,7 +212,7 @@ function Cabinet({
         : (summary.salesTotal / terms.plan) * 100;
   return (
     <>
-      <section className={styles.profile}>
+      <section className={`${styles.profile} app-surface`}>
         <ManagerAvatar
           key={data.account.avatarVersion}
           account={data.account}
@@ -297,7 +297,7 @@ function Cabinet({
           ],
         ].map(([title, value, hint], i) => (
           <article
-            className={`${styles.metric} ${i === 3 ? styles.total : ''}`}
+            className={`${styles.metric} ${i === 3 ? styles.total : 'app-surface'}`}
             data-long-amount={value.length > 14 || undefined}
             key={title}
           >
@@ -310,7 +310,7 @@ function Cabinet({
       <div className={styles.dashboardGrid}>
         <ManagerChart data={data} />
         {noPlan ? (
-          <section className={styles.panel}>
+          <section className={`${styles.panel} app-surface`}>
             <div className={styles.panelHeading}><h2>Вознаграждение без плана</h2><span className={styles.hint}>{monthLabel(data.month)}</span></div>
             <p className={styles.hint}>{terms.mode === 'minimum'
               ? 'Начисляется большая сумма: минимальная зарплата или проценты с продаж. Процент рассчитывается по ставке каждой продажи.'
@@ -321,7 +321,7 @@ function Cabinet({
               <p>Ставки уже внесённых продаж сохраняются. Начисления не подтверждают выплату денег.</p>
             </details>
           </section>
-        ) : <section className={styles.panel}>
+        ) : <section className={`${styles.panel} app-surface`}>
           <div className={styles.panelHeading}>
             <h2>План на месяц</h2>
             <span className={styles.hint}>{monthLabel(data.month)}</span>
@@ -381,7 +381,7 @@ function Cabinet({
           </details>
         </section>}
       </div>
-      <section className={`${styles.panel} ${styles.salesPanel}`}>
+      <section className={`${styles.panel} ${styles.salesPanel} app-surface`}>
         <div className={styles.salesHeading}>
           <div>
             <h2>Продажи</h2>

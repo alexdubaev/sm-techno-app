@@ -84,7 +84,7 @@ export function MobileCrmHeader({
   onToggleReorder,
 }: MobileCrmHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 -mx-3 border-b border-[var(--border-color)] bg-white/95 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] shadow-[0_8px_24px_rgba(7,22,46,0.05)] backdrop-blur">
+    <header className="app-dense-surface sticky top-0 z-30 -mx-3 border-b border-[var(--border-color)] bg-white/95 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] shadow-[0_8px_24px_rgba(7,22,46,0.05)] backdrop-blur">
       <div className="flex min-h-11 items-center gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">

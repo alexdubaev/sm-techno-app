@@ -131,7 +131,7 @@ export function CompanySales({ period, date }: Props) {
   };
 
   const activeManagers = managers.filter(manager => manager.active && !manager.archived);
-  return <section className={styles.panel} aria-labelledby="company-sales-title">
+  return <section className={`${styles.panel} app-surface`} aria-labelledby="company-sales-title">
     <header className={styles.heading}><div><h2 id="company-sales-title">Продажи</h2><p>Все оплаты компании. Назначьте или смените менеджера в карточке продажи.</p></div><strong>{total.toLocaleString('ru-RU')}</strong></header>
     <div className={styles.filters}>
       <label className={styles.search}>Поиск продаж<input aria-label="Поиск продаж" value={query} placeholder="Клиент, счёт или платёж" onChange={event => { setQuery(event.target.value); setPage(1); }}/></label>

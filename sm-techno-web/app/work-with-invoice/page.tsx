@@ -469,7 +469,7 @@ export default function WorkWithInvoicePage() {
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+      <div className="app-surface flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
         <header className="flex flex-wrap items-start justify-between gap-1.5">
           <div className="max-w-[40rem]">
             <h1 className="text-[17px] font-[650] leading-none tracking-[-0.04em] text-[var(--text-primary)]">

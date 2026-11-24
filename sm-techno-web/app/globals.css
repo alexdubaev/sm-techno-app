@@ -520,6 +520,10 @@ select {
 }
 
 /* Smooth expand/collapse without measuring height */
+.app-nav-group[data-active='true'] {
+  color: #fff;
+}
+
 .app-nav-collapse {
   display: grid;
   grid-template-rows: 0fr;

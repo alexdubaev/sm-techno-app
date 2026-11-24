@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { Settings } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -23,6 +24,7 @@ import {
   type AppNavItem,
 } from '@/components/navigation/app-navigation';
 import { Toaster, toast } from '@/components/ui/toast';
+import { useUiTheme } from '@/hooks/use-ui-theme';
 
 type ShellProps = {
   children: ReactNode;
@@ -50,6 +52,9 @@ let menuStateSnapshot: MenuState = {
   selectedGroupLabel: '',
   pathname: '',
 };
+
+// Matches the Glassy shell breakpoint in glassy.css.
+const glassyDesktopQuery = '(min-width: 80rem)';
 
 /** A new address (link on a page, back/forward, fresh load) selects and opens its group. */
 function syncMenuWithRoute(
@@ -128,6 +133,16 @@ export function AppShell({ children }: ShellProps) {
     menuStateSnapshot = menuState;
   }, [menuState]);
   const [moreOpen, setMoreOpen] = useState(false);
+  const theme = useUiTheme();
+  useEffect(() => {
+    if (theme !== 'glassy') return;
+    const query = window.matchMedia?.(glassyDesktopQuery);
+    const closeOnDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) setMoreOpen(false);
+    };
+    query?.addEventListener('change', closeOnDesktop);
+    return () => query?.removeEventListener('change', closeOnDesktop);
+  }, [theme]);
   const selectedGroupIsVisible = visibleNavGroups.some(
     (group) => group.label === menuState.selectedGroupLabel,
   );
@@ -168,11 +183,11 @@ export function AppShell({ children }: ShellProps) {
 
   return (
     <Toaster>
-      <div className="min-h-screen bg-[var(--page-bg)] text-[var(--text-primary)]">
-        <div className="mx-auto min-h-screen max-w-[1680px] 2xl:flex">
+      <div className="app-shell min-h-screen bg-[var(--page-bg)] text-[var(--text-primary)]">
+        <div className="app-shell-frame mx-auto min-h-screen max-w-[1680px] 2xl:flex">
           <aside className="app-shell-sidebar hidden w-[246px] shrink-0 border-r border-[var(--border-color)] bg-white/92 px-3 py-3 backdrop-blur-sm 2xl:flex 2xl:flex-col">
-            <div className="mb-4 px-1.5">
-              <div className="relative h-[76px] w-[198px] overflow-hidden 2xl:h-[82px] 2xl:w-[226px]">
+            <div className="app-shell-sidebar-brand mb-4 px-1.5">
+              <div className="app-shell-sidebar-logo relative h-[76px] w-[198px] overflow-hidden 2xl:h-[82px] 2xl:w-[226px]">
                 <Image
                   src="/logo.png"
                   alt="СМ Техно"
@@ -184,7 +199,7 @@ export function AppShell({ children }: ShellProps) {
               </div>
             </div>
 
-            <div className="mb-3 rounded-[16px] border border-[var(--border-color)] bg-[#FBFCFE] px-3 py-2.5">
+            <div className="app-shell-user mb-3 rounded-[16px] border border-[var(--border-color)] bg-[#FBFCFE] px-3 py-2.5">
               <div className="text-[12px] font-semibold text-[var(--text-primary)]">
                 {displayName}
               </div>
@@ -202,6 +217,7 @@ export function AppShell({ children }: ShellProps) {
 
                 if (group.items.length === 1) {
                   const [item] = group.items;
+                  const Icon = item.Icon;
                   return (
                     <div key={group.label}>
                       <Link
@@ -211,8 +227,9 @@ export function AppShell({ children }: ShellProps) {
                         }
                         onClick={() => handleItemClick(group.label)}
                         className={navGroupClassName(groupActive, false)}
+                        data-active={groupActive}
                       >
-                        <span className="min-w-0 text-left">{group.label}</span>
+                        <span className="flex min-w-0 items-center gap-2.5 text-left"><Icon aria-hidden="true" className="app-glassy-only size-5 shrink-0" />{group.label}</span>
                       </Link>
                     </div>
                   );
@@ -225,6 +242,7 @@ export function AppShell({ children }: ShellProps) {
                       controlsId={collapseId}
                       expanded={groupExpanded}
                       label={group.label}
+                      Icon={group.items[0].Icon}
                       onClick={() => handleGroupClick(group)}
                     />
                     <div
@@ -256,7 +274,7 @@ export function AppShell({ children }: ShellProps) {
               <button
                 type="button"
                 onClick={() => void logout()}
-                className="flex h-[40px] w-full items-center justify-center rounded-[14px] border border-[var(--border-color)] bg-white text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
+                className="app-shell-logout flex h-[40px] w-full items-center justify-center rounded-[14px] border border-[var(--border-color)] bg-white text-[12px] font-semibold text-[var(--text-primary)] transition hover:bg-[#F8FAFD]"
               >
                 Выйти
               </button>
@@ -269,7 +287,7 @@ export function AppShell({ children }: ShellProps) {
               className="app-shell-mobile-header border-b border-[var(--border-color)] bg-white/92 px-2 py-2 backdrop-blur-sm 2xl:hidden"
             >
               <div className="flex items-center justify-between gap-3">
-                <div className="relative h-[50px] w-[146px] overflow-hidden">
+                <div className="app-shell-mobile-logo relative h-[50px] w-[146px] overflow-hidden">
                   <Image
                     src="/logo.png"
                     alt="СМ Техно"
@@ -287,6 +305,9 @@ export function AppShell({ children }: ShellProps) {
                     {roleLabel}
                   </div>
                 </div>
+                <Link href="/settings" aria-label="Открыть настройки" className="app-glassy-only app-shell-mobile-settings size-11 shrink-0 items-center justify-center rounded-full">
+                  <Settings size={20} aria-hidden="true" />
+                </Link>
               </div>
             </div>
 
@@ -315,13 +336,12 @@ export function AppShell({ children }: ShellProps) {
 }
 
 function navGroupClassName(active: boolean, expanded: boolean) {
-  // `!`: the global unlayered `a { color: inherit }` outranks layered utilities, and a single-item group renders as a link.
   const toneClass = active
-    ? 'bg-[var(--brand-dark)] text-white! shadow-[0_12px_24px_rgba(7,22,46,0.14)]'
+    ? 'bg-[var(--brand-dark)] shadow-[0_12px_24px_rgba(7,22,46,0.14)]'
     : expanded
       ? 'bg-[#F1F4F9] text-[var(--text-primary)] hover:bg-[#EBEFF5]'
       : 'bg-transparent text-[var(--text-primary)] hover:bg-[#F1F4F9]';
-  return `inline-flex min-h-[36px] w-full items-center justify-between gap-2 rounded-[12px] px-3 py-1.5 text-left transition-[background-color,color,box-shadow,transform] duration-200 ease-out active:scale-[.985] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,196,0,0.35)] motion-reduce:transition-none ${toneClass}`;
+  return `app-nav-group inline-flex min-h-[36px] w-full items-center justify-between gap-2 rounded-[12px] px-3 py-1.5 text-left transition-[background-color,color,box-shadow,transform] duration-200 ease-out active:scale-[.985] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,196,0,0.35)] motion-reduce:transition-none ${toneClass}`;
 }
 
 function NavGroupButton({
@@ -329,12 +349,14 @@ function NavGroupButton({
   controlsId,
   expanded,
   label,
+  Icon,
   onClick,
 }: {
   active: boolean;
   controlsId: string;
   expanded: boolean;
   label: string;
+  Icon: AppNavItem['Icon'];
   onClick: () => void;
 }) {
   return (
@@ -342,10 +364,11 @@ function NavGroupButton({
       type="button"
       aria-controls={controlsId}
       aria-expanded={expanded}
+      data-active={active}
       onClick={onClick}
       className={navGroupClassName(active, expanded)}
     >
-      <span className="min-w-0 text-left">{label}</span>
+      <span className="flex min-w-0 items-center gap-2.5 text-left"><Icon aria-hidden="true" className="app-glassy-only size-5 shrink-0" />{label}</span>
       <ChevronIcon
         className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
       />
@@ -370,7 +393,7 @@ function SidebarLink({
       href={item.href}
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
-      className={`flex h-[38px] items-center gap-2 rounded-[12px] border px-3 text-[12px] font-semibold transition-[background-color,border-color,color,transform] duration-200 ease-out active:scale-[.985] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,196,0,0.35)] motion-reduce:transition-none ${
+      className={`app-nav-link flex h-[38px] items-center gap-2 rounded-[12px] border px-3 text-[12px] font-semibold transition-[background-color,border-color,color,transform] duration-200 ease-out active:scale-[.985] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,196,0,0.35)] motion-reduce:transition-none ${
         active
           ? 'border-[var(--brand-dark)] bg-white text-[var(--brand-dark)] shadow-[inset_3px_0_0_var(--brand-yellow)]'
           : 'border-transparent text-[var(--text-primary)] hover:bg-[#F1F4F9]'

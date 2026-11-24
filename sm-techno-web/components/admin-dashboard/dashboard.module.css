@@ -16,3 +16,149 @@
 .panel{padding:10px 12px}.summary{gap:6px 9px;margin-bottom:6px}.summary strong{font-size:24px}.summary span{font-size:12px}.salesLayout{grid-template-columns:1fr;padding-top:5px}.chartColumn{padding:0}.chart{height:152px;margin:4px 0}.chartHeading h3{font-size:14px}.chartHint{font-size:10px}.managerColumn{border:0;border-top:1px solid #e3e8f0;padding:7px 0 0}.managerHeading{margin-bottom:3px}.managerHeading .muted{font-size:10px;margin:0}.managerColumn .rows{max-height:180px}.managerColumn .row{grid-template-columns:minmax(0,1fr) auto;padding:5px 0;font-size:12px;gap:1px 8px}.managerColumn .row>:last-child{font-size:10px;line-height:14px}.managerColumn .bar{height:4px;margin-top:3px}.managerColumn .row small{font-size:10px}.root .muted{font-size:11px}.chartDialog{padding:16px;gap:10px}.largeChart{height:auto;min-height:300px}
 }
 @media(min-width:390px) and (max-width:700px){.uploadLabel{display:inline;font-size:0}.uploadLabel:after{content:'Выписка';font-size:12px}}
+
+:global(html[data-ui-theme='glassy']) .root {
+  max-width: none;
+  padding: 22px 0 0;
+  gap: 14px;
+}
+
+.pageHeading { padding-inline: 15px; }
+
+:global(html[data-ui-theme='glassy']) .toolbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'period actions';
+  align-items: start;
+  gap: 10px;
+  padding-inline: 12px;
+}
+
+:global(html[data-ui-theme='glassy']) .bankActions { grid-area: actions; }
+:global(html[data-ui-theme='glassy']) .controls { grid-area: period; gap: 6px; }
+:global(html[data-ui-theme='glassy']) .root button:not(.chartPreview),
+:global(html[data-ui-theme='glassy']) .root .link,
+:global(html[data-ui-theme='glassy']) .closeButton {
+  border-color: var(--glass-edge);
+  border-radius: 999px;
+  background: var(--glass-control);
+}
+
+:global(html[data-ui-theme='glassy']) .root .uploadButton { background: var(--glass-gold); }
+:global(html[data-ui-theme='glassy']) .root .tabs {
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  padding: 3px;
+  background: var(--glass-control);
+  box-shadow: var(--glass-shadow);
+}
+
+:global(html[data-ui-theme='glassy']) .root .tabs button {
+  min-height: 36px;
+  background: transparent;
+  border-color: transparent;
+}
+
+:global(html[data-ui-theme='glassy']) .root .tabs button[aria-pressed='true'] {
+  background: linear-gradient(140deg, #203652, #07162e);
+  color: #fff;
+}
+
+:global(html[data-ui-theme='glassy']) .root .periodInfo { color: var(--text-primary); }
+:global(html[data-ui-theme='glassy']) .panel { padding: 16px 22px; }
+:global(html[data-ui-theme='glassy']) .root h2,
+:global(html[data-ui-theme='glassy']) .root h3 { letter-spacing: -.025em; }
+:global(html[data-ui-theme='glassy']) .root h2 { font-size: clamp(19px, 1.9vw, 26px); }
+:global(html[data-ui-theme='glassy']) .root h3 { font-size: clamp(17px, 1.7vw, 23px); }
+:global(html[data-ui-theme='glassy']) .summary {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  margin-bottom: 0;
+}
+
+:global(html[data-ui-theme='glassy']) .summary strong {
+  font-size: clamp(32px, 4vw, 55px);
+  font-weight: 750;
+  letter-spacing: -.04em;
+  line-height: 1.05;
+}
+
+:global(html[data-ui-theme='glassy']) .summary span {
+  padding: 4px 11px;
+  border: 1px solid #f9fbff85;
+  border-radius: 999px;
+  background: #f9fbff6b;
+  color: var(--text-primary);
+}
+
+:global(html[data-ui-theme='glassy']) .muted,
+:global(html[data-ui-theme='glassy']) .root small,
+:global(html[data-ui-theme='glassy']) .root details,
+:global(html[data-ui-theme='glassy']) .chartHint { color: var(--text-secondary); }
+
+.glassySalesLayout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.glassySalesLayout:has(.breakdown) { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); }
+.trend, .breakdown, .plans, .sources { min-width: 0; padding: 14px 20px; }
+.glassyArea { height: 240px; }
+.chartDialog .glassyArea { height: auto; min-height: 300px; }
+:global(html[data-ui-theme='glassy']) :is(.glassyArea, .donutChart) :global(.recharts-default-tooltip) {
+  border: 1px solid #fff !important;
+  background: var(--glass-dense) !important;
+  border-radius: 13px;
+  box-shadow: var(--glass-shadow);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+:global(html[data-ui-theme='glassy']) :is(.glassyArea, .donutChart) :global(.recharts-tooltip-item) { color: var(--text-primary) !important; }
+.breakdownBody { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: center; gap: 12px; margin-top: 14px; }
+.donut { position: relative; width: 100%; max-width: 236px; justify-self: center; aspect-ratio: 1; }
+.donutChart { position: absolute; inset: 0; }
+.donutTotal { position: absolute; inset: 19%; display: grid; align-content: center; justify-items: center; text-align: center; pointer-events: none; }
+.donutTotal strong { font-size: clamp(14px, 1.5vw, 24px); letter-spacing: -.035em; line-height: 1.15; overflow-wrap: anywhere; }
+.donutTotal span { font-size: clamp(10px, .95vw, 13px); color: var(--text-secondary); }
+.legend { max-height: 220px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.legend li { display: flex; align-items: baseline; gap: 8px; padding: 7px 1px; border-bottom: 1px solid #fff8; font-size: clamp(12px, 1.1vw, 15px); }
+.legend li:last-child { border: 0; }
+.legend li div { min-width: 0; overflow-wrap: anywhere; }
+.legend li div span, .legend li strong { display: block; }
+.legendDot { flex: 0 0 12px; height: 12px; border-radius: 50%; border: 1px solid #fffc; }
+
+.planLabels, .planRow { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.9fr); align-items: center; gap: 10px; padding: 8px 12px; }
+.planLabels { color: var(--text-secondary); font-size: 13px; }
+.planRow { margin-top: 3px; min-height: 51px; border: 1px solid #fffa; background: #f9fbff50; border-radius: 13px; font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.planRow:hover { background: #fff3cda8; }
+.planName { display: flex; gap: 9px; align-items: center; }
+.planName svg { flex: none; }
+.planName small { display: block; }
+.planProgress { display: flex; gap: 10px; align-items: center; }
+.planProgress .bar { height: 12px; flex: 1; margin: 0; background: #f7f9fba1; border: 1px solid #fff; }
+.planProgress .bar span { border-radius: 999px; background: var(--glass-gold); }
+.planMobileLabel { display: none; }
+
+@media (max-width: 1150px) {
+  :global(html[data-ui-theme='glassy']) .toolbar { grid-template-columns: 1fr; grid-template-areas: 'period' 'actions'; }
+}
+
+@media (max-width: 860px) {
+  .glassySalesLayout:has(.breakdown) { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 700px) {
+  :global(html[data-ui-theme='glassy']) .root { padding: 2px 0 0; gap: 12px; }
+  .pageHeading { padding-inline: 8px; }
+  .pageHeading p { display: none; }
+  :global(html[data-ui-theme='glassy']) .toolbar { padding-inline: 0; gap: 6px; }
+  :global(html[data-ui-theme='glassy']) .panel { padding: 13px 15px; }
+  .trend, .breakdown, .plans, .sources { padding: 12px 14px; }
+  .glassyArea { height: 174px; }
+  :global(html[data-ui-theme='glassy']) .chartHint { display: none; }
+  .breakdownBody { gap: 12px; margin-top: 9px; }
+  .donutTotal strong { font-size: clamp(14px, 4vw, 20px); }
+  .legend li { padding-block: 5px; }
+  .planLabels { display: none; }
+  .planRow { grid-template-columns: 1fr 1fr; gap: 5px 10px; font-size: 13px; }
+  .planName, .planProgress { grid-column: 1 / -1; }
+  .planMobileLabel { display: block; }
+}

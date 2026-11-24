@@ -186,7 +186,7 @@ export default function DocumentsWorkspace() {
   const archiveHasClient=clientId===null || archiveOptions.some((c) => (c.crmClientId ?? c.id)===clientId);
 
   return <AppShell><main ref={root} className="grid min-w-0 gap-4">
-    <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-color)] bg-white px-4 py-3">
+    <header className="app-surface flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-color)] bg-white px-4 py-3">
       <div className="min-w-0"><h1 className="text-xl font-bold text-[var(--text-primary)]">Документы</h1><p className="text-sm text-[var(--text-secondary)]">Договоры и спецификации из реквизитов и счетов клиента.</p></div>
       <Link href="/documents/journal" className={secondaryAction}><History className="h-4 w-4" aria-hidden="true" />Журнал документов</Link>
     </header>

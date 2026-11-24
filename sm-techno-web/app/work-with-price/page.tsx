@@ -1337,7 +1337,7 @@ function WorkWithPriceAdminPage() {
             ? createPortal(
                 <div
                   data-row-actions-root="true"
-                  className="fixed z-30 min-w-[208px] rounded-[12px] border border-[var(--border-color)] bg-white p-1 shadow-[0_18px_36px_rgba(7,22,46,0.14)]"
+                  className="app-dense-surface fixed z-30 min-w-[208px] rounded-[12px] border border-[var(--border-color)] bg-white p-1 shadow-[0_18px_36px_rgba(7,22,46,0.14)]"
                   style={{
                     top: activeRowMenu.top,
                     right: activeRowMenu.right,
@@ -2460,7 +2460,7 @@ function StockActionDrawer({
         onClick={onClose}
         className="absolute inset-0 cursor-default"
       />
-      <section className="relative z-10 flex h-full w-full max-w-[420px] flex-col border-l border-[var(--border-color)] bg-white shadow-[-18px_0_40px_rgba(7,22,46,0.14)]">
+      <section className="app-dense-surface relative z-10 flex h-full w-full max-w-[420px] flex-col border-l border-[var(--border-color)] bg-white shadow-[-18px_0_40px_rgba(7,22,46,0.14)]">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border-color)] px-4 py-3">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">

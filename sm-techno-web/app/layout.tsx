@@ -1,7 +1,9 @@
 ﻿import type { Metadata } from "next";
 import "./globals.css";
+import "./glassy.css";
 import { StockShareSessionBridge } from "@/components/stock/stock-share-session-bridge";
 import { AuthProvider } from "@/components/auth-provider";
+import { uiThemeBootstrap } from "@/lib/ui-theme";
 
 export const metadata: Metadata = {
   applicationName: "СМ ТЕХНО",
@@ -25,7 +27,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru" className="h-full antialiased">
+    <html lang="ru" className="h-full antialiased" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: uiThemeBootstrap }} /></head>
       <body className="min-h-full flex flex-col">
         <AuthProvider><StockShareSessionBridge />{children}</AuthProvider>
       </body>
