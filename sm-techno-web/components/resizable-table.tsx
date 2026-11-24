@@ -273,13 +273,16 @@ export function useResizableColumns(
       event.preventDefault();
       event.stopPropagation();
       const fitColumn = fitColumns.find(column => column.key === columnKey);
+      const minWidth = fitColumn?.minWidth ?? rules[columnKey]?.minWidth ?? 56;
+      const maxWidth = fitColumn?.maxWidth ?? rules[columnKey]?.maxWidth ?? 720;
+      const startWidth = clampWidth(widths[columnKey] ?? defaults[columnKey] ?? 120, minWidth, maxWidth);
 
       resizeSessionRef.current = {
         key: columnKey,
         startX: event.clientX,
-        startWidth: widths[columnKey] ?? defaults[columnKey] ?? 120,
-        minWidth: fitColumn?.minWidth ?? rules[columnKey]?.minWidth ?? 56,
-        maxWidth: fitColumn?.maxWidth ?? rules[columnKey]?.maxWidth ?? 720,
+        startWidth,
+        minWidth,
+        maxWidth,
         moved: false,
       };
 
