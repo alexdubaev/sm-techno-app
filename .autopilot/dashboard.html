@@ -62,7 +62,10 @@
   code,.mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
   .tnum,.big b,.tv,.s-time,.tl-time,.ev em{font-variant-numeric:tabular-nums}
   .wrap{max-width:1320px;margin:0 auto;padding:22px 32px 40px;display:flex;flex-direction:column;gap:20px;min-width:0}
+  #app,#details{display:contents}
   .card{background:var(--card);border:1px solid var(--line);border-radius:26px;box-shadow:var(--sh);padding:24px 26px;min-width:0}
+  .preview-frame{display:block;width:100%;height:clamp(320px,62vh,760px);border:1px solid var(--line);border-radius:14px;background:var(--inset)}
+  .preview-open{text-decoration:none}
   .ic{width:16px;height:16px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
   .ic.xs{width:14px;height:14px;stroke-width:2.6}
   .ic.m{width:20px;height:20px}
@@ -329,7 +332,19 @@
 <body>
 <!-- Плашка о потере связи живёт вне #app: render() переписывает #app целиком. -->
 <div class="lost" hidden><div id="link" role="status" hidden></div></div>
-<div class="wrap" id="app"></div>
+<div class="wrap" id="dashboard">
+  <div id="app"></div>
+  <section class="card" id="preview" aria-labelledby="preview-title" hidden>
+    <div class="whead">
+      <h3 class="wt" id="preview-title"></h3>
+      <a class="btn-soft preview-open" id="preview-open" target="_blank" rel="noopener noreferrer" hidden></a>
+    </div>
+    <p class="empty" id="preview-wait" role="status" hidden></p>
+    <iframe class="preview-frame" id="preview-frame" title="Live preview"
+      sandbox="allow-scripts allow-same-origin allow-forms" referrerpolicy="no-referrer" hidden></iframe>
+  </section>
+  <div id="details"></div>
+</div>
 
 <!-- Состояние приходит двумя путями, и порядок этих двух тегов — весь смысл.
      Сначала снимок, вписанный внутрь страницы: он есть всегда, поэтому дашборд
@@ -341,7 +356,7 @@
      правке, снимок — на каждом вызове .autopilot/ap.py, и он же вписывает
      файл в страницу, так что снимок либо равен файлу, либо старше его.
      Между маркерами правит только ap.py; руками — никогда. -->
-<script>/*STATE-BEGIN*/window.STATE={"version": 2, "slug": "overview-compact-summary", "dir": "2026-11-08-overview-compact-summary", "title": "Компактный общий обзор — Сводка рядом", "mode": "semi", "depth": "normal", "tier": "T0", "briefFile": "2026-11-08-brief.md", "memoryFile": "AGENTS.md", "memoryOwner": "user", "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot", "baseCommit": "8b7318de", "startedAt": "2026-11-08T13:13:39+03:00", "updatedAt": "2026-11-08T14:19:57+03:00", "finishedAt": "2026-11-08T14:19:57+03:00", "stages": [{"id": "preflight", "status": "done", "startedAt": "2026-11-08T13:13:39+03:00", "finishedAt": "2026-11-08T13:19:02+03:00"}, {"id": "manifest", "status": "done", "startedAt": "2026-11-08T13:19:02+03:00", "finishedAt": "2026-11-08T13:19:04+03:00"}, {"id": "briefing", "status": "skipped", "startedAt": "2026-11-08T13:19:03+03:00", "finishedAt": "2026-11-08T13:19:03+03:00", "note": "Выбран конкретный макет; бизнес-правила и контур прежние, дополнительных вопросов нет"}, {"id": "spec", "status": "done", "startedAt": "2026-11-08T13:19:04+03:00", "finishedAt": "2026-11-08T13:23:57+03:00"}, {"id": "plan", "status": "done", "startedAt": "2026-11-08T13:23:57+03:00", "finishedAt": "2026-11-08T13:24:28+03:00"}, {"id": "build", "status": "done", "startedAt": "2026-11-08T13:24:28+03:00", "finishedAt": "2026-11-08T14:05:19+03:00"}, {"id": "review", "status": "done", "startedAt": "2026-11-08T14:05:19+03:00", "finishedAt": "2026-11-08T14:18:46+03:00"}, {"id": "final", "status": "done", "startedAt": "2026-11-08T14:18:46+03:00", "finishedAt": "2026-11-08T14:19:57+03:00"}], "requirements": {"total": 10, "done": 10, "inTicket": 0, "inSpec": 0, "placeholder": 0, "deferred": 0, "dropped": 0}, "tickets": [{"id": "01", "title": "Компактный общий обзор «Сводка рядом»", "requirements": ["R01", "R02", "R03", "R04", "R05", "R06", "R07", "R08", "R09", "R10"], "blockedBy": [], "wave": 1, "zone": ["sm-techno-web/components/admin-dashboard/", "sm-techno-web/tests/auth/admin-dashboard.integration.test.tsx", "sm-techno-web/tests/e2e/admin-dashboard.spec.ts", "sm-techno-web/tests/e2e/manager-bank-import.spec.ts", "sm-techno-web/tests/e2e/manager-dashboard-layout.spec.ts", "design-qa.md"], "review": "нет", "model": "обычная", "status": "done", "startedAt": "2026-11-08T13:24:29+03:00", "finishedAt": "2026-11-08T14:05:18+03:00", "retries": 1, "repairs": 0, "tests": {"passed": 8, "failed": 0}, "commit": "8dcdb2ca"}, {"id": "F1", "title": "Сохранить прежние подсказки и закрыть проверки обзора", "requirements": ["R01", "R04", "R06"], "blockedBy": [], "wave": 2, "zone": ["sm-techno-web/components/admin-dashboard/dashboard.tsx", "sm-techno-web/tests/e2e/admin-dashboard.spec.ts", "sm-techno-web/tests/e2e/manager-dashboard-layout.spec.ts", "design-qa.md"], "review": "нет", "model": "сильная", "status": "done", "startedAt": "2026-11-08T14:11:10+03:00", "retries": 0, "repairs": 0, "finishedAt": "2026-11-08T14:18:45+03:00", "tests": {"passed": 9, "failed": 0}, "commit": "d56f2067"}], "tests": {"passed": 17, "failed": 0}, "debt": {"placeholders": [], "assumptions": [], "emptyEnv": []}, "additions": [], "coverage": {"found": 1, "fixed": 1, "deferred": 0, "items": []}, "concerns": [], "blind": {"checked": 10, "matched": 10, "mismatches": []}, "beats": ["2026-11-08T13:13:39+03:00", "2026-11-08T13:19:01+03:00", "2026-11-08T13:19:02+03:00", "2026-11-08T13:19:03+03:00", "2026-11-08T13:19:04+03:00", "2026-11-08T13:23:56+03:00", "2026-11-08T13:23:57+03:00", "2026-11-08T13:23:58+03:00", "2026-11-08T13:23:59+03:00", "2026-11-08T13:24:00+03:00", "2026-11-08T13:24:23+03:00", "2026-11-08T13:24:24+03:00", "2026-11-08T13:24:27+03:00", "2026-11-08T13:24:28+03:00", "2026-11-08T13:24:29+03:00", "2026-11-08T13:26:16+03:00", "2026-11-08T13:26:17+03:00", "2026-11-08T13:50:06+03:00", "2026-11-08T14:05:18+03:00", "2026-11-08T14:05:19+03:00", "2026-11-08T14:11:08+03:00", "2026-11-08T14:11:09+03:00", "2026-11-08T14:11:10+03:00", "2026-11-08T14:14:49+03:00", "2026-11-08T14:18:45+03:00", "2026-11-08T14:18:46+03:00", "2026-11-08T14:18:47+03:00", "2026-11-08T14:18:48+03:00", "2026-11-08T14:19:57+03:00"], "rev": 30, "waiting": null, "waits": [], "log": [{"t": "2026-11-08T13:13:39+03:00", "k": "init"}, {"t": "2026-11-08T13:19:02+03:00", "k": "stage", "id": "manifest", "act": "start"}, {"t": "2026-11-08T13:19:03+03:00", "k": "stage", "id": "briefing", "act": "skip", "note": "Выбран конкретный макет; бизнес-правила и контур прежние, дополнительных вопросов нет"}, {"t": "2026-11-08T13:19:04+03:00", "k": "gate", "g": "G1", "ok": true, "open": 0, "total": 10}, {"t": "2026-11-08T13:19:04+03:00", "k": "stage", "id": "spec", "act": "start"}, {"t": "2026-11-08T13:23:56+03:00", "k": "gate", "g": "G2", "ok": true, "found": 1, "fixed": 1, "deferred": 0}, {"t": "2026-11-08T13:23:57+03:00", "k": "stage", "id": "plan", "act": "start"}, {"t": "2026-11-08T13:23:58+03:00", "k": "tier", "v": "T0"}, {"t": "2026-11-08T13:23:59+03:00", "k": "tickets", "n": 1}, {"t": "2026-11-08T13:24:00+03:00", "k": "gate", "g": "G3", "ok": false, "problems": 1}, {"t": "2026-11-08T13:24:23+03:00", "k": "tickets", "n": 1}, {"t": "2026-11-08T13:24:24+03:00", "k": "gate", "g": "G3", "ok": true, "problems": 0}, {"t": "2026-11-08T13:24:28+03:00", "k": "stage", "id": "build", "act": "start"}, {"t": "2026-11-08T13:24:29+03:00", "k": "ticket", "ids": ["01"], "act": "start"}, {"t": "2026-11-08T13:26:16+03:00", "k": "tickets", "n": 1}, {"t": "2026-11-08T13:26:17+03:00", "k": "gate", "g": "G3", "ok": true, "problems": 0}, {"t": "2026-11-08T13:50:06+03:00", "k": "ticket", "ids": ["01"], "act": "retry"}, {"t": "2026-11-08T14:05:18+03:00", "k": "ticket", "ids": ["01"], "act": "done", "tests": {"passed": 8, "failed": 0}}, {"t": "2026-11-08T14:05:19+03:00", "k": "stage", "id": "review", "act": "start"}, {"t": "2026-11-08T14:11:08+03:00", "k": "tickets", "n": 2}, {"t": "2026-11-08T14:11:09+03:00", "k": "gate", "g": "G3", "ok": true, "problems": 0}, {"t": "2026-11-08T14:11:10+03:00", "k": "ticket", "ids": ["F1"], "act": "start"}, {"t": "2026-11-08T14:14:49+03:00", "k": "tickets", "n": 2}, {"t": "2026-11-08T14:18:45+03:00", "k": "ticket", "ids": ["F1"], "act": "done", "tests": {"passed": 9, "failed": 0}}, {"t": "2026-11-08T14:18:46+03:00", "k": "stage", "id": "final", "act": "start"}, {"t": "2026-11-08T14:18:47+03:00", "k": "gate", "g": "G4", "ok": true, "checked": 10, "matched": 10}, {"t": "2026-11-08T14:18:48+03:00", "k": "tests", "passed": 17, "failed": 0}, {"t": "2026-11-08T14:19:57+03:00", "k": "finish", "result": "Вариант1 реализован: компактный обзор и полноэкранный график; проверенная UI-сборка, выпуск отдельно по runbook"}], "reqList": [{"id": "R01", "text": "«Давай реализуем вариант 1»", "status": "done"}, {"id": "R02", "text": "«пересобрать весь этот UI/UX, где вот месяца, недели, добавление всего»", "status": "done"}, {"id": "R03", "text": "«не было просто пустых пробелов»", "status": "done"}, {"id": "R04", "text": "«графики все вот эти вот продажи можно чуть-чуть уменьшить»", "status": "done"}, {"id": "R05", "text": "«этот график и даже продажи по менеджеру можно на одном экране как-то уместить»", "status": "done"}, {"id": "R06", "text": "«я нажимаю на график, и он уже раскроется на полный экран и будет больше»", "status": "done"}, {"id": "R07", "text": "«из списка менеджеров я тоже должен проваливаться в карточку менеджера»", "status": "done"}, {"id": "R08", "text": "«на остальных не надо»", "status": "done"}, {"id": "R09", "text": "«Вот это все не надо»", "status": "done"}, {"id": "R10", "text": "«ВСЯ СУММА ОПЛАТЫ С НДС»", "status": "done"}], "gates": {"G1": {"ok": true, "at": "2026-11-08T13:19:04+03:00", "open": 0, "total": 10}, "G2": {"ok": true, "at": "2026-11-08T13:23:56+03:00", "found": 1, "fixed": 1, "deferred": 0}, "G3": {"ok": true, "at": "2026-11-08T14:11:09+03:00", "problems": 0}, "G4": {"ok": true, "at": "2026-11-08T14:18:47+03:00", "checked": 10, "matched": 10}}, "result": "Вариант1 реализован: компактный обзор и полноэкранный график; проверенная UI-сборка, выпуск отдельно по runbook"};/*STATE-END*/</script>
+<script>/*STATE-BEGIN*/window.STATE={"version": 2, "slug": "glassy-theme", "dir": "2026-11-24-glassy-theme--wip", "title": "Стеклянная тема СМ ТЕХНО", "mode": "semi", "depth": "normal", "tier": "T0", "briefFile": "2026-11-24-brief.md", "memoryFile": "AGENTS.md", "memoryOwner": "user", "skillDir": "C:/Users/Alexandr/.codex/skills/autopilot", "baseCommit": null, "startedAt": "2026-11-24T15:16:48+03:00", "updatedAt": "2026-11-24T15:20:05+03:00", "finishedAt": null, "stages": [{"id": "preflight", "status": "done", "startedAt": "2026-11-24T15:16:48+03:00", "finishedAt": "2026-11-24T15:17:13+03:00"}, {"id": "manifest", "status": "done", "startedAt": "2026-11-24T15:17:13+03:00", "finishedAt": "2026-11-24T15:17:52+03:00"}, {"id": "briefing", "status": "skipped", "startedAt": "2026-11-24T15:17:50+03:00", "finishedAt": "2026-11-24T15:17:50+03:00", "note": "Контекст определён макетами и предыдущим обсуждением двух тем"}, {"id": "spec", "status": "done", "startedAt": "2026-11-24T15:17:52+03:00", "finishedAt": "2026-11-24T15:20:00+03:00"}, {"id": "plan", "status": "active", "startedAt": "2026-11-24T15:20:00+03:00"}, {"id": "build", "status": "pending"}, {"id": "review", "status": "pending"}, {"id": "final", "status": "pending"}], "requirements": {"total": 8, "done": 0, "inTicket": 8, "inSpec": 0, "placeholder": 0, "deferred": 0, "dropped": 0}, "tickets": [{"id": "01", "title": "Переключаемая тема «Стекло»", "requirements": ["R01", "R02", "R03", "R04", "R05", "R06", "R07", "R08"], "blockedBy": [], "wave": 1, "zone": ["sm-techno-web/app", "sm-techno-web/components", "sm-techno-web/lib", "sm-techno-web/tests"], "review": "нет", "model": "обычная", "status": "pending", "retries": 0, "repairs": 0}], "tests": null, "debt": {"placeholders": [], "assumptions": [], "emptyEnv": []}, "additions": [], "coverage": {"found": 2, "fixed": 2, "deferred": 0, "items": []}, "concerns": [], "blind": null, "beats": ["2026-11-24T15:16:48+03:00", "2026-11-24T15:17:13+03:00", "2026-11-24T15:17:48+03:00", "2026-11-24T15:17:50+03:00", "2026-11-24T15:17:52+03:00", "2026-11-24T15:19:59+03:00", "2026-11-24T15:20:00+03:00", "2026-11-24T15:20:02+03:00", "2026-11-24T15:20:04+03:00", "2026-11-24T15:20:05+03:00"], "rev": 11, "waiting": null, "waits": [], "log": [{"t": "2026-11-24T15:16:48+03:00", "k": "init"}, {"t": "2026-11-24T15:17:13+03:00", "k": "stage", "id": "manifest", "act": "start"}, {"t": "2026-11-24T15:17:50+03:00", "k": "stage", "id": "briefing", "act": "skip", "note": "Контекст определён макетами и предыдущим обсуждением двух тем"}, {"t": "2026-11-24T15:17:52+03:00", "k": "gate", "g": "G1", "ok": false, "open": 8, "total": 8}, {"t": "2026-11-24T15:17:52+03:00", "k": "stage", "id": "spec", "act": "start"}, {"t": "2026-11-24T15:19:59+03:00", "k": "gate", "g": "G2", "ok": true, "found": 2, "fixed": 2, "deferred": 0}, {"t": "2026-11-24T15:20:00+03:00", "k": "stage", "id": "plan", "act": "start"}, {"t": "2026-11-24T15:20:02+03:00", "k": "tier", "v": "T0"}, {"t": "2026-11-24T15:20:04+03:00", "k": "tickets", "n": 1}, {"t": "2026-11-24T15:20:05+03:00", "k": "gate", "g": "G3", "ok": true, "problems": 0}], "reqList": [{"id": "R01", "text": "«в отдельной ветке»", "status": "in-ticket"}, {"id": "R02", "text": "«перенесем этот интерфейс на наше приложение»", "status": "in-ticket"}, {"id": "R03", "text": "«чтоб можно было быстро менять интерфейс»", "status": "in-ticket"}, {"id": "R04", "text": "«и кнопки прозрачность»", "status": "in-ticket"}, {"id": "R05", "text": "«и анимации»", "status": "in-ticket"}, {"id": "R06", "text": "«и графики»", "status": "in-ticket"}, {"id": "R07", "text": "«только цвета наши»", "status": "in-ticket"}, {"id": "R08", "text": "«на десктоп и на мобильной версии»", "status": "in-ticket"}], "gates": {"G1": {"ok": false, "at": "2026-11-24T15:17:52+03:00", "open": 8, "total": 8}, "G2": {"ok": true, "at": "2026-11-24T15:19:59+03:00", "found": 2, "fixed": 2, "deferred": 0}, "G3": {"ok": true, "at": "2026-11-24T15:20:05+03:00", "problems": 0}}, "result": null};/*STATE-END*/</script>
 <script src="state.js"></script>
 
 <script>
@@ -407,6 +422,7 @@ const I18N = {
     depths:{strict:"Строго по брифу",normal:"Обычная глубина",deep:"Максимальная глубина"},
     started:t=>`начата ${t}`,startedRange:(a,b)=>`${a} — ${b}`,today:"сегодня в",
     refresh:"Обновить сейчас",langLabel:"Язык",themeLabel:"Тема",themeLight:"Светлая тема",themeDark:"Тёмная тема",
+    previewTitle:"Живое превью",previewWait:"Готовится превью",previewOpen:"Открыть в новой вкладке",
     lost:"Связь с дашбордом пропала — на экране последнее, что он успел получить. Так бывает, когда компьютер засыпает. Скажи агенту «подними дашборд»: страница подхватит его сама, перезагружать не нужно.",
     stateRun:{preflight:"Идёт подготовка",manifest:"Разбор требований",briefing:"Идёт брифинг",spec:"Пишется спецификация",
       plan:"Составляется план",build:"Идёт разработка",review:"Идёт код-ревью",final:"Идёт приёмка"},
@@ -510,6 +526,7 @@ const I18N = {
     depths:{strict:"Strictly as written",normal:"Normal depth",deep:"Maximum depth"},
     started:t=>`started ${t}`,startedRange:(a,b)=>`${a} — ${b}`,today:"today at",
     refresh:"Refresh now",langLabel:"Language",themeLabel:"Theme",themeLight:"Light theme",themeDark:"Dark theme",
+    previewTitle:"Live preview",previewWait:"Preparing preview",previewOpen:"Open in new tab",
     lost:"The dashboard lost its connection — the screen shows the last state it received. This happens when the computer sleeps. Ask the agent to bring the dashboard back up: the page will pick it up by itself, no reload needed.",
     stateRun:{preflight:"Preflight",manifest:"Reading the brief",briefing:"Briefing",spec:"Writing the spec",
       plan:"Planning",build:"Development",review:"Code review",final:"Acceptance"},
@@ -787,6 +804,58 @@ function applyState(){
 // Связь проверяется только там, где она вообще бывает: по http. Из data: файл не
 // грузится никогда — там снимок и тишина; file:// читается с диска без сервера.
 const SERVED = /^https?:$/.test(location.protocol);
+const preview = document.getElementById('preview');
+const previewTitle = document.getElementById('preview-title');
+const previewWait = document.getElementById('preview-wait');
+const previewOpen = document.getElementById('preview-open');
+const previewFrame = document.getElementById('preview-frame');
+let previewRecord = null;
+let pullingPreview = false;
+
+function previewActive(S){
+  return SERVED && S && !S.finishedAt && S.stages?.some(s => s.id === 'build' && s.startedAt);
+}
+
+function paintPreview(){
+  const S = window.STATE;
+  const current = previewActive(S) && previewRecord?.run === S.dir && previewRecord.startedAt === S.startedAt;
+  const waiting = current && previewRecord.status === 'waiting';
+  const address = current && previewRecord.status === 'ready' ? previewRecord.url : '';
+  let url = '';
+  if (typeof address === 'string' && /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):[1-9][0-9]{0,4}(?:\/[A-Za-z0-9._~/%-]*)?$/.test(address)) {
+    try {
+      const local = new URL(address);
+      // Превью должно работать на другом порту, отдельно от origin дашборда.
+      if ((local.port || '80') !== (location.port || (location.protocol === 'https:' ? '443' : '80'))) {
+        url = local.href;
+      }
+    } catch (e) { /* ошибка в локальном адресе */ }
+  }
+  preview.hidden = !waiting && !url;
+  previewWait.hidden = !waiting;
+  previewOpen.hidden = previewFrame.hidden = !url;
+  // Не трогаем src на обновлении статусов: сохраняем страницу, ввод и HMR.
+  if (url && previewFrame.getAttribute('src') !== url) {
+    previewFrame.src = previewOpen.href = url;
+  } else if (!url && previewFrame.hasAttribute('src')) {
+    previewFrame.removeAttribute('src');
+    previewOpen.removeAttribute('href');
+  }
+}
+
+async function pullPreview(){
+  if (pullingPreview || !previewActive(window.STATE)) return;
+  pullingPreview = true;
+  try {
+    const response = await fetch('serve.preview.json', {cache: 'no-store', signal: AbortSignal.timeout(3000)});
+    if (response.ok) {
+      previewRecord = await response.json();
+      paintPreview();
+    }
+  } catch (e) { /* следующий опрос восстановит связь */ }
+  finally { pullingPreview = false; }
+}
+
 function showLink(){
   const el = document.getElementById('link');
   if (!el) return;
@@ -1196,8 +1265,8 @@ function render(lang){
     <div class="meta">${S.mode ? `<span class="tag">${esc(L.modes[S.mode] || S.mode)}</span>` : ''}${
       S.depth ? `<span class="tag">${esc(L.depths[S.depth] || S.depth)}</span>` : ''}<span class="when">${when}</span></div>
   </div>
-  ${hero}
-  <div class="tiles">${tileReq}${tileTk}${tileTests}${tile4}</div>
+  ${hero}`;
+  document.getElementById('details').innerHTML = `<div class="tiles">${tileReq}${tileTk}${tileTests}${tile4}</div>
   ${fin ? '' : buildCard}
   <div class="cols"><div class="col">${leftCol.join('')}</div><div class="col">${rightCol.join('')}</div></div>
   <footer>
@@ -1213,16 +1282,22 @@ function render(lang){
 
   if (!booted) {
     booted = true;
-    app.classList.add('boot');
-    setTimeout(() => app.classList.remove('boot'), 1400);
+    const dashboard = document.getElementById('dashboard');
+    dashboard.classList.add('boot');
+    setTimeout(() => dashboard.classList.remove('boot'), 1400);
   }
+  previewTitle.textContent = previewFrame.title = L.previewTitle;
+  previewWait.textContent = L.previewWait;
+  previewOpen.textContent = L.previewOpen;
+  paintPreview();
+  pullPreview();
   tick();
   showLink();
   if (!pulling) pollState();
 }
 
-// Один обработчик на всё: #app переписывается целиком на каждом событии сборки.
-document.getElementById('app').addEventListener('click', e => {
+// Обработчик остаётся, когда обновляются этапы и детали сборки.
+document.getElementById('dashboard').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.lang) {
@@ -1253,6 +1328,7 @@ applyTheme(storedTheme());
 function bootFail(why){
   const app = document.getElementById('app');
   if (!app) return;
+  document.getElementById('details').replaceChildren();
   const L = I18N[(navigator.language || '').startsWith('ru') ? 'ru' : 'en'];
   app.innerHTML = `<header class="top"><img class="logo" src="${LOGO}" alt="autopilot"></header>
     <section class="card"><h3 class="wt">${L.boot}</h3><p class="muted" style="margin-top:10px">${why}</p>
@@ -1274,6 +1350,7 @@ if (typeof STATE === 'undefined' || !STATE || typeof STATE !== 'object') {
 
 // Секундная стрелка для всех незакрытых интервалов и для «обновлено N назад».
 setInterval(tick, 1000);
+setInterval(pullPreview, 2000);
 
 // Возврат на вкладку — повод не ждать очередного круга опроса.
 // После сна компьютера — тоже: таймеры страницы стояли вместе с ним.
