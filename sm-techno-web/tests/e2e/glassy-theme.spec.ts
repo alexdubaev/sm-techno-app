@@ -32,6 +32,23 @@ test('appearance switches immediately and is restored on a direct load', async (
   await expect(theme).toHaveAttribute('data-ui-theme', 'glassy');
   await expect(page.getByRole('heading', { name: 'Продажи по менеджерам' })).toBeVisible();
   await expect(page.getByText(/90\s000 ₽ \(60\s?%\)/)).toBeVisible();
+  const breakdown = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Продажи по менеджерам' }) });
+  const pie = breakdown.locator('svg.recharts-surface');
+  await expect(pie.locator('path.recharts-sector')).toHaveCount(2);
+  const pieBounds = (await pie.boundingBox())!;
+  const readout = breakdown.locator('.recharts-tooltip-wrapper');
+  for (const { x, y, label, amount } of [
+    { x: 0.8, y: 0.2, label: 'Тестовый менеджер', amount: /60\s000 ₽/ },
+    { x: 0.2, y: 0.8, label: 'Не распределено', amount: /90\s000 ₽/ },
+  ]) {
+    await pie.hover({ position: { x: pieBounds.width * x, y: pieBounds.height * y } });
+    await expect(readout).toBeVisible();
+    await expect(readout).toContainText(label);
+    await expect(readout).toContainText(amount);
+    const currentChartBottom = await pie.evaluate((element) => element.getBoundingClientRect().bottom);
+    expect((await readout.boundingBox())!.y).toBeGreaterThanOrEqual(currentChartBottom);
+  }
+  await expect(breakdown.getByText('Всего продаж', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Открыть подробный график продаж' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.keyboard.press('Escape');

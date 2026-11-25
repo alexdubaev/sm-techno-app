@@ -1,6 +1,6 @@
 'use client';
 
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { Area, AreaChart, CartesianGrid, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { SalesOverview } from '@/lib/admin-dashboard-types';
 import styles from './dashboard.module.css';
@@ -49,6 +49,7 @@ export function GlassySalesBreakdown({ sales, money }: {
   sales: SalesOverview;
   money: (value: number) => string;
 }) {
+  const [tooltipTarget, setTooltipTarget] = useState<HTMLDivElement | null>(null);
   const assigned = sales.managers.map(manager => ({ key: manager.id, name: manager.name, amount: manager.salesTotal }));
   const assignedTotal = assigned.reduce((sum, manager) => sum + manager.amount, 0);
   const unallocated = sales.totals.unallocatedSalesTotal ?? sales.totals.salesTotal - assignedTotal;
@@ -70,7 +71,22 @@ export function GlassySalesBreakdown({ sales, money }: {
             <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 0, height: 0 }}>
               <PieChart accessibilityLayer={false}>
                 <Pie data={chart} dataKey="amount" nameKey="name" innerRadius="69%" outerRadius="97%" startAngle={90} endAngle={-270} stroke="#fffdf8" strokeWidth={1} isAnimationActive="auto" animationDuration={420} />
-                <Tooltip formatter={value => typeof value === 'number' ? money(value) : value} />
+                {tooltipTarget && (
+                  <Tooltip
+                    portal={tooltipTarget}
+                    wrapperStyle={{ maxWidth: '100%', pointerEvents: 'none' }}
+                    content={({ payload }) => {
+                      const entry = payload?.[0];
+                      if (typeof entry?.value !== 'number') return null;
+                      return (
+                        <div className={styles.donutReadout}>
+                          <span>{entry.name}</span>
+                          <strong>{money(entry.value)}</strong>
+                        </div>
+                      );
+                    }}
+                  />
+                )}
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -88,6 +104,7 @@ export function GlassySalesBreakdown({ sales, money }: {
           ))}
         </ul>
       </div>
+      <div ref={setTooltipTarget} className={styles.donutTooltip} aria-hidden="true" />
     </section>
   );
 }

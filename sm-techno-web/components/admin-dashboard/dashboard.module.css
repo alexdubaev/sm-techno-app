@@ -96,7 +96,7 @@
 .trend, .breakdown, .plans, .sources { min-width: 0; padding: 14px 20px; }
 .glassyArea { height: 240px; }
 .chartDialog .glassyArea { height: auto; min-height: 300px; }
-:global(html[data-ui-theme='glassy']) :is(.glassyArea, .donutChart) :global(.recharts-default-tooltip) {
+:global(html[data-ui-theme='glassy']) .glassyArea :global(.recharts-default-tooltip) {
   border: 1px solid #fff !important;
   background: var(--glass-dense) !important;
   border-radius: 13px;
@@ -106,13 +106,17 @@
   font-weight: 600;
 }
 
-:global(html[data-ui-theme='glassy']) :is(.glassyArea, .donutChart) :global(.recharts-tooltip-item) { color: var(--text-primary) !important; }
+:global(html[data-ui-theme='glassy']) .glassyArea :global(.recharts-tooltip-item) { color: var(--text-primary) !important; }
 .breakdownBody { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: center; gap: 12px; margin-top: 14px; }
 .donut { position: relative; width: 100%; max-width: 236px; justify-self: center; aspect-ratio: 1; }
 .donutChart { position: absolute; inset: 0; }
 .donutTotal { position: absolute; inset: 19%; display: grid; align-content: center; justify-items: center; text-align: center; pointer-events: none; }
 .donutTotal strong { font-size: var(--app-font-total); letter-spacing: -.035em; line-height: 1.15; overflow-wrap: anywhere; }
 .donutTotal span { font-size: var(--app-font-detail); color: var(--text-secondary); }
+.donutTooltip { display: flex; align-items: center; justify-content: center; min-height: 32px; margin-top: 6px; }
+.donutReadout { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--glass-edge); border-radius: var(--app-control-radius); background: var(--glass-dense); box-shadow: var(--glass-shadow); font-size: var(--app-font-body); line-height: 1.3; }
+.donutReadout span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.donutReadout strong { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .legend { max-height: 220px; margin: 0; padding: 0; overflow: auto; list-style: none; }
 .legend li { display: flex; align-items: baseline; gap: 8px; padding: 7px 1px; border-bottom: 1px solid #fff8; font-size: var(--app-font-body); }
 .legend li:last-child { border: 0; }
