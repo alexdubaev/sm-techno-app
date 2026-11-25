@@ -77,7 +77,7 @@ export function MobileClientReminders({
       >
         <h2 className="text-base font-bold">Напоминания</h2>
         {canManageReminders && canEditWorkspace ? (
-          <button
+          <button data-app-action="secondary"
             type="button"
             onClick={onCreate}
             disabled={isLoading || isSaving !== null}
@@ -116,7 +116,7 @@ export function MobileClientReminders({
                 </time>
                 {canManageReminders ? (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button
+                    <button data-app-action="secondary"
                       type="button"
                       disabled={isSaving !== null || reminder.id < 0}
                       onClick={() =>
@@ -126,7 +126,7 @@ export function MobileClientReminders({
                     >
                       Выполнено
                     </button>
-                    <button
+                    <button data-app-action="secondary"
                       type="button"
                       disabled={isSaving !== null || reminder.id < 0}
                       onClick={() => onReschedule(reminder)}
@@ -134,7 +134,7 @@ export function MobileClientReminders({
                     >
                       Перенести
                     </button>
-                    <button
+                    <button data-app-action="secondary"
                       type="button"
                       disabled={isSaving !== null || reminder.id < 0}
                       onClick={() =>
@@ -204,7 +204,7 @@ export function MobileReminderSheet({
       <form onSubmit={submit} className="grid gap-4">
         <div className="grid grid-cols-2 gap-2">
           {reminderPresets.map(([preset, label]) => (
-            <button
+            <button data-app-action="secondary"
               type="button"
               key={preset}
               onClick={() => setDueAt(getReminderPresetValue(preset))}

@@ -214,7 +214,7 @@ export function UserDetail({
               : 'Удаление учётной записи нельзя отменить.'}
           </p>
         </div>
-        <button
+        <button data-app-action="danger"
           className={styles.dangerButton}
           type="button"
           disabled={busy || self}

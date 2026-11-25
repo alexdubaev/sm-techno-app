@@ -39,7 +39,7 @@ export function MobileClientActions({
     <Dialog open={isOpen} onOpenChange={(open) => onOpenChange(open)}>
       <DialogTrigger
         render={
-          <button
+          <button data-app-action="secondary"
             type="button"
             className="flex size-11 cursor-pointer list-none items-center justify-center rounded-[11px] border border-[var(--border-color)] bg-white text-[var(--text-secondary)] outline-offset-2 hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
             aria-label={`Ещё действия: ${client.documentName || client.fullName || client.name}`}

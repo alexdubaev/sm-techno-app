@@ -1253,7 +1253,7 @@ export function StockPage() {
           <section className="mt-3">{renderMobileResults()}</section>
 
           {priceLoaded && !isLoading && mobileCatalogRows.length < total ? (
-            <button
+            <button data-app-action="secondary"
               type="button"
               onClick={() => setPage((current) => current + 1)}
               className="mt-3 flex h-11 w-full items-center justify-center rounded-[14px] border border-[var(--border-color)] bg-white text-[14px] font-semibold text-[var(--brand-dark)] shadow-[0_8px_20px_rgba(7,22,46,0.06)]"
@@ -1781,7 +1781,7 @@ export function StockPage() {
                             </p>
                           ) : null}
                         </div>
-                        <button
+                        <button data-app-action="danger"
                           type="button"
                           aria-label={`Удалить ${line.name} из счета`}
                           onClick={() => removeDraftLine(line.lineId)}
@@ -2119,7 +2119,7 @@ function QuantityButton({
   disabled: boolean;
 }) {
   return (
-    <button
+    <button data-app-action="secondary"
       type="button"
       aria-label={label}
       onClick={onClick}

@@ -15,7 +15,9 @@ html[data-ui-theme='glassy'] {
   --glass-dense: linear-gradient(135deg, #f3f6fb, #e3eaf4);
   --app-control-radius: 12px;
   --glass-control: linear-gradient(145deg, #ffffffcc, #ecf1f8a8);
-  --glass-table-surface: linear-gradient(125deg, #f9fbffce, #e4ecf6b5);
+  --glass-table-surface: var(--glass-panel);
+  --glass-table-head-height: 56px;
+  --glass-table-row-height: 40px;
   --glass-table-header: #f0f5fc;
   --glass-table-row: transparent;
   --glass-table-divider: #f8fbffce;
@@ -177,6 +179,13 @@ html[data-ui-theme='glassy'] :is(
   background: var(--action-hover);
 }
 
+html[data-ui-theme='glassy'] :is(.app-action-button, [data-app-action], [data-slot='button'][data-variant]):is(:disabled, [aria-disabled='true']) {
+  border-color: var(--glass-edge);
+  background: var(--glass-dense);
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
 html[data-ui-theme='glassy'] [data-app-action='secondary'][aria-pressed='true'] {
   --action-background: var(--glass-selected);
   --action-hover: var(--glass-selected);
@@ -190,6 +199,8 @@ html[data-ui-theme='glassy'] label:has(> input[type='file']:focus-visible) {
 }
 
 html[data-ui-theme='glassy'] table[data-slot='table'] {
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--glass-table-surface);
   border-radius: var(--app-control-radius);
 }
@@ -469,7 +480,7 @@ html[data-ui-theme='glassy'] .stock-filters input[type='checkbox']:checked { bac
 html[data-ui-theme='glassy'] .stock-filters input[type='checkbox']:checked::after { inset-inline: auto 2px; background: #fff; }
 html[data-ui-theme='glassy'] .app-catalog-filters .app-action-button { min-height: 40px; }
 
-html[data-ui-theme='glassy'] .app-shell-content .app-surface.app-work-table-page {
+html[data-ui-theme='glassy'] .app-shell-content :is(.app-surface.app-work-table-page, .order-print-screen.app-work-table-page) {
   background: transparent;
 }
 
@@ -505,20 +516,35 @@ html[data-ui-theme='glassy'] .app-work-table-viewport {
 }
 
 html[data-ui-theme='glassy'] .app-work-table table[data-slot='table'] {
-  border-collapse: separate;
-  border-spacing: 0;
   background: transparent;
 }
 
-html[data-ui-theme='glassy'] .app-work-table table[data-slot='table'] > thead > tr > th {
+html[data-ui-theme='glassy'] table[data-slot='table'] > thead > tr > :is(th, td) {
+  height: var(--glass-table-head-height);
   padding: 13px 9px;
 }
 
-html[data-ui-theme='glassy'] .app-work-table table[data-slot='table'] > tbody > tr > td {
-  height: 40px;
+html[data-ui-theme='glassy'] table[data-slot='table'] > tbody > tr:not([aria-hidden='true']) > :is(td, th[scope='row']) {
+  height: var(--glass-table-row-height);
   padding: 5px 9px;
   vertical-align: middle;
   border-block-start: 1px solid var(--glass-table-divider);
+}
+
+html[data-ui-theme='glassy'] .app-table-grid-header {
+  min-height: var(--glass-table-head-height);
+  background: var(--glass-table-header);
+}
+
+html[data-ui-theme='glassy'] .app-table-grid-row {
+  min-height: var(--glass-table-row-height);
+  border-color: var(--glass-table-divider);
+}
+
+@media (width > 800px) {
+  html[data-ui-theme='glassy'] .app-table-grid-row {
+    padding-block: 5px;
+  }
 }
 
 html[data-ui-theme='glassy'] .app-work-table-warehouse {

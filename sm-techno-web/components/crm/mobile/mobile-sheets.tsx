@@ -108,7 +108,7 @@ export function MobileSubmit({
   children: ReactNode;
 }) {
   return (
-    <button
+    <button data-app-action="primary"
       type="submit"
       disabled={disabled || busy}
       className={cn(

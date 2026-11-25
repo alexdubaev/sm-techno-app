@@ -36,7 +36,7 @@ export function MobileClientHistory({
     <section className={mobilePanel}>
       <h2 className="text-base font-bold">История звонков</h2>
       {canEditWorkspace ? (
-        <button
+        <button data-app-action="secondary"
           type="button"
           onClick={onAddEvent}
           disabled={isLoading || isSaving !== null}

@@ -850,7 +850,7 @@ export default function WorkWithInvoicePage() {
                               {formatMoney(line.quantity * line.price)}
                             </td>
                             <td className="px-3 py-1.5 text-center">
-                              <button
+                              <button data-app-action="danger"
                                 type="button"
                                 onClick={() => removeLine(line.lineId)}
                                 className="inline-flex h-6 w-6 items-center justify-center rounded-[7px] border border-[var(--border-color)] bg-white text-[12px] leading-none text-[var(--text-secondary)] transition-colors duration-200 hover:border-[rgba(239,68,68,0.35)] hover:text-[var(--stock-empty)]"
@@ -1087,7 +1087,7 @@ function QuantityButton({
   disabled: boolean;
 }) {
   return (
-    <button
+    <button data-app-action="secondary"
       type="button"
       aria-label={label}
       onClick={onClick}

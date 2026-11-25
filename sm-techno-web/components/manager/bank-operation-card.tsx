@@ -347,7 +347,7 @@ export function BankOperationCard({
               {typeChanged && (
                 <>
                   <p className={styles.muted}>Новый тип ещё не применён.</p>
-                  <button className={styles.primary} type="submit" disabled={locked || !canSave}>
+                  <button data-app-action="primary" className={styles.primary} type="submit" disabled={locked || !canSave}>
                     Применить тип
                   </button>
                 </>

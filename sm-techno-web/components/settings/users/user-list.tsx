@@ -61,7 +61,7 @@ export function UserList({
             onChange={(event) => onQueryChange(event.target.value)}
           />
         </div>
-        <button
+        <button data-app-action="secondary"
           className={styles.iconButton}
           type="button"
           aria-label="Обновить список"
@@ -73,7 +73,7 @@ export function UserList({
         </button>
       </div>
       {!hideCreate ? (
-        <button
+        <button data-app-action="primary"
           className={`${styles.primary} ${styles.newUser}`}
           type="button"
           aria-label="Новый пользователь"

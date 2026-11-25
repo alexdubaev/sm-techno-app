@@ -210,7 +210,7 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
           <span>Добавить найденных клиентов в целевую вкладку</span>
         </label>
 
-        <button type="button" onClick={checkFile} disabled={isRequestLocked} className={`${mobileButton} border-transparent bg-[var(--brand-yellow)] text-[var(--brand-dark)]`}>
+        <button data-app-action="primary" type="button" onClick={checkFile} disabled={isRequestLocked} className={`${mobileButton} border-transparent bg-[var(--brand-yellow)] text-[var(--brand-dark)]`}>
           {isPreviewing ? 'Проверяем…' : 'Проверить файл'}
         </button>
 
@@ -238,9 +238,9 @@ export function MobileCrmImportSheet({ ownerId, ownerName, tabs, onClose, onImpo
               </div>
             ) : null}
             {finalResult ? (
-              <button type="button" onClick={onClose} className={`${mobileButton} border-transparent bg-[var(--brand-dark)] text-white`}>Готово</button>
+              <button data-app-action="secondary" type="button" onClick={onClose} className={`${mobileButton} border-transparent bg-[var(--brand-dark)] text-white`}>Готово</button>
             ) : canImport ? (
-              <button type="button" onClick={confirmImport} disabled={isImporting} className={`${mobileButton} border-transparent bg-[var(--brand-dark)] text-white`}>
+              <button data-app-action="secondary" type="button" onClick={confirmImport} disabled={isImporting} className={`${mobileButton} border-transparent bg-[var(--brand-dark)] text-white`}>
                 {isImporting ? 'Импортируем…' : `Импортировать ${preview.clientsToCreate} клиента`}
               </button>
             ) : null}

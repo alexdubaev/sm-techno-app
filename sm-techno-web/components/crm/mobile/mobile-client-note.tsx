@@ -50,7 +50,7 @@ export function MobileClientNote({
             />
           </label>
           <div className="grid grid-cols-2 gap-2">
-            <button
+            <button data-app-action="secondary"
               type="button"
               disabled={isSaving !== null}
               onClick={() => setIsEditing(false)}
@@ -58,7 +58,7 @@ export function MobileClientNote({
             >
               Отмена
             </button>
-            <button
+            <button data-app-action="primary"
               type="submit"
               disabled={!body.trim() || isSaving !== null}
               className={`${mobileButton} border-transparent bg-[var(--brand-yellow)] text-[var(--brand-dark)]`}
@@ -73,7 +73,7 @@ export function MobileClientNote({
             {clientNote.body}
           </p>
           {canEditWorkspace ? (
-            <button
+            <button data-app-action="secondary"
               type="button"
               disabled={isLoading || isSaving !== null}
               onClick={startEditing}
@@ -89,7 +89,7 @@ export function MobileClientNote({
             Заметки пока нет. Добавьте ориентир для себя и коллег.
           </p>
           {canEditWorkspace ? (
-            <button
+            <button data-app-action="secondary"
               type="button"
               disabled={isLoading || isSaving !== null}
               onClick={startEditing}

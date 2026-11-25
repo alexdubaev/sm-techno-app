@@ -90,7 +90,7 @@ export default function CommercialOffersPage() {
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+      <div className="app-surface app-work-table-page flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
         <header className="flex flex-wrap items-start justify-between gap-1.5">
           <div>
             <h1 className="text-[17px] font-[650] leading-none tracking-[-0.04em] text-[var(--text-primary)]">
@@ -108,7 +108,7 @@ export default function CommercialOffersPage() {
             <MetricChip label="Сумма" value={formatMoney(summary.amount)} />
             <Link
               href="/commercial-offers/new"
-              className="app-action-button app-action-button--xs"
+              className="app-action-button app-action-button--touch"
             >
               Создать КП
             </Link>
@@ -116,7 +116,7 @@ export default function CommercialOffersPage() {
               type="button"
               onClick={() => void loadOffers()}
               disabled={isLoading}
-              className="app-action-button app-action-button--xs"
+              className="app-action-button app-action-button--touch app-action-button--secondary"
             >
               {isLoading ? "Обновление..." : "Обновить"}
             </button>
@@ -129,8 +129,8 @@ export default function CommercialOffersPage() {
           </div>
         ) : null}
 
-        <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
-          <div className="overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
+        <section className="app-work-table rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
+          <div className="app-work-table-viewport overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
             {offers.length === 0 && !isLoading ? (
               <div className="px-3 py-5 text-[11px] leading-4 text-[var(--text-secondary)]">
                 Журнал пока пуст. Создайте КП из Excel или из черновика прайса.
@@ -181,13 +181,13 @@ export default function CommercialOffersPage() {
                         <td className="px-3 py-1.5 text-[var(--text-secondary)]">{formatDateTime(offer.createdAt)}</td>
                         <td className="px-3 py-1.5">
                           <div className="flex justify-center gap-1">
-                            <Link href={`/commercial-offers/${offer.id}`} className="app-action-button app-action-button--xs">
+                            <Link href={`/commercial-offers/${offer.id}`} className="app-action-button app-action-button--xs app-action-button--secondary">
                               Открыть
                             </Link>
                             <button
                               type="button"
                               onClick={() => void handleDownload(offer.id, "output")}
-                              className="app-action-button app-action-button--xs"
+                              className="app-action-button app-action-button--xs app-action-button--secondary"
                             >
                               Excel
                             </button>

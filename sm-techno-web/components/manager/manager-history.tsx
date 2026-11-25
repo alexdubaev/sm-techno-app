@@ -114,7 +114,7 @@ function HistoryPage({
     return (
       <p role="alert" className={styles.error}>
         {error}
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           onClick={() => {
             setError('');
@@ -144,7 +144,7 @@ function HistoryPage({
         </details>
       ))}
       <div className={styles.pagination}>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           disabled={page === 1}
           onClick={() => setPage(page - 1)}
@@ -154,7 +154,7 @@ function HistoryPage({
         <span>
           {page} / {Math.max(1, Math.ceil(result.history.total / 20))}
         </span>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           disabled={page * 20 >= result.history.total}
           onClick={() => setPage(page + 1)}
@@ -224,7 +224,7 @@ function SnapshotPage({
     return (
       <p role="alert" className={styles.error}>
         {error}
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           onClick={() => {
             setError('');
@@ -246,7 +246,7 @@ function SnapshotPage({
       </p>
       <ManagerSales sales={data.sales} />
       <div className={styles.pagination}>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           disabled={data.page === 1}
           onClick={() => setPage(data.page - 1)}
@@ -256,7 +256,7 @@ function SnapshotPage({
         <span>
           {data.page} / {data.pages}
         </span>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           disabled={data.page === data.pages}
           onClick={() => setPage(data.page + 1)}

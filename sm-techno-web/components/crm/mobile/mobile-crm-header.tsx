@@ -115,7 +115,7 @@ export function MobileCrmHeader({
         ) : (
           <>
             {!archiveMode ? (
-              <button
+              <button data-app-action="secondary"
                 type="button"
                 onClick={onRefresh}
                 disabled={isRefreshing}
@@ -133,7 +133,7 @@ export function MobileCrmHeader({
               </button>
             ) : null}
             {canEditWorkspace ? (
-              <button
+              <button data-app-action="primary"
                 type="button"
                 onClick={onAddClient}
                 aria-label="Добавить клиента"
@@ -246,7 +246,7 @@ export function MobileCrmHeader({
 
                 {canEditWorkspace ? (
                   <div className="mt-3 border-t border-[var(--border-color)] pt-3">
-                    <button
+                    <button data-app-action="primary"
                       type="button"
                       onClick={onImport}
                       className="h-11 w-full rounded-[11px] bg-[var(--brand-yellow)] px-3 text-left text-[13px] font-bold text-[var(--brand-dark)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]"
@@ -289,7 +289,7 @@ export function MobileCrmHeader({
                             >
                               <Pencil aria-hidden="true" className="size-4" />
                             </button>
-                            <button
+                            <button data-app-action="danger"
                               type="button"
                               onClick={() => onDeleteTab(tab)}
                               aria-label={`Удалить вкладку ${tab.name}`}

@@ -220,7 +220,7 @@ export default function ClientsPage() {
                 type="button"
                 onClick={() => void handleSyncReferences()}
                 disabled={isLoading || isSyncingReferences}
-                className="app-action-button app-action-button--xs"
+                className="app-action-button app-action-button--touch"
               >
                 {isSyncingReferences ? "Синхронизация..." : "Синхронизировать с 1С"}
               </button>
@@ -228,7 +228,7 @@ export default function ClientsPage() {
                 type="button"
                 onClick={() => void loadClients()}
                 disabled={isLoading || isSyncingReferences}
-                className="app-action-button app-action-button--xs"
+                className="app-action-button app-action-button--touch app-action-button--secondary"
               >
                 {isLoading ? "Обновление..." : "Обновить"}
               </button>
@@ -486,7 +486,7 @@ export default function ClientsPage() {
           </div>
         </form>
 
-        <section className="overflow-hidden rounded-[10px] border border-[var(--border-color)] bg-white shadow-[0_8px_20px_rgba(7,22,46,0.05)]">
+        <section className="app-work-table overflow-hidden rounded-[10px] border border-[var(--border-color)] bg-white shadow-[0_8px_20px_rgba(7,22,46,0.05)]">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-color)] bg-[#FAFBFD] px-3 py-2">
             <div className="text-[11px] font-semibold text-[var(--text-primary)]">
               Список клиентов

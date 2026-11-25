@@ -58,7 +58,7 @@ export function ManagerWorkspace({ initialManagerId, initialMonth }: {
     <div className={styles.workspace}>
       <fieldset className={styles.toolbar} aria-label="Управление кабинетом">
         <div className={styles.period}>
-          <button
+          <button data-app-action="secondary"
             aria-label="Предыдущий месяц"
             className={styles.iconButton}
             disabled={month === '1900-01'}
@@ -79,7 +79,7 @@ export function ManagerWorkspace({ initialManagerId, initialMonth }: {
               }}
             />
           </label>
-          <button
+          <button data-app-action="secondary"
             aria-label="Следующий месяц"
             className={styles.iconButton}
             disabled={month === '2199-12'}
@@ -118,7 +118,7 @@ export function ManagerWorkspace({ initialManagerId, initialMonth }: {
           {managerError && (
             <p role="alert" className={styles.error}>
               {managerError}
-              <button
+              <button data-app-action="secondary"
                 className={styles.secondary}
                 onClick={() => {
                   setManagerError('');
@@ -174,7 +174,7 @@ function CabinetLoader({
         <p role="alert" className={styles.error}>
           {error}
         </p>
-        <button className={styles.secondary} onClick={onRefresh}>
+        <button data-app-action="secondary" className={styles.secondary} onClick={onRefresh}>
           Повторить
         </button>
       </section>
@@ -243,7 +243,7 @@ function Cabinet({
                   : 'План в работе'}
           </span>
           {admin && !data.closed && (
-            <button
+            <button data-app-action="secondary"
               className={styles.secondary}
               onClick={() => setEditor({ kind: 'terms' })}
             >
@@ -403,12 +403,12 @@ function Cabinet({
                 onChange={(e) => setQuery(e.target.value)}
                 maxLength={300}
               />
-              <button type="submit" className={styles.secondary}>
+              <button data-app-action="secondary" type="submit" className={styles.secondary}>
                 Найти
               </button>
             </form>
             {admin && !data.closed && (
-              <button
+              <button data-app-action="primary"
                 className={styles.primary}
                 onClick={() => setEditor({ kind: 'sale' })}
               >
@@ -431,11 +431,11 @@ function Cabinet({
       </section>
       {admin && (
         <div className={styles.bottomActions}>
-          <button className={styles.secondary} onClick={() => setHistory(true)}>
+          <button data-app-action="secondary" className={styles.secondary} onClick={() => setHistory(true)}>
             <History size={16} />
             История изменений
           </button>
-          <button
+          <button data-app-action="secondary"
             className={styles.secondary}
             disabled={!terms && !data.closed}
             onClick={() =>
@@ -505,7 +505,7 @@ function SalesPage({
         <p role="alert" className={styles.error}>
           {error}
         </p>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           onClick={() => {
             setError('');
@@ -520,7 +520,7 @@ function SalesPage({
     return <output className={styles.empty}>Загрузка продаж…</output>;
   return (
     <>
-      <div className={styles.tableHead} aria-hidden="true">
+      <div className={`${styles.tableHead} app-table-grid-header`} aria-hidden="true">
         <span>Дата</span>
         <span>Клиент / документ</span>
         <span>Сумма</span>
@@ -535,7 +535,7 @@ function SalesPage({
       />
       <div className={styles.pagination}>
         <span>Найдено: {result.total}</span>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           disabled={result.page <= 1}
           onClick={() => onPage(result.page - 1)}
@@ -545,7 +545,7 @@ function SalesPage({
         <span>
           {result.page} / {result.pages}
         </span>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           disabled={result.page >= result.pages}
           onClick={() => onPage(result.page + 1)}

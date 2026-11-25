@@ -2487,7 +2487,7 @@ function StockActionDrawer({
               Добавить остаток — это количество, которое прибавится к выбранному складу. Перемещение и списание выполняются сразу отдельной кнопкой.
             </p>
           </div>
-          <button
+          <button data-app-action="secondary"
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-white text-[var(--text-secondary)] transition hover:bg-[#F8FAFD]"

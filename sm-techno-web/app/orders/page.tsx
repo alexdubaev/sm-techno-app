@@ -92,7 +92,7 @@ export default function OrdersPage() {
               type="button"
               onClick={() => void loadOrders()}
               disabled={isLoading}
-              className="app-action-button app-action-button--xs"
+              className="app-action-button app-action-button--touch app-action-button--secondary"
             >
               {isLoading ? "Обновление..." : "Обновить"}
             </button>
@@ -197,7 +197,7 @@ export default function OrdersPage() {
                           <td className="px-3 py-1.5 text-center">
                             <Link
                               href={`/orders/${order.id}`}
-                              className="app-action-button app-action-button--xs"
+                              className="app-action-button app-action-button--xs app-action-button--secondary"
                             >
                               Открыть
                             </Link>

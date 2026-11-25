@@ -439,7 +439,7 @@ export function MobileCrmWorkspace({
               <p className="text-[12px] font-bold">Не удалось обновить CRM</p>
               <p className="mt-1 text-[11px] leading-4">{workspaceError}</p>
               {workspaceError === 'Не удалось обновить данные из 1С. Показаны сохранённые данные.' ? (
-                <button
+                <button data-app-action="danger"
                   type="button"
                   onClick={onRefresh}
                   disabled={isRefreshing}
@@ -714,7 +714,7 @@ function MobilePrimaryArchiveList({
               </dd>
             </div>
           </dl>
-          <button
+          <button data-app-action="primary"
             type="button"
             aria-label="Открыть архивную карточку"
             onClick={() => onOpenClient(client)}
@@ -772,7 +772,7 @@ function MobileEmptyState({
         {description}
       </p>
       {action && onAction ? (
-        <button
+        <button data-app-action="primary"
           type="button"
           onClick={onAction}
           className="mt-4 min-h-11 rounded-[11px] bg-[var(--brand-yellow)] px-4 text-[12px] font-bold text-[var(--brand-dark)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]"

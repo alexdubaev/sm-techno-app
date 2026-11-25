@@ -139,7 +139,7 @@ export function MobilePrimaryArchiveDetail({
       >
         <header className="shrink-0 border-b border-[var(--border-color)] bg-white px-3 pb-3">
           <div className="flex items-start gap-2 py-2">
-            <button
+            <button data-app-action="secondary"
               type="button"
               onClick={onClose}
               aria-label="Назад к архиву"
@@ -217,7 +217,7 @@ export function MobilePrimaryArchiveDetail({
             </dl>
             {controller.canRestorePrimaryClient ? (
               <>
-                <button
+                <button data-app-action="primary"
                   type="button"
                   disabled={busy}
                   onClick={() =>
@@ -240,7 +240,7 @@ export function MobilePrimaryArchiveDetail({
                       пользователей?
                     </p>
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button
+                      <button data-app-action="secondary"
                         type="button"
                         onClick={() =>
                           controller.setIsPrimaryRestoreConfirmationOpen(false)
@@ -249,7 +249,7 @@ export function MobilePrimaryArchiveDetail({
                       >
                         Отмена
                       </button>
-                      <button
+                      <button data-app-action="primary"
                         type="button"
                         disabled={busy}
                         onClick={() => void controller.restorePrimaryClient()}
@@ -357,7 +357,7 @@ function MobileClientDetailContent({
       >
         <header className="shrink-0 border-b border-[var(--border-color)] bg-white px-3 pb-3">
           <div className="flex items-start gap-2 py-2">
-            <button
+            <button data-app-action="secondary"
               type="button"
               onClick={onClose}
               aria-label="Назад к списку клиентов"
@@ -371,7 +371,7 @@ function MobileClientDetailContent({
             >
               {title}
             </SheetTitle>
-            <button
+            <button data-app-action="secondary"
               type="button"
               onClick={() => setSection('more')}
               aria-label="Ещё действия с клиентом"
@@ -417,7 +417,7 @@ function MobileClientDetailContent({
               className="col-span-2 justify-center"
             />
             {canEditWorkspace ? (
-              <button
+              <button data-app-action="secondary"
                 type="button"
                 onClick={openEvent}
                 disabled={busy}
@@ -431,7 +431,7 @@ function MobileClientDetailContent({
               </button>
             ) : null}
             {canEditWorkspace && canManageReminders ? (
-              <button
+              <button data-app-action="primary"
                 type="button"
                 onClick={openReminder}
                 disabled={busy}

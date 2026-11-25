@@ -366,7 +366,7 @@ export function ManagerEditor({
             </div>
           )}
           <div className={styles.actions}>
-            <button
+            <button data-app-action="secondary"
               type="button"
               className={styles.secondary}
               disabled={busy}
@@ -375,7 +375,7 @@ export function ManagerEditor({
               Отмена
             </button>
             {preview ? (
-              <button
+              <button data-app-action="primary"
                 className={styles.primary}
                 type="button"
                 disabled={busy}
@@ -384,7 +384,7 @@ export function ManagerEditor({
                 {busy ? 'Сохранение…' : kind === 'sale' ? 'Сохранить' : 'Сохранить изменения'}
               </button>
             ) : (
-              <button type="submit" className={styles.primary} disabled={busy}>
+              <button data-app-action="primary" type="submit" className={styles.primary} disabled={busy}>
                 {busy
                   ? kind === 'sale' && !sale
                     ? 'Сохранение…'
@@ -404,10 +404,10 @@ export function ManagerEditor({
           onClose={guard.cancel}
         >
           <div className={styles.actions}>
-            <button className={styles.secondary} onClick={guard.cancel}>
+            <button data-app-action="secondary" className={styles.secondary} onClick={guard.cancel}>
               Продолжить редактирование
             </button>
-            <button className={styles.primary} onClick={guard.discard}>
+            <button data-app-action="primary" className={styles.primary} onClick={guard.discard}>
               Выйти без сохранения
             </button>
           </div>

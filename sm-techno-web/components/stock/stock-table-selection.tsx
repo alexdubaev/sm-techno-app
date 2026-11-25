@@ -43,6 +43,6 @@ export function StockTableSelection({ preview, mappings, onChange, onApply, busy
       </fieldset>;
     })}
     {invalid && <p className="text-sm text-slate-600">Выберите разные столбцы для артикулов и количества и проверьте границы строк хотя бы на одном листе.</p>}
-    <button type="button" disabled={busy || invalid} onClick={onApply} className="min-h-11 w-full rounded-lg bg-amber-400 px-4 py-2 font-semibold disabled:opacity-50 sm:w-auto">Применить столбцы</button>
+    <button data-app-action="primary" type="button" disabled={busy || invalid} onClick={onApply} className="min-h-11 w-full rounded-lg bg-amber-400 px-4 py-2 font-semibold disabled:opacity-50 sm:w-auto">Применить столбцы</button>
   </section>;
 }

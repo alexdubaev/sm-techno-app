@@ -33,7 +33,7 @@ export function ManagerModal({
         <DialogPopup className={styles.modal}>
           <div className={styles.modalHeading}>
             <DialogTitle>{title}</DialogTitle>
-            <button
+            <button data-app-action="secondary"
               type="button"
               className={styles.iconButton}
               onClick={onClose}

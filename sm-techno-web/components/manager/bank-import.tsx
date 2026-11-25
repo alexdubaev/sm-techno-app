@@ -255,7 +255,7 @@ export function BankImportContent({
             Повторите тот же запрос: повторных продаж не появится. До получения
             результата другие решения недоступны.
           </p>
-          <button
+          <button data-app-action="primary"
             className={styles.primary}
             disabled={busy}
             onClick={() => void confirm()}
@@ -284,7 +284,7 @@ export function BankImportContent({
             </label>
           </div>
           <div className="mt-3">
-            <button
+            <button data-app-action="primary"
               type="submit"
               className={styles.primary}
               disabled={frozen || !file}
@@ -481,7 +481,7 @@ export function BankImportContent({
                 )}{' '}
                 с НДС
               </p>
-              <button
+              <button data-app-action="primary"
                 className={styles.primary}
                 disabled={
                   frozen ||
@@ -545,7 +545,7 @@ export function BankImportContent({
                 >
                   Вернуться к выбору
                 </button>
-                <button
+                <button data-app-action="primary"
                   className={styles.primary}
                   disabled={frozen}
                   onClick={() => void confirm()}

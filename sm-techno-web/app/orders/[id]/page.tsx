@@ -153,7 +153,7 @@ export default function OrderDetailsPage() {
     <AppShell>
       <>
       <PrintStyles orientation={printOrientation} />
-      <div className="order-print-screen flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+      <div className="order-print-screen app-work-table-page flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
         <header className="flex flex-wrap items-start justify-between gap-1.5">
           <div>
             <div className="print-hidden flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
@@ -270,7 +270,7 @@ export default function OrderDetailsPage() {
             ) : null}
           </div>
 
-          <div className="mt-1.5 overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
+          <div className="app-work-table mt-1.5 overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
             {isLoading ? (
               <div className="px-3 py-4 text-[11px] leading-4 text-[var(--text-secondary)]">
                 Загружаю строки заказа...
