@@ -1,4 +1,5 @@
 'use client';
+import { Table } from '@/components/ui/table';
 import { useEffect, useRef, useState, type SubmitEvent } from 'react';
 import {
   ApiRequestError,
@@ -391,7 +392,7 @@ export function BankImportContent({
                 </div>
               ))}
             </div>
-            <table className={styles.reconciliation}>
+            <Table unstyled className={styles.reconciliation}>
               <caption>Сверка входящих платежей с выпиской</caption>
               <thead>
                 <tr>
@@ -409,7 +410,7 @@ export function BankImportContent({
                   <td>{money(detail.reconciliation.credit.difference)}</td>
                 </tr>
               </tbody>
-            </table>
+            </Table>
             <p className={styles.muted}>
               Остаток на начало: {money(detail.metadata.openingBalance ?? null)}.
               На конец: {money(detail.metadata.closingBalance ?? null)}. «—»

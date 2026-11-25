@@ -135,7 +135,7 @@ export function CompanySales({ period, date }: Props) {
     <header className={styles.heading}><div><h2 id="company-sales-title">Продажи</h2><p>Все оплаты компании. Назначьте или смените менеджера в карточке продажи.</p></div><strong>{total.toLocaleString('ru-RU')}</strong></header>
     <div className={styles.filters}>
       <label className={styles.search}>Поиск продаж<input aria-label="Поиск продаж" value={query} placeholder="Клиент, счёт или платёж" onChange={event => { setQuery(event.target.value); setPage(1); }}/></label>
-      <button type="button" aria-pressed={unassigned} onClick={() => { setUnassigned(value => !value); setPage(1); }}>Без менеджера</button>
+      <button type="button" data-app-action="secondary" aria-pressed={unassigned} onClick={() => { setUnassigned(value => !value); setPage(1); }}>Без менеджера</button>
     </div>
     {listError && <p className={styles.error} role="alert"><AlertCircle size={18}/>{listError} <button type="button" onClick={() => setVersion(value => value + 1)}>Повторить</button></p>}
     {loading ? <p className={styles.muted}>Загружаем продажи…</p> : items.length ? <div className={styles.list}>

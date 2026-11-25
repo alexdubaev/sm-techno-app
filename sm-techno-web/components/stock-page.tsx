@@ -2,6 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { Table } from '@/components/ui/table';
 import {
   useEffect,
   useId,
@@ -887,7 +888,7 @@ export function StockPage() {
     }
 
     return (
-      <table
+      <Table unstyled
         className="min-w-full table-fixed border-separate border-spacing-0"
         style={{ width: tableWidth }}
       >
@@ -968,6 +969,7 @@ export function StockPage() {
               <tr
                 key={rowKey}
                 aria-selected={isSelected}
+                data-in-draft={itemLineCount > 0 ? "" : undefined}
                 onClick={() =>
                   isSelected ? clearSelection() : selectItem(item)
                 }
@@ -998,7 +1000,7 @@ export function StockPage() {
                 </td>
                 <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] text-[var(--text-primary)]">
                   <div className="min-w-0">
-                    <div className="line-clamp-2 text-[11px] font-medium leading-[15px]">
+                    <div className="app-catalog-product-name line-clamp-2 text-[11px] font-medium leading-[15px]">
                       {item.name}
                     </div>
                     {itemLineCount > 0 ? (
@@ -1060,7 +1062,7 @@ export function StockPage() {
             );
           })}
         </tbody>
-      </table>
+      </Table>
     );
   };
 
@@ -1142,7 +1144,7 @@ export function StockPage() {
         <StockValuationEntry />
 
         <div className="stock-mobile md:hidden">
-          <section className="stock-filters app-surface rounded-[18px] bg-white p-3 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+          <section className="stock-filters app-catalog-filters app-surface rounded-[18px] bg-white p-3 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
             <div className="relative">
               <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
                 <SearchIcon className="h-5 w-5 stroke-[2]" />
@@ -1276,7 +1278,7 @@ export function StockPage() {
 
         <div className="stock-desktop hidden gap-2.5 md:grid xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
           <div className="stock-catalog min-w-0 space-y-2.5">
-            <section className="stock-filters app-surface rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="stock-filters app-catalog-filters app-surface rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="stock-filter-fields grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(164px,210px)] lg:grid-cols-[minmax(180px,1fr)_minmax(136px,164px)_minmax(136px,164px)_minmax(136px,164px)_132px_188px]">
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
@@ -1367,10 +1369,10 @@ export function StockPage() {
                 </button>
               </div>
             </section>
-            <section className="stock-table app-surface rounded-[16px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="stock-table app-catalog-table app-surface rounded-[16px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div
                 ref={containerRef}
-                className="stock-table-scroll max-h-[calc(100dvh-9rem)] overflow-auto rounded-[14px] border border-[var(--border-color)] bg-white"
+                className="app-catalog-table-scroll max-h-[calc(100dvh-9rem)] overflow-auto rounded-[14px] border border-[var(--border-color)] bg-white"
               >
                 {renderTableBody()}
               </div>
@@ -1382,6 +1384,7 @@ export function StockPage() {
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
+                    data-app-action="secondary"
                     disabled={page <= 1}
                     onClick={() =>
                       setPage((current) => Math.max(1, current - 1))
@@ -1395,6 +1398,7 @@ export function StockPage() {
                   </div>
                   <button
                     type="button"
+                    data-app-action="secondary"
                     disabled={page >= pageCount}
                     onClick={() =>
                       setPage((current) => Math.min(pageCount, current + 1))
@@ -1441,7 +1445,7 @@ export function StockPage() {
           </div>
 
           <aside className="stock-sidebar flex min-h-0 flex-col gap-2.5 xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)] xl:overflow-auto">
-            <section className="stock-item app-surface rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="stock-item app-catalog-item app-surface rounded-[16px] bg-white p-2.5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-[9px] font-semibold text-[var(--text-secondary)]">
@@ -1618,7 +1622,8 @@ export function StockPage() {
                         !canAddSelectedItem || !selectedWarehouseBalance
                       }
                       onClick={addSelectedItemToCommercialOfferDraft}
-                      className="stock-secondary-action app-action-button app-action-button--md mt-1.5 w-full"
+                      data-app-action="secondary"
+                      className="app-action-button app-action-button--md mt-1.5 w-full"
                     >
                       <DocumentIcon className="h-3.5 w-3.5 stroke-[2]" />
                       Добавить в КП

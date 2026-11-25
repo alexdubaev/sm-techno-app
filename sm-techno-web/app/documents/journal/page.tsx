@@ -1,5 +1,6 @@
 "use client";
 
+import { Table } from "@/components/ui/table";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -167,7 +168,7 @@ export default function DocumentsPage() {
               </div>
             ) : (
               <div ref={containerRef} className="max-h-[calc(100dvh-8rem)] overflow-auto">
-                <table className="min-w-full table-fixed border-collapse" style={{ width: tableWidth }}>
+                <Table unstyled className="min-w-full table-fixed border-collapse" style={{ width: tableWidth }}>
                   <colgroup>
                     {DOCUMENTS_TABLE_COLUMNS.map((column) => (
                       <col key={column.key} style={{ width: getWidth(column.key) }} />
@@ -240,7 +241,7 @@ export default function DocumentsPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </Table>
               </div>
             )}
           </div>

@@ -2,6 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { Table } from "@/components/ui/table";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 
@@ -683,7 +684,7 @@ export default function WorkWithInvoicePage() {
                 </div>
               ) : (
                 <div ref={containerRef} className="max-h-[calc(100dvh-9.5rem)] overflow-auto">
-                  <table
+                  <Table unstyled
                     className="min-w-full table-fixed border-collapse"
                     style={{ width: tableWidth }}
                   >
@@ -862,7 +863,7 @@ export default function WorkWithInvoicePage() {
                         );
                       })}
                     </tbody>
-                  </table>
+                  </Table>
                 </div>
               )}
 

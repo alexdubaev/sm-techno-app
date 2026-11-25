@@ -2,6 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { Table } from "@/components/ui/table";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type SyntheticEvent } from "react";
@@ -189,7 +190,7 @@ export default function CommercialOfferDetailsPage() {
             <div className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
               <div className="overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
                 <div ref={containerRef} className="max-h-[calc(100dvh-12rem)] overflow-auto">
-                  <table className="min-w-full table-fixed border-collapse" style={{ width: tableWidth }}>
+                  <Table unstyled className="min-w-full table-fixed border-collapse" style={{ width: tableWidth }}>
                     <colgroup>
                       {OFFER_LINES_TABLE_COLUMNS.map((column) => (
                         <col key={column.key} style={{ width: getWidth(column.key) }} />
@@ -230,7 +231,7 @@ export default function CommercialOfferDetailsPage() {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </Table>
                 </div>
               </div>
             </div>

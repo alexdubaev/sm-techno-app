@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { Table } from "@/components/ui/table";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -112,7 +113,7 @@ export default function OrdersPage() {
               </div>
             ) : (
               <div ref={containerRef} className="max-h-[calc(100dvh-8rem)] overflow-auto">
-                <table
+                <Table unstyled
                   className="min-w-full table-fixed border-collapse"
                   style={{ width: tableWidth }}
                 >
@@ -205,7 +206,7 @@ export default function OrdersPage() {
                       );
                     })}
                   </tbody>
-                </table>
+                </Table>
               </div>
             )}
           </div>

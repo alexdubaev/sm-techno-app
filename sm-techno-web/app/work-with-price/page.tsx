@@ -2,6 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { Table } from "@/components/ui/table";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 
@@ -994,8 +995,8 @@ function WorkWithPriceAdminPage() {
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-2">
-        <header className="flex flex-wrap items-start justify-between gap-2">
+      <div className="app-catalog-workspace flex flex-col gap-2">
+        <header className="app-feature-heading flex flex-wrap items-start justify-between gap-2">
           <div className="max-w-[42rem]">
             <h1 className="text-[18px] font-[650] leading-none tracking-[-0.05em] text-[var(--text-primary)]">
               Работа с прайсом
@@ -1024,7 +1025,7 @@ function WorkWithPriceAdminPage() {
         </header>
 
         <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+          <div className="app-catalog-actions grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
             <ActionButton
               onClick={handleDownloadTemplate}
               disabled={isBusy}
@@ -1039,12 +1040,13 @@ function WorkWithPriceAdminPage() {
             />
             {isAdmin ? (
               <>
-                <label className="app-action-button app-action-button--md cursor-pointer">
+                <label data-app-action="secondary" className="app-action-button app-action-button--md cursor-pointer has-[:focus-visible]:outline has-[:focus-visible]:outline-2">
                   <UploadIcon className="h-3.5 w-3.5 stroke-[2] text-[var(--text-secondary)]" />
                   <input
                     type="file"
-                    className="hidden"
+                    className="sr-only"
                     accept=".xlsx,.xls,.csv"
+                    aria-label="Выбрать файл прайса"
                     onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); }}
                   />
                   <span className="truncate">{importFile ? importFile.name : "Выбрать файл прайса"}</span>
@@ -1081,7 +1083,7 @@ function WorkWithPriceAdminPage() {
 
         <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
           <div className="min-w-0 space-y-2">
-            <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="app-catalog-filters rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_minmax(180px,220px)] xl:grid-cols-[minmax(0,1fr)_170px_170px]">
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
@@ -1126,7 +1128,7 @@ function WorkWithPriceAdminPage() {
               </div>
             </section>
 
-            <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="app-catalog-table rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="mb-2 flex flex-wrap gap-1.5 border-b border-[var(--border-color)] pb-2">
                 <WarehouseTab
                   active={activeWarehouseId === null}
@@ -1151,7 +1153,7 @@ function WorkWithPriceAdminPage() {
                 ))}
               </div>
 
-              <div ref={containerRef} className="max-h-[calc(100dvh-8rem)] overflow-auto rounded-[12px] border border-[var(--border-color)] bg-white">
+              <div ref={containerRef} className="app-catalog-table-scroll max-h-[calc(100dvh-8rem)] overflow-auto rounded-[12px] border border-[var(--border-color)] bg-white">
                 {isLoading && items.length === 0 ? (
                   <TableSkeleton />
                 ) : items.length === 0 ? (
@@ -1165,7 +1167,7 @@ function WorkWithPriceAdminPage() {
                     }
                   />
                 ) : (
-                  <table
+                  <Table unstyled
                     className="min-w-full table-fixed border-separate border-spacing-0"
                     style={{ width: tableWidth }}
                   >
@@ -1202,6 +1204,7 @@ function WorkWithPriceAdminPage() {
                         return (
                           <tr
                             key={rowKey}
+                            data-state={isSelected ? "selected" : undefined}
                             onClick={() => handleSelectItem(item)}
                             className={[
                               "cursor-pointer transition-colors duration-200",
@@ -1223,7 +1226,7 @@ function WorkWithPriceAdminPage() {
                               </span>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-primary)]">
-                              <div className="max-w-full line-clamp-3 [overflow-wrap:anywhere] text-[11px] font-medium leading-[15px]" title={item.name || "-"}>
+                              <div className="app-catalog-product-name max-w-full line-clamp-3 [overflow-wrap:anywhere] text-[11px] font-medium leading-[15px]" title={item.name || "-"}>
                                 {item.name}
                               </div>
                             </td>
@@ -1272,6 +1275,7 @@ function WorkWithPriceAdminPage() {
                               <div className="relative inline-flex" data-row-actions-root="true">
                                 <button
                                   type="button"
+                                  data-app-action="secondary"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     handleToggleRowMenu(rowKey, event.currentTarget);
@@ -1288,7 +1292,7 @@ function WorkWithPriceAdminPage() {
                         );
                       })}
                     </tbody>
-                  </table>
+                  </Table>
                 )}
               </div>
 
@@ -1299,6 +1303,7 @@ function WorkWithPriceAdminPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    data-app-action="secondary"
                     disabled={page <= 1}
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-40"
@@ -1310,6 +1315,7 @@ function WorkWithPriceAdminPage() {
                   </div>
                   <button
                     type="button"
+                    data-app-action="secondary"
                     disabled={page >= pageCount}
                     onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
                     className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-40"
@@ -1379,7 +1385,7 @@ function WorkWithPriceAdminPage() {
             : null}
 
           <aside className="flex min-h-0 min-w-0 flex-col gap-2 xl:sticky xl:top-2 xl:max-h-[calc(100dvh-0.75rem)] xl:self-start xl:overflow-auto">
-            <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="app-catalog-item rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-[9px] font-semibold text-[var(--text-secondary)]">
@@ -1531,6 +1537,7 @@ function WorkWithPriceAdminPage() {
                         type="button"
                         disabled={isBusy}
                         onClick={() => setItemPendingDelete(selectedItem)}
+                        data-app-action="danger"
                         className="app-action-button app-action-button--sm"
                       >
                         <TrashIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -1648,7 +1655,7 @@ function WorkWithPriceAdminPage() {
                                   <button type="button" disabled={isBusy} onClick={() => setWarehouseBeingRenamed({ id: warehouse.id, name: warehouse.name })} className="app-action-button app-action-button--xs">
                                     Переименовать
                                   </button>
-                                  <button type="button" disabled={isBusy} onClick={() => void handleDeleteWarehouse(warehouse.id)} className="app-action-button app-action-button--xs">
+                                  <button type="button" disabled={isBusy} onClick={() => void handleDeleteWarehouse(warehouse.id)} data-app-action="danger" className="app-action-button app-action-button--xs">
                                     Удалить
                                   </button>
                                 </div>
@@ -1810,6 +1817,7 @@ function WorkWithPriceAdminPage() {
                   type="button"
                   disabled={isBusy}
                   onClick={handleClearCatalog}
+                  data-app-action="danger"
                   className="app-action-button app-action-button--sm"
                 >
                   <TrashIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -2124,6 +2132,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      data-app-action="secondary"
       className="app-action-button app-action-button--xl"
     >
       <span>{icon}</span>
@@ -2145,6 +2154,8 @@ function WarehouseTab({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
+      data-app-action="secondary"
       className={[
         "inline-flex h-[34px] items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200",
         active
@@ -2685,6 +2696,7 @@ function ConfirmDeleteDialog({
           <button
             type="button"
             onClick={onCancel}
+            data-app-action="secondary"
             className="app-action-button app-action-button--xl"
           >
             Отмена
@@ -2693,6 +2705,7 @@ function ConfirmDeleteDialog({
             type="button"
             disabled={isBusy}
             onClick={onConfirm}
+            data-app-action="danger"
             className="app-action-button app-action-button--xl"
           >
             Удалить товар

@@ -1,5 +1,6 @@
 "use client";
 
+import { Table } from "@/components/ui/table";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent, type ReactNode, type SVGProps } from "react";
 
@@ -514,7 +515,7 @@ export default function ClientsPage() {
             </div>
           ) : (
             <div ref={containerRef} className="max-h-[calc(100dvh-25rem)] overflow-auto">
-              <table className="min-w-full table-fixed border-collapse" style={{ width: tableWidth }}>
+              <Table unstyled className="min-w-full table-fixed border-collapse" style={{ width: tableWidth }}>
                 <colgroup>
                   {CLIENTS_TABLE_COLUMNS.map((column) => (
                     <col key={column.key} style={{ width: getWidth(column.key) }} />
@@ -603,7 +604,7 @@ export default function ClientsPage() {
                     );
                   })}
                 </tbody>
-              </table>
+              </Table>
             </div>
           )}
         </section>

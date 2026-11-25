@@ -2,6 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { Table } from "@/components/ui/table";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -280,7 +281,7 @@ export default function OrderDetailsPage() {
               </div>
             ) : (
               <div ref={containerRef} className="order-print-table-scroll max-h-[calc(100dvh-8.5rem)] overflow-auto">
-                <table
+                <Table unstyled
                   className="min-w-full table-fixed border-collapse"
                   style={{ width: tableWidth }}
                 >
@@ -353,7 +354,7 @@ export default function OrderDetailsPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </Table>
               </div>
             )}
           </div>

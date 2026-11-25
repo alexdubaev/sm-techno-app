@@ -1,4 +1,5 @@
 'use client';
+import { Table } from '@/components/ui/table';
 import { useState } from 'react';
 import {
   Area,
@@ -131,7 +132,7 @@ export default function ManagerChart({ data }: { data: ManagerDashboard }) {
       </div>
       <details className={styles.chartData}>
         <summary>Данные графика по дням</summary>
-        <table>
+        <Table unstyled>
           <thead>
             <tr>
               <th>День</th>
@@ -148,7 +149,7 @@ export default function ManagerChart({ data }: { data: ManagerDashboard }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </Table>
       </details>
     </section>
   );

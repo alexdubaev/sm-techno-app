@@ -13,7 +13,13 @@ html[data-ui-theme='glassy'] {
   --glass-edge: rgba(251, 253, 255, 0.86);
   --glass-panel: linear-gradient(115deg, #ffffff85, #e8eef68a 48%, #f8faff73);
   --glass-dense: linear-gradient(135deg, #f3f6fb, #e3eaf4);
+  --app-control-radius: 12px;
   --glass-control: linear-gradient(145deg, #ffffffcc, #ecf1f8a8);
+  --glass-table-surface: linear-gradient(125deg, #f9fbffce, #e4ecf6b5);
+  --glass-table-header: #f0f5fc;
+  --glass-table-row: transparent;
+  --glass-table-divider: #f8fbffce;
+  --glass-table-hover: #ffffff94;
   --glass-gold: linear-gradient(160deg, #ffda52, #ffc400 55%, #f1ae00);
   --glass-selected: linear-gradient(115deg, #fff4d7, #ffe5a3);
   --glass-shadow: inset 0 1px 3px #ffffff7a, 0 10px 26px #07162e15;
@@ -71,46 +77,145 @@ html[data-ui-theme='glassy'] :is([data-slot='dialog-overlay'], [data-slot='dialo
   background-color: #07162e64;
 }
 
-html[data-ui-theme='glassy'] :is(.app-shell-content, [role='dialog']) :is(input:not([type='checkbox'], [type='radio'], [type='file'], [type='range'], [type='hidden']), select, textarea):not(:disabled) {
-  background: #f8faffcf;
+html[data-ui-theme='glassy'] :is(
+  button:not(.stock-mobile-row), [role='button'], [role='tab'], [role='tablist'],
+  .app-action-button, .app-glassy-action, .app-glassy-secondary, .app-segmented, .app-segmented__item, [data-app-action],
+  .app-nav-link, .app-shell-dock-item, .app-shell-mobile-settings,
+  [data-slot='tabs-list'], [data-slot='tabs-trigger'], [data-slot='switch'], summary,
+  select, textarea, input:not([type='checkbox'], [type='radio'], [type='range'], [type='hidden'])
+) {
+  border-radius: var(--app-control-radius);
+}
+
+html[data-ui-theme='glassy'] input[type='file']::file-selector-button {
+  border-radius: var(--app-control-radius);
+}
+
+html[data-ui-theme='glassy'] :is(input:not([type='checkbox'], [type='radio'], [type='file'], [type='range'], [type='hidden']), select, textarea, [data-slot='select-trigger']):not(:disabled, [aria-disabled='true']) {
+  background-color: #f8faffcf;
   border-color: #aabbd0;
+}
+
+@supports (appearance: none) {
+  @media (forced-colors: none) {
+    html[data-ui-theme='glassy'] select:not([multiple], [size]:not([size='0'], [size='1']), [data-slot='native-select']) {
+      --glass-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%233a4e66' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
+      appearance: none;
+      background-image: var(--glass-select-arrow);
+      background-position: right 13px center;
+      background-repeat: no-repeat;
+      background-size: 16px;
+      padding-inline-end: 35px;
+      text-overflow: ellipsis;
+    }
+
+    html[data-ui-theme='glassy'] select:not([multiple], [size]:not([size='0'], [size='1']), [data-slot='native-select']):dir(rtl) {
+      background-position: left 13px center;
+    }
+
+    html[data-ui-theme='glassy'] [data-slot='native-select']:not([multiple]) { padding-inline: 10px 35px; }
+    html[data-ui-theme='glassy'] [data-slot='native-select-icon'] { inset-inline: auto 13px; }
+    html[data-ui-theme='glassy'] [data-slot='native-select'][multiple] { appearance: auto; }
+    html[data-ui-theme='glassy'] [data-slot='native-select'][multiple] + [data-slot='native-select-icon'] { display: none; }
+  }
+}
+
+@media (forced-colors: active) {
+  html[data-ui-theme='glassy'] select { appearance: auto; background-image: none; }
+  html[data-ui-theme='glassy'] [data-slot='native-select-icon'] { display: none; }
 }
 
 html[data-ui-theme='glassy'] .app-segmented {
   background: var(--glass-control);
   border-color: var(--glass-edge);
-  border-radius: 999px;
 }
 
-html[data-ui-theme='glassy'] .app-segmented__item {
-  border-radius: 999px;
+html[data-ui-theme='glassy'] :is(.app-action-button, .app-glassy-action, [data-slot='button'][data-variant='default'], [data-app-action='primary']) {
+  --action-background: var(--glass-gold);
+  --action-hover: linear-gradient(150deg, #ffe070, #ffcc22 64%, #f8b500);
+  --action-border: #ffe48d;
+  --action-color: var(--brand-dark);
+  --action-shadow: inset 0 1px 2px #ffefadba, 0 4px 10px #8d5b0621;
 }
 
-html[data-ui-theme='glassy'] :is(.app-action-button, .app-glassy-action, .app-glassy-secondary, .app-shell-logout, [data-slot='button']):not([data-variant='link']) {
-  border-radius: 999px;
+html[data-ui-theme='glassy'] :is(
+  .app-action-button--secondary, .app-glassy-secondary, .app-shell-logout, .app-shell-mobile-settings,
+  [data-slot='button']:is([data-variant='outline'], [data-variant='secondary']),
+  [data-app-action='secondary']
+) {
+  --action-background: var(--glass-control);
+  --action-hover: #f8fbff;
+  --action-border: var(--glass-edge);
+  --action-color: var(--brand-dark);
+  --action-shadow: inset 0 1px 2px #ffffff85;
 }
 
-html[data-ui-theme='glassy'] :is(.app-action-button:not(.app-action-button--secondary, .app-action-button--danger), .app-glassy-action, [data-slot='button'][data-variant='default']):not(:disabled, [aria-disabled='true']) {
-  background: var(--glass-gold);
-  border: 1px solid #ffe48d;
-  color: var(--brand-dark);
-  box-shadow: inset 0 1px 2px #ffefadba, 0 4px 10px #8d5b0621;
+html[data-ui-theme='glassy'] :is(.app-action-button--danger, [data-slot='button'][data-variant='destructive'], [data-app-action='danger']) {
+  --action-background: #fff2f0;
+  --action-hover: #ffe6e2;
+  --action-border: #eab8b4;
+  --action-color: #9a2620;
+  --action-shadow: inset 0 1px 2px #ffffff85;
 }
 
-html[data-ui-theme='glassy'] :is(.app-action-button:not(.app-action-button--secondary, .app-action-button--danger), .app-glassy-action, [data-slot='button'][data-variant='default']):hover:not(:disabled, [aria-disabled='true']) {
-  background: linear-gradient(150deg, #ffe070, #ffcc22 64%, #f8b500);
+html[data-ui-theme='glassy'] :is(
+  .app-action-button, .app-glassy-action, .app-glassy-secondary, .app-shell-logout, .app-shell-mobile-settings,
+  [data-slot='button'][data-variant]:not([data-variant='ghost'], [data-variant='link']),
+  [data-app-action]
+):not(:disabled, [aria-disabled='true'], :has(> input:disabled)) {
+  background: var(--action-background);
+  border: 1px solid var(--action-border);
+  color: var(--action-color);
+  box-shadow: var(--action-shadow);
 }
 
-html[data-ui-theme='glassy'] :is(.app-action-button--secondary, .app-glassy-secondary, .app-shell-logout, [data-slot='button']:is([data-variant='outline'], [data-variant='secondary'])):not(:disabled, [aria-disabled='true']) {
-  background: var(--glass-control);
-  border-color: var(--glass-edge);
-  color: var(--brand-dark);
-  box-shadow: inset 0 1px 2px #ffffff85;
+html[data-ui-theme='glassy'] :is(
+  .app-action-button, .app-glassy-action, .app-glassy-secondary, .app-shell-logout, .app-shell-mobile-settings,
+  [data-slot='button'][data-variant]:not([data-variant='ghost'], [data-variant='link']),
+  [data-app-action]
+):hover:not(:disabled, [aria-disabled='true'], :has(> input:disabled)) {
+  background: var(--action-hover);
 }
 
-html[data-ui-theme='glassy'] :is(.app-shell, [role='dialog']) :is(a, button, summary, select, input, textarea):focus-visible {
+html[data-ui-theme='glassy'] [data-app-action='secondary'][aria-pressed='true'] {
+  --action-background: var(--glass-selected);
+  --action-hover: var(--glass-selected);
+  --action-border: #c69a40;
+}
+
+html[data-ui-theme='glassy'] :is(a, button, summary, select, input, textarea, [role='button'], [data-app-action]):focus-visible,
+html[data-ui-theme='glassy'] label:has(> input[type='file']:focus-visible) {
   outline: 2px solid #233b59;
   outline-offset: 2px;
+}
+
+html[data-ui-theme='glassy'] table[data-slot='table'] {
+  background: var(--glass-table-surface);
+  border-radius: var(--app-control-radius);
+}
+
+html[data-ui-theme='glassy'] table[data-slot='table'] > :is(thead, tfoot),
+html[data-ui-theme='glassy'] table[data-slot='table'] > :is(thead, tfoot) > tr,
+html[data-ui-theme='glassy'] table[data-slot='table'] > thead > tr > th {
+  background-color: var(--glass-table-header);
+  color: var(--text-secondary);
+}
+
+html[data-ui-theme='glassy'] table[data-slot='table'] > :is(thead, tbody, tfoot) > tr:where(:not([aria-hidden='true'])),
+html[data-ui-theme='glassy'] table[data-slot='table'] > :is(thead, tbody, tfoot) > tr:where(:not([aria-hidden='true'])) > :is(th, td) {
+  border-color: var(--glass-table-divider);
+}
+
+html[data-ui-theme='glassy'] table[data-slot='table'] > tbody > tr:where(:not([aria-hidden='true'])) {
+  background-color: var(--table-row-background, var(--glass-table-row));
+}
+
+html[data-ui-theme='glassy'] table[data-slot='table'] > tbody > tr:hover:where(:not([aria-hidden='true'])) {
+  background-color: var(--table-row-hover, var(--glass-table-hover));
+}
+
+html[data-ui-theme='glassy'] table[data-slot='table'] > tbody > tr:is([aria-selected='true'], [data-state='selected']) {
+  background: var(--glass-selected);
 }
 
 html[data-ui-theme='glassy'] :is(.app-shell-sidebar, .app-shell-mobile-header, .app-shell-dock) {
@@ -134,9 +239,6 @@ html[data-ui-theme='glassy'] .app-shell-mobile-header {
 
 html[data-ui-theme='glassy'] .app-shell-mobile-header .app-shell-mobile-settings {
   display: inline-flex;
-  background: var(--glass-control);
-  border: 1px solid var(--glass-edge);
-  box-shadow: inset 0 1px 2px #ffffff85;
 }
 
 html[data-ui-theme='glassy'] .app-shell-main {
@@ -323,27 +425,26 @@ html[data-ui-theme='glassy'] .stock-valuation-header button {
   align-items: center;
   gap: 7px;
   text-decoration: none;
-  border-radius: 999px;
+  padding-inline: 13px;
   font-size: 13px;
 }
 
 html[data-ui-theme='glassy'] .stock-valuation-header button:hover { background: #ffffff55; }
 html[data-ui-theme='glassy'] .stock-valuation-header button[aria-expanded='true'] svg { transform: rotate(180deg); }
 html[data-ui-theme='glassy'] .stock-valuation > section { padding-block: 7px 12px; }
-html[data-ui-theme='glassy'] .stock-filters { padding: 12px; }
+html[data-ui-theme='glassy'] .app-catalog-filters { padding: 12px; }
 
-html[data-ui-theme='glassy'] .stock-filters :is(input:not([type='checkbox']), select, label) {
+html[data-ui-theme='glassy'] .app-catalog-filters :is(input:not([type='checkbox']), select, label:has(> input[type='checkbox'])) {
   min-width: 0;
   min-height: 40px;
-  border-radius: 999px;
+  border-radius: var(--app-control-radius);
   border-color: var(--glass-edge);
-  background: var(--glass-control);
+  background-color: #f5f8fc;
   color: var(--text-primary);
   font-size: 13px;
 }
 
-html[data-ui-theme='glassy'] .stock-filters input::placeholder { color: var(--text-secondary); }
-html[data-ui-theme='glassy'] .stock-filters select { padding-inline: 10px; }
+html[data-ui-theme='glassy'] .app-catalog-filters input::placeholder { color: var(--text-secondary); }
 
 html[data-ui-theme='glassy'] .stock-filters input[type='checkbox'] {
   appearance: none;
@@ -352,7 +453,7 @@ html[data-ui-theme='glassy'] .stock-filters input[type='checkbox'] {
   width: 31px;
   height: 18px;
   border: 1px solid #6f85a0;
-  border-radius: 999px;
+  border-radius: var(--app-control-radius);
   background: #f5f8fc;
 }
 
@@ -367,37 +468,46 @@ html[data-ui-theme='glassy'] .stock-filters input[type='checkbox']::after {
 
 html[data-ui-theme='glassy'] .stock-filters input[type='checkbox']:checked { background: var(--brand-dark); }
 html[data-ui-theme='glassy'] .stock-filters input[type='checkbox']:checked::after { inset-inline: auto 2px; background: #fff; }
-html[data-ui-theme='glassy'] .stock-filters .app-action-button { min-height: 40px; font-size: 13px; }
+html[data-ui-theme='glassy'] .app-catalog-filters .app-action-button { min-height: 40px; font-size: 13px; }
+
+html[data-ui-theme='glassy'] .app-catalog-table {
+  min-width: 0;
+  padding: 12px;
+  background: var(--glass-table-surface);
+}
+
+html[data-ui-theme='glassy'] .stock-table [data-in-draft] {
+  --table-row-background: #f3fbf6;
+  --table-row-hover: #e5f5ea;
+}
+
+html[data-ui-theme='glassy'] .app-catalog-workspace { gap: 14px; }
+html[data-ui-theme='glassy'] .app-catalog-workspace > .app-feature-heading { padding: 12px 12px 2px; }
+html[data-ui-theme='glassy'] .app-catalog-actions .app-action-button { min-height: 40px; }
+html[data-ui-theme='glassy'] .app-catalog-table [data-app-action][aria-pressed] { min-width: 0; max-width: 100%; }
 
 html[data-ui-theme='glassy'] .stock-table {
   display: flex;
-  min-width: 0;
   min-height: 24rem;
   flex-direction: column;
   justify-content: space-between;
-  padding: 12px;
-  background: linear-gradient(125deg, #f9fbffce, #e4ecf6b5);
 }
 
-html[data-ui-theme='glassy'] .stock-table-scroll { border: 0; background: transparent; }
-html[data-ui-theme='glassy'] .stock-table table thead tr { color: var(--text-secondary); background: #f6f9fd88; }
-html[data-ui-theme='glassy'] .stock-table table th { padding: 13px 9px; font-size: 12px; }
-html[data-ui-theme='glassy'] .stock-table table td { padding: 12px 9px; border-color: #f8fbffce; font-size: 12px; }
-html[data-ui-theme='glassy'] .stock-table table td .line-clamp-2 { font-size: 13px; }
-html[data-ui-theme='glassy'] .stock-table table td:first-child { font-size: 13px; }
+html[data-ui-theme='glassy'] .app-catalog-table-scroll { border: 0; border-radius: var(--app-control-radius); background: transparent; }
+html[data-ui-theme='glassy'] .app-catalog-table table[data-slot='table'] { background: transparent; }
+html[data-ui-theme='glassy'] .app-catalog-table :is(th, td) { font-size: 12px; }
+html[data-ui-theme='glassy'] .app-catalog-table th { padding: 13px 9px; }
+html[data-ui-theme='glassy'] .app-catalog-table td { padding: 12px 9px; }
+html[data-ui-theme='glassy'] .app-catalog-table .app-catalog-product-name,
+html[data-ui-theme='glassy'] .app-catalog-table td:first-child { font-size: 13px; }
 html[data-ui-theme='glassy'] .stock-table .stock-currency { white-space: nowrap; }
-html[data-ui-theme='glassy'] .stock-table table tbody tr { background: transparent; }
-html[data-ui-theme='glassy'] .stock-table table tbody tr:hover { background: #ffffff94; }
-html[data-ui-theme='glassy'] .stock-table table tbody tr[aria-selected='true'] { background: var(--glass-selected); }
-html[data-ui-theme='glassy'] .stock-table table tbody tr[aria-selected='true'] td:first-child { border-radius: 11px 0 0 11px; }
-html[data-ui-theme='glassy'] .stock-table table tbody tr[aria-selected='true'] td:last-child { border-radius: 0 11px 11px 0; }
 
-html[data-ui-theme='glassy'] .stock-item {
+html[data-ui-theme='glassy'] .app-catalog-item {
   padding: 14px;
   background: linear-gradient(115deg, #f5f9ffbd, #e4ebf7b6);
 }
 
-html[data-ui-theme='glassy'] .stock-item h2 { font-size: clamp(17px, 1.75vw, 28px); font-weight: 750; letter-spacing: -.03em; }
+html[data-ui-theme='glassy'] .app-catalog-item h2 { font-size: clamp(17px, 1.75vw, 28px); font-weight: 750; letter-spacing: -.03em; }
 html[data-ui-theme='glassy'] .stock-item-metrics { grid-template-columns: 1fr; justify-items: start; }
 html[data-ui-theme='glassy'] .stock-item-metrics > div { padding: 0; border: 0; background: transparent; }
 html[data-ui-theme='glassy'] .stock-item-metrics > div:last-child { order: -1; }
@@ -407,9 +517,8 @@ html[data-ui-theme='glassy'] .stock-item-metrics > div:first-child { display: fl
 html[data-ui-theme='glassy'] .stock-item-metrics > div:first-child:has([data-tone='success']) { background: #d7efe0; }
 html[data-ui-theme='glassy'] .stock-item-metrics > div:first-child:has([data-tone='danger']) { background: #f8dedf; }
 html[data-ui-theme='glassy'] .stock-item-metrics > div:first-child p { margin: 0; font-size: 12px; }
-html[data-ui-theme='glassy'] .stock-item select { min-height: 37px; border-radius: 999px; font-size: 13px; }
+html[data-ui-theme='glassy'] .stock-item select { min-height: 37px; font-size: 13px; }
 html[data-ui-theme='glassy'] .stock-item .app-action-button--md { min-height: 40px; font-size: 13px; }
-html[data-ui-theme='glassy'] .stock-item .stock-secondary-action:not(:disabled) { border-color: var(--glass-edge); background: var(--glass-control); box-shadow: var(--glass-shadow); }
 html[data-ui-theme='glassy'] .stock-item-warehouses { border-color: #f9fbff; background: #edf3fa7a; }
 html[data-ui-theme='glassy'] .stock-item-warehouse-name { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 6px; align-items: center; }
 html[data-ui-theme='glassy'] .stock-item-warehouse-name > span:nth-of-type(2) { grid-column: 2; }
