@@ -6,7 +6,10 @@ test('a single-item sidebar group reads like the other groups when it is active'
   expect(login.status()).toBe(200);
   const session = await login.json();
   await page.goto('/');
-  await page.evaluate((value) => localStorage.setItem('sm-techno-auth-session', JSON.stringify(value)), session);
+  await page.evaluate((value) => {
+    localStorage.setItem('sm-techno-auth-session', JSON.stringify(value));
+    localStorage.setItem('sm-techno-ui-theme', 'classic');
+  }, session);
   await page.goto('/stock');
   const sidebar = page.locator('aside.app-shell-sidebar');
   const activeButton = sidebar.getByRole('button', { name: 'Прайсы', exact: true });

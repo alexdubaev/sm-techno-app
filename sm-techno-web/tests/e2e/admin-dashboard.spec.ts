@@ -22,6 +22,7 @@ test('admin sees company overview and can switch periods; ordinary user cannot r
 });
 
 test('populated overview shows sales and plan', async ({page}, testInfo) => {
+  await page.addInitScript(() => localStorage.setItem('sm-techno-ui-theme', 'classic'));
   await page.route('**/api/admin/dashboard/sales?*', async route => {
     const params = new URL(route.request().url()).searchParams;
     const date = params.get('date')!;

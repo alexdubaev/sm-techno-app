@@ -226,10 +226,13 @@ test('admin startup opens overview and personal sales remain available from the 
   const cabinet = page
     .getByRole('link', { name: 'Мои продажи', exact: true })
     .filter({ visible: true });
-  if (!(await cabinet.count()))
-    await page
-      .getByRole('button', { name: page.viewportSize()!.width < 1536 ? 'Ещё' : 'Личный кабинет', exact: true })
-      .click();
+  if (!(await cabinet.count())) {
+    const cabinetMenu = page.getByRole('button', { name: 'Личный кабинет', exact: true });
+    const navigation = await cabinetMenu.isVisible()
+      ? cabinetMenu
+      : page.getByRole('button', { name: 'Ещё', exact: true });
+    await navigation.click();
+  }
   if (testInfo.project.name.startsWith('production-')) {
     await cabinet.click();
   } else {
