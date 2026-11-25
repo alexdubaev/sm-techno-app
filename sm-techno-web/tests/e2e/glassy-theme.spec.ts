@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('appearance switches immediately and is restored on a direct load', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   const mobile = page.viewportSize()?.width === 390;
   const category = page.getByRole('combobox', { name: 'Категория', exact: true });
   const stockResponse = (expectedCategory: string | null) => page.waitForResponse(response => {
