@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Dialog, DialogBackdrop, DialogClose, DialogPopup, DialogPortal, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { BarChart3, CalendarDays, Expand, Upload, UserRound, X } from 'lucide-react';
@@ -41,7 +41,8 @@ export function Dashboard() {
   const [sales, setSales] = useState<Load<SalesOverview>>(() => {const snapshot=readSalesSnapshot<SalesOverview>(salesKey); return {data:snapshot?.data ?? null,error:false,key:salesKey,savedAt:snapshot?.savedAt ?? null};});
   const [usage, setUsage] = useState<Load<UsageOverview>>(() => {const snapshot=readSalesSnapshot<UsageOverview>(usageKey); return {data:snapshot?.data ?? null,error:false,key:usageKey,savedAt:snapshot?.savedAt ?? null};});
   const [balance, setBalance] = useState<Load<Balance>>(() => {const snapshot=readSalesSnapshot<Balance>(balanceKey); return {data:snapshot?.data ?? null,error:false,key:balanceKey,savedAt:snapshot?.savedAt ?? null};});
-  const [salesRetry, retrySales] = useState(0); const [usageRetry, retryUsage] = useState(0); const [balanceRetry, retryBalance] = useState(0);
+  const [salesRetry, retrySales] = useState(0); const [usageRetry, retryUsage] = useState(0); const [balanceRetry, retryBalance] = useState(0); const forcedBalanceRetry = useRef<number | null>(null);
+  const retryBalanceNow = () => { const next = balanceRetry + 1; forcedBalanceRetry.current = next; retryBalance(next); };
   const selectDateAndPeriod = (nextPeriod: PeriodKind, nextDate: string) => {
     writeDashboardSelection(scope, {period:nextPeriod,date:nextDate});
     setPeriod(nextPeriod); setDate(nextDate);
@@ -59,21 +60,20 @@ export function Dashboard() {
   }), []);
   useEffect(() => { if (!isAdmin) return; let active = true;
     const generation = getApiCacheGeneration();
-    const refreshTimer = window.setTimeout(() => retrySales(value => value + 1), 30_000);
     fetchAdminSales(period,date).then(data => { if(active && generation === getApiCacheGeneration()) { writeSalesSnapshot(salesKey,data,generation); setSales({data,error:false,key:salesKey,savedAt:Date.now()}); } }).catch(error => { if(active) { const denied = error?.status === 401 || error?.status === 403; if (denied) { clearSalesSnapshot(salesKey); setSales({data:null,error:true,key:salesKey,savedAt:null}); } else setSales(current => current.key === salesKey && current.data && current.savedAt !== null && isSalesSnapshotUsable(current.savedAt) ? current : {data:null,error:true,key:salesKey,savedAt:null}); } });
-    return () => {active=false; window.clearTimeout(refreshTimer);};
+    return () => {active=false; };
   }, [isAdmin,user.id,period,date,salesRetry,salesKey]);
   useEffect(() => { if (!isAdmin) return; let active = true;
     const generation = getApiCacheGeneration();
-    const refreshTimer = window.setTimeout(() => retryUsage(value => value + 1), 30_000);
     fetchAdminUsage(period,date).then(data => { if(active && generation === getApiCacheGeneration()) { writeSalesSnapshot(usageKey,data,generation); setUsage({data,error:false,key:usageKey,savedAt:Date.now()}); } }).catch(error => { if(active) { const denied = error?.status === 401 || error?.status === 403; if (denied) { clearSalesSnapshot(usageKey); setUsage({data:null,error:true,key:usageKey,savedAt:null}); } else setUsage(current => current.key === usageKey && current.data && current.savedAt !== null && isSalesSnapshotUsable(current.savedAt) ? current : {data:null,error:true,key:usageKey,savedAt:null}); } });
-    return () => {active=false; window.clearTimeout(refreshTimer);};
+    return () => {active=false; };
   }, [isAdmin,user.id,period,date,usageRetry,usageKey]);
   useEffect(() => { if (!isAdmin) return; let active = true;
     const generation = getApiCacheGeneration();
-    const refreshTimer = window.setTimeout(() => retryBalance(value => value + 1), 30_000);
-    fetchAdminBalance().then(data => { if(active && generation === getApiCacheGeneration()) { writeSalesSnapshot(balanceKey,data,generation); setBalance({data,error:false,key:balanceKey,savedAt:Date.now()}); } }).catch(error => { if(active) { const denied = error?.status === 401 || error?.status === 403; if (denied) { clearSalesSnapshot(balanceKey); setBalance({data:null,error:true,key:balanceKey,savedAt:null}); } else setBalance(current => current.key === balanceKey && current.data && current.savedAt !== null && isSalesSnapshotUsable(current.savedAt) ? current : {data:null,error:true,key:balanceKey,savedAt:null}); } });
-    return () => {active=false; window.clearTimeout(refreshTimer);};
+    const forceRefresh = forcedBalanceRetry.current === balanceRetry;
+    forcedBalanceRetry.current = null;
+    fetchAdminBalance(forceRefresh).then(data => { if(active && generation === getApiCacheGeneration()) { writeSalesSnapshot(balanceKey,data,generation); setBalance({data,error:false,key:balanceKey,savedAt:Date.now()}); } }).catch(error => { if(active) { const denied = error?.status === 401 || error?.status === 403; if (denied) { clearSalesSnapshot(balanceKey); setBalance({data:null,error:true,key:balanceKey,savedAt:null}); } else setBalance(current => current.key === balanceKey && current.data && current.savedAt !== null && isSalesSnapshotUsable(current.savedAt) ? current : {data:null,error:true,key:balanceKey,savedAt:null}); } });
+    return () => {active=false; };
   }, [isAdmin,user.id,balanceRetry,balanceKey]);
   if (!isAdmin) return <div className={styles.root}><h1>Нет доступа</h1><Link href="/manager">Открыть мой кабинет</Link></div>;
   const cachedSales = readSalesSnapshot<SalesOverview>(salesKey)?.data;
@@ -85,7 +85,7 @@ export function Dashboard() {
   const currentUsage = currentUsageValue?.period.kind === period && currentUsageValue.period.anchorDate === date ? currentUsageValue : null;
   const currentBalance = balance.key === balanceKey && balance.savedAt !== null && isSalesSnapshotUsable(balance.savedAt) ? balance.data : cachedBalance ?? null;
   const salesChartTitle = glassy && period === 'year' ? 'Продажи по месяцам' : 'Продажи по дням';
-  const chartAnimationKey = `${salesKey}:${salesRetry}`;
+  const chartAnimationKey = salesKey;
   return <div className={styles.root}>
     <header className={`app-feature-heading app-glassy-only ${styles.pageHeading}`}>
       <h1>Обзор</h1>
@@ -124,7 +124,7 @@ export function Dashboard() {
         {currentSales.totals.count > 0 && (
           <div className={styles.glassySalesLayout}>
             <SalesTrend key={chartAnimationKey} animationKey={chartAnimationKey} sales={currentSales} title={salesChartTitle} glassy />
-            <GlassySalesBreakdown sales={currentSales} money={money} animationKey={chartAnimationKey} />
+            <GlassySalesBreakdown key={chartAnimationKey} sales={currentSales} money={money} animationKey={chartAnimationKey} />
           </div>
         )}
         {currentSales.managers.length > 0 && (
@@ -153,13 +153,13 @@ export function Dashboard() {
     </Dialog>
     <CompanySales period={period} date={date}/>
     <section className={`${styles.panel} app-surface`}><h2>DeepSeek</h2><p className={styles.muted}>Измеренные запросы этого приложения, не вся история аккаунта.</p>{usage.key === usageKey && usage.error ? <ErrorState retry={() => retryUsage(x=>x+1)} /> : !currentUsage ? <p>Загрузка…</p> : <><p>Учёт ведётся с {currentUsage.trackingStartedAt ? new Date(currentUsage.trackingStartedAt).toLocaleString('ru-RU') : 'неизвестной даты'}. Предыдущая история недоступна.</p>{currentUsage.recordingDegraded && <p role="alert">Часть записей могла не сохраниться.</p>}<div className={styles.metrics}><span>Запросы <strong>{number(currentUsage.totals.requests)}</strong></span><span>Ошибки <strong>{number(currentUsage.totals.failedRequests)}</strong></span><span>Вход <strong>{number(currentUsage.totals.promptTokens)}</strong></span><span>Выход <strong>{number(currentUsage.totals.completionTokens)}</strong></span><span>Всего токенов <strong>{number(currentUsage.totals.totalTokens)}</strong></span><span>Неизвестный расход <strong>{number(currentUsage.totals.unknownUsageRequests)}</strong></span></div>{currentUsage.totals.requests ? <><h3>Запросы</h3><Chart data={currentUsage.series} field="requests" label="Запросы DeepSeek" /><h3>Токены</h3><Chart data={currentUsage.series} field="totalTokens" label="Токены DeepSeek" /><details><summary>Данные графика запросов и токенов</summary>{currentUsage.series.map(row=><div key={row.date}>{row.date}: {row.requests} запросов, {number(row.totalTokens)} токенов; неизвестно: {row.unknownUsageRequests}</div>)}</details></> : <p>За этот период нет наблюдений.</p>}</>}
-      <div className={styles.balance}><h3>Баланс аккаунта</h3>{balance.key === balanceKey && balance.error ? <ErrorState retry={() => retryBalance(x=>x+1)} /> : !currentBalance ? <p>Загрузка…</p> : currentBalance.status !== 'available' ? <><p>{currentBalance.status === 'unconfigured' ? 'Ключ не настроен' : 'Баланс временно недоступен'}</p><button onClick={() => retryBalance(x=>x+1)}>Повторить</button></> : <><p>{currentBalance.isAvailable ? 'Доступен' : 'Недоступен для запросов'} · обновлён {new Date(currentBalance.checkedAt).toLocaleString('ru-RU')}</p>{currentBalance.balances.map(b=><p key={b.currency}><strong>{b.totalBalance} {b.currency}</strong> (бонусный {b.grantedBalance}, пополненный {b.toppedUpBalance})</p>)}</>}</div>
+      <div className={styles.balance}><h3>Баланс аккаунта</h3>{balance.key === balanceKey && balance.error ? <ErrorState retry={retryBalanceNow} /> : !currentBalance ? <p>Загрузка…</p> : currentBalance.status !== 'available' ? <><p>{currentBalance.status === 'unconfigured' ? 'Ключ не настроен' : 'Баланс временно недоступен'}</p><button onClick={retryBalanceNow}>Повторить</button></> : <><p>{currentBalance.isAvailable ? 'Доступен' : 'Недоступен для запросов'} · обновлён {new Date(currentBalance.checkedAt).toLocaleString('ru-RU')}</p>{currentBalance.balances.map(b=><p key={b.currency}><strong>{b.totalBalance} {b.currency}</strong> (бонусный {b.grantedBalance}, пополненный {b.toppedUpBalance})</p>)}</>}</div>
     </section>
   </div>;
 }
 
 function SalesTrend({ sales, title, glassy = false, animationKey }: { sales: SalesOverview; title: string; glassy?: boolean; animationKey: string }) {
-  const [animate] = useState(() => claimSalesChartAnimation(animationKey));
+  const [animate] = useState(() => claimSalesChartAnimation('trend', animationKey));
   return (
     <section className={glassy ? `app-surface ${styles.trend}` : styles.chartColumn}>
       <div className={styles.chartHeading}>
@@ -226,7 +226,7 @@ function ManagerPlans({ sales, glassy = false }: { sales: SalesOverview; glassy?
 }
 
 function ErrorState({retry}:{retry:()=>void}) { return <p role="alert">Не удалось загрузить данные. <button onClick={retry}>Повторить</button></p>; }
-function Chart<T extends object>({data,field,label,large=false,animate=false}:{data:T[];field:string;label:string;large?:boolean;animate?:boolean}) {return <div className={`${styles.chart} ${large ? styles.largeChart : ''}`} aria-label={label}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} accessibilityLayer={large || field !== 'amount'}><CartesianGrid stroke="#e3e8f0" vertical={false}/><XAxis dataKey="date" minTickGap={28} tick={{fontSize:11}} tickFormatter={formatDate}/><YAxis tick={{fontSize:11}} width={65} allowDecimals={field !== 'requests'} tickFormatter={(value: number) => field === 'amount' ? `${(value / 100).toLocaleString('ru-RU', {notation:'compact', maximumFractionDigits:1})} ₽` : String(value)}/>{(large || field !== 'amount') && <Tooltip labelFormatter={(value) => formatDate(String(value))} formatter={(value) => field === 'amount' && typeof value === 'number' ? money(value) : value}/>}<Bar maxBarSize={44} isAnimationActive={animate} animationDuration={420} name={field === 'amount' ? 'Продажи' : field === 'requests' ? 'Запросы' : 'Токены'} dataKey={field} fill="#ffc400" radius={[3,3,0,0]}/></BarChart></ResponsiveContainer></div>;}
+function Chart<T extends object>({data,field,label,large=false,animate=false}:{data:T[];field:string;label:string;large?:boolean;animate?:boolean}) {return <div className={`${styles.chart} ${large ? styles.largeChart : ''}`} aria-label={label}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} accessibilityLayer={large || field !== 'amount'}><CartesianGrid stroke="#e3e8f0" vertical={false}/><XAxis dataKey="date" minTickGap={28} tick={{fontSize:11}} tickFormatter={formatDate}/><YAxis tick={{fontSize:11}} width={65} allowDecimals={field !== 'requests'} tickFormatter={(value: number) => field === 'amount' ? `${(value / 100).toLocaleString('ru-RU', {notation:'compact', maximumFractionDigits:1})} ₽` : String(value)}/>{(large || field !== 'amount') && <Tooltip labelFormatter={(value) => formatDate(String(value))} formatter={(value) => field === 'amount' && typeof value === 'number' ? money(value) : value}/>}<Bar maxBarSize={44} isAnimationActive={animate ? 'auto' : false} animationDuration={420} name={field === 'amount' ? 'Продажи' : field === 'requests' ? 'Запросы' : 'Токены'} dataKey={field} fill="#ffc400" radius={[3,3,0,0]}/></BarChart></ResponsiveContainer></div>;}
 
 
 function formatDate(value: string) { const parts = value.split('-'); return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : parts.length === 2 ? `${parts[1]}.${parts[0]}` : value; }

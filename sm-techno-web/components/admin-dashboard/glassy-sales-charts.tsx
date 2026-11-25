@@ -40,7 +40,7 @@ export function GlassySalesArea({ data, large, label, money, animate = true }: {
           <XAxis dataKey="date" minTickGap={24} tick={{ fontSize: 12, fill: '#263b54' }} tickLine={false} tickFormatter={shortDate} />
           <YAxis width={68} tick={{ fontSize: 11, fill: '#263b54' }} tickLine={false} tickFormatter={(value: number) => `${compactMoney.format(value / 100)}\u00a0₽`} />
           <Tooltip cursor={{ stroke: '#9b7000', strokeDasharray: '4 3' }} labelFormatter={value => shortDate(String(value))} formatter={value => typeof value === 'number' ? money(value) : value} />
-          <Area type="monotone" dataKey="amount" name="Продажи" stroke="#e5a800" strokeWidth={3} fill={`url(#${fillId})`} dot={data.length === 1} activeDot={{ r: 5, fill: '#ffc400', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={animate} animationDuration={420} />
+          <Area type="monotone" dataKey="amount" name="Продажи" stroke="#e5a800" strokeWidth={3} fill={`url(#${fillId})`} dot={data.length === 1} activeDot={{ r: 5, fill: '#ffc400', stroke: '#fff', strokeWidth: 2 }} isAnimationActive={animate ? 'auto' : false} animationDuration={420} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -52,7 +52,7 @@ export function GlassySalesBreakdown({ sales, money, animationKey }: {
   money: (value: number) => string;
   animationKey: string;
 }) {
-  const [animate] = useState(() => claimSalesChartAnimation(`${animationKey}:breakdown`));
+  const [animate] = useState(() => claimSalesChartAnimation('breakdown', animationKey));
   const [tooltipTarget, setTooltipTarget] = useState<HTMLDivElement | null>(null);
   const assigned = sales.managers.map(manager => ({ key: manager.id, name: manager.name, amount: manager.salesTotal }));
   const assignedTotal = assigned.reduce((sum, manager) => sum + manager.amount, 0);
@@ -74,7 +74,7 @@ export function GlassySalesBreakdown({ sales, money, animationKey }: {
           <div aria-hidden="true" className={styles.donutChart}>
             <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 0, height: 0 }}>
               <PieChart accessibilityLayer={false}>
-                <Pie data={chart} dataKey="amount" nameKey="name" innerRadius="69%" outerRadius="97%" startAngle={90} endAngle={-270} stroke="#fffdf8" strokeWidth={1} isAnimationActive={animate} animationDuration={420} />
+                <Pie data={chart} dataKey="amount" nameKey="name" innerRadius="69%" outerRadius="97%" startAngle={90} endAngle={-270} stroke="#fffdf8" strokeWidth={1} isAnimationActive={animate ? 'auto' : false} animationDuration={420} />
                 {tooltipTarget && (
                   <Tooltip
                     portal={tooltipTarget}

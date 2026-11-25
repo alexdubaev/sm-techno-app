@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from 'vitest';
 import { getApiCacheGeneration, invalidateApiCache } from '@/lib/api';
-import { readDashboardSelection, readSalesSnapshot, writeDashboardSelection, writeSalesSnapshot } from '@/lib/sales-memory';
+import { claimSalesChartAnimation, readDashboardSelection, readSalesSnapshot, writeDashboardSelection, writeSalesSnapshot } from '@/lib/sales-memory';
 
 afterEach(() => invalidateApiCache('session'));
 
@@ -34,4 +34,24 @@ it('bounds retained query snapshots during long sessions', () => {
   }
   expect(readSalesSnapshot('query:0', 1100)).toBeNull();
   expect(readSalesSnapshot<number>('query:80', 1100)?.data).toBe(80);
+});
+
+it('tracks trend and manager breakdown chart presentation independently by period', () => {
+  expect(claimSalesChartAnimation('trend', 'admin:month:2026-11-01')).toBe(true);
+  expect(claimSalesChartAnimation('breakdown', 'admin:month:2026-11-01')).toBe(true);
+  expect(claimSalesChartAnimation('trend', 'admin:month:2026-11-01')).toBe(false);
+  expect(claimSalesChartAnimation('breakdown', 'admin:month:2026-11-01')).toBe(false);
+
+  expect(claimSalesChartAnimation('trend', 'admin:month:2026-12-01')).toBe(true);
+  expect(claimSalesChartAnimation('breakdown', 'admin:month:2026-12-01')).toBe(true);
+  expect(claimSalesChartAnimation('trend', 'admin:month:2026-12-01')).toBe(false);
+  expect(claimSalesChartAnimation('breakdown', 'admin:month:2026-12-01')).toBe(false);
+});
+
+it('allows chart animation again after API data invalidation', () => {
+  expect(claimSalesChartAnimation('trend', 'admin:month:2026-11-01')).toBe(true);
+  expect(claimSalesChartAnimation('breakdown', 'admin:month:2026-11-01')).toBe(true);
+  invalidateApiCache('data');
+  expect(claimSalesChartAnimation('trend', 'admin:month:2026-11-01')).toBe(true);
+  expect(claimSalesChartAnimation('breakdown', 'admin:month:2026-11-01')).toBe(true);
 });

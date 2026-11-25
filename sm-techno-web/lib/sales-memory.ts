@@ -8,12 +8,12 @@ type Snapshot<T> = { data: T; savedAt: number; generation: number };
 const snapshots = new Map<string, Snapshot<unknown>>();
 const dashboardSelections = new Map<string, { period: string; date: string }>();
 const managerSelections = new Map<string, { month: string; managerId?: number }>();
-let lastPresentedChart = '';
+const lastPresentedCharts = new Map<'trend' | 'breakdown', string>();
 
 subscribeApiCacheInvalidation((reason) => {
   snapshots.clear();
   if (reason === 'session') { dashboardSelections.clear(); managerSelections.clear(); }
-  lastPresentedChart = '';
+  lastPresentedCharts.clear();
 });
 
 export function isSalesSnapshotUsable(savedAt: number, now = Date.now()) {
@@ -58,9 +58,9 @@ export function writeDashboardSelection(key: string, selection: { period: string
   dashboardSelections.set(key, selection);
 }
 
-export function claimSalesChartAnimation(key: string) {
-  if (lastPresentedChart === key) return false;
-  lastPresentedChart = key;
+export function claimSalesChartAnimation(chart: 'trend' | 'breakdown', key: string) {
+  if (lastPresentedCharts.get(chart) === key) return false;
+  lastPresentedCharts.set(chart, key);
   return true;
 }
 

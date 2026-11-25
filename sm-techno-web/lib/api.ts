@@ -361,9 +361,9 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
   return (await response.json()) as T;
 }
 
-type GetRequestOptions = { bypassCache?: boolean };
+type GetRequestOptions = { bypassCache?: boolean; cacheResponse?: boolean };
 
-async function requestJson<T>(path: string, { bypassCache = false }: GetRequestOptions = {}): Promise<T> {
+async function requestJson<T>(path: string, { bypassCache = false, cacheResponse = false }: GetRequestOptions = {}): Promise<T> {
   const url = buildApiUrl(path);
   const requestGeneration = cacheGeneration;
 
@@ -405,7 +405,11 @@ async function requestJson<T>(path: string, { bypassCache = false }: GetRequestO
     { retryTransient: true },
   );
 
-  return parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
+  const data = await parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
+  if (cacheResponse && canCacheGet(path) && requestGeneration === cacheGeneration) {
+    getCache.set(url, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
+  }
+  return data;
 }
 
 export async function requestJsonWithInit<T>(
@@ -1848,8 +1852,8 @@ export function assignCompanySaleManager(kind: import('./company-sales-types').C
 export function fetchAdminUsage(period: import('./admin-dashboard-types').PeriodKind, date: string) {
   return requestJson<import('./admin-dashboard-types').UsageOverview>(`/api/admin/dashboard/deepseek?${new URLSearchParams({period, date})}`);
 }
-export function fetchAdminBalance() {
-  return requestJson<import('./admin-dashboard-types').Balance>('/api/admin/dashboard/deepseek/balance');
+export function fetchAdminBalance(forceRefresh = false) {
+  return requestJson<import('./admin-dashboard-types').Balance>('/api/admin/dashboard/deepseek/balance', { bypassCache: forceRefresh, cacheResponse: forceRefresh });
 }
 
 // Bank statements use the same authenticated transport and never the document recognizer.

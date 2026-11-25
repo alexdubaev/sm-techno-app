@@ -69,7 +69,6 @@ export function CompanySales({ period, date }: Props) {
     let active = true;
     const current = ++listSequence.current;
     const generation = getApiCacheGeneration();
-    const refreshTimer = window.setTimeout(() => setVersion(value => value + 1), 30_000);
     fetchCompanySales({ period, date, query, page, unassigned })
       .then(result => {
         if (active && current === listSequence.current) {
@@ -78,7 +77,7 @@ export function CompanySales({ period, date }: Props) {
         }
       })
       .catch(error => { if (active && current === listSequence.current) { if (error?.status === 401 || error?.status === 403) { clearSalesSnapshot(listKey); setItems([]); setItemsKey(listKey); setItemsSavedAt(null); setPages(1); setTotal(0); } setListError(errorMessage(error)); setListErrorKey(listKey); } });
-    return () => { active = false; listSequence.current += 1; window.clearTimeout(refreshTimer); };
+    return () => { active = false; listSequence.current += 1; };
   }, [period, date, query, page, unassigned, version, listKey]);
   useEffect(() => { fetchCachedManagers().then(setManagers).catch(() => setManagers([])); }, [scope,managerReload]);
   useEffect(() => {

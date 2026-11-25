@@ -186,7 +186,6 @@ function CabinetLoader({
   useEffect(() => {
     let active = true;
     const generation = getApiCacheGeneration();
-    const refreshTimer = window.setTimeout(() => onRefresh(), 30_000);
     fetchCachedManagerDashboard(month, managerId)
       .then((result) => {
         if (active && generation === getApiCacheGeneration()) { writeSalesSnapshot(key,result,generation); setData(result,Date.now()); setError(''); }
@@ -199,7 +198,6 @@ function CabinetLoader({
       });
     return () => {
       active = false;
-      window.clearTimeout(refreshTimer);
     };
   }, [month, managerId, reloadKey, key, onRefresh]);
   if (error)
