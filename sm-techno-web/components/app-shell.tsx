@@ -112,6 +112,16 @@ export function AppShell({ children }: ShellProps) {
     };
   }, [router, user.id]);
 
+  useEffect(() => {
+    if (!user.id || pathname !== '/dashboard') return;
+
+    const isDesktop = window.matchMedia?.(glassyDesktopQuery).matches ?? false;
+    if (!isDesktop) return;
+
+    const timeout = window.setTimeout(() => router.prefetch('/stock'), 250);
+    return () => window.clearTimeout(timeout);
+  }, [pathname, router, user.id]);
+
   const visibleNavGroups = navigationGroups
     .map((group) => ({
       ...group,
@@ -222,7 +232,7 @@ export function AppShell({ children }: ShellProps) {
                     <div key={group.label}>
                       <Link
                         href={item.href}
-                        prefetch={item.href === '/stock'}
+                        prefetch={item.href === '/stock' ? true : undefined}
                         aria-current={
                           isNavItemActive(item, pathname) ? 'page' : undefined
                         }
@@ -392,7 +402,7 @@ function SidebarLink({
   return (
     <Link
       href={item.href}
-      prefetch={item.href === '/stock'}
+      prefetch={item.href === '/stock' ? true : undefined}
       onClick={onClick}
       aria-current={active ? 'page' : undefined}
       className={`app-nav-link flex h-[38px] items-center gap-2 rounded-[12px] border px-3 text-[12px] font-semibold transition-[background-color,border-color,color,transform] duration-200 ease-out active:scale-[.985] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_rgba(255,196,0,0.35)] motion-reduce:transition-none ${
