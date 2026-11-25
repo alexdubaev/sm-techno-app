@@ -152,6 +152,30 @@ select {
   }
 }
 
+.app-icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.app-icon-button > svg {
+  display: block;
+}
+
+summary.app-icon-button {
+  list-style: none;
+}
+
+summary.app-icon-button::-webkit-details-marker {
+  display: none;
+}
+
+.app-shell-dock-item {
+  font-size: 11px;
+}
+
 .app-action-button {
   box-sizing: border-box;
   display: inline-flex;

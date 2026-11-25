@@ -1,3 +1,4 @@
+import { Settings } from 'lucide-react';
 import type { ReactNode, SVGProps } from 'react';
 
 export type AppNavItem = {
@@ -114,7 +115,7 @@ export const navigationGroups: AppNavGroup[] = [
         href: '/settings',
         label: 'Настройки',
         mobileIcon: '/mobile-icons/settings.webp',
-        Icon: GearIcon,
+        Icon: Settings,
       },
     ],
   },
@@ -224,25 +225,6 @@ function BookIcon(props: SVGProps<SVGSVGElement>) {
       />
       <path
         d="M18.5 18H8a2.5 2.5 0 0 0-2.5 2.5h10.5a2.5 2.5 0 0 1 2.5-2.5Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function GearIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path
-        d="m14.5 3 .7 1.8a7.7 7.7 0 0 1 1.8.8L18.8 5l2.2 2.2-.6 1.8c.3.6.6 1.2.8 1.8l1.8.7v3.1l-1.8.7a7.7 7.7 0 0 1-.8 1.8l.6 1.8-2.2 2.2-1.8-.6a7.7 7.7 0 0 1-1.8.8l-.7 1.8h-3.1l-.7-1.8a7.7 7.7 0 0 1-1.8-.8l-1.8.6L5 18.8l.6-1.8a7.7 7.7 0 0 1-.8-1.8L3 14.5v-3.1l1.8-.7c.2-.6.5-1.2.8-1.8L5 7.2 7.2 5l1.8.6c.6-.3 1.2-.6 1.8-.8L11.5 3h3Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"

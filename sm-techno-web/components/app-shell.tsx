@@ -316,7 +316,7 @@ export function AppShell({ children }: ShellProps) {
                     {roleLabel}
                   </div>
                 </div>
-                <Link href="/settings" aria-label="Открыть настройки" className="app-glassy-only app-shell-mobile-settings size-11 shrink-0 items-center justify-center rounded-full">
+                <Link href="/settings" aria-label="Открыть настройки" className="app-glassy-only app-shell-mobile-settings app-icon-button size-11">
                   <Settings size={20} aria-hidden="true" />
                 </Link>
               </div>

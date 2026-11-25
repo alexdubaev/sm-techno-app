@@ -135,7 +135,7 @@ export function MobilePrimaryArchiveDetail({
         side="bottom"
         showCloseButton={false}
         data-mobile-primary-archive-detail=""
-        className="data-[side=bottom]:h-[100dvh] max-h-[100dvh] gap-0 overflow-hidden border-0 bg-[#F7F9FC] pt-[env(safe-area-inset-top)] text-[var(--text-primary)]"
+        className="app-crm-client-sheet data-[side=bottom]:h-[100dvh] max-h-[100dvh] gap-0 overflow-hidden border-0 bg-[#F7F9FC] pt-[env(safe-area-inset-top)] text-[var(--text-primary)]"
       >
         <header className="app-crm-sheet-header shrink-0 border-b border-[var(--border-color)] bg-white px-3 pb-3">
           <div className="flex items-start gap-2 py-2">
@@ -143,7 +143,7 @@ export function MobilePrimaryArchiveDetail({
               type="button"
               onClick={onClose}
               aria-label="Назад к архиву"
-              className={`${mobileButton} flex size-11 shrink-0 items-center justify-center px-0`}
+              className={`${mobileButton} app-icon-button size-11`}
             >
               <ArrowLeft aria-hidden="true" className="size-5" />
             </button>
@@ -157,7 +157,7 @@ export function MobilePrimaryArchiveDetail({
           <SheetDescription className="break-words text-xs text-[var(--text-secondary)]">
             {client.city || 'Город не указан'} · ИНН {client.inn || 'не указан'}
           </SheetDescription>
-          <p className="mt-2 inline-flex rounded-md bg-[#EEF2F7] px-2 py-1 text-xs font-semibold text-[#334155]">
+          <p className="mt-2 inline-flex app-crm-client-inset rounded-md bg-[#EEF2F7] px-2 py-1 text-xs font-semibold text-[#334155]">
             Архивная карточка · Только просмотр
           </p>
         </header>
@@ -353,7 +353,7 @@ function MobileClientDetailContent({
         showCloseButton={false}
         data-mobile-crm-detail=""
         data-initial-section={initialSection}
-        className="data-[side=bottom]:h-[100dvh] max-h-[100dvh] gap-0 overflow-hidden border-0 bg-[#F7F9FC] pt-[env(safe-area-inset-top)] text-[var(--text-primary)]"
+        className="app-crm-client-sheet data-[side=bottom]:h-[100dvh] max-h-[100dvh] gap-0 overflow-hidden border-0 bg-[#F7F9FC] pt-[env(safe-area-inset-top)] text-[var(--text-primary)]"
       >
         <header className="app-crm-sheet-header shrink-0 border-b border-[var(--border-color)] bg-white px-3 pb-3">
           <div className="flex items-start gap-2 py-2">
@@ -361,7 +361,7 @@ function MobileClientDetailContent({
               type="button"
               onClick={onClose}
               aria-label="Назад к списку клиентов"
-              className={`${mobileButton} flex size-11 shrink-0 items-center justify-center px-0`}
+              className={`${mobileButton} app-icon-button size-11`}
             >
               <ArrowLeft aria-hidden="true" className="size-5" />
             </button>
@@ -375,7 +375,7 @@ function MobileClientDetailContent({
               type="button"
               onClick={() => setSection('more')}
               aria-label="Ещё действия с клиентом"
-              className={`${mobileButton} flex size-11 shrink-0 items-center justify-center px-0`}
+              className={`${mobileButton} app-icon-button size-11`}
             >
               <MoreHorizontal aria-hidden="true" className="size-5" />
             </button>
@@ -383,7 +383,7 @@ function MobileClientDetailContent({
           <SheetDescription className="break-words text-xs text-[var(--text-secondary)]">
             {client.city || 'Город не указан'} · ИНН {client.inn || 'не указан'}
           </SheetDescription>
-          <p className="mt-2 inline-block rounded-md bg-[#EEF2F7] px-2 py-1 text-xs font-medium text-[#334155]">
+          <p className="mt-2 inline-block app-crm-client-inset rounded-md bg-[#EEF2F7] px-2 py-1 text-xs font-medium text-[#334155]">
             {statusLabels[client.syncStatus]}
           </p>
           {!canEditWorkspace ? (

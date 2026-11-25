@@ -65,7 +65,7 @@ export function MobileSheet({
           </div>
           <SheetClose
             aria-label="Закрыть форму"
-            className={`${mobileButton} flex size-11 shrink-0 items-center justify-center px-0`}
+            className={`${mobileButton} app-icon-button size-11`}
           >
             <X className="size-5" aria-hidden="true" />
           </SheetClose>

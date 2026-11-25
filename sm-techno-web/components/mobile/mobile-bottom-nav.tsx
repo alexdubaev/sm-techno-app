@@ -45,7 +45,7 @@ export function MobileBottomNav({
         onClick={onMoreClick}
         type="button"
       >
-        <span className={navIconClass()}>
+        <span className="grid size-7 shrink-0 place-items-center">
           <Image
             alt=""
             className="app-classic-only h-6 w-6 object-contain"
@@ -78,7 +78,7 @@ function PrimaryLink({
       href={item.href}
       prefetch={item.href === '/stock' ? true : undefined}
     >
-      <span className={navIconClass()}>
+      <span className="grid size-7 shrink-0 place-items-center">
         <Image
           alt=""
           className={`app-classic-only h-6 w-6 object-contain ${item.href === '/manager' ? 'scale-[1.25]' : ''}`}
@@ -86,7 +86,7 @@ function PrimaryLink({
           src={item.mobileIcon}
           width={64}
         />
-        <Icon aria-hidden="true" className="app-glassy-only size-6" />
+        <Icon aria-hidden="true" className={`app-glassy-only ${item.href === '/settings' ? 'size-5' : 'size-6'}`} />
       </span>
       <span>{item.label}</span>
     </Link>
@@ -99,8 +99,4 @@ function navItemClass(active: boolean) {
       ? 'bg-[#E8F1FF] text-[var(--brand-dark)]'
       : 'text-[var(--text-secondary)] active:bg-[#F2F6FC]'
   }`;
-}
-
-function navIconClass() {
-  return 'relative flex h-7 w-7 items-center justify-center';
 }

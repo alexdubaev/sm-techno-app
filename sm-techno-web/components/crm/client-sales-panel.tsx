@@ -95,7 +95,7 @@ export function ClientSalesPanel({
   }
   return (
     <section
-      className={`${styles.body} ${styles.panel} ${styles.clientPanel}`}
+      className={`app-crm-client-sales ${styles.body} ${styles.panel} ${styles.clientPanel}`}
       aria-label="Продажи и поступления клиента"
     >
       <div>
