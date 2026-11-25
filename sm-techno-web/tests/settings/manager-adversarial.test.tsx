@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   snapshot: vi.fn(),
   userId: 1,
   admin: false,
+  listeners:new Set<(reason:'data'|'session')=>void>(),
 }));
 
 vi.mock('@/components/auth-provider', () => ({
@@ -29,7 +30,12 @@ vi.mock('@/components/auth-provider', () => ({
 vi.mock('next/dynamic', () => ({ default: () => () => <div>График продаж</div> }));
 vi.mock('@/lib/api', () => ({
   fetchManagerDashboard: mocks.dashboard,
+  fetchCachedManagerDashboard: mocks.dashboard,
   fetchManagers: mocks.managers,
+  fetchCachedManagers: mocks.managers,
+  getApiCacheGeneration:()=>0,
+  subscribeApiCacheInvalidation:(listener:(reason:'data'|'session')=>void)=>{mocks.listeners.add(listener);return ()=>{mocks.listeners.delete(listener);};},
+  invalidateApiCache:(reason:'data'|'session'='session')=>mocks.listeners.forEach(listener=>listener(reason)),
   previewManagerChange: mocks.preview,
   saveManagerChange: mocks.change,
   fetchManagerAvatar: mocks.avatar,
@@ -100,6 +106,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  mocks.listeners.forEach(listener=>listener('session'));
   vi.restoreAllMocks();
 });
 

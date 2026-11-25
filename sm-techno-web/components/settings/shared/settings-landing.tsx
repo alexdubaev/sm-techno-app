@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
 import type { MouseEventHandler, ReactNode } from 'react';
 
 export type SettingsLandingProps = {
@@ -87,11 +88,22 @@ function SettingsDestinationCard({
   children,
 }: SettingsDestinationCardProps) {
   return (
-    <a
+    <Link
       aria-label={`${title}: ${description}`}
       className="app-surface group relative min-h-64 overflow-hidden rounded-2xl border border-[#dce3ed] bg-white p-5 shadow-[5px_5px_0_rgba(7,22,46,0.06)] transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[#aeb9c9] hover:shadow-[7px_7px_0_rgba(7,22,46,0.09)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ffc400]/45 motion-reduce:transform-none motion-reduce:transition-none sm:min-h-72 sm:p-7"
       href={href}
-      onClick={onNavigate}
+      onClick={(event) => {
+        if (
+          event.button === 0
+          && !event.metaKey
+          && !event.ctrlKey
+          && !event.shiftKey
+          && !event.altKey
+          && !event.defaultPrevented
+        ) {
+          onNavigate?.(event);
+        }
+      }}
     >
       <span
         aria-hidden="true"
@@ -125,7 +137,7 @@ function SettingsDestinationCard({
           </span>
         </div>
       </div>
-    </a>
+    </Link>
   );
 }
 

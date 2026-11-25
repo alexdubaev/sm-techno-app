@@ -128,11 +128,23 @@ const getCache = new Map<string, GetCacheEntry>();
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 const responseGenerations = new WeakMap<Response, number>();
 let cacheGeneration = 0;
+type ApiCacheInvalidationListener = (reason: 'data' | 'session') => void;
+const apiCacheInvalidationListeners = new Set<ApiCacheInvalidationListener>();
 
-export function invalidateApiCache() {
+export function getApiCacheGeneration() {
+  return cacheGeneration;
+}
+
+export function subscribeApiCacheInvalidation(listener: ApiCacheInvalidationListener) {
+  apiCacheInvalidationListeners.add(listener);
+  return () => { apiCacheInvalidationListeners.delete(listener); };
+}
+
+export function invalidateApiCache(reason: 'data' | 'session' = 'session') {
   cacheGeneration += 1;
   getCache.clear();
   inflightGetRequests.clear();
+  for (const listener of apiCacheInvalidationListeners) listener(reason);
 }
 
 function canCacheGet(path: string) {
@@ -339,8 +351,7 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
       && responseGeneration === cacheGeneration
       && typeof window !== "undefined"
     ) {
-      getCache.clear();
-      inflightGetRequests.clear();
+      invalidateApiCache('session');
       window.dispatchEvent(new CustomEvent("sm-techno-auth-expired"));
     }
 
@@ -350,9 +361,9 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
   return (await response.json()) as T;
 }
 
-type GetRequestOptions = { bypassCache?: boolean };
+type GetRequestOptions = { bypassCache?: boolean; cacheResponse?: boolean };
 
-async function requestJson<T>(path: string, { bypassCache = false }: GetRequestOptions = {}): Promise<T> {
+async function requestJson<T>(path: string, { bypassCache = false, cacheResponse = false }: GetRequestOptions = {}): Promise<T> {
   const url = buildApiUrl(path);
   const requestGeneration = cacheGeneration;
 
@@ -394,7 +405,11 @@ async function requestJson<T>(path: string, { bypassCache = false }: GetRequestO
     { retryTransient: true },
   );
 
-  return parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
+  const data = await parseJsonResponse<T>(response, `Ошибка API ${response.status}`);
+  if (cacheResponse && canCacheGet(path) && requestGeneration === cacheGeneration) {
+    getCache.set(url, { expiresAt: Date.now() + GET_CACHE_TTL_MS, data });
+  }
+  return data;
 }
 
 export async function requestJsonWithInit<T>(
@@ -412,7 +427,7 @@ export async function requestJsonWithInit<T>(
   const data = await parseJsonResponse<T>(response, fallbackMessage);
 
   if ((init.method ?? "GET").toUpperCase() !== "GET") {
-    invalidateApiCache();
+    invalidateApiCache('data');
   }
 
   return data;
@@ -1396,7 +1411,7 @@ export async function createCommercialOfferFromExcel(payload: {
     response,
     "Не удалось сформировать КП из Excel.",
   );
-  invalidateApiCache();
+  invalidateApiCache('data');
   return result;
 }
 
@@ -1628,7 +1643,7 @@ export async function importPriceFile(file: File, planHash: string): Promise<{
     response,
     "Не удалось импортировать прайс.",
   );
-  invalidateApiCache();
+  invalidateApiCache('data');
   return result;
 }
 
@@ -1642,7 +1657,7 @@ export async function updateItemQuantity(itemId: number, quantity: number): Prom
   });
 
   const result = await parseJsonResponse<{ item: StockItem | null }>(response, "Не удалось обновить остаток.");
-  invalidateApiCache();
+  invalidateApiCache('data');
   return result.item;
 }
 
@@ -1656,7 +1671,7 @@ export async function createLocalItem(payload: LocalItemPayload): Promise<StockI
   });
 
   const result = await parseJsonResponse<{ item: StockItem | null }>(response, "Не удалось создать позицию.");
-  invalidateApiCache();
+  invalidateApiCache('data');
   return result.item;
 }
 
@@ -1673,7 +1688,7 @@ export async function updateLocalItem(itemId: number, payload: LocalItemPayload)
     response,
     "Не удалось сохранить изменения по позиции.",
   );
-  invalidateApiCache();
+  invalidateApiCache('data');
   return result.item;
 }
 
@@ -1684,7 +1699,7 @@ export async function deleteItem(itemId: number): Promise<{ deleted: number; hid
   });
 
   const result = await parseJsonResponse<{ deleted: number; hidden: number }>(response, "Не удалось удалить товар.");
-  invalidateApiCache();
+  invalidateApiCache('data');
   return result;
 }
 
@@ -1695,7 +1710,7 @@ export async function clearCatalog(): Promise<{ deleted: number; hidden: number 
   });
 
   const result = await parseJsonResponse<{ deleted: number; hidden: number }>(response, "Не удалось очистить каталог.");
-  invalidateApiCache();
+  invalidateApiCache('data');
   return result;
 }
 
@@ -1707,8 +1722,16 @@ export function fetchManagerDashboard(month: string, managerId?: number, query =
   if (managerId !== undefined) params.set('managerId', String(managerId));
   return requestJson<import('./manager-types').ManagerDashboard>(`/api/manager/dashboard?${params}`, { bypassCache: true });
 }
+export function fetchCachedManagerDashboard(month: string, managerId?: number) {
+  const params = new URLSearchParams({ month, query: '', page: '1' });
+  if (managerId !== undefined) params.set('managerId', String(managerId));
+  return requestJson<import('./manager-types').ManagerDashboard>(`/api/manager/dashboard?${params}`);
+}
 export function fetchManagers() {
   return requestJson<import('./manager-types').ManagerChoice[]>('/api/manager/managers', { bypassCache: true });
+}
+export function fetchCachedManagers() {
+  return requestJson<import('./manager-types').ManagerChoice[]>('/api/manager/managers');
 }
 export function previewManagerChange(payload: import('./manager-types').ManagerChange) {
   return requestJsonWithInit<import('./manager-types').ManagerDashboard>('/api/manager/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось рассчитать изменения.');
@@ -1743,7 +1766,7 @@ export async function fetchClientDocuments(clientId: number): Promise<import('@/
 async function uploadPrivateDocument(path: string, body: FormData): Promise<import('@/lib/types').ClientDocumentAsset> {
   const response = await fetchWithRetry(buildApiUrl(path), {method: 'POST', body, headers: createHeaders()}, {timeoutMs: 90_000});
   const result = await parseJsonResponse<import('@/lib/types').ClientDocumentAsset>(response, 'Не удалось загрузить файл.');
-  invalidateApiCache();
+  invalidateApiCache('data');
   return result;
 }
 
@@ -1809,13 +1832,13 @@ export function generateClientArticleOffer(clientId: number,payload: {articlesJo
 }
 
 export function fetchAdminSales(period: import('./admin-dashboard-types').PeriodKind, date: string) {
-  return requestJson<import('./admin-dashboard-types').SalesOverview>(`/api/admin/dashboard/sales?${new URLSearchParams({period, date})}`, {bypassCache: true});
+  return requestJson<import('./admin-dashboard-types').SalesOverview>(`/api/admin/dashboard/sales?${new URLSearchParams({period, date})}`);
 }
 export function fetchCompanySales(params: { period: import('./admin-dashboard-types').PeriodKind; date: string; query?: string; page?: number; unassigned?: boolean }) {
   const search = new URLSearchParams({ period: params.period, date: params.date, page: String(params.page ?? 1) });
   if (params.query?.trim()) search.set('query', params.query.trim());
   if (params.unassigned) search.set('unassigned', 'true');
-  return requestJson<import('./company-sales-types').CompanySalesPage>(`/api/admin/dashboard/sales/entries?${search}`, { bypassCache: true });
+  return requestJson<import('./company-sales-types').CompanySalesPage>(`/api/admin/dashboard/sales/entries?${search}`);
 }
 export function fetchCompanySale(kind: import('./company-sales-types').CompanySaleKind, id: number) {
   return requestJson<import('./company-sales-types').CompanySaleDetail>(`/api/bank-statements/sales/${kind}/${id}`, { bypassCache: true });
@@ -1827,10 +1850,10 @@ export function assignCompanySaleManager(kind: import('./company-sales-types').C
   return requestJsonWithInit<import('./company-sales-types').CompanySaleDetail>(`/api/bank-statements/sales/${kind}/${id}/manager`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Не удалось назначить менеджера.');
 }
 export function fetchAdminUsage(period: import('./admin-dashboard-types').PeriodKind, date: string) {
-  return requestJson<import('./admin-dashboard-types').UsageOverview>(`/api/admin/dashboard/deepseek?${new URLSearchParams({period, date})}`, {bypassCache: true});
+  return requestJson<import('./admin-dashboard-types').UsageOverview>(`/api/admin/dashboard/deepseek?${new URLSearchParams({period, date})}`);
 }
-export function fetchAdminBalance() {
-  return requestJson<import('./admin-dashboard-types').Balance>('/api/admin/dashboard/deepseek/balance', {bypassCache: true});
+export function fetchAdminBalance(forceRefresh = false) {
+  return requestJson<import('./admin-dashboard-types').Balance>('/api/admin/dashboard/deepseek/balance', { bypassCache: forceRefresh, cacheResponse: forceRefresh });
 }
 
 // Bank statements use the same authenticated transport and never the document recognizer.

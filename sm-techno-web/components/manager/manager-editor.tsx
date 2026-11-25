@@ -41,8 +41,9 @@ export function ManagerEditor({
   kind: EditorKind;
   sale?: ManagerSale;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (dashboard: ManagerDashboard) => void;
 }) {
+  const [editVersion] = useState(() => data.version);
   const [plan, setPlan] = useState(String((data.terms?.plan ?? 0) / 100));
   const [planMode, setPlanMode] = useState<'plan' | 'percent' | 'legacy' | 'minimum'>(
     data.terms?.mode === 'minimum' ? 'minimum' : (data.terms?.plan ?? 0) > 0 ? 'plan' : data.terms ? (data.terms.fixed > 0 ? 'legacy' : 'percent') : 'minimum',
@@ -83,7 +84,7 @@ export function ManagerEditor({
       const base = {
         managerId: data.account.id,
         month: data.month,
-        version: data.version,
+        version: editVersion,
         ...(creatingSale || kind === 'sale_rate' ? {} : { reason: reason.trim() }),
       };
       const effectiveRate = kind === 'terms' && !hasPlan && !rate.trim() ? '0' : rate;
@@ -116,9 +117,9 @@ export function ManagerEditor({
       else if (kind === 'cancel') payload = { ...base, kind, saleId: sale!.id };
       else payload = { ...base, kind };
       if (creatingSale) {
-        await saveManagerChange(payload);
+        const result = await saveManagerChange(payload);
         setDirty(false);
-        onSaved();
+        onSaved(result);
         return;
       }
       const result = await previewManagerChange(payload);
@@ -134,9 +135,9 @@ export function ManagerEditor({
     setBusy(true);
     setError('');
     try {
-      await saveManagerChange(preview.payload);
+      const result = await saveManagerChange(preview.payload);
       setDirty(false);
-      onSaved();
+      onSaved(result);
     } catch (e) {
       setPreview(null);
       setError(errorMessage(e));

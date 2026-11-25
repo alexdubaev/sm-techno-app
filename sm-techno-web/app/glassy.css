@@ -411,17 +411,6 @@ html[data-ui-theme='glassy'] .app-feature-heading p {
   }
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  html[data-ui-theme='glassy'] .app-shell-content {
-    animation: glassy-page-in 170ms ease-out;
-  }
-
-  @keyframes glassy-page-in {
-    from { opacity: .72; }
-    to { opacity: 1; }
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   html[data-ui-theme='glassy'] { scroll-behavior: auto; }
   html[data-ui-theme='glassy'] :is(.app-shell, [role='dialog']) :is(a, button, input, select, textarea) {

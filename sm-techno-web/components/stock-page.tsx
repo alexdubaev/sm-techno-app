@@ -17,6 +17,7 @@ import { Download, Warehouse as WarehouseIcon } from 'lucide-react';
 import { useUiTheme } from '@/hooks/use-ui-theme';
 
 import { AppShell } from '@/components/app-shell';
+import { useAuth } from '@/components/auth-provider';
 import { StockValuationEntry } from '@/components/stock/stock-valuation-entry';
 import {
   ResizableTableHeader,
@@ -126,6 +127,7 @@ const CLIENT_PRICE_EXPORT_ERROR =
   '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0432\u044b\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u0440\u0430\u0439\u0441 \u0434\u043b\u044f \u043a\u043b\u0438\u0435\u043d\u0442\u0430.';
 
 export function StockPage() {
+  const { isAdmin } = useAuth();
   const warehouseSelectId = useId();
   const router = useRouter();
   const glassy = useUiTheme() === 'glassy';
@@ -328,18 +330,20 @@ export function StockPage() {
         setError('Не удалось загрузить данные приложения.');
       });
 
-    void fetchSystemSettings()
-      .then(setSettings)
-      .catch(() => {
-        setSettings(null);
-      });
+    if (isAdmin) {
+      void fetchSystemSettings()
+        .then(setSettings)
+        .catch(() => {
+          setSettings(null);
+        });
+    }
 
     void fetchWarehouses()
       .then(setWarehouses)
       .catch(() => {
         setWarehouses([]);
       });
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (activeWarehouseId === null) {

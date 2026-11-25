@@ -4,25 +4,28 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Dialog, DialogBackdrop, DialogClose, DialogPopup, DialogPortal, DialogTitle } from '@/components/ui/dialog';
-import { assignCompanySaleManager, fetchCompanySale, fetchCompanySales, fetchManagers, previewCompanySaleManager, searchBankClients } from '@/lib/api';
+import { assignCompanySaleManager, fetchCachedManagers, fetchCompanySale, fetchCompanySales, getApiCacheGeneration, previewCompanySaleManager, searchBankClients, subscribeApiCacheInvalidation } from '@/lib/api';
+import { clearSalesSnapshot, isSalesSnapshotUsable, readSalesSnapshot, writeSalesSnapshot } from '@/lib/sales-memory';
 import type { BankClientChoice } from '@/lib/bank-types';
 import type { CompanySaleDetail, CompanySaleManagerPreview, CompanySaleSummary } from '@/lib/company-sales-types';
 import type { PeriodKind } from '@/lib/admin-dashboard-types';
 import type { ManagerChoice } from '@/lib/manager-types';
 import { dateLabel, errorMessage, money, percent } from '@/components/manager/format';
+import { useAuth } from '@/components/auth-provider';
 import styles from './company-sales.module.css';
 
 type Props = { period: PeriodKind; date: string };
 
 export function CompanySales({ period, date }: Props) {
-  const [items, setItems] = useState<CompanySaleSummary[]>([]);
+  const { user, isAdmin } = useAuth();
+  const scope = `${user.id}:${isAdmin ? 'admin' : 'user'}`;
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [query, setQuery] = useState('');
   const [unassigned, setUnassigned] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState('');
+  const [listErrorKey, setListErrorKey] = useState('');
   const [selected, setSelected] = useState<CompanySaleDetail | null>(null);
   const [detailError, setDetailError] = useState('');
   const [managers, setManagers] = useState<ManagerChoice[]>([]);
@@ -38,23 +41,45 @@ export function CompanySales({ period, date }: Props) {
   const [saveError, setSaveError] = useState('');
   const [message, setMessage] = useState('');
   const [version, setVersion] = useState(0);
+  const [managerReload, setManagerReload] = useState(0);
   const saveKey = useRef('');
   const sequence = useRef(0);
   const detailSequence = useRef(0);
   const listSequence = useRef(0);
+  const listKey = companySalesKey(scope, period, date, query, page, unassigned);
+  const initialList = readSalesSnapshot<CompanySalesPage>(listKey)?.data;
+  const [items, setItems] = useState<CompanySaleSummary[]>(initialList?.items ?? []);
+  const [itemsKey, setItemsKey] = useState(initialList ? listKey : '');
+  const [itemsSavedAt,setItemsSavedAt] = useState(() => readSalesSnapshot<CompanySalesPage>(listKey)?.savedAt ?? null);
+  const visibleCachedList = readSalesSnapshot<CompanySalesPage>(listKey)?.data;
+  const liveItemsUsable = itemsKey === listKey && itemsSavedAt !== null && (listErrorKey !== listKey || isSalesSnapshotUsable(itemsSavedAt));
+  const visibleItems = liveItemsUsable ? items : visibleCachedList?.items ?? [];
+  const visiblePages = liveItemsUsable ? pages : visibleCachedList?.pages ?? 1;
+  const visibleTotal = liveItemsUsable ? total : visibleCachedList?.total ?? 0;
+  const isLoadingList = !liveItemsUsable && !visibleCachedList && listErrorKey !== listKey;
+  useEffect(() => subscribeApiCacheInvalidation(reason => {
+    if (reason === 'session') {
+      setItems([]); setItemsKey(''); setItemsSavedAt(null); setPages(1); setTotal(0); setListError(''); setListErrorKey('');
+      setManagers([]); setManagerReload(value => value + 1); setVersion(value => value + 1);
+      return;
+    }
+  }), []);
 
   useEffect(() => {
     let active = true;
     const current = ++listSequence.current;
+    const generation = getApiCacheGeneration();
     fetchCompanySales({ period, date, query, page, unassigned })
       .then(result => {
-        if (active && current === listSequence.current) { setItems(result.items); setPages(Math.max(1, result.pages)); setTotal(result.total); setListError(''); }
+        if (active && current === listSequence.current) {
+          if (generation !== getApiCacheGeneration()) { setVersion(value => value + 1); return; }
+          writeSalesSnapshot(listKey,result,generation); setItems(result.items); setItemsKey(listKey); setItemsSavedAt(Date.now()); setPages(Math.max(1, result.pages)); setTotal(result.total); setListError(''); setListErrorKey('');
+        }
       })
-      .catch(error => { if (active && current === listSequence.current) setListError(errorMessage(error)); })
-      .finally(() => { if (active && current === listSequence.current) setLoading(false); });
+      .catch(error => { if (active && current === listSequence.current) { if (error?.status === 401 || error?.status === 403) { clearSalesSnapshot(listKey); setItems([]); setItemsKey(listKey); setItemsSavedAt(null); setPages(1); setTotal(0); } setListError(errorMessage(error)); setListErrorKey(listKey); } });
     return () => { active = false; listSequence.current += 1; };
-  }, [period, date, query, page, unassigned, version]);
-  useEffect(() => { fetchManagers().then(setManagers).catch(() => setManagers([])); }, []);
+  }, [period, date, query, page, unassigned, version, listKey]);
+  useEffect(() => { fetchCachedManagers().then(setManagers).catch(() => setManagers([])); }, [scope,managerReload]);
   useEffect(() => {
     const changed = () => setVersion(value => value + 1);
     window.addEventListener('smtechno-bank-changed', changed);
@@ -132,19 +157,19 @@ export function CompanySales({ period, date }: Props) {
 
   const activeManagers = managers.filter(manager => manager.active && !manager.archived);
   return <section className={`${styles.panel} app-surface`} aria-labelledby="company-sales-title">
-    <header className={styles.heading}><div><h2 id="company-sales-title">Продажи</h2><p>Все оплаты компании. Назначьте или смените менеджера в карточке продажи.</p></div><strong>{total.toLocaleString('ru-RU')}</strong></header>
+    <header className={styles.heading}><div><h2 id="company-sales-title">Продажи</h2><p>Все оплаты компании. Назначьте или смените менеджера в карточке продажи.</p></div><strong>{visibleTotal.toLocaleString('ru-RU')}</strong></header>
     <div className={styles.filters}>
       <label className={styles.search}>Поиск продаж<input aria-label="Поиск продаж" value={query} placeholder="Клиент, счёт или платёж" onChange={event => { setQuery(event.target.value); setPage(1); }}/></label>
       <button type="button" data-app-action="secondary" aria-pressed={unassigned} onClick={() => { setUnassigned(value => !value); setPage(1); }}>Без менеджера</button>
     </div>
-    {listError && <p className={styles.error} role="alert"><AlertCircle size={18}/>{listError} <button type="button" onClick={() => setVersion(value => value + 1)}>Повторить</button></p>}
-    {loading ? <p className={styles.muted}>Загружаем продажи…</p> : items.length ? <div className={styles.list}>
-      {items.map(row => <button type="button" className={styles.sale} key={`${row.kind}-${row.id}`} onClick={() => void open(row)} aria-label={`${dateLabel(row.date)} · ${row.clientName} · ${money(row.amount)}`}>
+    {listErrorKey === listKey && listError && <p className={styles.error} role="alert"><AlertCircle size={18}/>{listError} <button type="button" onClick={() => setVersion(value => value + 1)}>Повторить</button></p>}
+    {isLoadingList ? <p className={styles.muted}>Загружаем продажи…</p> : visibleItems.length ? <div className={styles.list}>
+      {visibleItems.map(row => <button type="button" className={styles.sale} key={`${row.kind}-${row.id}`} onClick={() => void open(row)} aria-label={`${dateLabel(row.date)} · ${row.clientName} · ${money(row.amount)}`}>
         <span><strong>{row.clientName}</strong><small>{dateLabel(row.date)}{row.invoiceNumber ? ` · счёт № ${row.invoiceNumber}` : ''}</small></span>
         <span className={styles.amount}>{money(row.amount)}<small>{row.managerName ?? 'Менеджер не назначен'}</small></span>
       </button>)}
     </div> : <p className={styles.muted}>Продаж за этот период не найдено.</p>}
-    <nav className={styles.pagination} aria-label="Страницы продаж"><button type="button" aria-label="Предыдущая страница" disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={18}/></button><span>Страница {page} из {pages}</span><button type="button" aria-label="Следующая страница" disabled={page >= pages} onClick={() => setPage(value => value + 1)}><ChevronRight size={18}/></button></nav>
+    <nav className={styles.pagination} aria-label="Страницы продаж"><button type="button" aria-label="Предыдущая страница" disabled={page <= 1} onClick={() => setPage(value => value - 1)}><ChevronLeft size={18}/></button><span>Страница {page} из {visiblePages}</span><button type="button" aria-label="Следующая страница" disabled={page >= visiblePages || isLoadingList} onClick={() => setPage(value => value + 1)}><ChevronRight size={18}/></button></nav>
 
     <Dialog open={selected !== null} onOpenChange={openState => { if (!openState) close(); }}>
       {selected && <DialogPortal><DialogBackdrop className={styles.backdrop}/><DialogPopup className={styles.popup}>
@@ -182,4 +207,9 @@ export function CompanySales({ period, date }: Props) {
       </DialogPopup></DialogPortal>}
     </Dialog>
   </section>;
+}
+
+type CompanySalesPage = {items: CompanySaleSummary[]; pages: number; total: number; page: number};
+function companySalesKey(scope: string, period: PeriodKind, date: string, query: string, page: number, unassigned: boolean) {
+  return `${scope}:company-sales:${period}:${date}:${query}:${page}:${unassigned ? 'unassigned' : 'all'}`;
 }

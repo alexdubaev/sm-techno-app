@@ -687,7 +687,8 @@ test("administrator CRM workspace keeps the selected owner explicit across actio
   assert.match(workspace, /useAuth/);
   assert.match(workspace, /fetchUsers/);
   assert.match(workspace, /CRM сотрудника/);
-  assert.match(workspace, /fetchCrmTabs\(ownerId, \{ bypassCache: true \}\)/);
+  assert.match(workspace, /const fetchWorkspaceTabs = useCallback\(async \(requestOwnerId: number\) => \{[\s\S]*?fetchCrmTabs\(requestOwnerId, \{ bypassCache: true \}\)/);
+  assert.match(workspace, /fetchWorkspaceTabs\(ownerId\)/);
   assert.match(workspace, /fetchPrimaryCrmClients\(ownerId, \{ bypassCache: true \}\)/);
   assert.match(workspace, /moveCrmClient\(client\.id, targetTabId, ownerId\)/);
   assert.match(controller, /removeCrmAssignment\(currentClient\.id, ownerId\)/);

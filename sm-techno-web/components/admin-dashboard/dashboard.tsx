@@ -1,13 +1,14 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Dialog, DialogBackdrop, DialogClose, DialogPopup, DialogPortal, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { BarChart3, CalendarDays, Expand, Upload, UserRound, X } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { useUiTheme } from '@/hooks/use-ui-theme';
-import { fetchAdminBalance, fetchAdminSales, fetchAdminUsage } from '@/lib/api';
+import { fetchAdminBalance, fetchAdminSales, fetchAdminUsage, getApiCacheGeneration, subscribeApiCacheInvalidation } from '@/lib/api';
 import type { Balance, PeriodKind, SalesOverview, UsageOverview } from '@/lib/admin-dashboard-types';
+import { claimSalesChartAnimation, clearSalesSnapshot, isSalesSnapshotUsable, readDashboardSelection, readSalesSnapshot, writeDashboardSelection, writeSalesSnapshot } from '@/lib/sales-memory';
 import { BankImport } from '@/components/manager/bank-import';
 import { CompanySales } from './company-sales';
 import { GlassySalesArea, GlassySalesBreakdown } from './glassy-sales-charts';
@@ -24,50 +25,82 @@ function shift(value: string, kind: PeriodKind, direction: number) {
   return date.toISOString().slice(0,10);
 }
 
-type Load<T> = {data: T | null; error: boolean};
+type Load<T> = {data: T | null; error: boolean; key: string; savedAt: number | null};
 export function Dashboard() {
   const { isAdmin, user } = useAuth();
   const glassy = useUiTheme() === 'glassy';
-  const [period, setPeriod] = useState<PeriodKind>('month');
+  const scope = `${user.id}:${isAdmin ? 'admin' : 'user'}`;
+  const [initialSelection] = useState(() => readDashboardSelection(scope));
+  const [period, setPeriod] = useState<PeriodKind>((initialSelection?.period as PeriodKind | undefined) ?? 'month');
   const [bankImportOpen, setBankImportOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
-  const [date, setDate] = useState(today);
-  const [sales, setSales] = useState<Load<SalesOverview>>({data:null,error:false});
-  const [usage, setUsage] = useState<Load<UsageOverview>>({data:null,error:false});
-  const [balance, setBalance] = useState<Load<Balance>>({data:null,error:false});
-  const [salesRetry, retrySales] = useState(0); const [usageRetry, retryUsage] = useState(0); const [balanceRetry, retryBalance] = useState(0);
+  const [date, setDate] = useState(initialSelection?.date ?? today);
+  const salesKey = `${scope}:sales:${period}:${date}`;
+  const usageKey = `${scope}:usage:${period}:${date}`;
+  const balanceKey = `${scope}:balance`;
+  const [sales, setSales] = useState<Load<SalesOverview>>(() => {const snapshot=readSalesSnapshot<SalesOverview>(salesKey); return {data:snapshot?.data ?? null,error:false,key:salesKey,savedAt:snapshot?.savedAt ?? null};});
+  const [usage, setUsage] = useState<Load<UsageOverview>>(() => {const snapshot=readSalesSnapshot<UsageOverview>(usageKey); return {data:snapshot?.data ?? null,error:false,key:usageKey,savedAt:snapshot?.savedAt ?? null};});
+  const [balance, setBalance] = useState<Load<Balance>>(() => {const snapshot=readSalesSnapshot<Balance>(balanceKey); return {data:snapshot?.data ?? null,error:false,key:balanceKey,savedAt:snapshot?.savedAt ?? null};});
+  const [salesRetry, retrySales] = useState(0); const [usageRetry, retryUsage] = useState(0); const [balanceRetry, retryBalance] = useState(0); const forcedBalanceRetry = useRef<number | null>(null);
+  const retryBalanceNow = () => { const next = balanceRetry + 1; forcedBalanceRetry.current = next; retryBalance(next); };
+  const selectDateAndPeriod = (nextPeriod: PeriodKind, nextDate: string) => {
+    writeDashboardSelection(scope, {period:nextPeriod,date:nextDate});
+    setPeriod(nextPeriod); setDate(nextDate);
+  };
   useEffect(() => { const refresh = () => retrySales(value => value + 1); window.addEventListener('smtechno-bank-changed', refresh); return () => window.removeEventListener('smtechno-bank-changed', refresh); }, []);
+  useEffect(() => subscribeApiCacheInvalidation(reason => {
+    if (reason === 'session') {
+      const nextDate = today();
+      setPeriod('month'); setDate(nextDate);
+      setSales({data:null,error:false,key:'',savedAt:null}); setUsage({data:null,error:false,key:'',savedAt:null}); setBalance({data:null,error:false,key:'',savedAt:null});
+      retrySales(value => value + 1); retryUsage(value => value + 1); retryBalance(value => value + 1);
+      return;
+    }
+    retrySales(value => value + 1); retryUsage(value => value + 1); retryBalance(value => value + 1);
+  }), []);
   useEffect(() => { if (!isAdmin) return; let active = true;
-    fetchAdminSales(period,date).then(data => { if(active) setSales({data,error:false}); }).catch(() => { if(active) setSales({data:null,error:true}); });
-    return () => {active=false;};
-  }, [isAdmin,user.id,period,date,salesRetry]);
+    const generation = getApiCacheGeneration();
+    fetchAdminSales(period,date).then(data => { if(active && generation === getApiCacheGeneration()) { writeSalesSnapshot(salesKey,data,generation); setSales({data,error:false,key:salesKey,savedAt:Date.now()}); } }).catch(error => { if(active) { const denied = error?.status === 401 || error?.status === 403; if (denied) { clearSalesSnapshot(salesKey); setSales({data:null,error:true,key:salesKey,savedAt:null}); } else setSales(current => current.key === salesKey && current.data && current.savedAt !== null && isSalesSnapshotUsable(current.savedAt) ? current : {data:null,error:true,key:salesKey,savedAt:null}); } });
+    return () => {active=false; };
+  }, [isAdmin,user.id,period,date,salesRetry,salesKey]);
   useEffect(() => { if (!isAdmin) return; let active = true;
-    fetchAdminUsage(period,date).then(data => { if(active) setUsage({data,error:false}); }).catch(() => { if(active) setUsage({data:null,error:true}); });
-    return () => {active=false;};
-  }, [isAdmin,user.id,period,date,usageRetry]);
+    const generation = getApiCacheGeneration();
+    fetchAdminUsage(period,date).then(data => { if(active && generation === getApiCacheGeneration()) { writeSalesSnapshot(usageKey,data,generation); setUsage({data,error:false,key:usageKey,savedAt:Date.now()}); } }).catch(error => { if(active) { const denied = error?.status === 401 || error?.status === 403; if (denied) { clearSalesSnapshot(usageKey); setUsage({data:null,error:true,key:usageKey,savedAt:null}); } else setUsage(current => current.key === usageKey && current.data && current.savedAt !== null && isSalesSnapshotUsable(current.savedAt) ? current : {data:null,error:true,key:usageKey,savedAt:null}); } });
+    return () => {active=false; };
+  }, [isAdmin,user.id,period,date,usageRetry,usageKey]);
   useEffect(() => { if (!isAdmin) return; let active = true;
-    fetchAdminBalance().then(data => { if(active) setBalance({data,error:false}); }).catch(() => { if(active) setBalance({data:null,error:true}); });
-    return () => {active=false;};
-  }, [isAdmin,user.id,balanceRetry]);
+    const generation = getApiCacheGeneration();
+    const forceRefresh = forcedBalanceRetry.current === balanceRetry;
+    forcedBalanceRetry.current = null;
+    fetchAdminBalance(forceRefresh).then(data => { if(active && generation === getApiCacheGeneration()) { writeSalesSnapshot(balanceKey,data,generation); setBalance({data,error:false,key:balanceKey,savedAt:Date.now()}); } }).catch(error => { if(active) { const denied = error?.status === 401 || error?.status === 403; if (denied) { clearSalesSnapshot(balanceKey); setBalance({data:null,error:true,key:balanceKey,savedAt:null}); } else setBalance(current => current.key === balanceKey && current.data && current.savedAt !== null && isSalesSnapshotUsable(current.savedAt) ? current : {data:null,error:true,key:balanceKey,savedAt:null}); } });
+    return () => {active=false; };
+  }, [isAdmin,user.id,balanceRetry,balanceKey]);
   if (!isAdmin) return <div className={styles.root}><h1>Нет доступа</h1><Link href="/manager">Открыть мой кабинет</Link></div>;
-  const currentSales = sales.data?.period.kind === period && sales.data?.period.anchorDate === date ? sales.data : null;
-  const currentUsage = usage.data?.period.kind === period && usage.data?.period.anchorDate === date ? usage.data : null;
+  const cachedSales = readSalesSnapshot<SalesOverview>(salesKey)?.data;
+  const cachedUsage = readSalesSnapshot<UsageOverview>(usageKey)?.data;
+  const cachedBalance = readSalesSnapshot<Balance>(balanceKey)?.data;
+  const currentSalesValue = sales.key === salesKey && sales.savedAt !== null ? sales.data : cachedSales ?? null;
+  const currentUsageValue = usage.key === usageKey && usage.savedAt !== null ? usage.data : cachedUsage ?? null;
+  const currentSales = currentSalesValue?.period.kind === period && currentSalesValue.period.anchorDate === date ? currentSalesValue : null;
+  const currentUsage = currentUsageValue?.period.kind === period && currentUsageValue.period.anchorDate === date ? currentUsageValue : null;
+  const currentBalance = balance.key === balanceKey && balance.savedAt !== null ? balance.data : cachedBalance ?? null;
   const salesChartTitle = glassy && period === 'year' ? 'Продажи по месяцам' : 'Продажи по дням';
+  const chartAnimationKey = salesKey;
   return <div className={styles.root}>
     <header className={`app-feature-heading app-glassy-only ${styles.pageHeading}`}>
       <h1>Обзор</h1>
       <p>Ключевые показатели продаж и выполнение планов</p>
     </header>
     <Dialog open={calendarOpen} onOpenChange={setCalendarOpen}><div className={styles.toolbar}>
-      <div className={styles.bankActions} aria-label="Действия"><div className={styles.dates}><button data-app-action="secondary" aria-label="Предыдущий период" onClick={() => setDate(shift(date,period,-1))}>←</button><strong title={currentSales ? formatPeriod(currentSales.period.start, period) : formatDate(date)}><span className={styles.desktopOnly}>{currentSales ? formatPeriod(currentSales.period.start, period) : formatDate(date)}</span><span className={styles.mobileOnly}>{currentSales ? formatPeriod(currentSales.period.start, period, true) : formatDate(date)}</span></strong><button data-app-action="secondary" aria-label="Следующий период" onClick={() => setDate(shift(date,period,1))}>→</button></div><button data-app-action="primary" className={styles.uploadButton} onClick={() => setBankImportOpen(true)} aria-label="Загрузить выписку"><Upload size={18}/><span className={styles.uploadLabel}>Загрузить выписку</span></button><Link data-app-action="secondary" className={styles.link} href="/manager" aria-label="Мои продажи →"><BarChart3 size={18}/><span className={styles.desktopOnly}>Мои продажи</span></Link></div>
-      <section className={styles.controls} aria-label="Период"><div className={styles.tabs}>{periods.map(([key,label]) => <button key={key} aria-pressed={period===key} onClick={() => setPeriod(key)}>{label}</button>)}</div><div className={styles.dates}><DialogTrigger data-app-action="secondary" aria-label="Выбрать дату"><CalendarDays size={18}/></DialogTrigger><button data-app-action="secondary" className={styles.todayButton} onClick={() => setDate(today())}>Сегодня</button></div><p className={styles.periodInfo}>{currentSales ? `${formatDate(currentSales.period.start)} — ${formatDate(currentSales.period.end)}` : formatDate(date)} · Сегодня: {formatDate(today())}</p></section>
+      <div className={styles.bankActions} aria-label="Действия"><div className={styles.dates}><button data-app-action="secondary" aria-label="Предыдущий период" onClick={() => selectDateAndPeriod(period,shift(date,period,-1))}>←</button><strong title={currentSales ? formatPeriod(currentSales.period.start, period) : formatDate(date)}><span className={styles.desktopOnly}>{currentSales ? formatPeriod(currentSales.period.start, period) : formatDate(date)}</span><span className={styles.mobileOnly}>{currentSales ? formatPeriod(currentSales.period.start, period, true) : formatDate(date)}</span></strong><button data-app-action="secondary" aria-label="Следующий период" onClick={() => selectDateAndPeriod(period,shift(date,period,1))}>→</button></div><button data-app-action="primary" className={styles.uploadButton} onClick={() => setBankImportOpen(true)} aria-label="Загрузить выписку"><Upload size={18}/><span className={styles.uploadLabel}>Загрузить выписку</span></button><Link data-app-action="secondary" className={styles.link} href="/manager" aria-label="Мои продажи →"><BarChart3 size={18}/><span className={styles.desktopOnly}>Мои продажи</span></Link></div>
+      <section className={styles.controls} aria-label="Период"><div className={styles.tabs}>{periods.map(([key,label]) => <button key={key} aria-pressed={period===key} onClick={() => selectDateAndPeriod(key,date)}>{label}</button>)}</div><div className={styles.dates}><DialogTrigger data-app-action="secondary" aria-label="Выбрать дату"><CalendarDays size={18}/></DialogTrigger><button data-app-action="secondary" className={styles.todayButton} onClick={() => selectDateAndPeriod(period,today())}>Сегодня</button></div><p className={styles.periodInfo}>{currentSales ? `${formatDate(currentSales.period.start)} — ${formatDate(currentSales.period.end)}` : formatDate(date)} · Сегодня: {formatDate(today())}</p></section>
     </div>
-    <DialogPortal><DialogBackdrop className={styles.dialogBackdrop}/><DialogPopup className={styles.calendarDialog}><DialogTitle>Выбрать дату отчёта</DialogTitle><input aria-label="Дата отчёта" type="date" min="1900-01-01" max="2199-12-31" value={date} onChange={event => {if(event.target.value && event.target.validity.valid) {setDate(event.target.value); setCalendarOpen(false);}}}/><DialogClose data-app-action="secondary" className={styles.closeButton}>Закрыть</DialogClose></DialogPopup></DialogPortal></Dialog>
+    <DialogPortal><DialogBackdrop className={styles.dialogBackdrop}/><DialogPopup className={styles.calendarDialog}><DialogTitle>Выбрать дату отчёта</DialogTitle><input aria-label="Дата отчёта" type="date" min="1900-01-01" max="2199-12-31" value={date} onChange={event => {if(event.target.value && event.target.validity.valid) {selectDateAndPeriod(period,event.target.value); setCalendarOpen(false);}}}/><DialogClose data-app-action="secondary" className={styles.closeButton}>Закрыть</DialogClose></DialogPopup></DialogPortal></Dialog>
     {bankImportOpen && <BankImport userId={user.id} onClose={() => setBankImportOpen(false)} onChanged={() => retrySales(value => value + 1)} />}
     <Dialog>
       <section className={`${styles.panel} app-surface`}>
         <h2>Продажи компании</h2>
-        {sales.error ? <ErrorState retry={() => retrySales(value => value + 1)} /> : !currentSales ? <p>Загрузка…</p> : (
+        {sales.key === salesKey && sales.error ? <ErrorState retry={() => retrySales(value => value + 1)} /> : !currentSales ? <p>Загрузка…</p> : (
           <>
             <div className={styles.summary}>
               <strong>{money(currentSales.totals.salesTotal)}</strong>
@@ -76,7 +109,7 @@ export function Dashboard() {
             {currentSales.totals.count === 0 && <p>За этот период продаж нет. Добавить продажу можно в личном кабинете.</p>}
             {!glassy && <>
               <div className={styles.salesLayout}>
-                <SalesTrend sales={currentSales} title={salesChartTitle} />
+                <SalesTrend key={chartAnimationKey} animationKey={chartAnimationKey} sales={currentSales} title={salesChartTitle} />
                 <section className={styles.managerColumn}>
                   <div className={styles.managerHeading}><h3>Менеджеры</h3><p className={styles.muted}>Планы за {currentSales.monthlyPlans.month}</p></div>
                   <div className={styles.rows}><ManagerPlans sales={currentSales} /></div>
@@ -90,8 +123,8 @@ export function Dashboard() {
       {glassy && currentSales && <>
         {currentSales.totals.count > 0 && (
           <div className={styles.glassySalesLayout}>
-            <SalesTrend sales={currentSales} title={salesChartTitle} glassy />
-            <GlassySalesBreakdown sales={currentSales} money={money} />
+            <SalesTrend key={`trend:${chartAnimationKey}`} animationKey={chartAnimationKey} sales={currentSales} title={salesChartTitle} glassy />
+            <GlassySalesBreakdown key={`breakdown:${chartAnimationKey}`} sales={currentSales} money={money} animationKey={chartAnimationKey} />
           </div>
         )}
         {currentSales.managers.length > 0 && (
@@ -113,19 +146,20 @@ export function Dashboard() {
           <p>{currentSales ? `${formatDate(currentSales.period.start)} — ${formatDate(currentSales.period.end)} · ${money(currentSales.totals.salesTotal)}` : ''}</p>
           <DialogClose data-app-action="secondary" aria-label="Закрыть график" className={styles.closeButton}><X size={18} /> Закрыть</DialogClose>
           {currentSales && (glassy
-            ? <GlassySalesArea data={currentSales.series} label="Развернутый график продаж" money={money} large />
+            ? <GlassySalesArea data={currentSales.series} label="Развернутый график продаж" money={money} large animate={false} />
             : <Chart data={currentSales.series} field="amount" label="Развернутый график продаж" large />)}
         </DialogPopup>
       </DialogPortal>
     </Dialog>
     <CompanySales period={period} date={date}/>
-    <section className={`${styles.panel} app-surface`}><h2>DeepSeek</h2><p className={styles.muted}>Измеренные запросы этого приложения, не вся история аккаунта.</p>{usage.error ? <ErrorState retry={() => retryUsage(x=>x+1)} /> : !currentUsage ? <p>Загрузка…</p> : <><p>Учёт ведётся с {currentUsage.trackingStartedAt ? new Date(currentUsage.trackingStartedAt).toLocaleString('ru-RU') : 'неизвестной даты'}. Предыдущая история недоступна.</p>{currentUsage.recordingDegraded && <p role="alert">Часть записей могла не сохраниться.</p>}<div className={styles.metrics}><span>Запросы <strong>{number(currentUsage.totals.requests)}</strong></span><span>Ошибки <strong>{number(currentUsage.totals.failedRequests)}</strong></span><span>Вход <strong>{number(currentUsage.totals.promptTokens)}</strong></span><span>Выход <strong>{number(currentUsage.totals.completionTokens)}</strong></span><span>Всего токенов <strong>{number(currentUsage.totals.totalTokens)}</strong></span><span>Неизвестный расход <strong>{number(currentUsage.totals.unknownUsageRequests)}</strong></span></div>{currentUsage.totals.requests ? <><h3>Запросы</h3><Chart data={currentUsage.series} field="requests" label="Запросы DeepSeek" /><h3>Токены</h3><Chart data={currentUsage.series} field="totalTokens" label="Токены DeepSeek" /><details><summary>Данные графика запросов и токенов</summary>{currentUsage.series.map(row=><div key={row.date}>{row.date}: {row.requests} запросов, {number(row.totalTokens)} токенов; неизвестно: {row.unknownUsageRequests}</div>)}</details></> : <p>За этот период нет наблюдений.</p>}</>}
-      <div className={styles.balance}><h3>Баланс аккаунта</h3>{balance.error ? <ErrorState retry={() => retryBalance(x=>x+1)} /> : !balance.data ? <p>Загрузка…</p> : balance.data.status !== 'available' ? <><p>{balance.data.status === 'unconfigured' ? 'Ключ не настроен' : 'Баланс временно недоступен'}</p><button onClick={() => retryBalance(x=>x+1)}>Повторить</button></> : <><p>{balance.data.isAvailable ? 'Доступен' : 'Недоступен для запросов'} · обновлён {new Date(balance.data.checkedAt).toLocaleString('ru-RU')}</p>{balance.data.balances.map(b=><p key={b.currency}><strong>{b.totalBalance} {b.currency}</strong> (бонусный {b.grantedBalance}, пополненный {b.toppedUpBalance})</p>)}</>}</div>
+    <section className={`${styles.panel} app-surface`}><h2>DeepSeek</h2><p className={styles.muted}>Измеренные запросы этого приложения, не вся история аккаунта.</p>{usage.key === usageKey && usage.error ? <ErrorState retry={() => retryUsage(x=>x+1)} /> : !currentUsage ? <p>Загрузка…</p> : <><p>Учёт ведётся с {currentUsage.trackingStartedAt ? new Date(currentUsage.trackingStartedAt).toLocaleString('ru-RU') : 'неизвестной даты'}. Предыдущая история недоступна.</p>{currentUsage.recordingDegraded && <p role="alert">Часть записей могла не сохраниться.</p>}<div className={styles.metrics}><span>Запросы <strong>{number(currentUsage.totals.requests)}</strong></span><span>Ошибки <strong>{number(currentUsage.totals.failedRequests)}</strong></span><span>Вход <strong>{number(currentUsage.totals.promptTokens)}</strong></span><span>Выход <strong>{number(currentUsage.totals.completionTokens)}</strong></span><span>Всего токенов <strong>{number(currentUsage.totals.totalTokens)}</strong></span><span>Неизвестный расход <strong>{number(currentUsage.totals.unknownUsageRequests)}</strong></span></div>{currentUsage.totals.requests ? <><h3>Запросы</h3><Chart data={currentUsage.series} field="requests" label="Запросы DeepSeek" /><h3>Токены</h3><Chart data={currentUsage.series} field="totalTokens" label="Токены DeepSeek" /><details><summary>Данные графика запросов и токенов</summary>{currentUsage.series.map(row=><div key={row.date}>{row.date}: {row.requests} запросов, {number(row.totalTokens)} токенов; неизвестно: {row.unknownUsageRequests}</div>)}</details></> : <p>За этот период нет наблюдений.</p>}</>}
+      <div className={styles.balance}><h3>Баланс аккаунта</h3>{balance.key === balanceKey && balance.error ? <ErrorState retry={retryBalanceNow} /> : !currentBalance ? <p>Загрузка…</p> : currentBalance.status !== 'available' ? <><p>{currentBalance.status === 'unconfigured' ? 'Ключ не настроен' : 'Баланс временно недоступен'}</p><button onClick={retryBalanceNow}>Повторить</button></> : <><p>{currentBalance.isAvailable ? 'Доступен' : 'Недоступен для запросов'} · обновлён {new Date(currentBalance.checkedAt).toLocaleString('ru-RU')}</p>{currentBalance.balances.map(b=><p key={b.currency}><strong>{b.totalBalance} {b.currency}</strong> (бонусный {b.grantedBalance}, пополненный {b.toppedUpBalance})</p>)}</>}</div>
     </section>
   </div>;
 }
 
-function SalesTrend({ sales, title, glassy = false }: { sales: SalesOverview; title: string; glassy?: boolean }) {
+function SalesTrend({ sales, title, glassy = false, animationKey }: { sales: SalesOverview; title: string; glassy?: boolean; animationKey: string }) {
+  const [animate] = useState(() => glassy && claimSalesChartAnimation('trend', animationKey));
   return (
     <section className={glassy ? `app-surface ${styles.trend}` : styles.chartColumn}>
       <div className={styles.chartHeading}>
@@ -134,7 +168,7 @@ function SalesTrend({ sales, title, glassy = false }: { sales: SalesOverview; ti
         <DialogTrigger data-app-action="secondary" aria-label="Развернуть график продаж"><Expand size={18} /></DialogTrigger>
       </div>
       <DialogTrigger className={styles.chartPreview} aria-label="Открыть подробный график продаж">
-        {glassy ? <GlassySalesArea data={sales.series} label={title} money={money} /> : <Chart data={sales.series} field="amount" label={title} />}
+        {glassy ? <GlassySalesArea data={sales.series} label={title} money={money} animate={animate} /> : <Chart data={sales.series} field="amount" label={title} />}
       </DialogTrigger>
     </section>
   );
@@ -192,7 +226,7 @@ function ManagerPlans({ sales, glassy = false }: { sales: SalesOverview; glassy?
 }
 
 function ErrorState({retry}:{retry:()=>void}) { return <p role="alert">Не удалось загрузить данные. <button onClick={retry}>Повторить</button></p>; }
-function Chart<T extends object>({data,field,label,large=false}:{data:T[];field:string;label:string;large?:boolean}) {return <div className={`${styles.chart} ${large ? styles.largeChart : ''}`} aria-label={label}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} accessibilityLayer={large || field !== 'amount'}><CartesianGrid stroke="#e3e8f0" vertical={false}/><XAxis dataKey="date" minTickGap={28} tick={{fontSize:11}} tickFormatter={formatDate}/><YAxis tick={{fontSize:11}} width={65} allowDecimals={field !== 'requests'} tickFormatter={(value: number) => field === 'amount' ? `${(value / 100).toLocaleString('ru-RU', {notation:'compact', maximumFractionDigits:1})} ₽` : String(value)}/>{(large || field !== 'amount') && <Tooltip labelFormatter={(value) => formatDate(String(value))} formatter={(value) => field === 'amount' && typeof value === 'number' ? money(value) : value}/>}<Bar maxBarSize={44} isAnimationActive={false} name={field === 'amount' ? 'Продажи' : field === 'requests' ? 'Запросы' : 'Токены'} dataKey={field} fill="#ffc400" radius={[3,3,0,0]}/></BarChart></ResponsiveContainer></div>;}
+function Chart<T extends object>({data,field,label,large=false}:{data:T[];field:string;label:string;large?:boolean}) {return <div className={`${styles.chart} ${large ? styles.largeChart : ''}`} aria-label={label}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} accessibilityLayer={large || field !== 'amount'}><CartesianGrid stroke="#e3e8f0" vertical={false}/><XAxis dataKey="date" minTickGap={28} tick={{fontSize:11}} tickFormatter={formatDate}/><YAxis tick={{fontSize:11}} width={65} allowDecimals={field !== 'requests'} tickFormatter={(value: number) => field === 'amount' ? `${(value / 100).toLocaleString('ru-RU', {notation:'compact', maximumFractionDigits:1})} ₽` : String(value)}/>{(large || field !== 'amount') && <Tooltip labelFormatter={(value) => formatDate(String(value))} formatter={(value) => field === 'amount' && typeof value === 'number' ? money(value) : value}/>}<Bar maxBarSize={44} isAnimationActive={false} animationDuration={420} name={field === 'amount' ? 'Продажи' : field === 'requests' ? 'Запросы' : 'Токены'} dataKey={field} fill="#ffc400" radius={[3,3,0,0]}/></BarChart></ResponsiveContainer></div>;}
 
 
 function formatDate(value: string) { const parts = value.split('-'); return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : parts.length === 2 ? `${parts[1]}.${parts[0]}` : value; }

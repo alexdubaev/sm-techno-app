@@ -203,6 +203,26 @@ function CrmWorkspaceFull() {
   const [tabPendingDelete, setTabPendingDelete] = useState<CrmTab | null>(null);
   const [replacementTabId, setReplacementTabId] = useState<number | null>(null);
   const [isSavingTab, setIsSavingTab] = useState(false);
+  // Tab metadata is shared across views for this mounted, authenticated CRM
+  // workspace. Owner and role are part of the key; list data still uses
+  // authoritative bypass-cache reads on every activation.
+  const workspaceTabsCache = useRef(new Map<string, CrmTab[]>());
+  const workspaceTabsGeneration = useRef(new Map<string, number>());
+  const workspaceTabsKey = useCallback((requestOwnerId: number) => `${user.id}:${isAdmin ? "admin" : "user"}:${requestOwnerId}`, [isAdmin, user.id]);
+  const invalidateWorkspaceTabs = useCallback((requestOwnerId: number) => {
+    const key = workspaceTabsKey(requestOwnerId);
+    workspaceTabsCache.current.delete(key);
+    workspaceTabsGeneration.current.set(key, (workspaceTabsGeneration.current.get(key) ?? 0) + 1);
+  }, [workspaceTabsKey]);
+  const fetchWorkspaceTabs = useCallback(async (requestOwnerId: number) => {
+    const key = workspaceTabsKey(requestOwnerId);
+    const cached = workspaceTabsCache.current.get(key);
+    if (cached) return cached;
+    const generation = workspaceTabsGeneration.current.get(key) ?? 0;
+    const result = await fetchCrmTabs(requestOwnerId, { bypassCache: true });
+    if ((workspaceTabsGeneration.current.get(key) ?? 0) === generation) workspaceTabsCache.current.set(key, result);
+    return result;
+  }, [workspaceTabsKey]);
   const requestId = useRef(0);
   const crmSyncInFlight = useRef<Promise<void> | null>(null);
   const crmRefreshInFlight = useRef<{ ownerId: number; request: Promise<void> } | null>(null);
@@ -301,7 +321,7 @@ function CrmWorkspaceFull() {
     setError(null);
 
     try {
-      const nextTabsPromise = fetchCrmTabs(ownerId, { bypassCache: true });
+      const nextTabsPromise = fetchWorkspaceTabs(ownerId);
       const [nextTabs, primaryResult, personalClients] = await Promise.all([
         nextTabsPromise,
         tab === "primary" ? fetchPrimaryCrmClients(ownerId, { bypassCache: true }) : Promise.resolve(null),
@@ -322,7 +342,7 @@ function CrmWorkspaceFull() {
       }
       finishRefreshing?.();
     }
-  }, [isCurrentWorkspaceView, ownerId, refreshActivityTracker]);
+  }, [fetchWorkspaceTabs, isCurrentWorkspaceView, ownerId, refreshActivityTracker]);
 
   const refreshAfterDetailChange = useCallback((requestOwnerId: number, requestTab: ActiveTab) => {
     if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
@@ -403,6 +423,7 @@ function CrmWorkspaceFull() {
       }
       const latestView = currentView.current;
       if (latestView.ownerId !== requestOwnerId) return;
+      invalidateWorkspaceTabs(requestOwnerId);
       await loadLocalWorkspace(latestView.activeTab, { silent: true, lastSyncAt });
     })().finally(finishRefreshing);
     crmRefreshInFlight.current = { ownerId: requestOwnerId, request };
@@ -410,7 +431,7 @@ function CrmWorkspaceFull() {
       if (crmRefreshInFlight.current?.request === request) crmRefreshInFlight.current = null;
     });
     return request;
-  }, [isCurrentWorkspaceOwner, isCurrentWorkspaceView, isLocalImportTransition, loadLocalWorkspace, ownerId, refreshActivityTracker, syncCrmBeforeReload]);
+  }, [invalidateWorkspaceTabs, isCurrentWorkspaceOwner, isCurrentWorkspaceView, isLocalImportTransition, loadLocalWorkspace, ownerId, refreshActivityTracker, syncCrmBeforeReload]);
 
   const checkWorkspaceFreshness = useCallback((tab: ActiveTab) => {
     if (isLocalImportTransition(tab, ownerId)) {
@@ -822,6 +843,7 @@ function CrmWorkspaceFull() {
 
   const reloadAfterTabFailure = async (requestTab: ActiveTab, requestOwnerId: number, message: string) => {
     if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
+    invalidateWorkspaceTabs(requestOwnerId);
     await loadLocalWorkspace(requestTab, { silent: true });
     if (isCurrentWorkspaceView(requestTab, requestOwnerId)) setError(message);
   };
@@ -842,6 +864,7 @@ function CrmWorkspaceFull() {
         ? await createCrmTab(name, requestOwnerId)
         : await renameCrmTab(editor.id, name, requestOwnerId);
       if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
+      invalidateWorkspaceTabs(requestOwnerId);
       setTabEditor(null);
       setNotice(editor === "new" ? "Личная вкладка создана." : "Личная вкладка переименована.");
       if (editor === "new") chooseTab(saved.id);
@@ -864,6 +887,7 @@ function CrmWorkspaceFull() {
     try {
       await deleteCrmTab(tab.id, replacementTabId, requestOwnerId);
       if (!isCurrentWorkspaceView(requestTab, requestOwnerId)) return;
+      invalidateWorkspaceTabs(requestOwnerId);
       setTabPendingDelete(null);
       setNotice(`Личная вкладка «${tab.name}» удалена; карточки сохранены в выбранной вкладке.`);
       const nextTab = requestTab === tab.id ? replacementTabId : requestTab;

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 
 import { AppShell } from "@/components/app-shell";
+import { useAuth } from "@/components/auth-provider";
 import {
   ResizableTableHeader,
   useResizableColumns,
@@ -55,6 +56,7 @@ const INVOICE_TABLE_COLUMNS: ResizableColumnConfig[] = [
 ];
 
 export default function WorkWithInvoicePage() {
+  const { isAdmin } = useAuth();
   const [draftLines, setDraftLines] = useState<DraftLine[]>([]);
   const [quantityInputs, setQuantityInputs] = useState<Record<string, string>>({});
   const [itemDetailsById, setItemDetailsById] = useState<Record<number, StockItem>>({});
@@ -175,6 +177,10 @@ export default function WorkWithInvoicePage() {
   }, [comment, contractId, counterpartyId, orderDate, organizationKey]);
 
   useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+
     void fetchSystemSettings()
       .then((loadedSettings) => {
         setSettings(loadedSettings);
@@ -183,7 +189,7 @@ export default function WorkWithInvoicePage() {
       .catch(() => {
         setSettings(null);
       });
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     void loadReferences();
@@ -220,9 +226,10 @@ export default function WorkWithInvoicePage() {
     }
   }, [selectedCounterparty]);
 
-  const vatPercent = useMemo(() => parseVatPercent(settings?.vat_percent), [settings?.vat_percent]);
-  const pricesIncludeVat = settings
-    ? settings.vat_included === "1" && settings.sum_includes_vat === "1"
+  const activeSettings = isAdmin ? settings : null;
+  const vatPercent = useMemo(() => parseVatPercent(activeSettings?.vat_percent), [activeSettings?.vat_percent]);
+  const pricesIncludeVat = activeSettings
+    ? activeSettings.vat_included === "1" && activeSettings.sum_includes_vat === "1"
     : true;
 
   const totals = useMemo(() => {
@@ -646,7 +653,7 @@ export default function WorkWithInvoicePage() {
             <div className="mt-1.5 text-[10px] leading-[14px] text-[var(--text-secondary)]">
               Выбран: <span className="font-medium text-[var(--text-primary)]">{selectedCounterparty.name}</span>
               {selectedCounterparty.inn ? ` · ИНН ${selectedCounterparty.inn}` : ""}
-              {settings?.base_url ? " · база 1С подключена" : " · в настройках еще не заполнен URL базы 1С"}
+              {activeSettings?.base_url ? " · база 1С подключена" : " · в настройках еще не заполнен URL базы 1С"}
             </div>
           ) : (
             <div className="mt-1.5 text-[10px] leading-[14px] text-[var(--text-secondary)]">

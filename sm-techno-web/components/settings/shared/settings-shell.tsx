@@ -1,6 +1,7 @@
 'use client';
 
 import type { MouseEventHandler, ReactNode } from 'react';
+import Link from 'next/link';
 
 export type SettingsShellProps = {
   title: string;
@@ -26,15 +27,26 @@ export function SettingsShell({
       <header className="mb-6 flex flex-col gap-4 border-b border-[#dce3ed] pb-5 sm:mb-8 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
           {backHref ? (
-            <a
+            <Link
               aria-label={backLabel}
               className="mb-3 inline-flex min-h-11 items-center gap-2 rounded-xl px-2 text-sm font-semibold text-[#33435c] hover:bg-[#e9edf3] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ffc400]/45"
               href={backHref}
-              onClick={onBack}
+              onClick={(event) => {
+                if (
+                  event.button === 0
+                  && !event.metaKey
+                  && !event.ctrlKey
+                  && !event.shiftKey
+                  && !event.altKey
+                  && !event.defaultPrevented
+                ) {
+                  onBack?.(event);
+                }
+              }}
             >
               <ArrowLeftIcon />
               <span aria-hidden="true">Назад</span>
-            </a>
+            </Link>
           ) : null}
           <h1 className="text-3xl font-bold tracking-[-0.03em] text-[#07162e] sm:text-4xl">
             {title}
