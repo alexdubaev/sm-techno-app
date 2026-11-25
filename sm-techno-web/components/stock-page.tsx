@@ -2225,7 +2225,7 @@ export function MobileStockResults({
             aria-label={`${item.sku || 'Товар'}. ${item.name}`}
             data-selected={selectedRowKey === getCatalogRowKey(item) ? 'true' : undefined}
             onClick={() => onOpenItem(item)}
-            className="stock-mobile-row w-full rounded-[18px] border border-[var(--border-color)] bg-white px-4 py-4 text-left shadow-[0_8px_20px_rgba(7,22,46,0.06)] transition active:scale-[0.99]"
+            className="stock-mobile-row w-full border border-[var(--border-color)] bg-white px-4 py-4 text-left shadow-[0_8px_20px_rgba(7,22,46,0.06)] transition active:scale-[0.99]"
           >
             <p className="stock-mobile-sku text-[15px] font-bold leading-none tabular-nums tracking-[-0.02em] text-[var(--brand-dark)]">
               {item.sku || '—'}
