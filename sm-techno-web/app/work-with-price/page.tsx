@@ -2,6 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { Table } from "@/components/ui/table";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 
@@ -102,7 +103,7 @@ export default function WorkWithPricePage() {
     return (
       <AppShell>
         <div className="rounded-[16px] border border-[var(--border-color)] bg-white p-5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-          <h1 className="text-[18px] font-[650] tracking-[-0.04em] text-[var(--text-primary)]">
+          <h1 className="text-[var(--text-primary)]">
             Работа с прайсом
           </h1>
           <p className="mt-2 text-[12px] leading-5 text-[var(--text-secondary)]">
@@ -994,13 +995,13 @@ function WorkWithPriceAdminPage() {
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-2">
-        <header className="flex flex-wrap items-start justify-between gap-2">
+      <div className="app-catalog-workspace flex flex-col gap-2">
+        <header className="app-feature-heading flex flex-wrap items-start justify-between gap-2">
           <div className="max-w-[42rem]">
-            <h1 className="text-[18px] font-[650] leading-none tracking-[-0.05em] text-[var(--text-primary)]">
+            <h1 className="text-[var(--text-primary)]">
               Работа с прайсом
             </h1>
-            <p className="mt-0.5 max-w-[62ch] text-[10px] leading-[15px] text-[var(--text-secondary)]">
+            <p className="mt-0.5 max-w-[62ch] text-[var(--text-secondary)]">
               {isAdmin
                 ? "Тот же локальный каталог, что и в остатках: здесь можно импортировать позиции, добавлять их вручную, менять цену и остаток, а также удалять карточки по одной."
                 : "Просмотр локального прайса в режиме пользователя. Изменение каталога доступно только администратору."}
@@ -1024,7 +1025,7 @@ function WorkWithPriceAdminPage() {
         </header>
 
         <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+          <div className="app-catalog-actions grid gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
             <ActionButton
               onClick={handleDownloadTemplate}
               disabled={isBusy}
@@ -1039,12 +1040,13 @@ function WorkWithPriceAdminPage() {
             />
             {isAdmin ? (
               <>
-                <label className="app-action-button app-action-button--md cursor-pointer">
+                <label data-app-action="secondary" className="app-action-button app-action-button--md cursor-pointer has-[:focus-visible]:outline has-[:focus-visible]:outline-2">
                   <UploadIcon className="h-3.5 w-3.5 stroke-[2] text-[var(--text-secondary)]" />
                   <input
                     type="file"
-                    className="hidden"
+                    className="sr-only"
                     accept=".xlsx,.xls,.csv"
+                    aria-label="Выбрать файл прайса"
                     onChange={(event) => { setImportFile(event.target.files?.[0] ?? null); setImportPreview(null); }}
                   />
                   <span className="truncate">{importFile ? importFile.name : "Выбрать файл прайса"}</span>
@@ -1079,9 +1081,9 @@ function WorkWithPriceAdminPage() {
           ) : null}
         </section>
 
-        <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
+        <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
           <div className="min-w-0 space-y-2">
-            <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="app-catalog-filters rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_minmax(180px,220px)] xl:grid-cols-[minmax(0,1fr)_170px_170px]">
                 <div className="relative">
                   <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
@@ -1126,7 +1128,7 @@ function WorkWithPriceAdminPage() {
               </div>
             </section>
 
-            <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="app-work-table rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="mb-2 flex flex-wrap gap-1.5 border-b border-[var(--border-color)] pb-2">
                 <WarehouseTab
                   active={activeWarehouseId === null}
@@ -1151,7 +1153,7 @@ function WorkWithPriceAdminPage() {
                 ))}
               </div>
 
-              <div ref={containerRef} className="max-h-[calc(100dvh-8rem)] overflow-auto rounded-[12px] border border-[var(--border-color)] bg-white">
+              <div ref={containerRef} className="app-work-table-viewport max-h-[calc(100dvh-8rem)] overflow-auto rounded-[12px] border border-[var(--border-color)] bg-white">
                 {isLoading && items.length === 0 ? (
                   <TableSkeleton />
                 ) : items.length === 0 ? (
@@ -1165,7 +1167,7 @@ function WorkWithPriceAdminPage() {
                     }
                   />
                 ) : (
-                  <table
+                  <Table unstyled
                     className="min-w-full table-fixed border-separate border-spacing-0"
                     style={{ width: tableWidth }}
                   >
@@ -1202,6 +1204,7 @@ function WorkWithPriceAdminPage() {
                         return (
                           <tr
                             key={rowKey}
+                            data-state={isSelected ? "selected" : undefined}
                             onClick={() => handleSelectItem(item)}
                             className={[
                               "cursor-pointer transition-colors duration-200",
@@ -1223,7 +1226,7 @@ function WorkWithPriceAdminPage() {
                               </span>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-primary)]">
-                              <div className="max-w-full line-clamp-3 [overflow-wrap:anywhere] text-[11px] font-medium leading-[15px]" title={item.name || "-"}>
+                              <div className="app-table-item-name max-w-full line-clamp-3 [overflow-wrap:anywhere] font-medium" title={item.name || "-"}>
                                 {item.name}
                               </div>
                             </td>
@@ -1237,7 +1240,7 @@ function WorkWithPriceAdminPage() {
                                 className="block max-w-full text-left transition hover:text-[var(--brand-dark)]"
                                 title={rowWarehouseLabel}
                               >
-                                <span className={rowLocationLabel ? "max-w-full line-clamp-2 [overflow-wrap:anywhere]" : "max-w-full line-clamp-3 [overflow-wrap:anywhere]"}>
+                                <span className={`app-work-table-warehouse max-w-full [overflow-wrap:anywhere] ${rowLocationLabel ? "line-clamp-2" : "line-clamp-3"}`}>
                                   {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
                                 </span>
                                 {rowLocationLabel ? (
@@ -1272,6 +1275,7 @@ function WorkWithPriceAdminPage() {
                               <div className="relative inline-flex" data-row-actions-root="true">
                                 <button
                                   type="button"
+                                  data-app-action="secondary"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     handleToggleRowMenu(rowKey, event.currentTarget);
@@ -1288,7 +1292,7 @@ function WorkWithPriceAdminPage() {
                         );
                       })}
                     </tbody>
-                  </table>
+                  </Table>
                 )}
               </div>
 
@@ -1299,6 +1303,7 @@ function WorkWithPriceAdminPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    data-app-action="secondary"
                     disabled={page <= 1}
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-40"
@@ -1310,6 +1315,7 @@ function WorkWithPriceAdminPage() {
                   </div>
                   <button
                     type="button"
+                    data-app-action="secondary"
                     disabled={page >= pageCount}
                     onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
                     className="flex h-7 w-7 items-center justify-center rounded-[9px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] transition hover:bg-[#F8FAFD] disabled:cursor-not-allowed disabled:opacity-40"
@@ -1337,7 +1343,7 @@ function WorkWithPriceAdminPage() {
             ? createPortal(
                 <div
                   data-row-actions-root="true"
-                  className="fixed z-30 min-w-[208px] rounded-[12px] border border-[var(--border-color)] bg-white p-1 shadow-[0_18px_36px_rgba(7,22,46,0.14)]"
+                  className="app-dense-surface fixed z-30 min-w-[208px] rounded-[12px] border border-[var(--border-color)] bg-white p-1 shadow-[0_18px_36px_rgba(7,22,46,0.14)]"
                   style={{
                     top: activeRowMenu.top,
                     right: activeRowMenu.right,
@@ -1379,13 +1385,13 @@ function WorkWithPriceAdminPage() {
             : null}
 
           <aside className="flex min-h-0 min-w-0 flex-col gap-2 xl:sticky xl:top-2 xl:max-h-[calc(100dvh-0.75rem)] xl:self-start xl:overflow-auto">
-            <section className="rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="app-catalog-item rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
-                <div>
+                <div className="min-w-0 [overflow-wrap:anywhere]">
                   <p className="text-[9px] font-semibold text-[var(--text-secondary)]">
                     Выбранная позиция
                   </p>
-                  <h2 className="mt-1 text-[13px] font-[650] leading-tight text-[var(--text-primary)]">
+                  <h2 className="mt-1 text-[var(--text-primary)]">
                     {selectedItem ? selectedItem.name : "Позиция не выбрана"}
                   </h2>
                   <p className="mt-1 text-[9px] text-[var(--text-secondary)]">
@@ -1403,7 +1409,7 @@ function WorkWithPriceAdminPage() {
 
               {selectedItem ? (
                 <>
-                  <div className="mt-1.5 grid gap-1.5">
+                  <div className="mt-1.5 grid grid-cols-1 gap-1.5">
                     <CompactField
                       label="Артикул"
                       value={editForm.sku}
@@ -1480,7 +1486,7 @@ function WorkWithPriceAdminPage() {
                             <fieldset
                               key={warehouse.warehouseId}
                               aria-label={`Остаток на складе ${warehouse.warehouseName}`}
-                              className="flex items-center justify-between gap-2 rounded-[8px] border border-[var(--border-color)] bg-white px-2.5 py-1.5 text-[10px]"
+                              className="flex min-w-0 items-center justify-between gap-2 rounded-[8px] border border-[var(--border-color)] bg-white px-2.5 py-1.5 text-[10px]"
                             >
                               <span className="min-w-0">
                                 <span className="block truncate text-[var(--text-primary)]">
@@ -1522,15 +1528,16 @@ function WorkWithPriceAdminPage() {
                         type="button"
                         disabled={isBusy || !editFormValidation.ok}
                         onClick={handleSaveItem}
-                        className="app-action-button app-action-button--sm"
+                        className="app-action-button app-action-button--sm app-action-button--wrap"
                       >
-                        <SaveIcon className="h-3.5 w-3.5 stroke-[2]" />
+                        <SaveIcon className="h-3.5 w-3.5 shrink-0 stroke-[2]" />
                         Сохранить цену и данные
                       </button>
                       <button
                         type="button"
                         disabled={isBusy}
                         onClick={() => setItemPendingDelete(selectedItem)}
+                        data-app-action="danger"
                         className="app-action-button app-action-button--sm"
                       >
                         <TrashIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -1648,7 +1655,7 @@ function WorkWithPriceAdminPage() {
                                   <button type="button" disabled={isBusy} onClick={() => setWarehouseBeingRenamed({ id: warehouse.id, name: warehouse.name })} className="app-action-button app-action-button--xs">
                                     Переименовать
                                   </button>
-                                  <button type="button" disabled={isBusy} onClick={() => void handleDeleteWarehouse(warehouse.id)} className="app-action-button app-action-button--xs">
+                                  <button type="button" disabled={isBusy} onClick={() => void handleDeleteWarehouse(warehouse.id)} data-app-action="danger" className="app-action-button app-action-button--xs">
                                     Удалить
                                   </button>
                                 </div>
@@ -1810,6 +1817,7 @@ function WorkWithPriceAdminPage() {
                   type="button"
                   disabled={isBusy}
                   onClick={handleClearCatalog}
+                  data-app-action="danger"
                   className="app-action-button app-action-button--sm"
                 >
                   <TrashIcon className="h-3.5 w-3.5 stroke-[2]" />
@@ -2124,6 +2132,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      data-app-action="secondary"
       className="app-action-button app-action-button--xl"
     >
       <span>{icon}</span>
@@ -2145,8 +2154,10 @@ function WarehouseTab({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
+      data-app-action="secondary"
       className={[
-        "inline-flex h-[34px] items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200",
+        "inline-flex h-[34px] min-w-0 max-w-full items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200",
         active
           ? "border-[var(--border-color)] border-t-[2px] border-t-[var(--stock-ok)] bg-white text-[var(--brand-dark)] shadow-[0_10px_20px_rgba(7,22,46,0.06)]"
           : "border-[var(--border-color)] bg-[#F8FAFD] text-[var(--text-secondary)] hover:bg-white hover:text-[var(--text-primary)]",
@@ -2460,7 +2471,7 @@ function StockActionDrawer({
         onClick={onClose}
         className="absolute inset-0 cursor-default"
       />
-      <section className="relative z-10 flex h-full w-full max-w-[420px] flex-col border-l border-[var(--border-color)] bg-white shadow-[-18px_0_40px_rgba(7,22,46,0.14)]">
+      <section className="app-dense-surface relative z-10 flex h-full w-full max-w-[420px] flex-col border-l border-[var(--border-color)] bg-white shadow-[-18px_0_40px_rgba(7,22,46,0.14)]">
         <div className="flex items-start justify-between gap-3 border-b border-[var(--border-color)] px-4 py-3">
           <div className="min-w-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">
@@ -2476,7 +2487,7 @@ function StockActionDrawer({
               Добавить остаток — это количество, которое прибавится к выбранному складу. Перемещение и списание выполняются сразу отдельной кнопкой.
             </p>
           </div>
-          <button
+          <button data-app-action="secondary"
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-color)] bg-white text-[var(--text-secondary)] transition hover:bg-[#F8FAFD]"
@@ -2685,6 +2696,7 @@ function ConfirmDeleteDialog({
           <button
             type="button"
             onClick={onCancel}
+            data-app-action="secondary"
             className="app-action-button app-action-button--xl"
           >
             Отмена
@@ -2693,6 +2705,7 @@ function ConfirmDeleteDialog({
             type="button"
             disabled={isBusy}
             onClick={onConfirm}
+            data-app-action="danger"
             className="app-action-button app-action-button--xl"
           >
             Удалить товар

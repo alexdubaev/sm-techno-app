@@ -2,6 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import { Table } from "@/components/ui/table";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 
@@ -469,13 +470,13 @@ export default function WorkWithInvoicePage() {
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+      <div className="app-surface app-work-table-page flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
         <header className="flex flex-wrap items-start justify-between gap-1.5">
           <div className="max-w-[40rem]">
-            <h1 className="text-[17px] font-[650] leading-none tracking-[-0.04em] text-[var(--text-primary)]">
+            <h1 className="text-[var(--text-primary)]">
               Работа со счетом
             </h1>
-            <p className="mt-0.5 max-w-[40rem] text-[10px] leading-[14px] text-[var(--text-secondary)]">
+            <p className="mt-0.5 max-w-[40rem] text-[var(--text-secondary)]">
               Заполняем шапку, проверяем табличную часть и отправляем заказ в 1С с записью в историю.
             </p>
           </div>
@@ -668,22 +669,22 @@ export default function WorkWithInvoicePage() {
         </section>
 
         <div className="grid gap-1.5 xl:grid-cols-[minmax(0,1fr)_200px] xl:items-start">
-          <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
+          <section className="app-work-table rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-[12px] font-semibold text-[var(--text-primary)]">Табличная часть счета</h2>
+              <h2 className="text-[var(--text-primary)]">Табличная часть счета</h2>
               <span className="text-[9px] uppercase tracking-[0.08em] text-[var(--text-secondary)]">
                 перед отправкой в 1С
               </span>
             </div>
 
-            <div className="mt-1.5 overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
+            <div className="app-work-table-viewport mt-1.5 overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
               {draftLines.length === 0 ? (
                 <div className="px-3 py-5 text-[11px] leading-4 text-[var(--text-secondary)]">
                   Счет пока пуст. Вернитесь в остатки и добавьте нужные позиции.
                 </div>
               ) : (
                 <div ref={containerRef} className="max-h-[calc(100dvh-9.5rem)] overflow-auto">
-                  <table
+                  <Table unstyled
                     className="min-w-full table-fixed border-collapse"
                     style={{ width: tableWidth }}
                   >
@@ -746,7 +747,7 @@ export default function WorkWithInvoicePage() {
                               </div>
                             </td>
                             <td className="px-3 py-1.5">
-                              <div className="line-clamp-2 text-[11px] font-medium leading-[15px] text-[var(--text-primary)]">
+                              <div className="app-table-item-name line-clamp-2 font-medium text-[var(--text-primary)]">
                                 {line.name}
                               </div>
                             </td>
@@ -849,7 +850,7 @@ export default function WorkWithInvoicePage() {
                               {formatMoney(line.quantity * line.price)}
                             </td>
                             <td className="px-3 py-1.5 text-center">
-                              <button
+                              <button data-app-action="danger"
                                 type="button"
                                 onClick={() => removeLine(line.lineId)}
                                 className="inline-flex h-6 w-6 items-center justify-center rounded-[7px] border border-[var(--border-color)] bg-white text-[12px] leading-none text-[var(--text-secondary)] transition-colors duration-200 hover:border-[rgba(239,68,68,0.35)] hover:text-[var(--stock-empty)]"
@@ -862,11 +863,11 @@ export default function WorkWithInvoicePage() {
                         );
                       })}
                     </tbody>
-                  </table>
+                  </Table>
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-color)] bg-[#FBFCFE] px-3 py-2 text-[10px]">
+              <div className="app-work-table-summary flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-color)] bg-[#FBFCFE] px-3 py-2 text-[10px]">
                 <div className="flex flex-wrap items-center gap-2 text-[var(--text-secondary)]">
                   <span>Строк: {draftLines.length}</span>
                   <span>Количество: {totals.quantity} шт.</span>
@@ -902,7 +903,7 @@ export default function WorkWithInvoicePage() {
           </section>
 
           <aside className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
-            <h2 className="text-[12px] font-semibold text-[var(--text-primary)]">Сводка</h2>
+            <h2 className="text-[var(--text-primary)]">Сводка</h2>
             <div className="mt-1.5 space-y-1.5 text-[10px]">
               <div className="flex items-center justify-between text-[var(--text-secondary)]">
                 <span>Позиции</span>
@@ -928,7 +929,7 @@ export default function WorkWithInvoicePage() {
               </div>
               <div className="flex items-center justify-between border-t border-[var(--border-color)] pt-1.5 text-[var(--text-primary)]">
                 <span className="font-semibold">Итого</span>
-                <span className="text-[15px] font-[650] tabular-nums">
+                <span className="text-[length:var(--app-font-total)] font-[650] tabular-nums">
                   {formatMoney(totals.amount)}
                 </span>
               </div>
@@ -1086,7 +1087,7 @@ function QuantityButton({
   disabled: boolean;
 }) {
   return (
-    <button
+    <button data-app-action="secondary"
       type="button"
       aria-label={label}
       onClick={onClick}

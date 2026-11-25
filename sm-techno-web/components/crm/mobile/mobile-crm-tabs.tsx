@@ -19,7 +19,7 @@ export function MobileCrmTabs({
 }: MobileCrmTabsProps) {
   return (
     <nav
-      className="-mx-3 overflow-x-auto px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="app-crm-list-tabs -mx-3 overflow-x-auto px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       aria-label="Вкладки CRM"
     >
       <div className="flex min-w-max gap-2 py-3">
@@ -60,7 +60,7 @@ function MobileTab({
       onClick={onClick}
       disabled={disabled}
       aria-current={active ? 'page' : undefined}
-      className={`min-h-11 shrink-0 rounded-full border px-4 text-[12px] font-bold outline-offset-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:opacity-60 ${active ? 'border-[var(--brand-dark)] bg-[var(--brand-dark)] text-white' : 'border-[var(--border-color)] bg-white text-[#526174]'}`}
+      className={`app-crm-tab min-h-11 shrink-0 rounded-xl border px-4 text-[12px] font-bold outline-offset-2 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:opacity-60 ${active ? 'border-[var(--brand-dark)] bg-[var(--brand-dark)] text-white' : 'border-[var(--border-color)] bg-white text-[#526174]'}`}
     >
       {label}
     </button>

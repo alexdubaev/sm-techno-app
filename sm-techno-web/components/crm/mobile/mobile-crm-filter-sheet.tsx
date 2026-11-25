@@ -117,7 +117,7 @@ export function MobileCrmFilterSheet({
         </fieldset>
       ))}
       <div className="sticky bottom-0 mt-5 grid gap-2 bg-[#F7F9FC] pt-3">
-        <button
+        <button data-app-action="secondary"
           type="button"
           className={mobileButton}
           onClick={() =>
@@ -130,7 +130,7 @@ export function MobileCrmFilterSheet({
         >
           Сбросить фильтры
         </button>
-        <button
+        <button data-app-action="primary"
           type="button"
           className={`${mobileButton} border-transparent bg-[var(--brand-yellow)]`}
           onClick={() => {

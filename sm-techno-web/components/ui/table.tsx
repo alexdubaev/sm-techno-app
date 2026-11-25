@@ -4,7 +4,16 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
-function Table({ className, ...props }: React.ComponentProps<'table'>) {
+type TableProps = React.ComponentProps<'table'> & {
+  /** Use the caller's scroll container and classic table layout. */
+  unstyled?: boolean;
+};
+
+function Table({ className, unstyled, ...props }: TableProps) {
+  if (unstyled) {
+    return <table data-slot="table" className={className} {...props} />;
+  }
+
   return (
     <div
       data-slot="table-container"

@@ -84,12 +84,9 @@ export function MobileCrmHeader({
   onToggleReorder,
 }: MobileCrmHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 -mx-3 border-b border-[var(--border-color)] bg-white/95 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] shadow-[0_8px_24px_rgba(7,22,46,0.05)] backdrop-blur">
+    <header className="app-surface app-crm-list-header sticky top-0 z-30 -mx-3 border-b border-[var(--border-color)] bg-white/95 px-3 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))] shadow-[0_8px_24px_rgba(7,22,46,0.05)] backdrop-blur">
       <div className="flex min-h-11 items-center gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--text-secondary)]">
-            Рабочее пространство
-          </p>
           <h1 className="truncate text-[20px] font-bold tracking-[-0.035em] text-[var(--text-primary)]">
             {archiveMode
               ? 'CRM · Архив'
@@ -115,7 +112,7 @@ export function MobileCrmHeader({
         ) : (
           <>
             {!archiveMode ? (
-              <button
+              <button data-app-action="secondary"
                 type="button"
                 onClick={onRefresh}
                 disabled={isRefreshing}
@@ -133,7 +130,7 @@ export function MobileCrmHeader({
               </button>
             ) : null}
             {canEditWorkspace ? (
-              <button
+              <button data-app-action="primary"
                 type="button"
                 onClick={onAddClient}
                 aria-label="Добавить клиента"
@@ -143,13 +140,13 @@ export function MobileCrmHeader({
               </button>
             ) : null}
             <details className="group relative">
-              <summary
+              <summary data-app-action="secondary"
                 className="flex size-11 cursor-pointer list-none items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] outline-offset-2 transition-colors hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
                 aria-label="Ещё действия CRM"
               >
                 <MoreHorizontal aria-hidden="true" className="size-5" />
               </summary>
-              <div className="absolute right-0 z-40 mt-2 max-h-[min(70dvh,34rem)] w-[min(calc(100vw-1.5rem),22rem)] overflow-y-auto overscroll-contain rounded-[18px] border border-[var(--border-color)] bg-white p-3 shadow-[0_20px_48px_rgba(7,22,46,0.2)]">
+              <div className="app-dense-surface absolute right-0 z-40 mt-2 max-h-[min(70dvh,34rem)] w-[min(calc(100vw-2.75rem),22rem)] overflow-y-auto overscroll-contain rounded-[18px] border border-[var(--border-color)] bg-white p-3 shadow-[0_20px_48px_rgba(7,22,46,0.2)]">
                 {isAdmin ? (
                   <label className="grid gap-1.5 text-[11px] font-bold text-[var(--text-secondary)]">
                     <span>CRM сотрудника</span>
@@ -246,7 +243,7 @@ export function MobileCrmHeader({
 
                 {canEditWorkspace ? (
                   <div className="mt-3 border-t border-[var(--border-color)] pt-3">
-                    <button
+                    <button data-app-action="primary"
                       type="button"
                       onClick={onImport}
                       className="h-11 w-full rounded-[11px] bg-[var(--brand-yellow)] px-3 text-left text-[13px] font-bold text-[var(--brand-dark)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]"
@@ -289,7 +286,7 @@ export function MobileCrmHeader({
                             >
                               <Pencil aria-hidden="true" className="size-4" />
                             </button>
-                            <button
+                            <button data-app-action="danger"
                               type="button"
                               onClick={() => onDeleteTab(tab)}
                               aria-label={`Удалить вкладку ${tab.name}`}
@@ -313,7 +310,7 @@ export function MobileCrmHeader({
         )}
       </div>
       {!archiveMode ? (
-        <button
+        <button data-app-action="secondary"
           type="button"
           onClick={onOpenFilters}
           disabled={reorderMode}

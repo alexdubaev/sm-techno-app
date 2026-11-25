@@ -18,6 +18,7 @@ type ResizeSession = {
   startWidth: number;
   minWidth: number;
   maxWidth: number;
+  moved: boolean;
 };
 
 type ResizableHeaderProps = {
@@ -146,8 +147,12 @@ export function useResizableColumns(
   columns: ResizableColumnConfig[],
   options?: {
     allowTightFit?: boolean;
+    fitColumns?: ResizableColumnConfig[];
+    persistOnResizeOnly?: boolean;
   },
 ) {
+  const fitColumns = options?.fitColumns ?? columns;
+  const persistOnResizeOnly = options?.persistOnResizeOnly ?? false;
   const defaults = useMemo(() => buildDefaultWidths(columns), [columns]);
   const rules = useMemo(
     () =>
@@ -171,7 +176,7 @@ export function useResizableColumns(
       try {
         parsedWidths = JSON.parse(savedWidths) as WidthMap;
       } catch {
-        window.localStorage.removeItem(storageKey);
+        if (!persistOnResizeOnly) window.localStorage.removeItem(storageKey);
       }
     }
 
@@ -190,6 +195,7 @@ export function useResizableColumns(
     return nextWidths;
   });
   const resizeSessionRef = useRef<ResizeSession | null>(null);
+  const resizedRef = useRef(false);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -216,12 +222,12 @@ export function useResizableColumns(
   }, []);
 
   useEffect(() => {
-    if (!canUseStorage()) {
+    if (!canUseStorage() || (persistOnResizeOnly && !resizedRef.current)) {
       return;
     }
 
     window.localStorage.setItem(storageKey, JSON.stringify(widths));
-  }, [storageKey, widths]);
+  }, [persistOnResizeOnly, storageKey, widths]);
 
   useEffect(() => {
     const handleMouseMove = (event: globalThis.MouseEvent) => {
@@ -231,6 +237,9 @@ export function useResizableColumns(
       }
 
       const deltaX = event.clientX - session.startX;
+      if (deltaX === 0 && !session.moved) return;
+      session.moved = true;
+      resizedRef.current = true;
       const nextWidth = Math.min(
         session.maxWidth,
         Math.max(session.minWidth, session.startWidth + deltaX),
@@ -263,13 +272,18 @@ export function useResizableColumns(
     (columnKey: string, event: MouseEvent<HTMLSpanElement>) => {
       event.preventDefault();
       event.stopPropagation();
+      const fitColumn = fitColumns.find(column => column.key === columnKey);
+      const minWidth = fitColumn?.minWidth ?? rules[columnKey]?.minWidth ?? 56;
+      const maxWidth = fitColumn?.maxWidth ?? rules[columnKey]?.maxWidth ?? 720;
+      const startWidth = clampWidth(widths[columnKey] ?? defaults[columnKey] ?? 120, minWidth, maxWidth);
 
       resizeSessionRef.current = {
         key: columnKey,
         startX: event.clientX,
-        startWidth: widths[columnKey] ?? defaults[columnKey] ?? 120,
-        minWidth: rules[columnKey]?.minWidth ?? 56,
-        maxWidth: rules[columnKey]?.maxWidth ?? 720,
+        startWidth,
+        minWidth,
+        maxWidth,
+        moved: false,
       };
 
       if (typeof document !== "undefined") {
@@ -277,7 +291,7 @@ export function useResizableColumns(
         document.body.style.userSelect = "none";
       }
     },
-    [defaults, rules, widths],
+    [defaults, fitColumns, rules, widths],
   );
 
   const getWidth = useCallback(
@@ -286,8 +300,8 @@ export function useResizableColumns(
   );
 
   const fitted = useMemo(
-    () => fitWidthsToContainer(columns, widths, containerWidth, options?.allowTightFit ?? false),
-    [columns, containerWidth, options?.allowTightFit, widths],
+    () => fitWidthsToContainer(fitColumns, widths, containerWidth, options?.allowTightFit ?? false),
+    [fitColumns, containerWidth, options?.allowTightFit, widths],
   );
 
   return {

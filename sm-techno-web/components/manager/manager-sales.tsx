@@ -22,7 +22,7 @@ export function ManagerSales({
     <div className={styles.saleList}>
       {sales.map((sale) => (
         <article
-          className={`${styles.saleRow} ${sale.cancelled ? styles.cancelled : ''}`}
+          className={`${styles.saleRow} app-table-grid-row ${sale.cancelled ? styles.cancelled : ''}`}
           key={sale.id}
         >
           <div className={styles.saleDate}>
@@ -69,7 +69,7 @@ export function ManagerSales({
             <div className={styles.rowActions}>
               {!sale.cancelled && (
                 <>
-                  {onEdit && <button
+                  {onEdit && <button data-app-action="secondary"
                     className={styles.iconButton}
                     onClick={() => onEdit?.(sale)}
                     aria-label={sale.source === 'bank_statement' || sale.bankOperationId
@@ -78,7 +78,7 @@ export function ManagerSales({
                   >
                     <Pencil size={16} />
                   </button>}
-                  {onCancel && <button
+                  {onCancel && <button data-app-action="danger"
                     className={styles.iconButton}
                     onClick={() => onCancel?.(sale)}
                     aria-label={`Отменить продажу № ${sale.id}`}

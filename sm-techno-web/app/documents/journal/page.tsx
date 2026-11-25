@@ -1,5 +1,6 @@
 "use client";
 
+import { Table } from "@/components/ui/table";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -103,7 +104,7 @@ export default function DocumentsPage() {
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+      <div className="app-surface app-work-table-page flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
         <header className="flex flex-wrap items-start justify-between gap-1.5">
           <div>
             <h1 className="text-[17px] font-[650] leading-none text-[var(--text-primary)]">
@@ -119,14 +120,14 @@ export default function DocumentsPage() {
             <MetricChip label="Договоры" value={String(summary.contracts)} />
             <MetricChip label="Спецификации" value={String(summary.specifications)} />
             <MetricChip label="Предупр." value={String(summary.warnings)} tone={summary.warnings > 0 ? "warning" : "default"} />
-            <Link href="/documents" className="app-action-button app-action-button--xs">
+            <Link href="/documents" className="app-action-button app-action-button--touch">
               Сформировать
             </Link>
             <button
               type="button"
               onClick={() => void loadDocuments()}
               disabled={isLoading}
-              className="app-action-button app-action-button--xs"
+              className="app-action-button app-action-button--touch app-action-button--secondary"
             >
               {isLoading ? "Обновление..." : "Обновить"}
             </button>
@@ -155,8 +156,8 @@ export default function DocumentsPage() {
           </datalist>
         </div>
 
-        <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
-          <div className="overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
+        <section className="app-work-table rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
+          <div className="app-work-table-viewport overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
             {documents.length === 0 && !isLoading ? (
               <div className="px-3 py-5 text-[11px] leading-4 text-[var(--text-secondary)]">
                 Журнал пока пуст. Сформируйте первый договор или спецификацию из карточки клиента.
@@ -167,7 +168,7 @@ export default function DocumentsPage() {
               </div>
             ) : (
               <div ref={containerRef} className="max-h-[calc(100dvh-8rem)] overflow-auto">
-                <table className="min-w-full table-fixed border-collapse" style={{ width: tableWidth }}>
+                <Table unstyled className="min-w-full table-fixed border-collapse" style={{ width: tableWidth }}>
                   <colgroup>
                     {DOCUMENTS_TABLE_COLUMNS.map((column) => (
                       <col key={column.key} style={{ width: getWidth(column.key) }} />
@@ -222,7 +223,7 @@ export default function DocumentsPage() {
                               onClick={() => void handleDownload(document.id)}
                               aria-label={`Строка ${index + 1}: скачать DOCX документа ${document.number}`}
                               disabled={downloadingId === document.id || deletingId === document.id}
-                              className="app-action-button app-action-button--xs"
+                              className="app-action-button app-action-button--xs app-action-button--secondary"
                             >
                               {downloadingId === document.id ? "..." : "DOCX"}
                             </button>
@@ -231,7 +232,7 @@ export default function DocumentsPage() {
                               onClick={() => void handleDelete(document)}
                               aria-label={`Строка ${index + 1}: удалить документ ${document.number}`}
                               disabled={deletingId === document.id || downloadingId === document.id}
-                              className="app-action-button app-action-button--xs"
+                              className="app-action-button app-action-button--xs app-action-button--danger"
                             >
                               {deletingId === document.id ? "..." : "Удалить"}
                             </button> : null}
@@ -240,7 +241,7 @@ export default function DocumentsPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </Table>
               </div>
             )}
           </div>

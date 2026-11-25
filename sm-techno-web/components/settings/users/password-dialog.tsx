@@ -113,7 +113,7 @@ export function PasswordDialog({
           <button type="button" className={styles.button} onClick={onClose}>
             Отмена
           </button>
-          <button className={styles.primary} type="submit">
+          <button data-app-action="primary" className={styles.primary} type="submit">
             Изменить пароль
           </button>
         </div>

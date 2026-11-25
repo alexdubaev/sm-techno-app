@@ -9,6 +9,12 @@
   --border-color: #e3e8f0;
   --text-primary: #0b1736;
   --text-secondary: #6b7890;
+  --app-control-radius: 12px;
+  --app-font-title: 1.0625rem;
+  --app-font-section: 0.75rem;
+  --app-font-body: 0.6875rem;
+  --app-font-detail: 0.625rem;
+  --app-font-total: 0.9375rem;
   --stock-ok: #16a34a;
   --stock-empty: #ef4444;
 }
@@ -76,6 +82,76 @@ select {
   font: inherit;
 }
 
+/* Apply the same corners to controls in the shell and in portalled dialogs. */
+@media screen {
+  :root body :is(
+    button, input:is([type="button"], [type="submit"], [type="reset"]),
+    [role="button"], [role="tab"], [role="tablist"], [role="menuitem"], [role="switch"], summary,
+    .app-action-button, .app-glassy-action, .app-glassy-secondary, .app-segmented, .app-segmented__item, [data-app-action],
+    .app-nav-link, .app-shell-dock-item, .app-shell-mobile-settings,
+    [data-slot="tabs-list"], [data-slot="tabs-trigger"], [data-slot="switch"]
+  ) {
+    border-radius: var(--app-control-radius);
+  }
+
+  input[type="file"]::file-selector-button {
+    border-radius: var(--app-control-radius);
+  }
+}
+
+/* The invoice workspace defines the shared screen typography in both themes. */
+@media screen {
+  .app-shell-content {
+    font-size: var(--app-font-body);
+  }
+
+  .app-shell .app-shell-content h1 {
+    font-size: var(--app-font-title);
+    font-weight: 650;
+    letter-spacing: -0.04em;
+    line-height: 1;
+  }
+
+  .app-shell .app-shell-content h1 + p {
+    font-size: var(--app-font-detail);
+    line-height: 1.4;
+  }
+
+  :is(.app-shell .app-shell-content, [role="dialog"], [role="alertdialog"]) :is(h2, h3, [data-slot="dialog-title"], [data-slot="alert-dialog-title"]) {
+    font-size: var(--app-font-section);
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  table[data-slot="table"] :is(th, td) {
+    font-size: var(--app-font-detail);
+    line-height: 1.5;
+  }
+
+  .app-table-item-name {
+    font-size: var(--app-font-body);
+    line-height: 1.4;
+  }
+
+  :is(.app-shell-content, [role="dialog"], [role="alertdialog"]) :is(
+    [data-slot="button"], [data-app-action], [role="tab"], .app-segmented__item, select
+  ) {
+    font-size: var(--app-font-body);
+  }
+}
+
+@media screen and (min-width: 48rem) {
+  :is(.app-shell-content, [role="dialog"], [role="alertdialog"]) :is(
+    input:not([type="checkbox"], [type="radio"], [type="range"], [type="hidden"], [type="file"]), textarea
+  ) {
+    font-size: var(--app-font-body);
+  }
+
+  .app-shell-content table[data-slot="table"] :is(input, select) {
+    font-size: var(--app-font-detail);
+  }
+}
+
 .app-action-button {
   box-sizing: border-box;
   display: inline-flex;
@@ -85,6 +161,7 @@ select {
   border: 0;
   background: var(--brand-yellow);
   color: var(--brand-dark);
+  font-size: var(--app-font-body);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;
@@ -119,37 +196,28 @@ select {
 
 .app-action-button--xs {
   height: 1.75rem;
-  border-radius: 0.5rem;
   padding-inline: 0.5rem;
-  font-size: 0.625rem;
+  font-size: var(--app-font-detail);
 }
 
 .app-action-button--sm {
-  height: 2rem;
-  border-radius: 0.625rem;
+  min-height: 2rem;
   padding-inline: 0.75rem;
-  font-size: 0.6875rem;
 }
 
 .app-action-button--md {
   height: 2.125rem;
-  border-radius: 0.625rem;
   padding-inline: 0.75rem;
-  font-size: 0.6875rem;
 }
 
 .app-action-button--lg {
   height: 2.25rem;
-  border-radius: 0.75rem;
   padding-inline: 0.75rem;
-  font-size: 0.75rem;
 }
 
 .app-action-button--xl {
   height: 2.375rem;
-  border-radius: 0.75rem;
   padding-inline: 0.75rem;
-  font-size: 0.75rem;
 }
 
 .app-action-button--icon-xs {
@@ -208,16 +276,12 @@ select {
 /* Touch-friendly sizes for forms: at least 40px high on phones. */
 .app-action-button--touch {
   min-height: 2.5rem;
-  border-radius: 0.625rem;
   padding: 0.5rem 1rem;
-  font-size: 0.875rem;
 }
 
 .app-action-button--compact {
   min-height: 2.5rem;
-  border-radius: 0.625rem;
   padding: 0.375rem 0.75rem;
-  font-size: 0.75rem;
 }
 
 @media (min-width: 640px) {
@@ -300,7 +364,7 @@ select {
   justify-items: center;
   gap: 0.375rem;
   border: 1.5px dashed #c5cfdd;
-  border-radius: 0.875rem;
+  border-radius: var(--app-control-radius);
   background: var(--panel-muted);
   padding: 1.25rem 1rem;
   text-align: center;
@@ -520,6 +584,10 @@ select {
 }
 
 /* Smooth expand/collapse without measuring height */
+.app-nav-group[data-active='true'] {
+  color: #fff;
+}
+
 .app-nav-collapse {
   display: grid;
   grid-template-rows: 0fr;

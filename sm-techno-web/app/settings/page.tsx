@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { AppShell } from "@/components/app-shell";
 import { useAuth } from "@/components/auth-provider";
+import { AppearanceSettings } from "@/components/settings/appearance-settings";
 import { SettingsFeedback } from "@/components/settings/shared/settings-feedback";
 import { SettingsLanding } from "@/components/settings/shared/settings-landing";
 import { SettingsShell } from "@/components/settings/shared/settings-shell";
@@ -21,6 +22,7 @@ export default function SettingsPage() {
   return (
     <AppShell>
       <SettingsShell title="Настройки" description={isAdmin ? "Личные настройки, учетные записи и параметры интеграции." : "Личные настройки."}>
+        <AppearanceSettings />
         <StockShortcutsPanel />
         {isAdmin && <AdminSettingsLanding />}
       </SettingsShell>

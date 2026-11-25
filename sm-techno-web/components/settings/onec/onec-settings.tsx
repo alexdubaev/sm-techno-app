@@ -262,7 +262,7 @@ export function OneCSettings({
   return (
     <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-5 pb-4 text-[var(--text-primary)]">
       <header className="flex items-center gap-3">
-        <Link
+        <Link data-app-action="secondary"
           href="/settings"
           aria-label="Назад к настройкам"
           className="flex size-11 shrink-0 items-center justify-center rounded-[14px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] shadow-[0_6px_18px_rgba(7,22,46,0.06)] outline-none transition hover:bg-[#F8FAFD] focus-visible:ring-3 focus-visible:ring-[rgba(255,196,0,0.35)]"
@@ -418,7 +418,7 @@ function ConnectionFields({
       <p className="text-[10px] leading-4 text-[var(--text-secondary)]">
         Проверяется сохранённый URL и доступ 1С текущего пользователя.
       </p>
-      <button
+      <button data-app-action="secondary"
         type="button"
         onClick={() => void onTestConnection()}
         disabled={isTesting}

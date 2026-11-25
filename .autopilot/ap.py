@@ -22,6 +22,7 @@
     python3 .autopilot/ap.py add report "Два формата даты в уведомлениях — оставлено"
     python3 .autopilot/ap.py blind checked=12 matched=11 --mismatch "R07 — статус не виден"
     python3 .autopilot/ap.py tests 34/0                 # последний полный прогон
+    python3 .autopilot/ap.py preview waiting | http://127.0.0.1:5173/ | off
     python3 .autopilot/ap.py ask briefing --note "три вопроса в чате"   # ждём пользователя
     python3 .autopilot/ap.py answered                   # ответил (stage/ticket закрывают сами)
     python3 .autopilot/ap.py finish --result "Бот принимает заявки и пишет их в таблицу"
@@ -46,6 +47,7 @@ import re
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -63,6 +65,8 @@ PAGE = os.path.join(A, "dashboard.html")
 README = os.path.join(A, "README.md")
 PIDF = os.path.join(A, "serve.pid")
 LOG = os.path.join(A, "serve.log")
+PREVIEW = os.path.join(A, "serve.preview.json")
+PREVIEW_URL = re.compile(r"http://(?:localhost|127\.0\.0\.1|\[::1\]):([1-9][0-9]{0,4})(?:/[A-Za-z0-9._~/%-]*)?")
 BEGIN, END = "/*STATE-BEGIN*/", "/*STATE-END*/"
 WIN = os.name == "nt"
 REPO = "nick-vels/skills"
@@ -113,6 +117,38 @@ def save(state):
     with open(tmp, "w", encoding="utf-8") as f:
         f.write("window.STATE =\n" + json.dumps(state, ensure_ascii=False, indent=2) + "\n")
     os.replace(tmp, STATE)
+
+
+def write_preview(state, status, url=None):
+    # Исполнитель обновляет превью, пока оркестратор пишет state.js.
+    record = {"run": state["dir"], "startedAt": state["startedAt"], "status": status}
+    if url is not None:
+        record["url"] = url
+    f = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=A,
+                                    prefix="serve.preview.", delete=False)
+    try:
+        with f:
+            json.dump(record, f)
+        os.replace(f.name, PREVIEW)
+    finally:
+        if os.path.exists(f.name):
+            os.unlink(f.name)
+
+
+def cmd_preview(state, pos):
+    if len(pos) != 1:
+        die("preview требует waiting, локальный URL или off")
+    value = pos[0]
+    if state.get("finishedAt") and value != "off":
+        die("прогон закрыт")
+    if value in ("waiting", "off"):
+        write_preview(state, value)
+    else:
+        match = PREVIEW_URL.fullmatch(value)
+        if not match or int(match.group(1)) > 65535:
+            die("для превью нужен локальный HTTP-адрес с портом и без параметров, например http://127.0.0.1:5173/")
+        write_preview(state, "ready", value)
+    print("превью: " + value)
 
 
 def beat(state):
@@ -1009,6 +1045,11 @@ def main():
         if state is None:
             die("state.js ещё нет — начни с `ap.py init`")
         rest = pos[1:]
+        if cmd == "preview":
+            if opt:
+                die("preview принимает только waiting, локальный URL или off")
+            cmd_preview(state, rest)
+            return
         if cmd not in ("", "sync", "commits"):
             # Время события ставится до команды: ей самой и ленте нужна одна метка.
             state["updatedAt"] = now()
@@ -1049,6 +1090,8 @@ def main():
             notes = cmd_commits(state)
         elif cmd not in ("", "sync"):
             die("неизвестная команда %s — список в начале ap.py" % cmd)
+    if cmd in ("init", "reopen", "finish") or not os.path.exists(PREVIEW):
+        write_preview(state, "off")
     recount(state)
     notes = close_passed(state) + notes
     save(state)

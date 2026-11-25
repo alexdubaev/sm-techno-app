@@ -232,7 +232,7 @@ export function UsersSettings({
     <div className={styles.root}>
       <header className={styles.header}>
         {mobile && editing ? (
-          <button
+          <button data-app-action="secondary"
             type="button"
             className={styles.iconButton}
             aria-label="Назад к пользователям"
@@ -242,7 +242,7 @@ export function UsersSettings({
             <ArrowLeft size={20} aria-hidden="true" />
           </button>
         ) : onBack ? (
-          <button
+          <button data-app-action="secondary"
             type="button"
             className={styles.iconButton}
             aria-label="К настройкам"
@@ -263,7 +263,7 @@ export function UsersSettings({
           <p>Учётные записи, роли и индивидуальный доступ к 1С</p>
         </div>
         {mobile && !editing ? (
-          <button
+          <button data-app-action="primary"
             type="button"
             className={`${styles.primary} ${styles.mobileAdd}`}
             aria-label="Новый пользователь"
@@ -358,7 +358,7 @@ export function UsersSettings({
                   {creating ? 'Отмена' : 'Закрыть'}
                 </button>
               ) : null}
-              <button
+              <button data-app-action="primary"
                 type="submit"
                 className={styles.primary}
                 disabled={busy || (!creating && !changed)}
@@ -423,7 +423,7 @@ export function UsersSettings({
             >
               Отмена
             </button>
-            <button
+            <button data-app-action="danger"
               className={styles.dangerButton}
               type="button"
               disabled={saving}
@@ -448,7 +448,7 @@ export function UsersSettings({
             >
               Продолжить редактирование
             </button>
-            <button
+            <button data-app-action="primary"
               className={styles.primary}
               type="button"
               onClick={dirty.discard}

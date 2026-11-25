@@ -172,7 +172,10 @@ describe("work with price save draft", () => {
     await user.clear(quantityInput);
     await user.type(quantityInput, "2");
     await user.click(screen.getByRole("button", { name: "Добавить остаток" }));
-    await waitFor(() => expect(addBody).toMatchObject({ warehouseId: 7, quantity: 2 }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Закрыть окно" })).not.toBeInTheDocument(),
+    );
+    expect(addBody).toMatchObject({ warehouseId: 7, quantity: 2 });
     expect(priceInput).toHaveValue("0");
 
     await user.click(screen.getByRole("button", { name: "Сохранить цену и данные" }));

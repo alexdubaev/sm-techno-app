@@ -101,7 +101,7 @@ export function MobileClientMore({
             <p className="mt-4 text-sm font-semibold">Вкладка</p>
             <div className="mt-2 grid gap-2">
               {availableTabs.map((tab) => (
-                <button
+                <button data-app-action="secondary"
                   key={tab.id}
                   type="button"
                   disabled={busy}
@@ -153,7 +153,7 @@ export function MobileClientMore({
           <p className="mt-2 text-sm text-[var(--text-secondary)]">
             Управление видимостью клиента в основной CRM.
           </p>
-          <button
+          <button data-app-action="danger"
             type="button"
             disabled={busy}
             onClick={() => setIsArchiveConfirmationOpen(true)}
@@ -180,14 +180,14 @@ export function MobileClientMore({
                 />
               </label>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
+                <button data-app-action="secondary"
                   type="button"
                   onClick={() => setIsArchiveConfirmationOpen(false)}
                   className={mobileButton}
                 >
                   Отмена
                 </button>
-                <button
+                <button data-app-action="danger"
                   type="button"
                   disabled={busy}
                   onClick={() => void archivePrimaryClient()}
@@ -220,7 +220,7 @@ export function MobileClientMore({
                     ИНН {candidate.inn}
                     {candidate.kpp ? ` · КПП ${candidate.kpp}` : ''}
                   </p>
-                  <button
+                  <button data-app-action="secondary"
                     type="button"
                     disabled={busy}
                     onClick={() => setLinkCandidate(candidate)}
@@ -248,14 +248,14 @@ export function MobileClientMore({
                 1С {linkCandidate.onecKey}
               </p>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
+                <button data-app-action="secondary"
                   type="button"
                   onClick={() => setLinkCandidate(null)}
                   className={mobileButton}
                 >
                   Отмена
                 </button>
-                <button
+                <button data-app-action="primary"
                   type="button"
                   disabled={busy}
                   onClick={() => void confirmExistingLink()}
@@ -286,7 +286,7 @@ export function MobileClientMore({
                 </p>
                 {canResolveSyncConflicts ? (
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
+                    <button data-app-action="secondary"
                       type="button"
                       disabled={busy}
                       onClick={() =>
@@ -296,7 +296,7 @@ export function MobileClientMore({
                     >
                       Оставить локальное
                     </button>
-                    <button
+                    <button data-app-action="primary"
                       type="button"
                       disabled={busy}
                       onClick={() =>
@@ -325,14 +325,14 @@ export function MobileClientMore({
               Выбор необратимо разрешит этот конфликт. Подтвердить?
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
+              <button data-app-action="secondary"
                 type="button"
                 onClick={() => setSyncConflictResolution(null)}
                 className={mobileButton}
               >
                 Отмена
               </button>
-              <button
+              <button data-app-action="primary"
                 type="button"
                 disabled={busy}
                 onClick={() => void resolveSyncConflict()}
@@ -353,7 +353,7 @@ export function MobileClientMore({
           </p>
           {canManageLocalClient ? (
             currentClient.syncStatus === 'archived' ? (
-              <button
+              <button data-app-action="primary"
                 type="button"
                 disabled={busy}
                 onClick={() => void restoreLocalClient()}
@@ -365,7 +365,7 @@ export function MobileClientMore({
               </button>
             ) : (
               <>
-                <button
+                <button data-app-action="danger"
                   type="button"
                   disabled={busy}
                   onClick={() => setIsArchiveConfirmationOpen(true)}
@@ -390,14 +390,14 @@ export function MobileClientMore({
                       />
                     </label>
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button
+                      <button data-app-action="secondary"
                         type="button"
                         onClick={() => setIsArchiveConfirmationOpen(false)}
                         className={mobileButton}
                       >
                         Отмена
                       </button>
-                      <button
+                      <button data-app-action="danger"
                         type="button"
                         disabled={busy}
                         onClick={() => void archiveLocalClient()}
@@ -415,7 +415,7 @@ export function MobileClientMore({
           ) : null}
           {canRemoveAssignment ? (
             <>
-              <button
+              <button data-app-action="secondary"
                 type="button"
                 disabled={busy}
                 onClick={() => setIsRemoveAssignmentConfirmationOpen(true)}
@@ -430,7 +430,7 @@ export function MobileClientMore({
                     1С»? История и напоминания сохранятся.
                   </p>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
+                    <button data-app-action="secondary"
                       type="button"
                       onClick={() =>
                         setIsRemoveAssignmentConfirmationOpen(false)
@@ -439,7 +439,7 @@ export function MobileClientMore({
                     >
                       Отмена
                     </button>
-                    <button
+                    <button data-app-action="primary"
                       type="button"
                       disabled={busy}
                       onClick={() => void removeAssignment()}

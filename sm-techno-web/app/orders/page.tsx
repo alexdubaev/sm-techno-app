@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { Table } from "@/components/ui/table";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -71,7 +72,7 @@ export default function OrdersPage() {
 
   return (
     <AppShell>
-      <div className="flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+      <div className="app-surface app-work-table-page flex flex-col gap-1.5 rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
         <header className="flex flex-wrap items-start justify-between gap-1.5">
           <div className="max-w-[42rem]">
             <h1 className="text-[17px] font-[650] leading-none tracking-[-0.04em] text-[var(--text-primary)]">
@@ -91,7 +92,7 @@ export default function OrdersPage() {
               type="button"
               onClick={() => void loadOrders()}
               disabled={isLoading}
-              className="app-action-button app-action-button--xs"
+              className="app-action-button app-action-button--touch app-action-button--secondary"
             >
               {isLoading ? "Обновление..." : "Обновить"}
             </button>
@@ -104,15 +105,15 @@ export default function OrdersPage() {
           </div>
         ) : null}
 
-        <section className="rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
-          <div className="overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
+        <section className="app-work-table rounded-[14px] border border-[var(--border-color)] bg-[var(--page-bg)] p-1.5">
+          <div className="app-work-table-viewport overflow-hidden rounded-[12px] border border-[var(--border-color)] bg-white">
             {orders.length === 0 && !isLoading ? (
               <div className="px-3 py-5 text-[11px] leading-4 text-[var(--text-secondary)]">
                 История пока пуста. Первый отправленный заказ появится здесь автоматически.
               </div>
             ) : (
               <div ref={containerRef} className="max-h-[calc(100dvh-8rem)] overflow-auto">
-                <table
+                <Table unstyled
                   className="min-w-full table-fixed border-collapse"
                   style={{ width: tableWidth }}
                 >
@@ -196,7 +197,7 @@ export default function OrdersPage() {
                           <td className="px-3 py-1.5 text-center">
                             <Link
                               href={`/orders/${order.id}`}
-                              className="app-action-button app-action-button--xs"
+                              className="app-action-button app-action-button--xs app-action-button--secondary"
                             >
                               Открыть
                             </Link>
@@ -205,7 +206,7 @@ export default function OrdersPage() {
                       );
                     })}
                   </tbody>
-                </table>
+                </Table>
               </div>
             )}
           </div>

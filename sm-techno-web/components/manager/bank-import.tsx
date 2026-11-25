@@ -1,4 +1,5 @@
 'use client';
+import { Table } from '@/components/ui/table';
 import { useEffect, useRef, useState, type SubmitEvent } from 'react';
 import {
   ApiRequestError,
@@ -254,7 +255,7 @@ export function BankImportContent({
             Повторите тот же запрос: повторных продаж не появится. До получения
             результата другие решения недоступны.
           </p>
-          <button
+          <button data-app-action="primary"
             className={styles.primary}
             disabled={busy}
             onClick={() => void confirm()}
@@ -283,7 +284,7 @@ export function BankImportContent({
             </label>
           </div>
           <div className="mt-3">
-            <button
+            <button data-app-action="primary"
               type="submit"
               className={styles.primary}
               disabled={frozen || !file}
@@ -391,7 +392,7 @@ export function BankImportContent({
                 </div>
               ))}
             </div>
-            <table className={styles.reconciliation}>
+            <Table unstyled className={styles.reconciliation}>
               <caption>Сверка входящих платежей с выпиской</caption>
               <thead>
                 <tr>
@@ -409,7 +410,7 @@ export function BankImportContent({
                   <td>{money(detail.reconciliation.credit.difference)}</td>
                 </tr>
               </tbody>
-            </table>
+            </Table>
             <p className={styles.muted}>
               Остаток на начало: {money(detail.metadata.openingBalance ?? null)}.
               На конец: {money(detail.metadata.closingBalance ?? null)}. «—»
@@ -480,7 +481,7 @@ export function BankImportContent({
                 )}{' '}
                 с НДС
               </p>
-              <button
+              <button data-app-action="primary"
                 className={styles.primary}
                 disabled={
                   frozen ||
@@ -544,7 +545,7 @@ export function BankImportContent({
                 >
                   Вернуться к выбору
                 </button>
-                <button
+                <button data-app-action="primary"
                   className={styles.primary}
                   disabled={frozen}
                   onClick={() => void confirm()}

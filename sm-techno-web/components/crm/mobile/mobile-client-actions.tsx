@@ -39,7 +39,7 @@ export function MobileClientActions({
     <Dialog open={isOpen} onOpenChange={(open) => onOpenChange(open)}>
       <DialogTrigger
         render={
-          <button
+          <button data-app-action="secondary"
             type="button"
             className="flex size-11 cursor-pointer list-none items-center justify-center rounded-[11px] border border-[var(--border-color)] bg-white text-[var(--text-secondary)] outline-offset-2 hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
             aria-label={`Ещё действия: ${client.documentName || client.fullName || client.name}`}
@@ -53,7 +53,7 @@ export function MobileClientActions({
         <DialogPopup
           aria-label="Действия клиента"
           data-mobile-client-actions-sheet=""
-          className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-50 max-h-[min(72dvh,38rem)] overflow-y-auto overscroll-contain rounded-[20px] border border-[var(--border-color)] bg-white p-3 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"
+          className="app-dense-surface fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-50 max-h-[min(72dvh,38rem)] overflow-y-auto overscroll-contain rounded-[20px] border border-[var(--border-color)] bg-white p-3 shadow-[0_24px_64px_rgba(7,22,46,0.24)]"
         >
           <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
             {client.assignment ? 'Переместить во вкладку' : 'Добавить во вкладку'}

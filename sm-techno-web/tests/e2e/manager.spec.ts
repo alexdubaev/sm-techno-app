@@ -215,22 +215,31 @@ test('admin startup opens overview and personal sales remain available from the 
   ).toBeVisible();
   await expect(page.getByLabel('Месяц', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Кабинет сотрудника')).toBeVisible();
+  const production = testInfo.project.name.startsWith('production-');
   const stock = page
     .getByRole('link', { name: 'Остатки', exact: true })
     .filter({ visible: true });
   if (!(await stock.count()))
     await page.getByRole('button', { name: 'Прайсы', exact: true }).click();
-  await stock.click();
+  // The Next.js development toolbar can overlap the mobile navigation.
+  if (production) {
+    await stock.click();
+  } else {
+    await stock.press('Enter');
+  }
   await expect(page).toHaveURL(/\/stock$/);
   await expect(page.getByRole('main')).toBeVisible();
   const cabinet = page
     .getByRole('link', { name: 'Мои продажи', exact: true })
     .filter({ visible: true });
-  if (!(await cabinet.count()))
-    await page
-      .getByRole('button', { name: page.viewportSize()!.width < 1536 ? 'Ещё' : 'Личный кабинет', exact: true })
-      .click();
-  if (testInfo.project.name.startsWith('production-')) {
+  if (!(await cabinet.count())) {
+    const cabinetMenu = page.getByRole('button', { name: 'Личный кабинет', exact: true });
+    const navigation = await cabinetMenu.isVisible()
+      ? cabinetMenu
+      : page.getByRole('button', { name: 'Ещё', exact: true });
+    await navigation.click();
+  }
+  if (production) {
     await cabinet.click();
   } else {
     // Next's development toolbar overlaps the first mobile tab.

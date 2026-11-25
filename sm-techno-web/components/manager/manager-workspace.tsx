@@ -24,7 +24,7 @@ import { errorMessage, money, monthLabel, shiftMonth } from './format';
 import styles from './manager.module.css';
 const ManagerChart = dynamic(() => import('./manager-chart'), {
   ssr: false,
-  loading: () => <output className={styles.panel}>Загрузка графика…</output>,
+  loading: () => <output className={`${styles.panel} app-surface`}>Загрузка графика…</output>,
 });
 export function ManagerWorkspace({ initialManagerId, initialMonth }: {
   initialManagerId?: number; initialMonth?: string;
@@ -56,82 +56,85 @@ export function ManagerWorkspace({ initialManagerId, initialMonth }: {
   }, [isAdmin, user.id, managerRetry]);
   return (
     <div className={styles.workspace}>
-      <fieldset className={styles.toolbar} aria-label="Управление кабинетом">
-        <div className={styles.period}>
-          <button
-            aria-label="Предыдущий месяц"
-            className={styles.iconButton}
-            disabled={month === '1900-01'}
-            onClick={() => setMonth(shiftMonth(month, -1))}
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <label>
-            <span className={styles.srOnly}>Месяц</span>
-            <input
-              type="month"
-              min="1900-01"
-              max="2199-12"
-              value={month}
-              onChange={(e) => {
-                if (/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(e.target.value))
-                  setMonth(e.target.value);
-              }}
-            />
-          </label>
-          <button
-            aria-label="Следующий месяц"
-            className={styles.iconButton}
-            disabled={month === '2199-12'}
-            onClick={() => setMonth(shiftMonth(month, 1))}
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
-      {isAdmin && (
-        <div className={styles.employeeFilter}>
-          <label title="Выбрать сотрудника">
-            <span className={styles.employeeIcon} aria-hidden="true">
-              <UserRound size={18} />
-            </span>
-            <select
-              aria-label="Кабинет сотрудника"
-              title="Выбрать сотрудника"
-              value={managers.some((m) => m.id === managerId && m.userId === user.id) ? '' : managerId ?? ''}
-              onChange={(e) =>
-                setManagerId(
-                  e.target.value ? Number(e.target.value) : undefined,
-                )
-              }
+      <header className={`${styles.cabinetHeader} app-surface`}>
+        <h1>Мои продажи</h1>
+        <fieldset className={styles.toolbar} aria-label="Управление кабинетом">
+          <div className={styles.period}>
+            <button data-app-action="secondary"
+              aria-label="Предыдущий месяц"
+              className={styles.iconButton}
+              disabled={month === '1900-01'}
+              onClick={() => setMonth(shiftMonth(month, -1))}
             >
-              <option value="">Мой кабинет</option>
-              {managers
-                .filter((m) => m.userId !== user.id)
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                    {m.archived ? ' · архив' : !m.active ? ' · неактивен' : ''}
-                  </option>
-                ))}
-            </select>
-          </label>
-          {managerError && (
-            <p role="alert" className={styles.error}>
-              {managerError}
-              <button
-                className={styles.secondary}
-                onClick={() => {
-                  setManagerError('');
-                  setManagerRetry((r) => r + 1);
+              <ChevronLeft size={18} />
+            </button>
+            <label>
+              <span className={styles.srOnly}>Месяц</span>
+              <input
+                type="month"
+                min="1900-01"
+                max="2199-12"
+                value={month}
+                onChange={(e) => {
+                  if (/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(e.target.value))
+                    setMonth(e.target.value);
                 }}
-              >
-                Повторить загрузку сотрудников
-              </button>
-            </p>
+              />
+            </label>
+            <button data-app-action="secondary"
+              aria-label="Следующий месяц"
+              className={styles.iconButton}
+              disabled={month === '2199-12'}
+              onClick={() => setMonth(shiftMonth(month, 1))}
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+          {isAdmin && (
+            <div className={styles.employeeFilter}>
+              <label title="Выбрать сотрудника">
+                <span className={styles.employeeIcon} aria-hidden="true">
+                  <UserRound size={18} />
+                </span>
+                <select
+                  aria-label="Кабинет сотрудника"
+                  title="Выбрать сотрудника"
+                  value={managers.some((m) => m.id === managerId && m.userId === user.id) ? '' : managerId ?? ''}
+                  onChange={(e) =>
+                    setManagerId(
+                      e.target.value ? Number(e.target.value) : undefined,
+                    )
+                  }
+                >
+                  <option value="">Мой кабинет</option>
+                  {managers
+                    .filter((m) => m.userId !== user.id)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                        {m.archived ? ' · архив' : !m.active ? ' · неактивен' : ''}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {managerError && (
+                <p role="alert" className={styles.error}>
+                  {managerError}
+                  <button data-app-action="secondary"
+                    className={styles.secondary}
+                    onClick={() => {
+                      setManagerError('');
+                      setManagerRetry((r) => r + 1);
+                    }}
+                  >
+                    Повторить загрузку сотрудников
+                  </button>
+                </p>
+              )}
+            </div>
           )}
-        </div>
-      )}
-      </fieldset>
+        </fieldset>
+      </header>
       <CabinetLoader
         key={`${user.id}:${managerId ?? 'self'}:${month}:${revision}`}
         month={month}
@@ -170,17 +173,17 @@ function CabinetLoader({
   }, [month, managerId]);
   if (error)
     return (
-      <section className={styles.panel}>
+      <section className={`${styles.panel} app-surface`}>
         <p role="alert" className={styles.error}>
           {error}
         </p>
-        <button className={styles.secondary} onClick={onRefresh}>
+        <button data-app-action="secondary" className={styles.secondary} onClick={onRefresh}>
           Повторить
         </button>
       </section>
     );
   if (!data)
-    return <output className={styles.panel}>Загрузка кабинета…</output>;
+    return <output className={`${styles.panel} app-surface`}>Загрузка кабинета…</output>;
   return <Cabinet data={data} admin={admin} onRefresh={onRefresh} />;
 }
 function Cabinet({
@@ -212,7 +215,7 @@ function Cabinet({
         : (summary.salesTotal / terms.plan) * 100;
   return (
     <>
-      <section className={styles.profile}>
+      <section className={`${styles.profile} app-surface`}>
         <ManagerAvatar
           key={data.account.avatarVersion}
           account={data.account}
@@ -220,7 +223,7 @@ function Cabinet({
           onSaved={onRefresh}
         />
         <div className={styles.person}>
-          <h1>{data.account.name}</h1>
+          <h2>{data.account.name}</h2>
           <p>
             {data.account.archived
               ? 'Архив сотрудника'
@@ -243,7 +246,7 @@ function Cabinet({
                   : 'План в работе'}
           </span>
           {admin && !data.closed && (
-            <button
+            <button data-app-action="secondary"
               className={styles.secondary}
               onClick={() => setEditor({ kind: 'terms' })}
             >
@@ -297,7 +300,7 @@ function Cabinet({
           ],
         ].map(([title, value, hint], i) => (
           <article
-            className={`${styles.metric} ${i === 3 ? styles.total : ''}`}
+            className={`${styles.metric} app-surface${i === 3 ? ` ${styles.total}` : ''}`}
             data-long-amount={value.length > 14 || undefined}
             key={title}
           >
@@ -310,7 +313,7 @@ function Cabinet({
       <div className={styles.dashboardGrid}>
         <ManagerChart data={data} />
         {noPlan ? (
-          <section className={styles.panel}>
+          <section className={`${styles.panel} app-surface`}>
             <div className={styles.panelHeading}><h2>Вознаграждение без плана</h2><span className={styles.hint}>{monthLabel(data.month)}</span></div>
             <p className={styles.hint}>{terms.mode === 'minimum'
               ? 'Начисляется большая сумма: минимальная зарплата или проценты с продаж. Процент рассчитывается по ставке каждой продажи.'
@@ -321,67 +324,55 @@ function Cabinet({
               <p>Ставки уже внесённых продаж сохраняются. Начисления не подтверждают выплату денег.</p>
             </details>
           </section>
-        ) : <section className={styles.panel}>
+        ) : <section className={`${styles.panel} app-surface`}>
           <div className={styles.panelHeading}>
             <h2>План на месяц</h2>
             <span className={styles.hint}>{monthLabel(data.month)}</span>
           </div>
-          <div className={styles.planNumber}>
-            {progress === null
-              ? '—'
-              : `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(progress)}%`}
-            <small>выполнено</small>
-          </div>
-          <progress
-            className={styles.progress}
-            aria-label="Выполнение плана"
-            max={100}
-            value={Math.min(progress ?? 0, 100)}
-            aria-valuetext={
-              progress === null
-                ? 'Условия не заданы'
-                : `${progress.toFixed(1)} процентов`
-            }
-          />
-          <div className={styles.planValues}>
-            <span>
-              План <b>{money(terms?.plan ?? null)}</b>
-            </span>
-            <span>
-              {achieved
-                ? `+${money(summary.above)}`
-                : `Осталось ${money(summary.remaining)}`}
-            </span>
-          </div>
-          <div className={styles.callout}>
-            <b>
-              {achieved
-                ? 'План выполнен. Дальше — больше.'
-                : 'Каждая продажа приближает к цели'}
-            </b>
-            <p>
-              Комиссия начисляется только с суммы сверх плана, по ставке каждой
-              продажи.
-            </p>
-          </div>
-          <details className={styles.conditions}>
-            <summary>Условия начисления</summary>
-            <p>
-              План: {money(terms?.plan ?? null)}. Фикс:{' '}
-              {money(terms?.fixed ?? null)}
-              {terms?.mode === 'always'
-                ? ' независимо от выполнения плана.'
-                : ' при выполнении плана.'}
-            </p>
-            <p>
-              Для продажи на границе плана учитывается только часть сверх плана.
-              Порядок: дата, затем номер продажи. Начисления не подтверждают
-              выплату денег.
-            </p>
-          </details>
+          {progress === null ? (
+            <p className={styles.hint}>План на этот месяц ещё не задан.</p>
+          ) : (
+            <>
+              <div className={styles.planNumber}>
+                {`${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(progress)}%`}
+                <small>выполнено</small>
+              </div>
+              <progress
+                className={styles.progress}
+                aria-label="Выполнение плана"
+                max={100}
+                value={Math.min(progress, 100)}
+                aria-valuetext={`${progress.toFixed(1)} процентов`}
+              />
+              <div className={styles.planValues}>
+                <span>
+                  План <b>{money(terms?.plan ?? null)}</b>
+                </span>
+                <span>
+                  {achieved
+                    ? `+${money(summary.above)}`
+                    : `Осталось ${money(summary.remaining)}`}
+                </span>
+              </div>
+              <details className={styles.conditions}>
+                <summary>Условия начисления</summary>
+                <p>
+                  План: {money(terms?.plan ?? null)}. Фикс:{' '}
+                  {money(terms?.fixed ?? null)}
+                  {terms?.mode === 'always'
+                    ? ' независимо от выполнения плана.'
+                    : ' при выполнении плана.'}
+                </p>
+                <p>
+                  Комиссия начисляется с суммы сверх плана по ставке каждой продажи.
+                  Порядок: дата, затем номер продажи. Начисления не подтверждают выплату денег.
+                </p>
+              </details>
+            </>
+          )}
         </section>}
       </div>
-      <section className={`${styles.panel} ${styles.salesPanel}`}>
+      <section className={`${styles.panel} ${styles.salesPanel} app-surface`}>
         <div className={styles.salesHeading}>
           <div>
             <h2>Продажи</h2>
@@ -403,12 +394,12 @@ function Cabinet({
                 onChange={(e) => setQuery(e.target.value)}
                 maxLength={300}
               />
-              <button type="submit" className={styles.secondary}>
+              <button data-app-action="secondary" type="submit" className={styles.secondary}>
                 Найти
               </button>
             </form>
             {admin && !data.closed && (
-              <button
+              <button data-app-action="primary"
                 className={styles.primary}
                 onClick={() => setEditor({ kind: 'sale' })}
               >
@@ -431,11 +422,11 @@ function Cabinet({
       </section>
       {admin && (
         <div className={styles.bottomActions}>
-          <button className={styles.secondary} onClick={() => setHistory(true)}>
+          <button data-app-action="secondary" className={styles.secondary} onClick={() => setHistory(true)}>
             <History size={16} />
             История изменений
           </button>
-          <button
+          <button data-app-action="secondary"
             className={styles.secondary}
             disabled={!terms && !data.closed}
             onClick={() =>
@@ -505,7 +496,7 @@ function SalesPage({
         <p role="alert" className={styles.error}>
           {error}
         </p>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           onClick={() => {
             setError('');
@@ -520,7 +511,7 @@ function SalesPage({
     return <output className={styles.empty}>Загрузка продаж…</output>;
   return (
     <>
-      <div className={styles.tableHead} aria-hidden="true">
+      <div className={`${styles.tableHead} app-table-grid-header`} aria-hidden="true">
         <span>Дата</span>
         <span>Клиент / документ</span>
         <span>Сумма</span>
@@ -535,7 +526,7 @@ function SalesPage({
       />
       <div className={styles.pagination}>
         <span>Найдено: {result.total}</span>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           disabled={result.page <= 1}
           onClick={() => onPage(result.page - 1)}
@@ -545,7 +536,7 @@ function SalesPage({
         <span>
           {result.page} / {result.pages}
         </span>
-        <button
+        <button data-app-action="secondary"
           className={styles.secondary}
           disabled={result.page >= result.pages}
           onClick={() => onPage(result.page + 1)}

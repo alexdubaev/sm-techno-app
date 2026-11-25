@@ -89,7 +89,7 @@ function SettingsDestinationCard({
   return (
     <a
       aria-label={`${title}: ${description}`}
-      className="group relative min-h-64 overflow-hidden rounded-2xl border border-[#dce3ed] bg-white p-5 shadow-[5px_5px_0_rgba(7,22,46,0.06)] transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[#aeb9c9] hover:shadow-[7px_7px_0_rgba(7,22,46,0.09)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ffc400]/45 motion-reduce:transform-none motion-reduce:transition-none sm:min-h-72 sm:p-7"
+      className="app-surface group relative min-h-64 overflow-hidden rounded-2xl border border-[#dce3ed] bg-white p-5 shadow-[5px_5px_0_rgba(7,22,46,0.06)] transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[#aeb9c9] hover:shadow-[7px_7px_0_rgba(7,22,46,0.09)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#ffc400]/45 motion-reduce:transform-none motion-reduce:transition-none sm:min-h-72 sm:p-7"
       href={href}
       onClick={onNavigate}
     >

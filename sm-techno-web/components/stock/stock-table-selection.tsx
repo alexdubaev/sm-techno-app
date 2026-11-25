@@ -1,5 +1,6 @@
 'use client';
 
+import { Table } from '@/components/ui/table';
 import type { TableMapping, TableSelection } from '@/lib/stock-valuation-api';
 
 function columnName(index: number): string {
@@ -37,11 +38,11 @@ export function StockTableSelection({ preview, mappings, onChange, onApply, busy
             <label className="text-sm">Первая строка с товарами<input aria-label={`Первая строка, лист ${sheet.sheetIndex}`} type="number" min={1} max={sheet.lastSourceRow} value={mapping.firstRow || ''} onChange={e => update(index, { firstRow: Number(e.target.value) })} className="mt-1 min-h-11 w-full rounded-lg border px-3" /></label>
             <label className="text-sm">Последняя строка с товарами<input aria-label={`Последняя строка, лист ${sheet.sheetIndex}`} type="number" min={1} max={sheet.lastSourceRow} value={mapping.lastRow || ''} onChange={e => update(index, { lastRow: Number(e.target.value) })} className="mt-1 min-h-11 w-full rounded-lg border px-3" /></label>
           </div>
-          <div className="max-h-64 max-w-full overflow-auto rounded-lg border"><table className="min-w-full text-left text-sm"><caption className="p-2 text-left text-xs text-slate-600">Образец первых и последних строк. Номера соответствуют исходному файлу.</caption><thead><tr><th className="p-2">Строка</th>{columns.map(c => <th key={c} className="p-2">{columnName(c)}</th>)}</tr></thead><tbody>{sheet.sampleRows.map(row => <tr key={row.sourceRow}><th scope="row" className="border-t p-2">{row.sourceRow}</th>{columns.map(c => <td key={c} className={`max-w-56 break-words border-t p-2 ${mapping.articleColumn === c ? 'bg-amber-50 font-semibold' : ''}`}>{row.cells[c - 1] || '—'}</td>)}</tr>)}</tbody></table></div>
+          <div className="max-h-64 max-w-full overflow-auto rounded-lg border"><Table unstyled className="min-w-full text-left text-sm"><caption className="p-2 text-left text-xs text-slate-600">Образец первых и последних строк. Номера соответствуют исходному файлу.</caption><thead><tr><th className="p-2">Строка</th>{columns.map(c => <th key={c} className="p-2">{columnName(c)}</th>)}</tr></thead><tbody>{sheet.sampleRows.map(row => <tr key={row.sourceRow}><th scope="row" className="border-t p-2">{row.sourceRow}</th>{columns.map(c => <td key={c} className={`max-w-56 break-words border-t p-2 ${mapping.articleColumn === c ? 'bg-amber-50 font-semibold' : ''}`}>{row.cells[c - 1] || '—'}</td>)}</tr>)}</tbody></Table></div>
         </>}
       </fieldset>;
     })}
     {invalid && <p className="text-sm text-slate-600">Выберите разные столбцы для артикулов и количества и проверьте границы строк хотя бы на одном листе.</p>}
-    <button type="button" disabled={busy || invalid} onClick={onApply} className="min-h-11 w-full rounded-lg bg-amber-400 px-4 py-2 font-semibold disabled:opacity-50 sm:w-auto">Применить столбцы</button>
+    <button data-app-action="primary" type="button" disabled={busy || invalid} onClick={onApply} className="min-h-11 w-full rounded-lg bg-amber-400 px-4 py-2 font-semibold disabled:opacity-50 sm:w-auto">Применить столбцы</button>
   </section>;
 }

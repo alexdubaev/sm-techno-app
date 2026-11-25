@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Dashboard } from '@/components/admin-dashboard/dashboard';
+import { uiThemeAttribute } from '@/lib/ui-theme';
 
 const api = vi.hoisted(() => ({sales: vi.fn(), usage: vi.fn(), balance: vi.fn(), companySales: vi.fn(), managers: vi.fn(), admin: true}));
 vi.mock('@/components/auth-provider', () => ({useAuth: () => ({isAdmin:api.admin,user:{id:1}})}));
@@ -9,6 +10,7 @@ vi.mock('@/lib/api', () => ({fetchAdminSales:api.sales,fetchAdminUsage:api.usage
 vi.mock('recharts', () => ({Bar:()=>null,BarChart:()=>null,CartesianGrid:()=>null,ResponsiveContainer:()=>null,Tooltip:()=>null,XAxis:()=>null,YAxis:()=>null}));
 
 beforeEach(() => {
+  document.documentElement.setAttribute(uiThemeAttribute, 'classic');
   api.admin = true;
   api.companySales.mockResolvedValue({items:[],page:1,pages:1,total:0});
   api.managers.mockResolvedValue([]);
@@ -16,6 +18,7 @@ beforeEach(() => {
   api.usage.mockRejectedValue(new Error('offline'));
   api.balance.mockResolvedValue({status:'available',checkedAt:'2026-11-01T00:00:00Z',isAvailable:true,balances:[{currency:'USD',totalBalance:'0',grantedBalance:'0',toppedUpBalance:'0'}]});
 });
+afterEach(() => document.documentElement.removeAttribute(uiThemeAttribute));
 it('keeps sales and zero balance visible when usage fails and switches period', async () => {
   render(<Dashboard />);
   expect(await screen.findByText(/За этот период продаж нет/)).toBeInTheDocument();

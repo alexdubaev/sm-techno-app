@@ -82,4 +82,23 @@ test('documents: review requisites, explicitly bind a client and download the ge
   await expect(page.getByText('SYNTHETIC PRIVATE NOTE',{exact:false})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Скачать актуальный файл № Д-E2E'})).toBeVisible();
   await expect(page.getByRole('combobox',{name:'Что распознать'})).toHaveCount(0);
+
+  await page.evaluate(() => localStorage.setItem('sm-techno-ui-theme', 'glassy'));
+  await page.goto('/stock');
+  const stockTable = page.getByRole('table').first();
+  await expect(stockTable).toBeVisible();
+  const stockSurface = await stockTable.evaluate((table) => {
+    const panel = table.closest('.app-work-table');
+    if (!panel) throw new Error('Stock table has no shared surface');
+    return getComputedStyle(panel).backgroundImage;
+  });
+
+  await page.goto('/documents/journal');
+  const journal = page.getByRole('table');
+  await expect(journal.getByText('Д-E2E', { exact: true })).toBeVisible();
+  await expect(page.locator('.app-work-table')).toHaveCSS('background-image', stockSurface);
+  await expect(journal.getByRole('columnheader', { name: 'Номер' })).toHaveCSS('height', '56px');
+  await expect(page.getByRole('link', { name: 'Сформировать', exact: true })).toHaveCSS('height', '40px');
+  await expect(page.getByRole('button', { name: 'Обновить', exact: true })).toHaveCSS('border-radius', '12px');
+  await expect(journal.getByRole('button', { name: /скачать DOCX документа Д-E2E/ })).toBeVisible();
 });

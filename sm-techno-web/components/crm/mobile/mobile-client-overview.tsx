@@ -62,7 +62,7 @@ export function MobileClientOverview({
           <MobileContactLinks phone={client.phone} email={client.email} />
         </div>
         {canEditWorkspace ? (
-          <button
+          <button data-app-action="secondary"
             type="button"
             onClick={onEdit}
             disabled={isLoading || isSaving !== null}
@@ -81,7 +81,7 @@ export function MobileClientOverview({
             Контакты
           </h2>
           {canEditWorkspace ? (
-            <button
+            <button data-app-action="secondary"
               type="button"
               onClick={onAddContact}
               disabled={isLoading || isSaving !== null}
@@ -114,7 +114,7 @@ export function MobileClientOverview({
                 />
                 {canEditWorkspace ? (
                   <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button
+                    <button data-app-action="secondary"
                       type="button"
                       onClick={() => onEditContact(contact)}
                       disabled={isLoading || isSaving !== null}
@@ -122,7 +122,7 @@ export function MobileClientOverview({
                     >
                       Редактировать контакт
                     </button>
-                    <button
+                    <button data-app-action="danger"
                       type="button"
                       onClick={() => setContactPendingDelete(contact)}
                       disabled={isLoading || isSaving !== null}
@@ -143,7 +143,7 @@ export function MobileClientOverview({
                       не изменится.
                     </p>
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button
+                      <button data-app-action="secondary"
                         type="button"
                         onClick={() => setContactPendingDelete(null)}
                         disabled={isSaving !== null}
@@ -151,7 +151,7 @@ export function MobileClientOverview({
                       >
                         Отмена
                       </button>
-                      <button
+                      <button data-app-action="secondary"
                         type="button"
                         onClick={() => void deleteContact()}
                         disabled={isSaving !== null}

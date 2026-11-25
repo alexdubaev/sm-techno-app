@@ -82,7 +82,7 @@ export function MobileClientCard({
     <article
       data-mobile-crm-card-id={client.id}
       style={{ borderColor: accent }}
-      className={`rounded-xl border border-[var(--border-color)] bg-white p-3 shadow-[0_1px_3px_rgba(7,22,46,0.05)] ${dragControls?.isGrabbed ? 'ring-2 ring-[var(--brand-yellow)]' : ''}`}
+      className={`app-surface rounded-xl border border-[var(--border-color)] bg-white p-3 shadow-[0_1px_3px_rgba(7,22,46,0.05)] ${dragControls?.isGrabbed ? 'ring-2 ring-[var(--brand-yellow)]' : ''}`}
     >
       <div className="flex items-start gap-2">
         {dragControls ? (
@@ -184,7 +184,7 @@ export function MobileClientCard({
               title={selectedPhone}
               onClick={(event) => event.stopPropagation()}
               style={{ color: '#FFFFFF', backgroundColor: '#16A34A' }}
-              className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-[11px] px-3 text-[12px] font-bold text-white outline-offset-2 hover:bg-[#15803D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
+              className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-[var(--app-control-radius)] px-3 text-[12px] font-bold text-white outline-offset-2 hover:bg-[#15803D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
             >
               <Phone aria-hidden="true" className="size-4" />
               Позвонить
@@ -193,6 +193,7 @@ export function MobileClientCard({
           {mailtoHref ? (
             <a
               href={mailtoHref}
+              data-app-action="secondary"
               aria-label="Написать"
               title={selectedEmail}
               onClick={(event) => event.stopPropagation()}
