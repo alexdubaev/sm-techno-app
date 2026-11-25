@@ -7,7 +7,10 @@ test('compact overview keeps report controls and opens a full-screen chart', asy
   const login = await request.post('/api/auth/login', { data: { username: 'admin', password: 'admin-e2e-password' } });
   expect(login.ok()).toBe(true);
   const { token, user } = await login.json();
-  await page.addInitScript(session => localStorage.setItem('sm-techno-auth-session', JSON.stringify(session)), { token, user });
+  await page.addInitScript(session => {
+    localStorage.setItem('sm-techno-auth-session', JSON.stringify(session));
+    localStorage.setItem('sm-techno-ui-theme', 'classic');
+  }, { token, user });
   await page.route('**/api/admin/dashboard/sales?*', async route => {
     const params = new URL(route.request().url()).searchParams;
     const anchor = params.get('date')!;

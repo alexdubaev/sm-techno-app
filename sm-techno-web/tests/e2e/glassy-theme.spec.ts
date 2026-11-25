@@ -24,8 +24,10 @@ test('appearance switches immediately and is restored on a direct load', async (
   await page.getByRole('button', { name: 'Войти', exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
   const theme = page.locator('html');
-  await expect(theme).not.toHaveAttribute('data-ui-theme', 'glassy');
+  await expect(theme).toHaveAttribute('data-ui-theme', 'glassy');
   await page.goto('/settings');
+  await page.getByRole('button', { name: 'Классическая', exact: true }).click();
+  await expect(theme).toHaveAttribute('data-ui-theme', 'classic');
   await page.getByRole('button', { name: 'Стекло', exact: true }).click();
   await expect(theme).toHaveAttribute('data-ui-theme', 'glassy');
   await page.goto('/dashboard');
@@ -68,7 +70,7 @@ test('appearance switches immediately and is restored on a direct load', async (
   }
   await page.goto('/settings');
   await page.getByRole('button', { name: 'Классическая', exact: true }).click();
-  await expect(theme).not.toHaveAttribute('data-ui-theme', 'glassy');
+  await expect(theme).toHaveAttribute('data-ui-theme', 'classic');
   await page.reload();
   await expect(page.getByRole('button', { name: 'Классическая', exact: true })).toHaveAttribute('aria-pressed', 'true');
   if (mobile) {

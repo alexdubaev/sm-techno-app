@@ -1,10 +1,10 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { uiThemeAttribute, uiThemeStorageKey, type UiTheme } from '@/lib/ui-theme';
+import { defaultUiTheme, uiThemeAttribute, uiThemeStorageKey, type UiTheme } from '@/lib/ui-theme';
 
 const themeChange = 'sm-techno-ui-theme-change';
-const defaultTheme = (): UiTheme => 'classic';
+const getServerTheme = (): UiTheme => defaultUiTheme;
 
 function subscribe(listener: () => void) {
   window.addEventListener(themeChange, listener);
@@ -12,11 +12,12 @@ function subscribe(listener: () => void) {
 }
 
 function getTheme(): UiTheme {
-  return document.documentElement.getAttribute(uiThemeAttribute) === 'glassy' ? 'glassy' : 'classic';
+  const theme = document.documentElement.getAttribute(uiThemeAttribute);
+  return theme === 'classic' || theme === 'glassy' ? theme : defaultUiTheme;
 }
 
 export function useUiTheme() {
-  return useSyncExternalStore(subscribe, getTheme, defaultTheme);
+  return useSyncExternalStore(subscribe, getTheme, getServerTheme);
 }
 
 export function setUiTheme(theme: UiTheme) {
