@@ -474,7 +474,7 @@ function Cabinet({
           kind={editor.kind}
           sale={editor.sale}
           onClose={() => setEditor(null)}
-          onSaved={onRefresh}
+          onSaved={() => { setEditor(null); onRefresh(); }}
         />
       )}
       {history && (

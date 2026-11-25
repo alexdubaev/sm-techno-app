@@ -147,7 +147,7 @@ export function Dashboard() {
           <DialogClose data-app-action="secondary" aria-label="Закрыть график" className={styles.closeButton}><X size={18} /> Закрыть</DialogClose>
           {currentSales && (glassy
             ? <GlassySalesArea data={currentSales.series} label="Развернутый график продаж" money={money} large animate={false} />
-            : <Chart data={currentSales.series} field="amount" label="Развернутый график продаж" large animate={false} />)}
+            : <Chart data={currentSales.series} field="amount" label="Развернутый график продаж" large />)}
         </DialogPopup>
       </DialogPortal>
     </Dialog>
@@ -159,7 +159,7 @@ export function Dashboard() {
 }
 
 function SalesTrend({ sales, title, glassy = false, animationKey }: { sales: SalesOverview; title: string; glassy?: boolean; animationKey: string }) {
-  const [animate] = useState(() => claimSalesChartAnimation('trend', animationKey));
+  const [animate] = useState(() => glassy && claimSalesChartAnimation('trend', animationKey));
   return (
     <section className={glassy ? `app-surface ${styles.trend}` : styles.chartColumn}>
       <div className={styles.chartHeading}>
@@ -168,7 +168,7 @@ function SalesTrend({ sales, title, glassy = false, animationKey }: { sales: Sal
         <DialogTrigger data-app-action="secondary" aria-label="Развернуть график продаж"><Expand size={18} /></DialogTrigger>
       </div>
       <DialogTrigger className={styles.chartPreview} aria-label="Открыть подробный график продаж">
-        {glassy ? <GlassySalesArea data={sales.series} label={title} money={money} animate={animate} /> : <Chart data={sales.series} field="amount" label={title} animate={animate} />}
+        {glassy ? <GlassySalesArea data={sales.series} label={title} money={money} animate={animate} /> : <Chart data={sales.series} field="amount" label={title} />}
       </DialogTrigger>
     </section>
   );
@@ -226,7 +226,7 @@ function ManagerPlans({ sales, glassy = false }: { sales: SalesOverview; glassy?
 }
 
 function ErrorState({retry}:{retry:()=>void}) { return <p role="alert">Не удалось загрузить данные. <button onClick={retry}>Повторить</button></p>; }
-function Chart<T extends object>({data,field,label,large=false,animate=false}:{data:T[];field:string;label:string;large?:boolean;animate?:boolean}) {return <div className={`${styles.chart} ${large ? styles.largeChart : ''}`} aria-label={label}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} accessibilityLayer={large || field !== 'amount'}><CartesianGrid stroke="#e3e8f0" vertical={false}/><XAxis dataKey="date" minTickGap={28} tick={{fontSize:11}} tickFormatter={formatDate}/><YAxis tick={{fontSize:11}} width={65} allowDecimals={field !== 'requests'} tickFormatter={(value: number) => field === 'amount' ? `${(value / 100).toLocaleString('ru-RU', {notation:'compact', maximumFractionDigits:1})} ₽` : String(value)}/>{(large || field !== 'amount') && <Tooltip labelFormatter={(value) => formatDate(String(value))} formatter={(value) => field === 'amount' && typeof value === 'number' ? money(value) : value}/>}<Bar maxBarSize={44} isAnimationActive={animate ? 'auto' : false} animationDuration={420} name={field === 'amount' ? 'Продажи' : field === 'requests' ? 'Запросы' : 'Токены'} dataKey={field} fill="#ffc400" radius={[3,3,0,0]}/></BarChart></ResponsiveContainer></div>;}
+function Chart<T extends object>({data,field,label,large=false}:{data:T[];field:string;label:string;large?:boolean}) {return <div className={`${styles.chart} ${large ? styles.largeChart : ''}`} aria-label={label}><ResponsiveContainer width="100%" height="100%"><BarChart data={data} accessibilityLayer={large || field !== 'amount'}><CartesianGrid stroke="#e3e8f0" vertical={false}/><XAxis dataKey="date" minTickGap={28} tick={{fontSize:11}} tickFormatter={formatDate}/><YAxis tick={{fontSize:11}} width={65} allowDecimals={field !== 'requests'} tickFormatter={(value: number) => field === 'amount' ? `${(value / 100).toLocaleString('ru-RU', {notation:'compact', maximumFractionDigits:1})} ₽` : String(value)}/>{(large || field !== 'amount') && <Tooltip labelFormatter={(value) => formatDate(String(value))} formatter={(value) => field === 'amount' && typeof value === 'number' ? money(value) : value}/>}<Bar maxBarSize={44} isAnimationActive={false} animationDuration={420} name={field === 'amount' ? 'Продажи' : field === 'requests' ? 'Запросы' : 'Токены'} dataKey={field} fill="#ffc400" radius={[3,3,0,0]}/></BarChart></ResponsiveContainer></div>;}
 
 
 function formatDate(value: string) { const parts = value.split('-'); return parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : parts.length === 2 ? `${parts[1]}.${parts[0]}` : value; }
