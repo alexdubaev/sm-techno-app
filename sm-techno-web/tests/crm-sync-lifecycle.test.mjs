@@ -50,7 +50,7 @@ async function workspaceHarness(t, { localGate, cached = false } = {}) {
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  const state = { now: Date.now(), name: "Saved client", tabName: "Work", syncs: 0, listReads: 0, statusReads: 0, failList: false, failSync: false };
+  const state = { now: Date.now(), name: "Saved client", tabName: "Work", syncs: 0, listReads: 0, tabsReads: 0, statusReads: 0, failList: false, failSync: false };
   state.lastSyncAt = new Date(state.now - 60_000).toISOString();
   const timers = [];
   dom.window.setInterval = (callback) => { timers.push(callback); return timers.length; };
@@ -94,7 +94,10 @@ async function workspaceHarness(t, { localGate, cached = false } = {}) {
           if (state.failList) return Response.json({ detail: "local unavailable" }, { status: 400 });
           return Response.json({ items: [card(state.name)], orderVersion: 0 });
         }
-        if (url.pathname === "/api/crm/tabs") return Response.json({ items: [{ id: 4, name: state.tabName, systemKind: "work", position: 0, version: 1 }] });
+        if (url.pathname === "/api/crm/tabs") {
+          state.tabsReads += 1;
+          return Response.json({ items: [{ id: 4, name: state.tabName, systemKind: "work", position: 0, version: 1 }] });
+        }
         if (url.pathname === "/api/crm/reminders") return Response.json({ items: [] });
         if (url.pathname === "/api/orders") return Response.json({ items: [{ id: state.name }] });
         throw new Error(`Unexpected request ${url}`);
@@ -192,11 +195,16 @@ test("authoritative workspace reads bypass warm list and tab caches without disa
   h.state.tabName = "Fresh SQLite tab";
   await h.mount();
   assert.match(h.container.textContent, /Fresh SQLite client/);
+  const tabsAfterInitialLoad = h.state.tabsReads;
   await h.click("Fresh SQLite tab");
   assert.match(h.container.textContent, /Fresh SQLite client/, "personal tabs also bypass their warmed API cache");
+  assert.equal(h.state.tabsReads, tabsAfterInitialLoad, "tab metadata is reused during one authenticated workspace lifecycle");
   assert.equal((await h.api.fetchCrmClients({ ownerId: 7, tabId: 4 }, { bypassCache: true }))[0].documentName, "Fresh SQLite client");
   assert.equal((await h.api.fetchCrmTabs(7, { bypassCache: true }))[0].name, "Fresh SQLite tab");
   assert.equal((await h.api.fetchOrders())[0].id, "Saved client");
+  const tabsBeforeExplicitRefresh = h.state.tabsReads;
+  await h.click("Обновить");
+  assert.ok(h.state.tabsReads > tabsBeforeExplicitRefresh, "an explicit 1C refresh re-reads tab metadata");
 });
 
 test("manual refresh forces a fresh sync and failure retains cards with a working retry", async (t) => {
