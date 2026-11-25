@@ -181,6 +181,11 @@ function CabinetLoader({
   const dataRef = useRef(data);
   const dataSavedAtRef = useRef<number | null>(initialSnapshot?.savedAt ?? null);
   const setData = (next: ManagerDashboard | null, savedAt: number | null = next ? Date.now() : null) => { dataRef.current = next; dataSavedAtRef.current = savedAt; setDataState(next); };
+  const acceptSavedDashboard = (next: ManagerDashboard) => {
+    const current = dataRef.current;
+    if (!current || next.account.id !== current.account.id || next.month !== month || current.month !== month) return;
+    setData(next);
+  };
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true;
@@ -213,16 +218,18 @@ function CabinetLoader({
   const visibleData = data;
   if (!visibleData)
     return <output className={`${styles.panel} app-surface`}>Загрузка кабинета…</output>;
-  return <Cabinet data={visibleData} admin={admin} onRefresh={onRefresh} />;
+  return <Cabinet data={visibleData} admin={admin} onRefresh={onRefresh} onSaved={acceptSavedDashboard} />;
 }
 function Cabinet({
   data,
   admin,
   onRefresh,
+  onSaved,
 }: {
   data: ManagerDashboard;
   admin: boolean;
   onRefresh: () => void;
+  onSaved: (dashboard: ManagerDashboard) => void;
 }) {
   const [editor, setEditor] = useState<{
     kind: EditorKind;
@@ -473,7 +480,7 @@ function Cabinet({
           kind={editor.kind}
           sale={editor.sale}
           onClose={() => setEditor(null)}
-          onSaved={() => { setEditor(null); onRefresh(); }}
+          onSaved={(savedDashboard) => { onSaved(savedDashboard); setEditor(null); onRefresh(); }}
         />
       )}
       {history && (

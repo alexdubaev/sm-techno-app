@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ManagerWorkspace } from '@/components/manager/manager-workspace';
+import { ManagerEditor } from '@/components/manager/manager-editor';
+import type { ManagerDashboard } from '@/lib/manager-types';
 const mocks = vi.hoisted(() => ({
   dashboard: vi.fn(),
   managers: vi.fn(),
@@ -27,11 +29,12 @@ vi.mock('@/lib/api', () => ({
   saveManagerChange: mocks.change,
 }));
 afterEach(() => mocks.listeners.forEach(listener=>listener('session')));
-const data = {
+const data: ManagerDashboard = {
   account: {
     id: 1,
     userId: 1,
     name: 'Анна Иванова',
+    archived: false,
     avatarVersion: 0,
     hasAvatar: false,
   },
@@ -55,6 +58,20 @@ const data = {
   pages: 1,
 };
 describe('Manager cabinet', () => {
+  it('keeps edited fields and the editor-open revision if dashboard data refreshes', async () => {
+    mocks.preview.mockClear();
+    mocks.preview.mockResolvedValue(data);
+    const view = render(<ManagerEditor data={data} kind="terms" onClose={() => {}} onSaved={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Ставка для новых продаж, %'), { target: { value: '7' } });
+    fireEvent.change(screen.getByLabelText('Причина изменения'), { target: { value: 'Проверка версии формы' } });
+
+    view.rerender(<ManagerEditor data={{ ...data, version: data.version + 1 }} kind="terms" onClose={() => {}} onSaved={() => {}} />);
+    expect(screen.getByLabelText('Ставка для новых продаж, %')).toHaveValue('7');
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать изменения' }));
+
+    await waitFor(() => expect(mocks.preview).toHaveBeenCalledWith(expect.objectContaining({ version: data.version, rate: 700 })));
+  });
+
   it('opens a linked manager/month and ignores a foreign manager for ordinary users', async () => {
     mocks.dashboard.mockClear();
     mocks.admin = true;
@@ -238,6 +255,47 @@ describe('Manager cabinet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать изменения' }));
     await waitFor(() => expect(mocks.preview).toHaveBeenCalledWith(expect.objectContaining({ plan: 0, fixed: 2500000, rate: 500, mode: 'minimum' })));
     expect(await screen.findByText(/минимальная зарплата или проценты с продаж/i)).toBeVisible();
+  });
+
+  it('uses saved terms immediately when adding a sale before the dashboard reload returns', async () => {
+    mocks.admin = true;
+    mocks.dashboard.mockReset();
+    mocks.managers.mockResolvedValue([{ id: 1, name: 'Анна Иванова', userId: 1 }]);
+    const oldData = { ...data, terms: { plan: 0, fixed: 0, rate: 0, mode: 'minimum' as const } };
+    const savedData = {
+      ...oldData,
+      version: 2,
+      terms: { plan: 0, fixed: 2500000, rate: 500, mode: 'minimum' as const },
+      summary: { ...oldData.summary, fixed: 2500000, commission: 0, income: 2500000 },
+    };
+    let releaseRefresh!: (value: typeof savedData) => void;
+    mocks.dashboard
+      .mockResolvedValueOnce(oldData)
+      .mockReturnValueOnce(new Promise<typeof savedData>((resolve) => { releaseRefresh = resolve; }))
+      .mockResolvedValue(savedData);
+    mocks.preview.mockResolvedValue(savedData);
+    mocks.change.mockResolvedValueOnce(savedData).mockResolvedValue(savedData);
+
+    render(<ManagerWorkspace initialMonth="2026-10" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Настроить условия' }));
+    fireEvent.change(screen.getByLabelText('Минимальная зарплата, ₽'), { target: { value: '25000' } });
+    fireEvent.change(screen.getByLabelText('Ставка для новых продаж, %'), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText('Причина изменения'), { target: { value: 'Минимальная зарплата' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать изменения' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Сохранить изменения' }));
+    await waitFor(() => expect(mocks.change).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(mocks.dashboard).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить продажу' }));
+    expect(screen.getByLabelText('Ставка продажи, %')).toHaveValue('5');
+    fireEvent.change(screen.getByLabelText('Наименование клиента для документов'), { target: { value: 'ООО «Порог 600»' } });
+    fireEvent.change(screen.getByLabelText('Сумма продажи, ₽'), { target: { value: '600000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+
+    await waitFor(() => expect(mocks.change).toHaveBeenCalledTimes(2));
+    expect(mocks.change.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ kind: 'sale', version: 2, rate: 500 }));
+    releaseRefresh(savedData);
   });
 
   it('keeps the fixed-accrual choice valid when changing a new month to a plan', async () => {
