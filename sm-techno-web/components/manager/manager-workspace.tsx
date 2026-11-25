@@ -501,25 +501,25 @@ function SalesPage({
   onCancel: (s: ManagerSale) => void;
 }) {
   const initial = page === 1 && !query;
-  const [result, setResult] = useState<ManagerDashboard | null>(
-    initial ? data : null,
-  );
-  const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
+  const [request, setRequest] = useState<{ source: ManagerDashboard; retry: number; result: ManagerDashboard | null; error: string } | null>(null);
+  const currentRequest = request?.source === data && request.retry === retry ? request : null;
+  const result = initial ? data : currentRequest?.result ?? null;
+  const error = initial ? '' : currentRequest?.error ?? '';
   useEffect(() => {
     if (initial) return;
     let active = true;
     fetchManagerDashboard(data.month, data.account.id, query, page)
       .then((d) => {
-        if (active) setResult(d);
+        if (active) setRequest({ source: data, retry, result: d, error: '' });
       })
       .catch((e) => {
-        if (active) setError(errorMessage(e));
+        if (active) setRequest({ source: data, retry, result: null, error: errorMessage(e) });
       });
     return () => {
       active = false;
     };
-  }, [data.month, data.account.id, initial, page, query, retry]);
+  }, [data, initial, page, query, retry]);
   if (error)
     return (
       <div className={styles.empty}>
@@ -529,7 +529,6 @@ function SalesPage({
         <button data-app-action="secondary"
           className={styles.secondary}
           onClick={() => {
-            setError('');
             setRetry((r) => r + 1);
           }}
         >
