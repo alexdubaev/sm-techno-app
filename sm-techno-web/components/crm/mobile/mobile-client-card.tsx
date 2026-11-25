@@ -96,7 +96,7 @@ export function MobileClientCard({
             onPointerUp={dragControls.onPointerUp}
             onPointerCancel={dragControls.onPointerCancel}
             onKeyDown={dragControls.onKeyDown}
-            className="flex size-11 shrink-0 touch-none items-center justify-center rounded-[11px] bg-[#F1F5F9] text-[var(--text-secondary)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]"
+            className="app-icon-button size-11 touch-none rounded-[11px] bg-[#F1F5F9] text-[var(--text-secondary)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]"
             title="Переместить"
           >
             <GripVertical aria-hidden="true" className="size-5" />
@@ -130,11 +130,11 @@ export function MobileClientCard({
             </p>
           </button>
           {activeTab === 'primary' ? (
-            <div className="mt-2 min-w-0 rounded-[9px] border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-1.5 text-[11px] font-semibold leading-4 text-[#0F766E] [overflow-wrap:anywhere]">
+            <div className="app-crm-client-inset app-crm-client-inset--owners mt-2 min-w-0 rounded-[9px] border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-1.5 text-[11px] font-semibold leading-4 text-[#0F766E] [overflow-wrap:anywhere]">
               <WorkOwnersStatus owners={client.workOwners} variant="mobile" />
             </div>
           ) : null}
-          <div className="mt-2 min-w-0 rounded-[11px] bg-[#F7F9FC] p-2.5">
+          <div className="app-crm-client-inset mt-2 min-w-0 rounded-[11px] bg-[#F7F9FC] p-2.5">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--text-secondary)]">Контактное лицо</p>
             {contactOptions.length > 1 ? (
               <button
@@ -186,7 +186,7 @@ export function MobileClientCard({
               style={{ color: '#FFFFFF', backgroundColor: '#16A34A' }}
               className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-[var(--app-control-radius)] px-3 text-[12px] font-bold text-white outline-offset-2 hover:bg-[#15803D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
             >
-              <Phone aria-hidden="true" className="size-4" />
+              <Phone aria-hidden="true" className="size-4 shrink-0" />
               Позвонить
             </a>
           ) : null}
@@ -199,7 +199,7 @@ export function MobileClientCard({
               onClick={(event) => event.stopPropagation()}
               className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-[11px] border border-[var(--border-color)] bg-white px-3 text-[12px] font-bold text-[var(--brand-dark)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
             >
-              <Mail aria-hidden="true" className="size-4" />
+              <Mail aria-hidden="true" className="size-4 shrink-0" />
               Написать
             </a>
           ) : null}

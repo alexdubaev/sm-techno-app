@@ -121,7 +121,7 @@ export function MobileCrmHeader({
                     ? 'CRM обновляется из 1С'
                     : 'Обновить CRM из 1С'
                 }
-                className="flex size-11 items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] outline-offset-2 transition-colors hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:opacity-55"
+                className="app-icon-button size-11 rounded-[12px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] outline-offset-2 transition-colors hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)] disabled:opacity-55"
               >
                 <RefreshCw
                   aria-hidden="true"
@@ -134,14 +134,14 @@ export function MobileCrmHeader({
                 type="button"
                 onClick={onAddClient}
                 aria-label="Добавить клиента"
-                className="flex size-11 items-center justify-center rounded-[12px] bg-[var(--brand-yellow)] text-[var(--brand-dark)] outline-offset-2 transition-colors hover:bg-[#FFD447] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]"
+                className="app-icon-button size-11 rounded-[12px] bg-[var(--brand-yellow)] text-[var(--brand-dark)] outline-offset-2 transition-colors hover:bg-[#FFD447] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)]"
               >
                 <Plus aria-hidden="true" className="size-5" strokeWidth={2.5} />
               </button>
             ) : null}
             <details className="group relative">
               <summary data-app-action="secondary"
-                className="flex size-11 cursor-pointer list-none items-center justify-center rounded-[12px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] outline-offset-2 transition-colors hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
+                className="app-icon-button size-11 cursor-pointer rounded-[12px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)] outline-offset-2 transition-colors hover:bg-[#F6F8FB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-yellow)]"
                 aria-label="Ещё действия CRM"
               >
                 <MoreHorizontal aria-hidden="true" className="size-5" />
@@ -282,7 +282,7 @@ export function MobileCrmHeader({
                               type="button"
                               onClick={() => onRenameTab(tab)}
                               aria-label={`Переименовать вкладку ${tab.name}`}
-                              className="flex size-11 items-center justify-center rounded-[9px] text-[var(--text-secondary)] hover:bg-white"
+                              className="app-icon-button size-11 rounded-[9px] text-[var(--text-secondary)] hover:bg-white"
                             >
                               <Pencil aria-hidden="true" className="size-4" />
                             </button>
@@ -290,7 +290,7 @@ export function MobileCrmHeader({
                               type="button"
                               onClick={() => onDeleteTab(tab)}
                               aria-label={`Удалить вкладку ${tab.name}`}
-                              className="flex size-11 items-center justify-center rounded-[9px] text-[#B42318] hover:bg-white"
+                              className="app-icon-button size-11 rounded-[9px] text-[#B42318] hover:bg-white"
                             >
                               <Trash2 aria-hidden="true" className="size-4" />
                             </button>
