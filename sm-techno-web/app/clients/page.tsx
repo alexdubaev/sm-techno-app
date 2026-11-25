@@ -200,7 +200,7 @@ export default function ClientsPage() {
   return (
     <AppShell>
       <div className="flex flex-col gap-2">
-        <header className="rounded-[10px] bg-white px-3 py-2 shadow-[0_8px_20px_rgba(7,22,46,0.05)]">
+        <header className="app-surface rounded-[10px] bg-white px-3 py-2 shadow-[0_8px_20px_rgba(7,22,46,0.05)]">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <h1 className="text-[17px] font-[650] leading-none text-[var(--text-primary)]">
@@ -248,17 +248,17 @@ export default function ClientsPage() {
 
         <form
           onSubmit={(event) => void handleSubmit(event)}
-          className="overflow-hidden rounded-[10px] border border-[var(--border-color)] bg-white shadow-[0_8px_20px_rgba(7,22,46,0.05)]"
+          className="app-surface overflow-hidden rounded-[10px] border border-[var(--border-color)] bg-white shadow-[0_8px_20px_rgba(7,22,46,0.05)]"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-color)] bg-[#FAFBFD] px-3 py-2.5">
+          <div className="app-crm-sheet-header flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-color)] bg-[#FAFBFD] px-3 py-2.5">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)]">
+              <div className="app-crm-control flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-[var(--border-color)] bg-white text-[var(--brand-dark)]">
                 <BuildingIcon className="h-5 w-5 stroke-[1.9]" />
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-[17px] font-[650] leading-[20px] text-[var(--text-primary)]">
+                <h2 className="truncate text-[17px] font-[650] leading-[20px] text-[var(--text-primary)]">
                   Новый контрагент
-                </h1>
+                </h2>
                 <p className="mt-0.5 text-[10px] leading-[14px] text-[var(--text-secondary)]">
                   {form.legalType === "individual_entrepreneur" ? "Создание индивидуального предпринимателя" : "Создание юридического лица"}
                 </p>
@@ -275,7 +275,7 @@ export default function ClientsPage() {
           </div>
 
           <div className="grid gap-2 p-2 xl:grid-cols-2">
-            <section className="min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
+            <section className="app-crm-control min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
               <SectionTitle icon={<DocumentCardIcon className="h-4 w-4 stroke-[1.9]" />}>Основное</SectionTitle>
               <div className="grid gap-1.5 lg:grid-cols-[minmax(190px,0.9fr)_minmax(0,1.1fr)]">
                 <Field label="Вид">
@@ -354,7 +354,7 @@ export default function ClientsPage() {
               </div>
             </section>
 
-            <section className="min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
+            <section className="app-crm-control min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
               <SectionTitle icon={<WalletIcon className="h-4 w-4 stroke-[1.9]" />}>Контакты и реквизиты</SectionTitle>
               <div className="grid gap-1.5 md:grid-cols-2">
                 <TextInput
@@ -418,7 +418,7 @@ export default function ClientsPage() {
               </div>
             </section>
 
-            <section className="min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
+            <section className="app-crm-control min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
               <SectionTitle icon={<MapPinIcon className="h-4 w-4 stroke-[1.9]" />}>Адреса</SectionTitle>
               <div className="grid gap-1.5 md:grid-cols-2">
                 <TextArea
@@ -438,7 +438,7 @@ export default function ClientsPage() {
               </div>
             </section>
 
-            <section className="min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
+            <section className="app-crm-control min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
               <SectionTitle icon={<DocumentCardIcon className="h-4 w-4 stroke-[1.9]" />}>Подписант</SectionTitle>
               <div className="grid gap-1.5 md:grid-cols-2">
                 <Field label="Должность">
@@ -473,7 +473,7 @@ export default function ClientsPage() {
               </div>
             </section>
 
-            <section className="min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
+            <section className="app-crm-control min-w-0 rounded-[8px] border border-[var(--border-color)] bg-[var(--page-bg)] p-2">
               <SectionTitle icon={<NotesIcon className="h-4 w-4 stroke-[1.9]" />}>Заметки</SectionTitle>
               <TextArea
                 label="Заметки"
@@ -487,7 +487,7 @@ export default function ClientsPage() {
         </form>
 
         <section className="app-work-table overflow-hidden rounded-[10px] border border-[var(--border-color)] bg-white shadow-[0_8px_20px_rgba(7,22,46,0.05)]">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-color)] bg-[#FAFBFD] px-3 py-2">
+          <div className="app-crm-sheet-header flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-color)] bg-[#FAFBFD] px-3 py-2">
             <div className="text-[11px] font-semibold text-[var(--text-primary)]">
               Список клиентов
             </div>
@@ -497,7 +497,8 @@ export default function ClientsPage() {
                   key={filter.value}
                   type="button"
                   onClick={() => setSyncFilter(filter.value)}
-                  className={`h-7 rounded-[8px] border px-2.5 text-[10px] font-semibold transition ${
+                  aria-pressed={syncFilter === filter.value}
+                  className={`app-crm-tab h-7 rounded-[8px] border px-2.5 text-[10px] font-semibold transition ${
                     syncFilter === filter.value
                       ? "border-[var(--brand-yellow)] bg-[var(--brand-yellow)] text-[var(--brand-dark)]"
                       : "border-[var(--border-color)] bg-white text-[var(--text-primary)] hover:bg-[#F8FAFD]"
@@ -776,7 +777,7 @@ function CheckBox({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex h-[34px] items-center gap-2 rounded-[8px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)]">
+    <label className="app-crm-control flex h-[34px] items-center gap-2 rounded-[8px] border border-[var(--border-color)] bg-white px-2.5 text-[10px] font-semibold text-[var(--text-primary)]">
       <input
         type="checkbox"
         checked={checked}
@@ -802,7 +803,7 @@ function MetricChip({
       ? "border-[#F9D4D4] bg-[#FEF2F2] text-[var(--stock-empty)]"
       : "border-[var(--border-color)] bg-[#FBFCFE] text-[var(--text-primary)]";
   return (
-    <div className={`rounded-[8px] border px-2.5 py-1.5 ${toneClass}`}>
+    <div className={`${tone === "default" ? "app-crm-control " : ""}rounded-[8px] border px-2.5 py-1.5 ${toneClass}`}>
       <span className="text-[9px] text-[var(--text-secondary)]">{label}</span>
       <span className="ml-1.5 text-[11px] font-semibold">{value}</span>
     </div>

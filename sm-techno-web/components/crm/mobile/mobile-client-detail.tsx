@@ -137,7 +137,7 @@ export function MobilePrimaryArchiveDetail({
         data-mobile-primary-archive-detail=""
         className="data-[side=bottom]:h-[100dvh] max-h-[100dvh] gap-0 overflow-hidden border-0 bg-[#F7F9FC] pt-[env(safe-area-inset-top)] text-[var(--text-primary)]"
       >
-        <header className="shrink-0 border-b border-[var(--border-color)] bg-white px-3 pb-3">
+        <header className="app-crm-sheet-header shrink-0 border-b border-[var(--border-color)] bg-white px-3 pb-3">
           <div className="flex items-start gap-2 py-2">
             <button data-app-action="secondary"
               type="button"
@@ -355,7 +355,7 @@ function MobileClientDetailContent({
         data-initial-section={initialSection}
         className="data-[side=bottom]:h-[100dvh] max-h-[100dvh] gap-0 overflow-hidden border-0 bg-[#F7F9FC] pt-[env(safe-area-inset-top)] text-[var(--text-primary)]"
       >
-        <header className="shrink-0 border-b border-[var(--border-color)] bg-white px-3 pb-3">
+        <header className="app-crm-sheet-header shrink-0 border-b border-[var(--border-color)] bg-white px-3 pb-3">
           <div className="flex items-start gap-2 py-2">
             <button data-app-action="secondary"
               type="button"
@@ -449,7 +449,7 @@ function MobileClientDetailContent({
         <div
           role="tablist"
           aria-label="Разделы карточки клиента"
-          className="flex shrink-0 overflow-x-auto border-b border-[var(--border-color)] bg-white px-2"
+          className="app-segmented flex shrink-0 gap-1 overflow-x-auto border-b border-[var(--border-color)] bg-white px-2"
         >
           {sections.map(([key, label], index) => (
             <button
@@ -481,7 +481,7 @@ function MobileClientDetailContent({
                     | undefined
                 )?.focus();
               }}
-              className={`min-h-12 shrink-0 border-b-[3px] px-3 text-sm font-semibold outline-offset-[-4px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)] ${section === key ? 'border-[var(--brand-yellow)] text-[var(--brand-dark)]' : 'border-transparent text-[var(--text-secondary)]'}`}
+              className={`app-crm-tab min-h-12 shrink-0 border-b-[3px] px-3 text-sm font-semibold outline-offset-[-4px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)] ${section === key ? 'border-[var(--brand-yellow)] text-[var(--brand-dark)]' : 'border-transparent text-[var(--text-secondary)]'}`}
             >
               {label}
             </button>

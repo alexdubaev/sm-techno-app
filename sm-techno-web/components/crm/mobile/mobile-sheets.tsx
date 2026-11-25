@@ -14,11 +14,11 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
 export const mobileButton =
-  'min-h-11 rounded-xl border border-[var(--border-color)] bg-white px-3 py-2 text-sm font-semibold text-[var(--text-primary)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)] disabled:opacity-50';
+  'app-crm-control min-h-11 rounded-xl border border-[var(--border-color)] bg-white px-3 py-2 text-sm font-semibold text-[var(--text-primary)] outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand-dark)] disabled:opacity-50';
 export const mobileInput =
   'min-h-12 w-full min-w-0 rounded-xl border border-[var(--border-color)] bg-white px-3 py-2 text-base text-[var(--text-primary)] outline-none focus:border-[var(--brand-yellow)] focus:ring-2 focus:ring-[var(--brand-yellow)]';
 export const mobilePanel =
-  'rounded-2xl border border-[var(--border-color)] bg-white p-4';
+  'app-surface rounded-2xl border border-[var(--border-color)] bg-white p-4';
 
 export function MobileSheet({
   title,
@@ -54,7 +54,7 @@ export function MobileSheet({
             : 'max-h-[92dvh] rounded-t-3xl',
         )}
       >
-        <div className="sticky top-0 z-10 -mx-4 flex items-start justify-between gap-3 bg-[#F7F9FC] px-4 pb-3">
+        <div className="app-crm-sheet-header sticky top-0 z-10 -mx-4 flex items-start justify-between gap-3 bg-[#F7F9FC] px-4 pb-3">
           <div className="min-w-0">
             <SheetTitle className="text-lg font-bold text-[var(--text-primary)]">
               {title}

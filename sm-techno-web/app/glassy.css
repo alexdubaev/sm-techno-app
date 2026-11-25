@@ -59,6 +59,44 @@ html[data-ui-theme='glassy'] .app-shell {
 
 html[data-ui-theme='glassy'] .app-shell [data-mobile-crm-workspace] {
   background: transparent;
+  padding-inline: 0;
+}
+
+html[data-ui-theme='glassy'] :is(.app-crm-list-header, .app-crm-list-tabs) {
+  margin-inline: 0;
+}
+
+html[data-ui-theme='glassy'] .app-crm-list-tabs {
+  padding-inline: 2px;
+}
+
+html[data-ui-theme='glassy'] .app-crm-sheet-header {
+  background: var(--glass-control);
+  border-color: var(--glass-edge);
+}
+
+html[data-ui-theme='glassy'] :is(.app-crm-tab, .app-crm-control:not([data-app-action])) {
+  background: var(--glass-control);
+  border-color: var(--glass-edge);
+  border-radius: var(--app-control-radius);
+}
+
+html[data-ui-theme='glassy'] :is(.app-crm-tab, a.app-crm-control, button.app-crm-control) {
+  font-size: var(--app-font-body);
+}
+
+html[data-ui-theme='glassy'] .app-crm-tab:is([aria-current='page'], [aria-selected='true'], [aria-pressed='true']) {
+  background: linear-gradient(140deg, #203652, var(--brand-dark));
+  border-color: transparent;
+  color: #fff;
+}
+
+html[data-ui-theme='glassy'] .app-crm-empty {
+  padding-block: 20px;
+}
+
+html[data-ui-theme='glassy'] .app-crm-notice {
+  font-size: var(--app-font-body);
 }
 
 html[data-ui-theme='glassy'] :is(.app-surface, .app-shell-content :is(section, article, form).bg-white, [data-slot='card']) {

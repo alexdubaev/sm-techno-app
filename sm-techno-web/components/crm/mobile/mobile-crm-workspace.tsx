@@ -434,7 +434,7 @@ export function MobileCrmWorkspace({
           {workspaceError && !isPrimaryArchiveView ? (
             <div
               role="alert"
-              className="mb-3 rounded-[13px] border border-[#F4C7C3] bg-[#FEF3F2] p-3 text-[#B42318]"
+              className="app-notice app-notice--error app-crm-notice mb-3"
             >
               <p className="text-[12px] font-bold">Не удалось обновить CRM</p>
               <p className="mt-1 text-[11px] leading-4">{workspaceError}</p>
@@ -627,7 +627,7 @@ function MobilePrimaryArchiveSwitch({
 }) {
   return (
     <fieldset
-      className="mb-3 grid grid-cols-2 gap-1 rounded-[14px] bg-[#E9EEF5] p-1"
+      className="app-segmented mb-3"
     >
       <legend className="sr-only">Режим основной CRM</legend>
       <button
@@ -635,7 +635,7 @@ function MobilePrimaryArchiveSwitch({
         aria-pressed={mode === 'active'}
         disabled={disabled}
         onClick={() => onChange('active')}
-        className={`min-h-11 rounded-[11px] px-3 text-[13px] font-bold transition-colors disabled:opacity-60 ${mode === 'active' ? 'bg-white text-[var(--text-primary)] shadow-[0_2px_8px_rgba(7,22,46,0.08)]' : 'text-[var(--text-secondary)]'}`}
+        className="app-crm-tab app-segmented__item disabled:opacity-60"
       >
         Активные {activeCount}
       </button>
@@ -644,7 +644,7 @@ function MobilePrimaryArchiveSwitch({
         aria-pressed={mode === 'archive'}
         disabled={disabled}
         onClick={() => onChange('archive')}
-        className={`min-h-11 rounded-[11px] px-3 text-[13px] font-bold transition-colors disabled:opacity-60 ${mode === 'archive' ? 'bg-white text-[var(--text-primary)] shadow-[0_2px_8px_rgba(7,22,46,0.08)]' : 'text-[var(--text-secondary)]'}`}
+        className="app-crm-tab app-segmented__item disabled:opacity-60"
       >
         Архив {archivedCount}
       </button>
@@ -745,7 +745,7 @@ function MobileClientSkeletons() {
       {[1, 2, 3].map((item) => (
         <div
           key={item}
-          className="h-40 animate-pulse rounded-[16px] border border-[var(--border-color)] bg-white shadow-[0_8px_22px_rgba(7,22,46,0.04)] motion-reduce:animate-none"
+          className="app-surface h-40 animate-pulse rounded-[16px] border border-[var(--border-color)] bg-white shadow-[0_8px_22px_rgba(7,22,46,0.04)] motion-reduce:animate-none"
         >
           <div className="h-full rounded-[16px] bg-gradient-to-r from-transparent via-[#F1F5F9] to-transparent" />
         </div>
@@ -766,7 +766,7 @@ function MobileEmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="mt-3 rounded-[18px] border border-dashed border-[#CBD5E1] bg-white px-5 py-10 text-center">
+    <div className="app-surface app-crm-empty mt-3 rounded-[18px] border border-dashed border-[#CBD5E1] bg-white px-5 py-10 text-center">
       <h2 className="text-[15px] font-bold">{title}</h2>
       <p className="mx-auto mt-2 max-w-[30rem] text-[12px] leading-5 text-[var(--text-secondary)]">
         {description}
