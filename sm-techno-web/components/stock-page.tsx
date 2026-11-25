@@ -1000,7 +1000,7 @@ export function StockPage() {
                 </td>
                 <td className="border-t border-[var(--border-color)] px-3 py-1.5 align-middle text-[10px] text-[var(--text-primary)]">
                   <div className="min-w-0">
-                    <div className="app-catalog-product-name line-clamp-2 text-[11px] font-medium leading-[15px]">
+                    <div className="app-table-item-name line-clamp-2 font-medium">
                       {item.name}
                     </div>
                     {itemLineCount > 0 ? (
@@ -1115,7 +1115,7 @@ export function StockPage() {
       <div className="stock-workspace flex flex-col gap-2.5">
         <header className="stock-heading app-feature-heading flex flex-wrap items-start justify-between gap-2">
           <div className="max-w-[38rem]">
-            <h1 className="text-[22px] font-[650] leading-none tracking-[-0.05em] text-[var(--text-primary)]">
+            <h1 className="text-[var(--text-primary)]">
               Остатки
             </h1>
             <p className="mt-1 hidden text-[11px] leading-[17px] text-[var(--text-secondary)] md:block">

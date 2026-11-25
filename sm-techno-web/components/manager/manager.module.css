@@ -259,7 +259,7 @@
   font-weight: 400;
 }
 .metric > p {
-  font-size: clamp(20px, 2vw, 30px);
+  font-size: var(--app-font-total);
   font-weight: 650;
   letter-spacing: -0.8px;
   margin: 14px 0 9px;
@@ -344,7 +344,7 @@
   border-bottom: 1px solid var(--border-color);
 }
 .planNumber {
-  font-size: 42px;
+  font-size: var(--app-font-total);
   font-weight: 650;
   letter-spacing: -1.5px;
   margin: 20px 0 14px;
@@ -699,9 +699,6 @@
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .metric > p {
-    font-size: 26px;
-  }
   .profile {
     flex-wrap: wrap;
   }
@@ -853,9 +850,6 @@
   .metric h2 {
     font-size: 11px;
   }
-  .metric > p {
-    font-size: 23px;
-  }
   .metric > small {
     font-size: 10px;
   }
@@ -888,9 +882,6 @@
   }
   .pagination button {
     padding-inline: 10px;
-  }
-  .planNumber {
-    font-size: 36px;
   }
   .modal {
     padding: 18px;

@@ -103,7 +103,7 @@ export default function WorkWithPricePage() {
     return (
       <AppShell>
         <div className="rounded-[16px] border border-[var(--border-color)] bg-white p-5 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
-          <h1 className="text-[18px] font-[650] tracking-[-0.04em] text-[var(--text-primary)]">
+          <h1 className="text-[var(--text-primary)]">
             Работа с прайсом
           </h1>
           <p className="mt-2 text-[12px] leading-5 text-[var(--text-secondary)]">
@@ -998,10 +998,10 @@ function WorkWithPriceAdminPage() {
       <div className="app-catalog-workspace flex flex-col gap-2">
         <header className="app-feature-heading flex flex-wrap items-start justify-between gap-2">
           <div className="max-w-[42rem]">
-            <h1 className="text-[18px] font-[650] leading-none tracking-[-0.05em] text-[var(--text-primary)]">
+            <h1 className="text-[var(--text-primary)]">
               Работа с прайсом
             </h1>
-            <p className="mt-0.5 max-w-[62ch] text-[10px] leading-[15px] text-[var(--text-secondary)]">
+            <p className="mt-0.5 max-w-[62ch] text-[var(--text-secondary)]">
               {isAdmin
                 ? "Тот же локальный каталог, что и в остатках: здесь можно импортировать позиции, добавлять их вручную, менять цену и остаток, а также удалять карточки по одной."
                 : "Просмотр локального прайса в режиме пользователя. Изменение каталога доступно только администратору."}
@@ -1226,7 +1226,7 @@ function WorkWithPriceAdminPage() {
                               </span>
                             </td>
                             <td className="border-t border-[var(--border-color)] px-3 py-1.5 text-[10px] text-[var(--text-primary)]">
-                              <div className="app-catalog-product-name max-w-full line-clamp-3 [overflow-wrap:anywhere] text-[11px] font-medium leading-[15px]" title={item.name || "-"}>
+                              <div className="app-table-item-name max-w-full line-clamp-3 [overflow-wrap:anywhere] font-medium" title={item.name || "-"}>
                                 {item.name}
                               </div>
                             </td>
@@ -1391,7 +1391,7 @@ function WorkWithPriceAdminPage() {
                   <p className="text-[9px] font-semibold text-[var(--text-secondary)]">
                     Выбранная позиция
                   </p>
-                  <h2 className="mt-1 text-[13px] font-[650] leading-tight text-[var(--text-primary)]">
+                  <h2 className="mt-1 text-[var(--text-primary)]">
                     {selectedItem ? selectedItem.name : "Позиция не выбрана"}
                   </h2>
                   <p className="mt-1 text-[9px] text-[var(--text-secondary)]">
