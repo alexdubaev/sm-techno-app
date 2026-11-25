@@ -1369,10 +1369,10 @@ export function StockPage() {
                 </button>
               </div>
             </section>
-            <section className="stock-table app-catalog-table app-surface rounded-[16px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="stock-table app-work-table app-surface rounded-[16px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div
                 ref={containerRef}
-                className="app-catalog-table-scroll max-h-[calc(100dvh-9rem)] overflow-auto rounded-[14px] border border-[var(--border-color)] bg-white"
+                className="app-work-table-viewport max-h-[calc(100dvh-9rem)] overflow-auto rounded-[14px] border border-[var(--border-color)] bg-white"
               >
                 {renderTableBody()}
               </div>

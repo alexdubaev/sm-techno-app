@@ -1128,7 +1128,7 @@ function WorkWithPriceAdminPage() {
               </div>
             </section>
 
-            <section className="app-catalog-table rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
+            <section className="app-work-table rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="mb-2 flex flex-wrap gap-1.5 border-b border-[var(--border-color)] pb-2">
                 <WarehouseTab
                   active={activeWarehouseId === null}
@@ -1153,7 +1153,7 @@ function WorkWithPriceAdminPage() {
                 ))}
               </div>
 
-              <div ref={containerRef} className="app-catalog-table-scroll max-h-[calc(100dvh-8rem)] overflow-auto rounded-[12px] border border-[var(--border-color)] bg-white">
+              <div ref={containerRef} className="app-work-table-viewport max-h-[calc(100dvh-8rem)] overflow-auto rounded-[12px] border border-[var(--border-color)] bg-white">
                 {isLoading && items.length === 0 ? (
                   <TableSkeleton />
                 ) : items.length === 0 ? (
@@ -1240,7 +1240,7 @@ function WorkWithPriceAdminPage() {
                                 className="block max-w-full text-left transition hover:text-[var(--brand-dark)]"
                                 title={rowWarehouseLabel}
                               >
-                                <span className={rowLocationLabel ? "max-w-full line-clamp-2 [overflow-wrap:anywhere]" : "max-w-full line-clamp-3 [overflow-wrap:anywhere]"}>
+                                <span className={`app-work-table-warehouse max-w-full [overflow-wrap:anywhere] ${rowLocationLabel ? "line-clamp-2" : "line-clamp-3"}`}>
                                   {formatWarehouseLabel(item, activeWarehouseName, activeWarehouseId)}
                                 </span>
                                 {rowLocationLabel ? (

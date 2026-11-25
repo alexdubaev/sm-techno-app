@@ -469,10 +469,17 @@ html[data-ui-theme='glassy'] .stock-filters input[type='checkbox']:checked { bac
 html[data-ui-theme='glassy'] .stock-filters input[type='checkbox']:checked::after { inset-inline: auto 2px; background: #fff; }
 html[data-ui-theme='glassy'] .app-catalog-filters .app-action-button { min-height: 40px; }
 
-html[data-ui-theme='glassy'] .app-catalog-table {
+html[data-ui-theme='glassy'] .app-shell-content .app-surface.app-work-table-page {
+  background: transparent;
+}
+
+html[data-ui-theme='glassy'] .app-work-table {
   min-width: 0;
   padding: 12px;
-  background: var(--glass-table-surface);
+  background: var(--glass-panel);
+  border: 1px solid var(--glass-edge);
+  border-radius: 20px;
+  box-shadow: var(--glass-shadow);
 }
 
 html[data-ui-theme='glassy'] .stock-table [data-in-draft] {
@@ -491,10 +498,37 @@ html[data-ui-theme='glassy'] .stock-table {
   justify-content: space-between;
 }
 
-html[data-ui-theme='glassy'] .app-catalog-table-scroll { border: 0; border-radius: var(--app-control-radius); background: transparent; }
-html[data-ui-theme='glassy'] .app-catalog-table table[data-slot='table'] { background: transparent; }
-html[data-ui-theme='glassy'] .app-catalog-table th { padding: 13px 9px; }
-html[data-ui-theme='glassy'] .app-catalog-table td { padding: 12px 9px; }
+html[data-ui-theme='glassy'] .app-work-table-viewport {
+  border: 0;
+  border-radius: var(--app-control-radius);
+  background: transparent;
+}
+
+html[data-ui-theme='glassy'] .app-work-table table[data-slot='table'] {
+  border-collapse: separate;
+  border-spacing: 0;
+  background: transparent;
+}
+
+html[data-ui-theme='glassy'] .app-work-table table[data-slot='table'] > thead > tr > th {
+  padding: 13px 9px;
+}
+
+html[data-ui-theme='glassy'] .app-work-table table[data-slot='table'] > tbody > tr > td {
+  height: 40px;
+  padding: 5px 9px;
+  vertical-align: middle;
+  border-block-start: 1px solid var(--glass-table-divider);
+}
+
+html[data-ui-theme='glassy'] .app-work-table-warehouse {
+  -webkit-line-clamp: 1;
+}
+
+html[data-ui-theme='glassy'] .app-work-table-summary {
+  border-color: var(--glass-table-divider);
+  background: transparent;
+}
 html[data-ui-theme='glassy'] .stock-table .stock-currency { white-space: nowrap; }
 
 html[data-ui-theme='glassy'] .app-catalog-item {
