@@ -1081,7 +1081,7 @@ function WorkWithPriceAdminPage() {
           ) : null}
         </section>
 
-        <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
+        <div className="grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start 2xl:grid-cols-[minmax(0,1fr)_312px]">
           <div className="min-w-0 space-y-2">
             <section className="app-catalog-filters rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_minmax(180px,220px)] xl:grid-cols-[minmax(0,1fr)_170px_170px]">
@@ -1387,7 +1387,7 @@ function WorkWithPriceAdminPage() {
           <aside className="flex min-h-0 min-w-0 flex-col gap-2 xl:sticky xl:top-2 xl:max-h-[calc(100dvh-0.75rem)] xl:self-start xl:overflow-auto">
             <section className="app-catalog-item rounded-[14px] bg-white p-2 shadow-[0_10px_24px_rgba(7,22,46,0.06)]">
               <div className="flex items-start justify-between gap-2">
-                <div>
+                <div className="min-w-0 [overflow-wrap:anywhere]">
                   <p className="text-[9px] font-semibold text-[var(--text-secondary)]">
                     Выбранная позиция
                   </p>
@@ -1409,7 +1409,7 @@ function WorkWithPriceAdminPage() {
 
               {selectedItem ? (
                 <>
-                  <div className="mt-1.5 grid gap-1.5">
+                  <div className="mt-1.5 grid grid-cols-1 gap-1.5">
                     <CompactField
                       label="Артикул"
                       value={editForm.sku}
@@ -1486,7 +1486,7 @@ function WorkWithPriceAdminPage() {
                             <fieldset
                               key={warehouse.warehouseId}
                               aria-label={`Остаток на складе ${warehouse.warehouseName}`}
-                              className="flex items-center justify-between gap-2 rounded-[8px] border border-[var(--border-color)] bg-white px-2.5 py-1.5 text-[10px]"
+                              className="flex min-w-0 items-center justify-between gap-2 rounded-[8px] border border-[var(--border-color)] bg-white px-2.5 py-1.5 text-[10px]"
                             >
                               <span className="min-w-0">
                                 <span className="block truncate text-[var(--text-primary)]">
@@ -2157,7 +2157,7 @@ function WarehouseTab({
       aria-pressed={active}
       data-app-action="secondary"
       className={[
-        "inline-flex h-[34px] items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200",
+        "inline-flex h-[34px] min-w-0 max-w-full items-center rounded-t-[12px] rounded-b-[4px] border px-4 text-[10px] font-semibold transition-all duration-200",
         active
           ? "border-[var(--border-color)] border-t-[2px] border-t-[var(--stock-ok)] bg-white text-[var(--brand-dark)] shadow-[0_10px_20px_rgba(7,22,46,0.06)]"
           : "border-[var(--border-color)] bg-[#F8FAFD] text-[var(--text-secondary)] hover:bg-white hover:text-[var(--text-primary)]",
