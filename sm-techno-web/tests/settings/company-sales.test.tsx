@@ -43,7 +43,7 @@ beforeEach(() => {
   api.managers.mockResolvedValue([{ id: 9, userId: 42, name: 'Менеджер Тест', active: true, archived: false }]);
   api.searchClients.mockResolvedValue({ items: [{ id: 21, name: 'ООО CRM', inn: '1234567890', kpp: '123456789' }] });
 });
-afterEach(() => api.listeners.forEach(listener=>listener('session')));
+afterEach(() => { api.listeners.forEach(listener=>listener('session')); vi.useRealTimers(); });
 
 it('lists paged sales, previews assignment and saves once without asking for a reason', async () => {
   const user = userEvent.setup();
@@ -83,6 +83,20 @@ it('searches and filters unassigned sales', async () => {
   fireEvent.change(screen.getByLabelText('Поиск продаж'), { target: { value: 'Волга' } });
   await user.click(screen.getByRole('button', { name: 'Без менеджера' }));
   await waitFor(() => expect(api.list).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'Волга', unassigned: true })));
+});
+
+it('keeps the active company sales list visible after cache TTL when opening a sale', async () => {
+  vi.useFakeTimers({toFake:['Date']});
+  const user = userEvent.setup();
+  render(<CompanySales period="month" date="2026-11-18" />);
+  expect(await screen.findByText('ООО Тест')).toBeVisible();
+  vi.setSystemTime(Date.now() + 6 * 60_000);
+
+  await user.click(screen.getByRole('button', { name: /18\.11\.2026.*ООО Тест/ }));
+  await screen.findByRole('dialog');
+  await user.click(screen.getByRole('button', { name: 'Закрыть' }));
+
+  expect(screen.getByRole('button', { name: /18\.11\.2026.*ООО Тест/ })).toBeVisible();
 });
 
 it('requires an explicit CRM client when transferring a legacy sale without a client link', async () => {

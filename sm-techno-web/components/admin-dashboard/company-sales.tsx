@@ -52,7 +52,7 @@ export function CompanySales({ period, date }: Props) {
   const [itemsKey, setItemsKey] = useState(initialList ? listKey : '');
   const [itemsSavedAt,setItemsSavedAt] = useState(() => readSalesSnapshot<CompanySalesPage>(listKey)?.savedAt ?? null);
   const visibleCachedList = readSalesSnapshot<CompanySalesPage>(listKey)?.data;
-  const liveItemsUsable = itemsKey === listKey && itemsSavedAt !== null && isSalesSnapshotUsable(itemsSavedAt);
+  const liveItemsUsable = itemsKey === listKey && itemsSavedAt !== null && (listErrorKey !== listKey || isSalesSnapshotUsable(itemsSavedAt));
   const visibleItems = liveItemsUsable ? items : visibleCachedList?.items ?? [];
   const visiblePages = liveItemsUsable ? pages : visibleCachedList?.pages ?? 1;
   const visibleTotal = liveItemsUsable ? total : visibleCachedList?.total ?? 0;

@@ -16,7 +16,7 @@ beforeEach(() => {
   api.managers.mockResolvedValue([]);
   api.fetch.mockResolvedValue({account:{id:3,userId:7,name:'Менеджер тест',archived:false,avatarVersion:0,hasAvatar:false},month:'2026-11',version:1,closed:false,terms:null,summary:{salesTotal:123400,fixed:null,commission:null,income:null,above:null,remaining:null,count:2},daily:[],sales:[],total:2,page:1,pages:1});
 });
-afterEach(() => invalidateApiCache('session'));
+afterEach(() => { invalidateApiCache('session'); vi.useRealTimers(); });
 
 it('keeps the manager month and restores the warm dashboard snapshot on return', async () => {
   const first = render(<ManagerWorkspace initialMonth="2026-11" />);
@@ -26,4 +26,15 @@ it('keeps the manager month and restores the warm dashboard snapshot on return',
   render(<ManagerWorkspace initialMonth="2026-11" />);
   expect(screen.getByRole('heading',{name:'Менеджер тест'})).toBeVisible();
   expect(screen.queryByText('Загрузка кабинета…')).not.toBeInTheDocument();
+});
+
+it('keeps an active manager cabinet visible after cache TTL on an unrelated rerender', async () => {
+  vi.useFakeTimers({toFake:['Date']});
+  const view = render(<ManagerWorkspace initialMonth="2026-11" />);
+  expect(await screen.findByRole('heading',{name:'Менеджер тест'})).toBeVisible();
+  vi.setSystemTime(Date.now() + 6 * 60_000);
+
+  view.rerender(<ManagerWorkspace initialMonth="2026-11" />);
+
+  expect(screen.getByRole('heading',{name:'Менеджер тест'})).toBeVisible();
 });

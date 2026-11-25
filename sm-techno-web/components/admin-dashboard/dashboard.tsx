@@ -79,11 +79,11 @@ export function Dashboard() {
   const cachedSales = readSalesSnapshot<SalesOverview>(salesKey)?.data;
   const cachedUsage = readSalesSnapshot<UsageOverview>(usageKey)?.data;
   const cachedBalance = readSalesSnapshot<Balance>(balanceKey)?.data;
-  const currentSalesValue = sales.key === salesKey && sales.savedAt !== null && isSalesSnapshotUsable(sales.savedAt) ? sales.data : cachedSales ?? null;
-  const currentUsageValue = usage.key === usageKey && usage.savedAt !== null && isSalesSnapshotUsable(usage.savedAt) ? usage.data : cachedUsage ?? null;
+  const currentSalesValue = sales.key === salesKey && sales.savedAt !== null ? sales.data : cachedSales ?? null;
+  const currentUsageValue = usage.key === usageKey && usage.savedAt !== null ? usage.data : cachedUsage ?? null;
   const currentSales = currentSalesValue?.period.kind === period && currentSalesValue.period.anchorDate === date ? currentSalesValue : null;
   const currentUsage = currentUsageValue?.period.kind === period && currentUsageValue.period.anchorDate === date ? currentUsageValue : null;
-  const currentBalance = balance.key === balanceKey && balance.savedAt !== null && isSalesSnapshotUsable(balance.savedAt) ? balance.data : cachedBalance ?? null;
+  const currentBalance = balance.key === balanceKey && balance.savedAt !== null ? balance.data : cachedBalance ?? null;
   const salesChartTitle = glassy && period === 'year' ? 'Продажи по месяцам' : 'Продажи по дням';
   const chartAnimationKey = salesKey;
   return <div className={styles.root}>

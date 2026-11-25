@@ -18,7 +18,7 @@ beforeEach(() => {
   api.usage.mockRejectedValue(new Error('offline'));
   api.balance.mockResolvedValue({status:'available',checkedAt:'2026-11-01T00:00:00Z',isAvailable:true,balances:[{currency:'USD',totalBalance:'0',grantedBalance:'0',toppedUpBalance:'0'}]});
 });
-afterEach(() => document.documentElement.removeAttribute(uiThemeAttribute));
+afterEach(() => { document.documentElement.removeAttribute(uiThemeAttribute); vi.useRealTimers(); });
 it('keeps sales and zero balance visible when usage fails and switches period', async () => {
   render(<Dashboard />);
   expect(await screen.findByText(/За этот период продаж нет/)).toBeInTheDocument();
@@ -33,6 +33,16 @@ it('shows the same-scope snapshot immediately after returning to the overview', 
   first.unmount();
 
   render(<Dashboard />);
+  expect(screen.getByText(/За этот период продаж нет/)).toBeVisible();
+});
+it('keeps active sales visible after cache TTL when an unrelated control rerenders the page', async () => {
+  vi.useFakeTimers({toFake:['Date']});
+  render(<Dashboard />);
+  expect(await screen.findByText(/За этот период продаж нет/)).toBeVisible();
+  vi.setSystemTime(Date.now() + 6 * 60_000);
+
+  await userEvent.click(screen.getByRole('button',{name:'Выбрать дату'}));
+
   expect(screen.getByText(/За этот период продаж нет/)).toBeVisible();
 });
 it('drops a warm overview snapshot when the refreshed request is forbidden', async () => {

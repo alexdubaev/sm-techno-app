@@ -178,10 +178,9 @@ function CabinetLoader({
   const key = `${scope}:manager:${managerId ?? 'self'}:${month}`;
   const [initialSnapshot] = useState(() => readSalesSnapshot<ManagerDashboard>(key));
   const [data, setDataState] = useState<ManagerDashboard | null>(() => initialSnapshot?.data ?? null);
-  const [dataSavedAt, setDataSavedAt] = useState<number | null>(() => initialSnapshot?.savedAt ?? null);
   const dataRef = useRef(data);
-  const dataSavedAtRef = useRef(dataSavedAt);
-  const setData = (next: ManagerDashboard | null, savedAt: number | null = next ? Date.now() : null) => { dataRef.current = next; dataSavedAtRef.current = savedAt; setDataState(next); setDataSavedAt(savedAt); };
+  const dataSavedAtRef = useRef<number | null>(initialSnapshot?.savedAt ?? null);
+  const setData = (next: ManagerDashboard | null, savedAt: number | null = next ? Date.now() : null) => { dataRef.current = next; dataSavedAtRef.current = savedAt; setDataState(next); };
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true;
@@ -211,7 +210,7 @@ function CabinetLoader({
         </button>
       </section>
     );
-  const visibleData = dataSavedAt !== null && isSalesSnapshotUsable(dataSavedAt) ? data : null;
+  const visibleData = data;
   if (!visibleData)
     return <output className={`${styles.panel} app-surface`}>Загрузка кабинета…</output>;
   return <Cabinet data={visibleData} admin={admin} onRefresh={onRefresh} />;
