@@ -1528,9 +1528,9 @@ function WorkWithPriceAdminPage() {
                         type="button"
                         disabled={isBusy || !editFormValidation.ok}
                         onClick={handleSaveItem}
-                        className="app-action-button app-action-button--sm"
+                        className="app-action-button app-action-button--sm app-action-button--wrap"
                       >
-                        <SaveIcon className="h-3.5 w-3.5 stroke-[2]" />
+                        <SaveIcon className="h-3.5 w-3.5 shrink-0 stroke-[2]" />
                         Сохранить цену и данные
                       </button>
                       <button

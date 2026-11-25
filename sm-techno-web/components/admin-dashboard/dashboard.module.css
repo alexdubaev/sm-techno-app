@@ -17,6 +17,12 @@
 }
 @media(min-width:390px) and (max-width:700px){.uploadLabel{display:inline;font-size:0}.uploadLabel:after{content:'Выписка';font-size:12px}}
 
+@media (max-width: 360px) {
+  .tabs { grid-column: 1 / -1; }
+  .controls .dates { grid-area: 2 / 2; }
+  .periodInfo { grid-area: 2 / 1; align-self: center; }
+}
+
 :global(html[data-ui-theme='glassy']) .root {
   max-width: none;
   padding: 22px 0 0;
