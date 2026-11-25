@@ -1,6 +1,6 @@
 'use client';
 import dynamic from 'next/dynamic';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -10,7 +10,8 @@ import {
   History,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
-import { fetchManagerDashboard, fetchManagers } from '@/lib/api';
+import { fetchCachedManagerDashboard, fetchCachedManagers, fetchManagerDashboard, getApiCacheGeneration, subscribeApiCacheInvalidation } from '@/lib/api';
+import { clearSalesSnapshot, isSalesSnapshotUsable, readManagerSelection, readSalesSnapshot, writeManagerSelection, writeSalesSnapshot } from '@/lib/sales-memory';
 import type {
   ManagerChoice,
   ManagerDashboard,
@@ -30,20 +31,32 @@ export function ManagerWorkspace({ initialManagerId, initialMonth }: {
   initialManagerId?: number; initialMonth?: string;
 } = {}) {
   const { user, isAdmin } = useAuth();
+  const scope = `${user.id}:${user.role}`;
+  const [rememberedSelection] = useState(() => readManagerSelection(scope));
   const [month, setMonth] = useState(() =>
-    initialMonth ?? new Date()
+    initialMonth ?? rememberedSelection?.month ?? new Date()
       .toLocaleDateString('sv-SE', { timeZone: 'Europe/Moscow' })
       .slice(0, 7),
   );
-  const [managerId, setManagerId] = useState<number | undefined>(initialManagerId);
+  const [managerId, setManagerId] = useState<number | undefined>(initialManagerId ?? rememberedSelection?.managerId);
   const [managers, setManagers] = useState<ManagerChoice[]>([]);
   const [managerError, setManagerError] = useState('');
   const [managerRetry, setManagerRetry] = useState(0);
   const [revision, setRevision] = useState(0);
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const refreshDashboard = useCallback(() => setRevision((value) => value + 1), []);
+  useEffect(() => subscribeApiCacheInvalidation(reason => {
+    if (reason === 'session') {
+      setSessionRevision(value => value + 1);
+      setMonth(initialMonth ?? new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Moscow'}).slice(0,7));
+      setManagerId(initialManagerId);
+    }
+  }), [initialMonth,initialManagerId]);
+  useEffect(() => writeManagerSelection(scope,{month,managerId}),[scope,month,managerId]);
   useEffect(() => {
     if (!isAdmin) return;
     let active = true;
-    fetchManagers()
+    fetchCachedManagers()
       .then((items) => {
         if (active) setManagers(items);
       })
@@ -136,11 +149,13 @@ export function ManagerWorkspace({ initialManagerId, initialMonth }: {
         </fieldset>
       </header>
       <CabinetLoader
-        key={`${user.id}:${managerId ?? 'self'}:${month}:${revision}`}
+        key={`${sessionRevision}:${scope}:${managerId ?? 'self'}:${month}`}
         month={month}
         managerId={isAdmin ? managerId : undefined}
         admin={isAdmin}
-        onRefresh={() => setRevision((r) => r + 1)}
+        onRefresh={refreshDashboard}
+        reloadKey={revision}
+        scope={scope}
       />
     </div>
   );
@@ -150,27 +165,43 @@ function CabinetLoader({
   managerId,
   admin,
   onRefresh,
+  reloadKey,
+  scope,
 }: {
   month: string;
   managerId?: number;
   admin: boolean;
   onRefresh: () => void;
+  reloadKey: number;
+  scope: string;
 }) {
-  const [data, setData] = useState<ManagerDashboard | null>(null);
+  const key = `${scope}:manager:${managerId ?? 'self'}:${month}`;
+  const [initialSnapshot] = useState(() => readSalesSnapshot<ManagerDashboard>(key));
+  const [data, setDataState] = useState<ManagerDashboard | null>(() => initialSnapshot?.data ?? null);
+  const [dataSavedAt, setDataSavedAt] = useState<number | null>(() => initialSnapshot?.savedAt ?? null);
+  const dataRef = useRef(data);
+  const dataSavedAtRef = useRef(dataSavedAt);
+  const setData = (next: ManagerDashboard | null, savedAt: number | null = next ? Date.now() : null) => { dataRef.current = next; dataSavedAtRef.current = savedAt; setDataState(next); setDataSavedAt(savedAt); };
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true;
-    fetchManagerDashboard(month, managerId)
+    const generation = getApiCacheGeneration();
+    const refreshTimer = window.setTimeout(() => onRefresh(), 30_000);
+    fetchCachedManagerDashboard(month, managerId)
       .then((result) => {
-        if (active) setData(result);
+        if (active && generation === getApiCacheGeneration()) { writeSalesSnapshot(key,result,generation); setData(result,Date.now()); setError(''); }
       })
       .catch((e) => {
-        if (active) setError(errorMessage(e));
+        if (active) {
+          if (e?.status === 401 || e?.status === 403) { clearSalesSnapshot(key); setData(null); setError(errorMessage(e)); }
+          else if (!dataRef.current || dataSavedAtRef.current === null || !isSalesSnapshotUsable(dataSavedAtRef.current)) setError(errorMessage(e));
+        }
       });
     return () => {
       active = false;
+      window.clearTimeout(refreshTimer);
     };
-  }, [month, managerId]);
+  }, [month, managerId, reloadKey, key, onRefresh]);
   if (error)
     return (
       <section className={`${styles.panel} app-surface`}>
@@ -182,9 +213,10 @@ function CabinetLoader({
         </button>
       </section>
     );
-  if (!data)
+  const visibleData = dataSavedAt !== null && isSalesSnapshotUsable(dataSavedAt) ? data : null;
+  if (!visibleData)
     return <output className={`${styles.panel} app-surface`}>Загрузка кабинета…</output>;
-  return <Cabinet data={data} admin={admin} onRefresh={onRefresh} />;
+  return <Cabinet data={visibleData} admin={admin} onRefresh={onRefresh} />;
 }
 function Cabinet({
   data,

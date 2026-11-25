@@ -36,7 +36,9 @@ vi.mock('next/dynamic', () => ({
 vi.mock('@/lib/api', async (original) => ({
   ...(await original<typeof import('@/lib/api')>()),
   fetchManagerDashboard: mocks.dashboard,
+  fetchCachedManagerDashboard: mocks.dashboard,
   fetchManagers: mocks.managers,
+  fetchCachedManagers: mocks.managers,
   fetchBankAccounts: mocks.accounts,
   fetchBankUploads: mocks.uploads,
   refreshBankUpload: mocks.refresh,

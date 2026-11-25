@@ -1,18 +1,24 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { CompanySales } from '@/components/admin-dashboard/company-sales';
 
 const api = vi.hoisted(() => ({
   list: vi.fn(), detail: vi.fn(), preview: vi.fn(), save: vi.fn(), managers: vi.fn(), searchClients: vi.fn(),
+  listeners:new Set<(reason:'data'|'session')=>void>(),
 }));
+vi.mock('@/components/auth-provider', () => ({useAuth:()=>({user:{id:1,role:'admin'},isAdmin:true})}));
 vi.mock('@/lib/api', () => ({
   fetchCompanySales: api.list,
   fetchCompanySale: api.detail,
   previewCompanySaleManager: api.preview,
   assignCompanySaleManager: api.save,
   fetchManagers: api.managers,
+  fetchCachedManagers: api.managers,
   searchBankClients: api.searchClients,
+  getApiCacheGeneration:()=>0,
+  subscribeApiCacheInvalidation:(listener:(reason:'data'|'session')=>void)=>{api.listeners.add(listener);return ()=>{api.listeners.delete(listener);};},
+  invalidateApiCache:(reason:'data'|'session'='session')=>api.listeners.forEach(listener=>listener(reason)),
 }));
 
 const sale = {
@@ -37,6 +43,7 @@ beforeEach(() => {
   api.managers.mockResolvedValue([{ id: 9, userId: 42, name: 'Менеджер Тест', active: true, archived: false }]);
   api.searchClients.mockResolvedValue({ items: [{ id: 21, name: 'ООО CRM', inn: '1234567890', kpp: '123456789' }] });
 });
+afterEach(() => api.listeners.forEach(listener=>listener('session')));
 
 it('lists paged sales, previews assignment and saves once without asking for a reason', async () => {
   const user = userEvent.setup();

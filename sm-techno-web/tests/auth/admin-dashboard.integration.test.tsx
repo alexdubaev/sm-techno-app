@@ -4,9 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Dashboard } from '@/components/admin-dashboard/dashboard';
 import { uiThemeAttribute } from '@/lib/ui-theme';
 
-const api = vi.hoisted(() => ({sales: vi.fn(), usage: vi.fn(), balance: vi.fn(), companySales: vi.fn(), managers: vi.fn(), admin: true}));
+const api = vi.hoisted(() => ({sales: vi.fn(), usage: vi.fn(), balance: vi.fn(), companySales: vi.fn(), managers: vi.fn(), admin: true, listeners:new Set<(reason:'data'|'session')=>void>()}));
 vi.mock('@/components/auth-provider', () => ({useAuth: () => ({isAdmin:api.admin,user:{id:1}})}));
-vi.mock('@/lib/api', () => ({fetchAdminSales:api.sales,fetchAdminUsage:api.usage,fetchAdminBalance:api.balance,fetchCompanySales:api.companySales,fetchManagers:api.managers,invalidateApiCache:vi.fn()}));
+vi.mock('@/lib/api', () => ({fetchAdminSales:api.sales,fetchAdminUsage:api.usage,fetchAdminBalance:api.balance,fetchCompanySales:api.companySales,fetchManagers:api.managers,fetchCachedManagers:api.managers,invalidateApiCache:(reason:'data'|'session'='session')=>api.listeners.forEach(listener=>listener(reason)),getApiCacheGeneration:()=>0,subscribeApiCacheInvalidation:(listener:(reason:'data'|'session')=>void)=>{api.listeners.add(listener);return ()=>{api.listeners.delete(listener);};}}));
 vi.mock('recharts', () => ({Bar:()=>null,BarChart:()=>null,CartesianGrid:()=>null,ResponsiveContainer:()=>null,Tooltip:()=>null,XAxis:()=>null,YAxis:()=>null}));
 
 beforeEach(() => {
@@ -26,6 +26,25 @@ it('keeps sales and zero balance visible when usage fails and switches period', 
   expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось загрузить');
   await userEvent.click(screen.getByRole('button',{name:'Год'}));
   await waitFor(() => expect(api.sales).toHaveBeenLastCalledWith('year', expect.any(String)));
+});
+it('shows the same-scope snapshot immediately after returning to the overview', async () => {
+  const first = render(<Dashboard />);
+  expect(await screen.findByText(/За этот период продаж нет/)).toBeVisible();
+  first.unmount();
+
+  render(<Dashboard />);
+  expect(screen.getByText(/За этот период продаж нет/)).toBeVisible();
+});
+it('drops a warm overview snapshot when the refreshed request is forbidden', async () => {
+  const first = render(<Dashboard />);
+  expect(await screen.findByText(/За этот период продаж нет/)).toBeVisible();
+  first.unmount();
+  api.sales.mockRejectedValueOnce({status:403,message:'forbidden'});
+
+  render(<Dashboard />);
+  expect(screen.getByText(/За этот период продаж нет/)).toBeVisible();
+  await waitFor(() => expect(screen.queryByText(/За этот период продаж нет/)).not.toBeInTheDocument());
+  expect(screen.queryByText(/продаж за период/)).not.toBeInTheDocument();
 });
 it('does not load admin data for an ordinary user', () => {
   api.admin = false;

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ManagerWorkspace } from '@/components/manager/manager-workspace';
 const mocks = vi.hoisted(() => ({
   dashboard: vi.fn(),
@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   preview: vi.fn(),
   change: vi.fn(),
   admin: false,
+  listeners:new Set<(reason:'data'|'session')=>void>(),
 }));
 vi.mock('@/components/auth-provider', () => ({
   useAuth: () => ({ user: { id: 1 }, isAdmin: mocks.admin }),
@@ -16,10 +17,16 @@ vi.mock('next/dynamic', () => ({
 }));
 vi.mock('@/lib/api', () => ({
   fetchManagerDashboard: mocks.dashboard,
+  fetchCachedManagerDashboard: mocks.dashboard,
   fetchManagers: mocks.managers,
+  fetchCachedManagers: mocks.managers,
+  getApiCacheGeneration:()=>0,
+  subscribeApiCacheInvalidation:(listener:(reason:'data'|'session')=>void)=>{mocks.listeners.add(listener);return ()=>{mocks.listeners.delete(listener);};},
+  invalidateApiCache:(reason:'data'|'session'='session')=>mocks.listeners.forEach(listener=>listener(reason)),
   previewManagerChange: mocks.preview,
   saveManagerChange: mocks.change,
 }));
+afterEach(() => mocks.listeners.forEach(listener=>listener('session')));
 const data = {
   account: {
     id: 1,
