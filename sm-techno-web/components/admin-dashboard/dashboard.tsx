@@ -123,8 +123,8 @@ export function Dashboard() {
       {glassy && currentSales && <>
         {currentSales.totals.count > 0 && (
           <div className={styles.glassySalesLayout}>
-            <SalesTrend key={chartAnimationKey} animationKey={chartAnimationKey} sales={currentSales} title={salesChartTitle} glassy />
-            <GlassySalesBreakdown key={chartAnimationKey} sales={currentSales} money={money} animationKey={chartAnimationKey} />
+            <SalesTrend key={`trend:${chartAnimationKey}`} animationKey={chartAnimationKey} sales={currentSales} title={salesChartTitle} glassy />
+            <GlassySalesBreakdown key={`breakdown:${chartAnimationKey}`} sales={currentSales} money={money} animationKey={chartAnimationKey} />
           </div>
         )}
         {currentSales.managers.length > 0 && (
