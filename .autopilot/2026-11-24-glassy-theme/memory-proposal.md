@@ -23,3 +23,8 @@
 
 - Срез изменений после последней сборки — `git log --oneline "$(git log -1 --format=%h --grep='^Autopilot: сборка сдана')"..HEAD -- . ':(exclude).autopilot'`.
 - Если коммит относится к требованию манифеста, добавь трейлер `Requirements` с его номером. Заголовок `Autopilot: сборка сдана` относится к итоговому коммиту Autopilot.
+
+## Общие таблицы и кнопки
+
+- Используй `<Table unstyled>` из `sm-techno-web/components/ui/table.tsx`, если экран уже управляет прокруткой или измеряет её контейнер. Компонент передаёт нативные свойства и `data-slot="table"`; колонки и их ширины задаёт экран. Выбранные строки оформляются по `aria-selected="true"` или `data-state="selected"`.
+- В `sm-techno-web/app/glassy.css` радиус контролов задаёт `--app-control-radius` (12 px). Для варианта действия используй `Button.variant`, модификаторы `.app-action-button` или `data-app-action` со значением `primary`, `secondary` либо `danger`. Нативный однострочный список использует CSS-стрелку; `NativeSelect` использует слот `native-select-icon`. В режиме системных цветов отображается штатная стрелка.
