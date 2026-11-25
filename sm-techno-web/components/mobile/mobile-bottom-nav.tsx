@@ -76,6 +76,7 @@ function PrimaryLink({
       aria-current={active ? 'page' : undefined}
       className={navItemClass(active)}
       href={item.href}
+      prefetch={item.href === '/stock'}
     >
       <span className={navIconClass()}>
         <Image

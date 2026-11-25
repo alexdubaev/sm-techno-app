@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -74,7 +74,11 @@ describe('SettingsLanding', () => {
       />,
     );
 
-    await user.click(screen.getByRole('link', { name: /Пользователи/ }));
+    const usersLink = screen.getByRole('link', { name: /Пользователи/ });
+    fireEvent.click(usersLink, { ctrlKey: true });
+    expect(onUsersNavigate).not.toHaveBeenCalled();
+
+    await user.click(usersLink);
     await user.click(screen.getByRole('link', { name: /Интеграция с 1С/ }));
 
     expect(onUsersNavigate).toHaveBeenCalledOnce();
@@ -98,8 +102,9 @@ describe('SettingsLanding', () => {
 
 describe('shared Settings chrome', () => {
   it('gives nested settings screens a labelled header and back navigation', () => {
+    const onBack = vi.fn();
     render(
-      <SettingsShell backHref="/settings" title="Пользователи">
+      <SettingsShell backHref="/settings" onBack={onBack} title="Пользователи">
         <p>Содержимое</p>
       </SettingsShell>,
     );
@@ -107,9 +112,12 @@ describe('shared Settings chrome', () => {
     expect(
       screen.getByRole('heading', { name: 'Пользователи' }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: 'Вернуться в настройки' }),
-    ).toHaveAttribute('href', '/settings');
+    const backLink = screen.getByRole('link', { name: 'Вернуться в настройки' });
+    expect(backLink).toHaveAttribute('href', '/settings');
+    fireEvent.click(backLink, { metaKey: true });
+    expect(onBack).not.toHaveBeenCalled();
+    fireEvent.click(backLink);
+    expect(onBack).toHaveBeenCalledOnce();
     expect(screen.getByText('Содержимое')).toBeInTheDocument();
   });
 
